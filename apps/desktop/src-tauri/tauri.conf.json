@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "zsh ../../scripts/bundle-core.sh && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -35,6 +35,7 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
+    "resources": { "resources/core": "core" },
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "Friday Dev"

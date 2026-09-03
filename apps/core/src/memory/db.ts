@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+
+// esbuild 不认识 node:sqlite，会把 node: 前缀剥掉导致运行时找不到包，改为运行时 require。
+const { DatabaseSync: Database } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 import { config } from "../config.js";
 import { MARKDOWN_TEMPLATES, SCHEMA } from "./schema.js";
 
@@ -13,7 +17,7 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
     const file = join(dir, name);
     if (!existsSync(file)) writeFileSync(file, content);
   }
-  instance = new DatabaseSync(join(dir, "todos.db"));
+  instance = new Database(join(dir, "todos.db"));
   instance.exec("PRAGMA journal_mode = WAL");
   instance.exec(SCHEMA);
   return instance;
