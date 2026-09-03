@@ -23,9 +23,10 @@ export async function findClaude(): Promise<string> {
   return path;
 }
 
-// 用绝对路径而不是 `claude`，避开用户 .zshrc 里可能带 --dangerously-skip-permissions 的别名。
+// Friday 只是透传用户自己的指令，所以和用户平时一样跳过权限确认；用绝对路径是因为脚本里别名不生效。
 export function buildScript(req: LaunchRequest, claudePath: string): string {
-  const claude = req.task ? `${shellQuote(claudePath)} ${shellQuote(req.task)}` : shellQuote(claudePath);
+  const base = `${shellQuote(claudePath)} --dangerously-skip-permissions`;
+  const claude = req.task ? `${base} ${shellQuote(req.task)}` : base;
   return [
     "#!/bin/zsh",
     `cd ${shellQuote(req.dir)} || exit 1`,

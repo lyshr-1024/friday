@@ -50,7 +50,7 @@ apps/core/src/
 - 直接输入 → `POST /ask`（SSE 流式）。
 - `记 …` 或 `/note …` → `POST /note`。
 - 空输入回车、`/today`、`今天` → `GET /today`。
-- `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，生成 `<dataDir>/runs/<id>.sh`，`open -na Ghostty --args --working-directory=… -e 脚本`。脚本用 `whence -p claude` 拿到的绝对路径，避开用户 `.zshrc` 里 `--dangerously-skip-permissions` 的别名；Claude 退出后留一个交互 shell。
+- `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，生成 `<dataDir>/runs/<id>.sh`，`open -na Ghostty --args --working-directory=… -e 脚本`。脚本用 `whence -p claude` 拿到的绝对路径并显式加 `--dangerously-skip-permissions`（Friday 只是透传用户指令，权限策略与用户平时用 claude 一致）；Claude 退出后留一个交互 shell。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
 - 呼出热键默认 `⌘⇧Space`（`⌥Space` 被 Raycast 占用，`⌃Space` 被输入法占用），可在记忆库目录 `settings.json` 里写 `{"hotkey": "..."}` 覆盖。
 
