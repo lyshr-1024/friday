@@ -9,3 +9,8 @@ serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => process.exit(0));
 }
+
+// 壳被 SIGKILL 或 tauri dev 被 Ctrl+C 时不会走正常退出路径，靠这里避免留下孤儿进程。
+setInterval(() => {
+  if (process.ppid === 1) process.exit(0);
+}, 2000).unref();
