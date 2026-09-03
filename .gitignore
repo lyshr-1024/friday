@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+
+# 凭证与本地数据：绝不入库
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.p12
+*.cer
+*.pem
+
+# 系统与编辑器
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

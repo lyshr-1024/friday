@@ -1,0 +1,17 @@
+{
+  "name": "friday",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.32.1",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "dev": "pnpm --filter @friday/desktop tauri dev",
+    "dev:core": "pnpm --filter @friday/core dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
