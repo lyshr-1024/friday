@@ -20,7 +20,7 @@ extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CNF
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -config "$TMP/ext.cnf"
-openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/friday.p12" -passout pass:friday -legacy
+openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/friday.p12" -passout pass:friday
 security import "$TMP/friday.p12" -k ~/Library/Keychains/login.keychain-db -P friday -T /usr/bin/codesign -T /usr/bin/security
 security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db "$TMP/cert.pem"
 rm -rf "$TMP"
