@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { coreBaseUrl, health } from "../lib/core";
+import type { SettingsResponse } from "@friday/shared";
+import { coreBaseUrl, health, settings } from "../lib/core";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [core, setCore] = useState<{ url: string; version?: string; ok: boolean } | null>(null);
   const [hotkey, setHotkey] = useState("");
+  const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
     void invoke<string>("current_hotkey").then(setHotkey);
+    void settings().then(setPrefs).catch(() => setPrefs(null));
     void (async () => {
       const url = await coreBaseUrl();
       try {
@@ -47,6 +50,12 @@ export function Settings() {
         </Row>
         <Row label="呼出热键" hint="改 ~/Library/Application Support/Friday/settings.json 的 hotkey 后重启生效">
           <kbd>{formatHotkey(hotkey)}</kbd>
+        </Row>
+        <Row label="跑 Claude 用的终端" hint="settings.json 的 terminal：ghostty 或 terminal">
+          <span className="mono">{prefs ? (prefs.terminal === "ghostty" ? "Ghostty" : "Terminal") : "…"}</span>
+        </Row>
+        <Row label="已登记项目" hint="编辑记忆库里的 projects.md">
+          <span className="mono">{prefs ? (prefs.projects.length ? prefs.projects.join("、") : "无") : "…"}</span>
         </Row>
         </div>
       </section>

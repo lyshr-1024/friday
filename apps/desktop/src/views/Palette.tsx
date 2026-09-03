@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Todo } from "@friday/shared";
-import { ask, health, isTodayCommand, note, parseNote, today } from "../lib/core";
+import { ask, health, isTodayCommand, note, parseNote, parseRun, run, today } from "../lib/core";
 
 type Status = { state: "checking" } | { state: "ok"; ms: number; version: string } | { state: "down" };
 
@@ -59,6 +59,8 @@ export function Palette() {
     if (isTodayCommand(text)) return submitToday();
     const noteText = parseNote(text);
     if (noteText) return submitNote(noteText);
+    const runReq = parseRun(text);
+    if (runReq) return submitRun(runReq);
 
     const ctrl = begin();
     try {
@@ -83,6 +85,25 @@ export function Palette() {
       const errs = Object.entries(res.sourceErrors);
       if (errs.length) setError(errs.map(([s, m]) => `${s}：${m}`).join("\n"));
       setPrompt("");
+    } catch (e) {
+      setAnswer("");
+      fail(e, ctrl);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitRun(req: { project: string; task?: string }) {
+    const ctrl = begin();
+    setAnswer(`正在打开 ${req.project}…`);
+    try {
+      const res = await run(req);
+      if (res.status === "ambiguous") {
+        setAnswer(`「${req.project}」匹配到多个项目，请用完整名字：\n${res.candidates.map((c) => `- ${c.name}  ${c.dir}`).join("\n")}`);
+      } else {
+        setAnswer(`已在 ${res.terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}\n${res.dir}${res.task ? `\n任务：${res.task}` : ""}`);
+        setPrompt("");
+      }
     } catch (e) {
       setAnswer("");
       fail(e, ctrl);
@@ -170,6 +191,7 @@ export function Palette() {
         <span className="foot__right">
           <span><kbd>↵</kbd> 空输入看简报</span>
           <span><kbd>记</kbd> 添加待办</span>
+          <span><kbd>跑</kbd> 项目 任务</span>
           <span><kbd>esc</kbd> 关闭</span>
         </span>
       </footer>

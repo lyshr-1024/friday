@@ -1,4 +1,6 @@
 export const DEFAULT_CORE_PORT = 7788;
+export type TerminalApp = "ghostty" | "terminal";
+
 export const DEFAULT_HOTKEY = "CmdOrCtrl+Shift+Space";
 
 export interface HealthResponse {
@@ -43,4 +45,19 @@ export interface Settings {
   corePort: number;
   hotkey: string;
   autostart: boolean;
+}
+
+export interface RunRequest {
+  project: string;
+  task?: string;
+}
+
+export type RunResponse =
+  | { status: "launched"; project: string; dir: string; terminal: TerminalApp; task?: string }
+  | { status: "ambiguous"; candidates: Array<{ name: string; dir: string }> };
+
+export interface SettingsResponse {
+  terminal: TerminalApp;
+  dataDir: string;
+  projects: string[];
 }

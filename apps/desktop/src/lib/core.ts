@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HealthResponse, AskRequest, NoteRequest, TodayResponse, Todo } from "@friday/shared";
+import type { HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -75,4 +75,31 @@ export async function today(signal: AbortSignal): Promise<TodayResponse> {
 
 export function isTodayCommand(input: string): boolean {
   return input === "" || /^(\/today|今天|今日)$/.test(input);
+}
+
+export async function run(body: RunRequest): Promise<RunResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function settings(): Promise<SettingsResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/settings`);
+  if (!res.ok) throw new Error(`settings ${res.status}`);
+  return res.json();
+}
+
+const RUN_PREFIX = /^(?:\/run|跑)\s+/;
+
+export function parseRun(input: string): RunRequest | null {
+  const m = RUN_PREFIX.exec(input);
+  if (!m) return null;
+  const rest = input.slice(m[0].length).trim();
+  if (!rest) return null;
+  const [project, ...task] = rest.split(/\s+/);
+  return { project: project!, ...(task.length ? { task: task.join(" ") } : {}) };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "./db.js";
 
-export function startSession(kind: "ask" | "today", prompt: string): string {
+export function startSession(kind: "ask" | "today" | "run", prompt: string): string {
   const id = randomUUID();
   db()
     .prepare("INSERT INTO sessions (id, kind, prompt, started_at) VALUES (?, ?, ?, ?)")
