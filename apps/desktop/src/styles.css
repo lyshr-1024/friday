@@ -117,10 +117,10 @@ kbd {
   margin: 0;
   padding: 0;
   color: var(--label);
-  font: 400 19px/1.35 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  font: 400 17px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
   letter-spacing: 0;
   caret-color: var(--accent);
-  -webkit-font-smoothing: auto;
+  -webkit-font-smoothing: antialiased;
   user-select: text;
 }
 .palette__input::placeholder {
