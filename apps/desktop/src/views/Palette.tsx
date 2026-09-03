@@ -117,20 +117,16 @@ export function Palette() {
 
   // Spotlight 式：空闲只留一条搜索栏，有内容再展开。
   useEffect(() => {
-    void getCurrentWindow().setSize(new LogicalSize(680, hasOutput ? 460 : 60));
+    void getCurrentWindow().setSize(new LogicalSize(680, hasOutput ? 460 : 56));
   }, [hasOutput]);
 
   return (
     <div className="palette" onKeyDown={onKeyDown}>
       <div className="palette__bar">
-        <svg className="palette__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder="问 Friday…"
+          placeholder="问点什么，或「记 」添加待办…"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
