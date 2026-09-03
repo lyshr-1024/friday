@@ -50,6 +50,7 @@ apps/core/src/
 - `记 …` 或 `/note …` → `POST /note`。
 - 空输入回车、`/today`、`今天` → `GET /today`。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
+- 呼出热键默认 `⌘⇧Space`（`⌥Space` 被 Raycast 占用，`⌃Space` 被输入法占用），可在记忆库目录 `settings.json` 里写 `{"hotkey": "..."}` 覆盖。
 
 ## 开发命令
 

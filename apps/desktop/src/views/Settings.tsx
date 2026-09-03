@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { DEFAULT_HOTKEY } from "@friday/shared";
 import { coreBaseUrl, health } from "../lib/core";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [core, setCore] = useState<{ url: string; version?: string; ok: boolean } | null>(null);
+  const [hotkey, setHotkey] = useState("");
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
+    void invoke<string>("current_hotkey").then(setHotkey);
     void (async () => {
       const url = await coreBaseUrl();
       try {
@@ -44,8 +46,8 @@ export function Settings() {
             onClick={toggleAutostart}
           />
         </Row>
-        <Row label="呼出热键" hint="下一版支持自定义">
-          <kbd>{DEFAULT_HOTKEY.replace("Alt", "⌥")}</kbd>
+        <Row label="呼出热键" hint="改 ~/Library/Application Support/Friday/settings.json 的 hotkey 后重启生效">
+          <kbd>{formatHotkey(hotkey)}</kbd>
         </Row>
       </section>
 
@@ -85,4 +87,13 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
       <div className="row__ctl">{children}</div>
     </div>
   );
+}
+
+function formatHotkey(k: string): string {
+  return k
+    .replace(/CmdOrCtrl|Super|Command/g, "⌘")
+    .replace(/Shift/g, "⇧")
+    .replace(/Alt|Option/g, "⌥")
+    .replace(/Control|Ctrl/g, "⌃")
+    .replace(/\+/g, " ");
 }

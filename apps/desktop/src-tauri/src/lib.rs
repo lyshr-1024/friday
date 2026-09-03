@@ -1,4 +1,5 @@
 mod env_path;
+mod settings;
 mod sidecar;
 mod tray;
 mod window;
@@ -7,11 +8,14 @@ use tauri::{ActivationPolicy, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-const HOTKEY: &str = "Alt+Space";
-
 #[tauri::command]
 fn core_base_url() -> String {
     format!("http://127.0.0.1:{}", sidecar::port())
+}
+
+#[tauri::command]
+fn current_hotkey() -> String {
+    settings::hotkey()
 }
 
 #[tauri::command]
@@ -39,11 +43,14 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![core_base_url, hide_main, open_settings])
+        .invoke_handler(tauri::generate_handler![core_base_url, current_hotkey, hide_main, open_settings])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
-            tray::build(app.handle())?;
-            app.global_shortcut().register(HOTKEY)?;
+            let hotkey = settings::hotkey();
+            tray::build(app.handle(), &hotkey)?;
+            if let Err(e) = app.global_shortcut().register(hotkey.as_str()) {
+                eprintln!("[friday] 注册热键 {hotkey} 失败：{e}");
+            }
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
             Ok(())
         })

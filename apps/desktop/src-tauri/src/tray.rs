@@ -4,8 +4,8 @@ use tauri::AppHandle;
 
 use crate::window;
 
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "打开 Friday", true, Some("Alt+Space"))?;
+pub fn build(app: &AppHandle, hotkey: &str) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "打开 Friday", true, Some(hotkey))?;
     let settings = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Friday", true, Some("Cmd+Q"))?;
     let menu = Menu::with_items(app, &[&open, &settings, &PredefinedMenuItem::separator(app)?, &quit])?;

@@ -1,5 +1,5 @@
 export const DEFAULT_CORE_PORT = 7788;
-export const DEFAULT_HOTKEY = "Alt+Space";
+export const DEFAULT_HOTKEY = "CmdOrCtrl+Shift+Space";
 
 export interface HealthResponse {
   ok: true;
