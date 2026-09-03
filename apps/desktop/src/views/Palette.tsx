@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Todo } from "@friday/shared";
 import { ask, health, isTodayCommand, note, parseNote, today } from "../lib/core";
@@ -112,16 +113,24 @@ export function Palette() {
     if (e.key === "," && e.metaKey) void invoke("open_settings");
   }
 
-  const hasOutput = answer || error;
+  const hasOutput = Boolean(answer || error);
+
+  // Spotlight 式：空闲只留一条搜索栏，有内容再展开。
+  useEffect(() => {
+    void getCurrentWindow().setSize(new LogicalSize(680, hasOutput ? 460 : 60));
+  }, [hasOutput]);
 
   return (
     <div className="palette" onKeyDown={onKeyDown}>
       <div className="palette__bar">
-        <span className="wordmark">F.</span>
+        <svg className="palette__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder="问我点什么，「记 …」添加待办，直接回车看今日简报"
+          placeholder="问 Friday…"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
@@ -130,7 +139,8 @@ export function Palette() {
         {busy && <span className="pulse" aria-label="thinking" />}
       </div>
 
-      <div className={`palette__body ${hasOutput ? "" : "palette__body--empty"}`}>
+      {hasOutput && (
+      <div className="palette__body">
         {error && <p className="err">{error}</p>}
         {answer && <div className="answer">{answer}</div>}
         {todos.length > 0 && (
@@ -150,30 +160,24 @@ export function Palette() {
             ))}
           </ul>
         )}
-        {!hasOutput && (
-          <ul className="hints">
-            <li>
-              <kbd>↵</kbd> 提问 / 空输入看简报
-            </li>
-            <li>
-              <kbd>esc</kbd> 关闭
-            </li>
-            <li>
-              <kbd>⌘ ,</kbd> 设置
-            </li>
-          </ul>
-        )}
       </div>
+      )}
 
+      {hasOutput && (
       <footer className="palette__foot">
         <span className={`dot dot--${status.state}`} />
-        <span className="mono">
-          {status.state === "ok" && `core ${status.version} · ${status.ms}ms`}
+        <span>
+          {status.state === "ok" && `Friday ${status.version}`}
           {status.state === "down" && "core 未响应"}
-          {status.state === "checking" && "连接 core…"}
+          {status.state === "checking" && "连接中…"}
         </span>
-        <span className="mono foot__right">Friday</span>
+        <span className="foot__right">
+          <span><kbd>↵</kbd> 空输入看简报</span>
+          <span><kbd>记</kbd> 添加待办</span>
+          <span><kbd>esc</kbd> 关闭</span>
+        </span>
       </footer>
+      )}
     </div>
   );
 }

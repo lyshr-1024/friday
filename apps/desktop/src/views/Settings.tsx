@@ -31,12 +31,11 @@ export function Settings() {
 
   return (
     <div className="settings">
-      <h1 className="settings__title">
-        <span className="wordmark">F.</span> 设置
-      </h1>
+      <h1 className="settings__title">Friday 设置</h1>
 
       <section>
         <h2>通用</h2>
+        <div className="group">
         <Row label="开机自启" hint="登录后在菜单栏静默启动">
           <button
             className={`switch ${autostart ? "switch--on" : ""}`}
@@ -49,10 +48,12 @@ export function Settings() {
         <Row label="呼出热键" hint="改 ~/Library/Application Support/Friday/settings.json 的 hotkey 后重启生效">
           <kbd>{formatHotkey(hotkey)}</kbd>
         </Row>
+        </div>
       </section>
 
       <section>
         <h2>核心</h2>
+        <div className="group">
         <Row label="状态">
           <span className="mono">
             <span className={`dot dot--${core ? (core.ok ? "ok" : "down") : "checking"}`} />
@@ -62,16 +63,19 @@ export function Settings() {
         <Row label="地址">
           <span className="mono">{core?.url ?? "…"}</span>
         </Row>
+        </div>
       </section>
 
       <section>
         <h2>系统权限</h2>
+        <div className="group">
         <Row label="自动化" hint="控制其他应用。第一版不需要">
           <span className="mono muted">未申请</span>
         </Row>
         <Row label="辅助功能" hint="模拟键盘输入。第一版不需要">
           <span className="mono muted">未申请</span>
         </Row>
+        </div>
       </section>
     </div>
   );

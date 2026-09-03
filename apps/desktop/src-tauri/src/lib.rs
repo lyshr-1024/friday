@@ -52,6 +52,14 @@ pub fn run() {
                 eprintln!("[friday] 注册热键 {hotkey} 失败：{e}");
             }
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
+            if let Some(win) = app.get_webview_window("main") {
+                window_vibrancy::apply_vibrancy(
+                    &win,
+                    window_vibrancy::NSVisualEffectMaterial::Popover,
+                    Some(window_vibrancy::NSVisualEffectState::Active),
+                    Some(14.0),
+                )?;
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
