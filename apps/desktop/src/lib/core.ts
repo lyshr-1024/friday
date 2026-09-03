@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HealthResponse, AskRequest, NoteRequest, Todo } from "@friday/shared";
+import type { HealthResponse, AskRequest, NoteRequest, TodayResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -65,4 +65,14 @@ const NOTE_PREFIX = /^(?:\/note|记)\s+/;
 export function parseNote(input: string): string | null {
   const m = NOTE_PREFIX.exec(input);
   return m ? input.slice(m[0].length).trim() || null : null;
+}
+
+export async function today(signal: AbortSignal): Promise<TodayResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/today`, { signal });
+  if (!res.ok) throw new Error(`简报失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export function isTodayCommand(input: string): boolean {
+  return input === "" || /^(\/today|今天|今日)$/.test(input);
 }

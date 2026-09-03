@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ask, health, note, parseNote } from "../lib/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Todo } from "@friday/shared";
+import { ask, health, isTodayCommand, note, parseNote, today } from "../lib/core";
 
 type Status = { state: "checking" } | { state: "ok"; ms: number; version: string } | { state: "down" };
 
 export function Palette() {
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ state: "checking" });
@@ -34,39 +37,67 @@ export function Palette() {
     }
   }
 
-  async function submit() {
-    const text = prompt.trim();
-    if (!text || busy) return;
-    const noteText = parseNote(text);
-    if (noteText) return submitNote(noteText);
+  function begin() {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setBusy(true);
     setAnswer("");
+    setTodos([]);
     setError(null);
+    return ctrl;
+  }
+
+  function fail(e: unknown, ctrl: AbortController) {
+    if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+  }
+
+  async function submit() {
+    if (busy) return;
+    const text = prompt.trim();
+    if (isTodayCommand(text)) return submitToday();
+    const noteText = parseNote(text);
+    if (noteText) return submitNote(noteText);
+
+    const ctrl = begin();
     try {
       for await (const ev of ask({ prompt: text }, ctrl.signal)) {
         if (ev.type === "delta") setAnswer((a) => a + ev.text);
         if (ev.type === "error") setError(ev.message);
       }
     } catch (e) {
-      if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+      fail(e, ctrl);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitToday() {
+    const ctrl = begin();
+    setAnswer("正在汇总 Meegle 与本地待办…");
+    try {
+      const res = await today(ctrl.signal);
+      setAnswer(res.brief);
+      setTodos(res.todos);
+      const errs = Object.entries(res.sourceErrors);
+      if (errs.length) setError(errs.map(([s, m]) => `${s}：${m}`).join("\n"));
+      setPrompt("");
+    } catch (e) {
+      setAnswer("");
+      fail(e, ctrl);
     } finally {
       setBusy(false);
     }
   }
 
   async function submitNote(text: string) {
-    setBusy(true);
-    setAnswer("");
-    setError(null);
+    const ctrl = begin();
     try {
       const todo = await note({ text });
       setAnswer(`已记录：${todo.text}`);
       setPrompt("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      fail(e, ctrl);
     } finally {
       setBusy(false);
     }
@@ -90,7 +121,7 @@ export function Palette() {
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder="问我点什么，或「记 …」添加待办"
+          placeholder="问我点什么，「记 …」添加待办，直接回车看今日简报"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus
@@ -102,10 +133,27 @@ export function Palette() {
       <div className={`palette__body ${hasOutput ? "" : "palette__body--empty"}`}>
         {error && <p className="err">{error}</p>}
         {answer && <div className="answer">{answer}</div>}
+        {todos.length > 0 && (
+          <ul className="todos">
+            {todos.map((t) => (
+              <li key={t.id} className={`todo todo--${t.source}`}>
+                <span className="todo__source mono">{t.source}</span>
+                {t.sourceUrl ? (
+                  <a href={t.sourceUrl} onClick={(e) => { e.preventDefault(); void openUrl(t.sourceUrl!); }}>
+                    {t.text}
+                  </a>
+                ) : (
+                  <span>{t.text}</span>
+                )}
+                {t.due && <span className="todo__due mono">{t.due}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
         {!hasOutput && (
           <ul className="hints">
             <li>
-              <kbd>↵</kbd> 提问
+              <kbd>↵</kbd> 提问 / 空输入看简报
             </li>
             <li>
               <kbd>esc</kbd> 关闭
