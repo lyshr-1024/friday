@@ -17,7 +17,7 @@ export interface LaunchRequest {
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 export async function findClaude(): Promise<string> {
-  const { stdout } = await execFileP("/bin/zsh", ["-ilc", "command -v claude"]).catch(() => ({ stdout: "" }));
+  const { stdout } = await execFileP("/bin/zsh", ["-ilc", "whence -p claude"]).catch(() => ({ stdout: "" }));
   const path = stdout.trim().split("\n").pop() ?? "";
   if (!path.startsWith("/")) throw new Error("找不到 claude，请确认已安装 Claude Code 且在登录 shell 的 PATH 中");
   return path;

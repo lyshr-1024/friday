@@ -24,10 +24,11 @@ apps/core/src/
   agent/      Agent SDK 封装、claude 子进程、permission.ts 操作分级
 ```
 
-## 第一版范围
+## 范围
 
-只做：热键呼出浮窗、`POST /ask`、`GET /today`、`POST /note`、记忆库初始化、开机自启。
-不做：项目智能匹配、定时任务执行、自动开终端跑 Claude Code、Slack 入口、自动更新。结构预留位置即可，不要提前实现。
+第一版（已完成）：热键呼出浮窗、`POST /ask`、`GET /today`、`POST /note`、记忆库初始化、开机自启。
+第二版（已完成）：`POST /run` 在 Ghostty 打开项目目录跑交互式 Claude Code；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
+未做：项目智能匹配、定时任务执行、Slack 入口、自动更新、内嵌 node。结构预留位置即可，不要提前实现。
 
 ## macOS 坑
 
@@ -49,8 +50,25 @@ apps/core/src/
 - 直接输入 → `POST /ask`（SSE 流式）。
 - `记 …` 或 `/note …` → `POST /note`。
 - 空输入回车、`/today`、`今天` → `GET /today`。
+- `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，生成 `<dataDir>/runs/<id>.sh`，`open -na Ghostty --args --working-directory=… -e 脚本`。脚本用 `whence -p claude` 拿到的绝对路径，避开用户 `.zshrc` 里 `--dangerously-skip-permissions` 的别名；Claude 退出后留一个交互 shell。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
 - 呼出热键默认 `⌘⇧Space`（`⌥Space` 被 Raycast 占用，`⌃Space` 被输入法占用），可在记忆库目录 `settings.json` 里写 `{"hotkey": "..."}` 覆盖。
+
+## settings.json（记忆库目录下，可选）
+
+```json
+{ "hotkey": "CmdOrCtrl+Shift+Space", "terminal": "ghostty" }
+```
+
+壳只读 `hotkey`，core 只读 `terminal`（`ghostty` | `terminal`）。
+
+## 打包
+
+```
+pnpm --filter @friday/desktop tauri build      # 产物 apps/desktop/src-tauri/target/release/bundle/macos/Friday.app
+```
+
+`beforeBuildCommand` 会跑 `scripts/bundle-core.sh`：tsup 构建 core，`pnpm deploy --prod` 到 `src-tauri/resources/core`（hoisted 布局，237MB，大头是 Agent SDK 自带的 Claude Code 二进制），Tauri 打进 `Contents/Resources/core`，release 模式下壳用 `node dist/index.js` 拉起。签名身份写死 `Friday Dev`，没建证书时用 `APPLE_SIGNING_IDENTITY=- pnpm --filter @friday/desktop tauri build` 临时 ad-hoc 签。只出 `.app`，不出 DMG（bundle_dmg.sh 需要 Finder 自动化权限）。
 
 ## 开发命令
 
