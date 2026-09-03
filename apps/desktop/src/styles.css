@@ -1,5 +1,5 @@
 :root {
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   --label: rgba(0, 0, 0, 0.85);
   --label-2: rgba(0, 0, 0, 0.5);
@@ -43,6 +43,8 @@ body,
   font-size: 13px;
   color: var(--label);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern";
   user-select: none;
   cursor: default;
 }
@@ -119,9 +121,9 @@ kbd {
   outline: none;
   color: var(--label);
   font-family: var(--font);
-  font-size: 22px;
-  font-weight: 300;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.3;
   user-select: text;
 }
 .palette__input::placeholder {
@@ -144,8 +146,9 @@ kbd {
   overflow-y: auto;
   padding: 14px 20px 16px;
   border-top: 1px solid var(--separator);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.65;
+  letter-spacing: 0.005em;
   user-select: text;
 }
 
@@ -200,8 +203,9 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
-  line-height: 1.4;
+  padding: 8px 12px;
+  line-height: 1.45;
+  font-size: 12.5px;
 }
 .todo + .todo {
   border-top: 1px solid var(--separator);
@@ -226,6 +230,7 @@ kbd {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 10px;
+  font-weight: 600;
 }
 .todo--meegle .todo__source {
   color: var(--accent);
