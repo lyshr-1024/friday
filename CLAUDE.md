@@ -10,7 +10,7 @@ macOS 个人助理：常驻菜单栏，有长期记忆，聚合待办（Meegle�
 - **共享类型** `packages/shared`：前后端共用的 API 类型与常量，只放类型和常量。
 - **记忆库**：`~/Library/Application Support/Friday/`，不在项目目录。Markdown 存半结构化内容（projects/decisions/people），SQLite（`node:sqlite` 内建模块）存待办、同步状态、会话日志。仓库只提交 `memory-schema/` 里的 schema 和示例。
 - **Claude 调用**：`@anthropic-ai/claude-agent-sdk`，复用本机 `claude` 登录态，不用 API key。
-- **项目管理工具**：Meegle（飞书项目）。Slack 连接器第一版不做，只保留 `Connector` 接口位。
+- **项目管理工具**：Meegle（飞书项目），连接器直接调本机 `meegle` CLI（`mywork todo` + `workitem get`），登录态由 CLI 自己的 token store 管理，Friday 不碰凭证。Slack 连接器第一版不做，只保留 `Connector` 接口位。
 - 包管理 pnpm，HTTP 框架 hono，构建 tsup（core）/ vite（前端）。
 
 ## 目录约定
@@ -32,9 +32,9 @@ apps/core/src/
 ## macOS 坑
 
 - **PATH**：Finder / 自启拉起的 app PATH 极简。壳启动 sidecar 前先用 `zsh -ilc 'echo $PATH'` 取真实 PATH 注入子进程环境；找 `node`、`claude` 都靠它。
-- **bundle ID** 固定 `com.haoran.friday`，签名用本机自签证书。改 ID 或换签名会让 TCC 权限全部重置。
+- **bundle ID** 固定 `com.haoran.friday`，签名用本机自签证书 `Friday Dev`（首次 `scripts/make-signing-cert.sh` 生成，只影响 `tauri build`，dev 不需要）。改 ID 或换签名会让 TCC 权限全部重置。
 - **TCC**：控制其他 app 要"自动化"权限，模拟键盘要"辅助功能"权限。第一版不需要，设置页预留权限状态区。
-- **shell 插件白名单**：能执行的外部命令必须在 `src-tauri/capabilities/` 显式声明。
+- **capabilities 白名单**：WebView 能调用的插件能力必须在 `src-tauri/capabilities/` 显式声明。sidecar 由 Rust 直接 spawn，不经 shell 插件，所以不在白名单里。
 - **sidecar 生命周期**：壳退出必须杀 sidecar；sidecar 崩溃壳要重拉并发系统通知。
 
 ## 安全与隐私
@@ -43,6 +43,13 @@ apps/core/src/
 - 连接器凭证存 macOS 钥匙串，不存明文。
 - 核心 API 只监听 `127.0.0.1`。
 - 操作分级见 `apps/core/src/agent/permission.ts`：只读放行 / 可逆写记日志 / 不可逆必须确认。第一版只有类型定义。
+
+## 浮窗命令约定
+
+- 直接输入 → `POST /ask`（SSE 流式）。
+- `记 …` 或 `/note …` → `POST /note`。
+- 空输入回车、`/today`、`今天` → `GET /today`。
+- `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
 
 ## 开发命令
 
