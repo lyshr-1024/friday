@@ -1,5 +1,26 @@
+/* WebKit 的 -apple-system 在系统语言为英文时会把中文回退到华文黑体/冬青黑体。
+   这里用 unicode-range 把 CJK 强制指到苹方，拉丁字符仍走 SF。 */
+@font-face {
+  font-family: "Friday CJK";
+  font-weight: 300;
+  src: local("PingFang SC Light"), local("PingFangSC-Light");
+  unicode-range: U+2E80-9FFF, U+F900-FAFF, U+FF00-FFEF, U+3000-303F, U+2000-206F;
+}
+@font-face {
+  font-family: "Friday CJK";
+  font-weight: 400;
+  src: local("PingFang SC"), local("PingFangSC-Regular"), local("Hiragino Sans GB");
+  unicode-range: U+2E80-9FFF, U+F900-FAFF, U+FF00-FFEF, U+3000-303F, U+2000-206F;
+}
+@font-face {
+  font-family: "Friday CJK";
+  font-weight: 500 700;
+  src: local("PingFang SC Medium"), local("PingFangSC-Medium"), local("PingFang SC Semibold"), local("PingFangSC-Semibold");
+  unicode-range: U+2E80-9FFF, U+F900-FAFF, U+FF00-FFEF, U+3000-303F, U+2000-206F;
+}
+
 :root {
-  --font: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font: "Friday CJK", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   --label: rgba(0, 0, 0, 0.85);
   --label-2: rgba(0, 0, 0, 0.5);
@@ -117,7 +138,7 @@ kbd {
   margin: 0;
   padding: 0;
   color: var(--label);
-  font: 400 17px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  font: 400 17px/1.4 var(--font);
   letter-spacing: 0;
   caret-color: var(--accent);
   -webkit-font-smoothing: antialiased;
