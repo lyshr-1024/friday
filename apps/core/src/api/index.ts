@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { ask } from "./ask.js";
 import { health } from "./health.js";
+import { note } from "./note.js";
 
-export const app = new Hono().route("/", health).route("/", ask);
+export const app = new Hono().route("/", health).route("/", ask).route("/", note);

@@ -1,6 +1,10 @@
 import { serve } from "@hono/node-server";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
+import { initMemory } from "./memory/db.js";
+
+initMemory();
+console.log(`memory at ${config.dataDir}`);
 
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);

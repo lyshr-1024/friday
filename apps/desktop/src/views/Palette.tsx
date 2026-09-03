@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ask, health } from "../lib/core";
+import { ask, health, note, parseNote } from "../lib/core";
 
 type Status = { state: "checking" } | { state: "ok"; ms: number; version: string } | { state: "down" };
 
@@ -37,6 +37,8 @@ export function Palette() {
   async function submit() {
     const text = prompt.trim();
     if (!text || busy) return;
+    const noteText = parseNote(text);
+    if (noteText) return submitNote(noteText);
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -50,6 +52,21 @@ export function Palette() {
       }
     } catch (e) {
       if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitNote(text: string) {
+    setBusy(true);
+    setAnswer("");
+    setError(null);
+    try {
+      const todo = await note({ text });
+      setAnswer(`已记录：${todo.text}`);
+      setPrompt("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -73,7 +90,7 @@ export function Palette() {
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder="问我点什么，或者记一条待办"
+          placeholder="问我点什么，或「记 …」添加待办"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus

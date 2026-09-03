@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HealthResponse, AskRequest } from "@friday/shared";
+import type { HealthResponse, AskRequest, NoteRequest, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -48,4 +48,21 @@ export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerato
       if (data) yield JSON.parse(data) as AskEvent;
     }
   }
+}
+
+export async function note(body: NoteRequest): Promise<Todo> {
+  const res = await fetch(`${await coreBaseUrl()}/note`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`记录失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+const NOTE_PREFIX = /^(?:\/note|记)\s+/;
+
+export function parseNote(input: string): string | null {
+  const m = NOTE_PREFIX.exec(input);
+  return m ? input.slice(m[0].length).trim() || null : null;
 }
