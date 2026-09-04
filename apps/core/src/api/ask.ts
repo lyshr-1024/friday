@@ -4,6 +4,7 @@ import { z } from "zod";
 import { askStream } from "../agent/claude.js";
 import { friday } from "../agent/prompt.js";
 import { config } from "../config.js";
+import { loadMemoryContext } from "../memory/context.js";
 import { addMessage, claudeSessionId, conversationExists, setClaudeSessionId } from "../memory/conversations.js";
 import { finishSession, startSession } from "../memory/sessions.js";
 
@@ -26,7 +27,7 @@ export const ask = new Hono().post("/ask", async (c) => {
     let answer = "";
     let error: string | undefined;
     const events = askStream(prompt, {
-      systemPrompt: friday(),
+      systemPrompt: friday(loadMemoryContext()),
       cwd: config.dataDir,
       signal: ac.signal,
       ...(conv ? { resume: claudeSessionId(conv) } : {}),

@@ -1,16 +1,28 @@
 import type { RawItem } from "../connectors/news.js";
+import type { MemoryContext } from "../memory/context.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
-export function friday(): string {
-  return [
-    "你是 Friday，用户的私人助理，常驻在他的 Mac 菜单栏里。",
+export function friday(memory?: MemoryContext): string {
+  const sections = [
+    "你是 Friday，用户的私人助理，常驻在他的 Mac 菜单栏里。用户是前端工程师，主力 TypeScript，也读 Go / Rust 后端代码。",
     "用简体中文回答，直接给结论和要点，不要客套和复述问题。",
     "回答控制在浮窗能一眼看完的长度：短问题一两句，复杂问题不超过十行。",
     "输出纯文本，不要用 Markdown 语法（不要 **、#、```），列表用数字或短横线。",
+    "你在这个对话里没有任何工具：不能执行命令、不能读写文件、不能联网。需要这些能力时直接说做不到并建议用户在终端里做，绝不要输出命令块或假装执行了工具。",
     "不确定的事直接说不确定，不要编造。",
     `现在是 ${now()}。`,
-  ].join("\n");
+  ];
+  if (memory) {
+    const blocks = [
+      memory.projects && `【项目注册表】\n${memory.projects}`,
+      memory.todos && `【未完成待办】\n${memory.todos}`,
+      memory.decisions && `【决策记录】\n${memory.decisions}`,
+      memory.people && `【人物】\n${memory.people}`,
+    ].filter(Boolean);
+    if (blocks.length) sections.push("以下是用户的记忆库，回答涉及项目、待办、人物时以此为准：", ...blocks);
+  }
+  return sections.join("\n\n");
 }
 
 export function hotBrief(items: RawItem[]): { system: string; prompt: string } {
