@@ -107,9 +107,3 @@ export function listConversations(limit = 50): ConversationSummary[] {
   return rows.map((r) => ({ id: r.id, title: (r.title ?? "新对话").slice(0, 60), messageCount: r.count, createdAt: r.created_at, updatedAt: r.updated_at }));
 }
 
-export function latestToday(): Message | undefined {
-  const row = db()
-    .prepare("SELECT * FROM messages WHERE kind = 'today' AND role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1")
-    .get() as unknown as MsgRow | undefined;
-  return row ? toMessage(row) : undefined;
-}

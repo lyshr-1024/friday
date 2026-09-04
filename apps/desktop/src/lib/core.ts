@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, Message, HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, HealthResponse, HotResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -68,15 +68,22 @@ export function parseNote(input: string): string | null {
   return m ? input.slice(m[0].length).trim() || null : null;
 }
 
-export async function today(signal: AbortSignal, conversationId?: string): Promise<TodayResponse> {
-  const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : "";
-  const res = await fetch(`${await coreBaseUrl()}/today${qs}`, { signal });
-  if (!res.ok) throw new Error(`简报失败：core 返回 ${res.status}`);
+export async function syncTodos(signal: AbortSignal): Promise<TodosSyncResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/todos?sync=1`, { signal });
+  if (!res.ok) throw new Error(`同步待办失败：core 返回 ${res.status}`);
   return res.json();
 }
 
-export function isTodayCommand(input: string): boolean {
-  return input === "" || /^(\/today|今天|今日)$/.test(input);
+export async function hot(signal: AbortSignal, refresh = false): Promise<HotResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/hot${refresh ? "?refresh=1" : ""}`, { signal });
+  if (!res.ok) throw new Error(`热点获取失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export function commandOf(input: string): "hot" | "todos" | null {
+  if (/^(\/hot|热点)$/.test(input)) return "hot";
+  if (/^(\/todos|待办)$/.test(input)) return "todos";
+  return null;
 }
 
 export async function run(body: RunRequest): Promise<RunResponse> {
@@ -136,8 +143,3 @@ export async function conversationById(id: string): Promise<Conversation> {
   return res.json();
 }
 
-export async function latestToday(): Promise<Message | null> {
-  const res = await fetch(`${await coreBaseUrl()}/today/latest`);
-  if (!res.ok) throw new Error(`today ${res.status}`);
-  return res.json();
-}

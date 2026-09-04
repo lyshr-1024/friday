@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { addLocalTodo, listOpenTodos } from "../memory/todos.js";
+import type { TodoSource, TodosSyncResponse } from "@friday/shared";
+import { connectors } from "../connectors/index.js";
+import { addLocalTodo, listOpenTodos, syncSourceTodos } from "../memory/todos.js";
 
 const body = z.object({
   text: z.string().trim().min(1).max(2000),
@@ -21,4 +23,18 @@ export const note = new Hono()
     }
     return c.json(todo, 201);
   })
-  .get("/todos", (c) => c.json(listOpenTodos()));
+  .get("/todos", async (c) => {
+    if (c.req.query("sync") !== "1") return c.json(listOpenTodos());
+    const sourceErrors: Partial<Record<TodoSource, string>> = {};
+    await Promise.all(
+      connectors.map(async (conn) => {
+        try {
+          syncSourceTodos(conn.source as Exclude<TodoSource, "local">, await conn.fetchTodos());
+        } catch (e) {
+          sourceErrors[conn.source] = e instanceof Error ? e.message : String(e);
+        }
+      }),
+    );
+    const res: TodosSyncResponse = { syncedAt: new Date().toISOString(), todos: listOpenTodos(), sourceErrors };
+    return c.json(res);
+  });

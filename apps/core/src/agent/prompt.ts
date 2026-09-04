@@ -1,4 +1,4 @@
-import type { Todo } from "@friday/shared";
+import type { RawItem } from "../connectors/news.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
@@ -13,22 +13,15 @@ export function friday(): string {
   ].join("\n");
 }
 
-export function todayBrief(todos: Todo[], errors: Record<string, string>): { system: string; prompt: string } {
-  const lines = todos.map((t) => `- (${t.source}${t.due ? `，截止 ${t.due}` : ""}) ${t.text}`);
-  const errs = Object.entries(errors).map(([s, e]) => `- ${s}：${e}`);
+export function hotBrief(items: RawItem[]): { system: string; prompt: string } {
+  const lines = items.map((it, i) => `${i + 1}. [${it.source}] ${it.title}${it.snippet ? `\n   ${it.snippet}` : ""}`);
   return {
     system: [
-      "你是 Friday，负责给用户生成今日工作简报。用简体中文。",
-      "规则：先一句话总览（几条待办、最紧急的是什么），再按紧急程度列出要点，P0/P1 缺陷和有截止日期的排前面。",
-      "合并同类项，不要逐条复述原文，每条不超过一行。总长度不超过十二行。",
-      "输出纯文本，不要用 Markdown 语法（不要 **、#），分组用一行标题加冒号，条目用数字编号。",
-      "如果某个数据源拉取失败，最后用一行提醒。",
+      "你是 Friday，负责从一批 AI / 技术资讯里挑出今天最值得用户看的内容。用户是前端工程师，关注 AI 编程工具、大模型进展、开源模型和 Agent 生态。",
+      "从给定列表里挑最多 10 条，去掉重复主题和纯营销。每条给一个不超过 30 字的中文标题和一句不超过 60 字的中文摘要，说清楚它为什么值得看。",
+      '只输出 JSON 数组，不要任何其他文字：[{"index": 原列表序号, "title": "中文标题", "summary": "中文摘要"}]',
       `现在是 ${now()}。`,
     ].join("\n"),
-    prompt: [
-      `待办（共 ${todos.length} 条）：`,
-      lines.length ? lines.join("\n") : "（无）",
-      errs.length ? `\n拉取失败的数据源：\n${errs.join("\n")}` : "",
-    ].join("\n"),
+    prompt: lines.length ? lines.join("\n") : "（列表为空）",
   };
 }

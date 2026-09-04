@@ -6,7 +6,7 @@ import { health } from "./health.js";
 import { note } from "./note.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
-import { today } from "./today.js";
+import { hot } from "./hot.js";
 
 // 只放行 Tauri WebView 自己的源；API 虽只监听回环，但浏览器里的任意网页也能打 127.0.0.1，不能用 *。
 const ALLOWED_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "http://localhost:1420"];
@@ -16,7 +16,7 @@ export const app = new Hono()
   .route("/", health)
   .route("/", ask)
   .route("/", note)
-  .route("/", today)
+  .route("/", hot)
   .route("/", run)
   .route("/", settings)
   .route("/", conversation);

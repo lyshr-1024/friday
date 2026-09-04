@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
-import type { Message } from "@friday/shared";
-import { ask, health, isTodayCommand, newConversation, note, openTodos, parseNote, parseRun, run, today } from "../lib/core";
-import { AssistantBody } from "./shared";
+import type { HotResponse, Message, TodosSyncResponse } from "@friday/shared";
+import { ask, commandOf, health, hot, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import { AssistantBody, HotList, TodoList } from "./shared";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
+type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse };
 
 const GUIDE = [
-  { key: "today", label: "今日简报", hint: "Meegle 待办 + 本地记录" },
+  { key: "hot", label: "AI 热点", hint: "HN · HF Papers · OpenAI · Simon W · 量子位" },
+  { key: "todos", label: "待办", hint: "Meegle + 本地，秒开" },
   { key: "note", label: "记一条待办", hint: "记 买牛奶" },
   { key: "run", label: "跑项目", hint: "跑 friday 修一下登录页" },
   { key: "chat", label: "打开会话窗", hint: "多轮对话，⌘↵ 也可以" },
@@ -22,6 +24,7 @@ const RESULT_HEIGHT = 400;
 export function Palette() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState<Message | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [guideIndex, setGuideIndex] = useState(0);
@@ -32,7 +35,7 @@ export function Palette() {
   // 本次呼出期间的临时会话：追问时整段搬进会话窗继续。
   const convRef = useRef<string | null>(null);
 
-  const hasResult = Boolean(result || draft || busy);
+  const hasResult = Boolean(result || panel || draft || busy);
 
   useEffect(() => {
     void refresh();
@@ -52,6 +55,7 @@ export function Palette() {
     abortRef.current?.abort();
     setPrompt("");
     setResult(null);
+    setPanel(null);
     setDraft("");
     setBusy(false);
     convRef.current = null;
@@ -78,6 +82,7 @@ export function Palette() {
     abortRef.current = ctrl;
     setBusy(true);
     setResult(null);
+    setPanel(null);
     setDraft("");
     setPrompt("");
     return ctrl;
@@ -104,7 +109,9 @@ export function Palette() {
     if (!text && !hasResult) return runGuide(GUIDE[guideIndex]!.key);
     if (!text) return;
     if (toChat) return openChat(text);
-    if (isTodayCommand(text)) return submitToday();
+    const cmd = commandOf(text);
+    if (cmd === "hot") return submitHot();
+    if (cmd === "todos") return submitTodos();
     const noteText = parseNote(text);
     if (noteText) return submitNote(noteText);
     const runReq = parseRun(text);
@@ -115,7 +122,8 @@ export function Palette() {
   }
 
   function runGuide(key: (typeof GUIDE)[number]["key"]) {
-    if (key === "today") return void submitToday();
+    if (key === "hot") return void submitHot();
+    if (key === "todos") return void submitTodos();
     if (key === "settings") return void invoke("open_settings");
     if (key === "chat") return void openChat();
     setPrompt(key === "note" ? "记 " : "跑 ");
@@ -141,14 +149,24 @@ export function Palette() {
     }
   }
 
-  async function submitToday() {
+  async function submitHot(refresh = false) {
     const ctrl = begin();
     try {
-      const res = await today(ctrl.signal, await ensureConv());
-      const errs = Object.entries(res.sourceErrors);
-      const content = errs.length ? `${res.brief}\n\n${errs.map(([s, m]) => `${s}：${m}`).join("\n")}` : res.brief;
-      setTodoCount(res.todos.length);
-      done(ctrl, { role: "assistant", kind: "today", content, payload: res });
+      const data = await hot(ctrl.signal, refresh);
+      setPanel({ kind: "hot", data });
+      setBusy(false);
+    } catch (e) {
+      done(ctrl, undefined, e);
+    }
+  }
+
+  async function submitTodos() {
+    const ctrl = begin();
+    try {
+      const data = await syncTodos(ctrl.signal);
+      setTodoCount(data.todos.length);
+      setPanel({ kind: "todos", data });
+      setBusy(false);
     } catch (e) {
       done(ctrl, undefined, e);
     }
@@ -188,6 +206,9 @@ export function Palette() {
       void submit(e.metaKey);
     } else if (e.metaKey && e.key === ",") {
       void invoke("open_settings");
+    } else if (e.metaKey && e.key === "r" && panel?.kind === "hot") {
+      e.preventDefault();
+      void submitHot(true);
     } else if (!hasResult && !prompt && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       setGuideIndex((i) => (i + (e.key === "ArrowDown" ? 1 : GUIDE.length - 1)) % GUIDE.length);
@@ -237,12 +258,31 @@ export function Palette() {
           <div className="palette__body">
             {draft && <div className="answer">{draft}</div>}
             {result && !draft && <AssistantBody m={result} />}
+            {panel?.kind === "hot" && (
+              <>
+                {Object.keys(panel.data.sourceErrors).length > 0 && (
+                  <div className="muted mono" style={{ marginBottom: 8 }}>
+                    拉取失败：{Object.entries(panel.data.sourceErrors).map(([s]) => s).join("、")}
+                  </div>
+                )}
+                <HotList items={panel.data.items} />
+              </>
+            )}
+            {panel?.kind === "todos" && (
+              <>
+                {Object.keys(panel.data.sourceErrors).length > 0 && (
+                  <div className="err">{Object.entries(panel.data.sourceErrors).map(([s, m]) => `${s}：${m}`).join("\n")}</div>
+                )}
+                {panel.data.todos.length ? <TodoList todos={panel.data.todos} /> : <div className="muted">没有未完成的待办</div>}
+              </>
+            )}
           </div>
           <footer className="palette__foot">
             <span className={`dot dot--${status.state}`} />
             <span>{status.state === "ok" ? `Friday ${status.version}` : status.state === "down" ? "core 未响应" : "连接中…"}</span>
             <span className="foot__right">
               {result?.kind === "ask" && <span><kbd>↵</kbd> 追问进会话窗</span>}
+              {panel?.kind === "hot" && <span><kbd>⌘R</kbd> 重新拉取</span>}
               <span><kbd>esc</kbd> {busy ? "中断" : "清空"}</span>
             </span>
           </footer>

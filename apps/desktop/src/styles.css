@@ -727,3 +727,42 @@ kbd {
   font-size: 11px;
   color: var(--label-3);
 }
+
+/* ---------- AI 热点列表 ---------- */
+
+.hot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hot__item {
+  padding-left: 12px;
+  border-left: 2px solid var(--separator);
+}
+.hot__item:hover {
+  border-left-color: var(--accent);
+}
+.hot__title {
+  display: block;
+  color: var(--label);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  line-height: 1.45;
+}
+.hot__title:hover {
+  color: var(--accent);
+}
+.hot__summary {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--label-2);
+}
+.hot__meta {
+  margin-top: 3px;
+  color: var(--label-3);
+}

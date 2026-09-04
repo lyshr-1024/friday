@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, Message, TodayResponse } from "@friday/shared";
-import { ask, conversationById, conversations, latestToday, newConversation, today } from "../lib/core";
-import { AssistantBody, TodoList, fmtTime } from "./shared";
+import type { ConversationSummary, HotResponse, Message } from "@friday/shared";
+import { ask, conversationById, conversations, hot, newConversation } from "../lib/core";
+import { AssistantBody, HotList, fmtTime } from "./shared";
 
 interface OpenPayload {
   conversationId?: string | null;
@@ -21,9 +21,9 @@ export function Chat() {
   const [draft, setDraft] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showToday, setShowToday] = useState(false);
-  const [todayData, setTodayData] = useState<TodayResponse | null>(null);
-  const [todayBusy, setTodayBusy] = useState(false);
+  const [showHot, setShowHot] = useState(false);
+  const [hotData, setHotData] = useState<HotResponse | null>(null);
+  const [hotBusy, setHotBusy] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -32,7 +32,6 @@ export function Chat() {
 
   useEffect(() => {
     void refreshList();
-    void latestToday().then((m) => m?.payload && setTodayData(m.payload as TodayResponse)).catch(() => {});
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => void openPayload(p ?? {}));
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     return () => void unlisten.then((f) => f());
@@ -108,13 +107,20 @@ export function Chat() {
     }
   }
 
-  async function refreshToday() {
-    setTodayBusy(true);
+  async function loadHot(refresh = false) {
+    setHotBusy(true);
     try {
-      setTodayData(await today(new AbortController().signal));
+      setHotData(await hot(new AbortController().signal, refresh));
     } finally {
-      setTodayBusy(false);
+      setHotBusy(false);
     }
+  }
+
+  function toggleHot() {
+    setShowHot((v) => {
+      if (!v && !hotData) void loadHot();
+      return !v;
+    });
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -155,9 +161,9 @@ export function Chat() {
             </button>
           ))}
         </div>
-        <button className={`side__today ${showToday ? "side__today--on" : ""}`} onClick={() => setShowToday((v) => !v)}>
-          今天
-          {todayData && <span className="side__count">{todayData.todos.length}</span>}
+        <button className={`side__today ${showHot ? "side__today--on" : ""}`} onClick={toggleHot}>
+          AI 热点
+          {hotData && <span className="side__count">{hotData.items.length}</span>}
         </button>
       </aside>
 
@@ -193,22 +199,21 @@ export function Chat() {
         </div>
       </main>
 
-      {showToday && (
+      {showHot && (
         <aside className="chat__today">
           <header className="today__head">
-            <span>今天</span>
-            <button className="today__refresh" disabled={todayBusy} onClick={() => void refreshToday()}>
-              {todayBusy ? "同步中…" : "刷新"}
+            <span>AI 热点</span>
+            <button className="today__refresh" disabled={hotBusy} onClick={() => void loadHot(true)}>
+              {hotBusy ? "拉取中…" : "重新拉取"}
             </button>
           </header>
-          {todayData ? (
+          {hotData ? (
             <div className="today__body">
-              <div className="answer today__brief">{todayData.brief}</div>
-              <TodoList todos={todayData.todos} />
-              <div className="today__time">更新于 {fmtTime(todayData.generatedAt)}</div>
+              <HotList items={hotData.items} />
+              <div className="today__time">更新于 {fmtTime(hotData.generatedAt)}</div>
             </div>
           ) : (
-            <div className="today__body chat__empty">还没生成过简报，点「刷新」拉取 Meegle 与本地待办。</div>
+            <div className="today__body chat__empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>
           )}
         </aside>
       )}

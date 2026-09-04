@@ -36,11 +36,26 @@ export interface Todo {
 
 export type TodoSource = "local" | "slack" | "meegle";
 
-export interface TodayResponse {
-  generatedAt: string;
-  brief: string;
+export interface TodosSyncResponse {
+  syncedAt: string;
   todos: Todo[];
   sourceErrors: Partial<Record<TodoSource, string>>;
+}
+
+export type HotSource = "hn" | "hf" | "openai" | "simonw" | "qbitai";
+
+export interface HotItem {
+  title: string;
+  summary: string;
+  url: string;
+  source: HotSource;
+  publishedAt: string;
+}
+
+export interface HotResponse {
+  generatedAt: string;
+  items: HotItem[];
+  sourceErrors: Partial<Record<HotSource, string>>;
 }
 
 export interface Settings {
