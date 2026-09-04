@@ -21,15 +21,11 @@ export type AskEvent =
   | { type: "done" }
   | { type: "error"; message: string };
 
-export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerator<AskEvent> {
-  const res = await fetch(`${await coreBaseUrl()}/ask`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
-    body: JSON.stringify(body),
-    signal,
-  });
+async function* readSse(res: Response): AsyncGenerator<AskEvent> {
   if (!res.ok || !res.body) {
-    yield { type: "error", message: `core 返回 ${res.status}` };
+    const err = ((await res.json().catch(() => null)) as { error?: string } | null)?.error;
+    yield { type: "error", message: err ?? `core 返回 ${res.status}` };
+    yield { type: "done" };
     return;
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -50,6 +46,31 @@ export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerato
       if (data) yield JSON.parse(data) as AskEvent;
     }
   }
+}
+
+/** 发起一轮生成并订阅进度。signal 只取消订阅，不中断生成；中断用 cancelAsk。 */
+export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerator<AskEvent> {
+  const res = await fetch(`${await coreBaseUrl()}/ask`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  yield* readSse(res);
+}
+
+/** 重新订阅某个会话进行中的生成（切回会话时用），会先回放已生成的部分。 */
+export async function* askSubscribe(conversationId: string, signal: AbortSignal): AsyncGenerator<AskEvent> {
+  const res = await fetch(`${await coreBaseUrl()}/ask/stream?conversationId=${encodeURIComponent(conversationId)}`, { signal });
+  yield* readSse(res);
+}
+
+export async function cancelAsk(conversationId: string): Promise<void> {
+  await fetch(`${await coreBaseUrl()}/ask/cancel`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ conversationId }),
+  }).catch(() => {});
 }
 
 export async function note(body: NoteRequest): Promise<Todo> {

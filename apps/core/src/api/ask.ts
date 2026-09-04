@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { askStream } from "../agent/claude.js";
+import type { AskEvent } from "../agent/claude.js";
 import { friday } from "../agent/prompt.js";
+import { cancelRun, isRunning, startRun, subscribe } from "../agent/runs.js";
 import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
-import { addMessage, claudeSessionId, conversationExists, setClaudeSessionId } from "../memory/conversations.js";
-import { finishSession, startSession } from "../memory/sessions.js";
+import { claudeSessionId, conversationExists, createConversation } from "../memory/conversations.js";
 import { userSettings } from "../settings.js";
 
 const body = z.object({
@@ -14,46 +14,53 @@ const body = z.object({
   conversationId: z.string().uuid().optional(),
 });
 
-export const ask = new Hono().post("/ask", async (c) => {
-  const parsed = body.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: "prompt 不能为空" }, 400);
-  const { prompt, conversationId } = parsed.data;
-  const conv = conversationId && conversationExists(conversationId) ? conversationId : undefined;
-
+/** 把某个会话的进行中任务以 SSE 推给客户端；客户端断开只取消订阅。 */
+function streamRun(c: Parameters<typeof streamSSE>[0], conversationId: string) {
   return streamSSE(c, async (stream) => {
-    const ac = new AbortController();
-    stream.onAbort(() => ac.abort());
-    const sessionId = startSession("ask", prompt);
-    if (conv) addMessage(conv, { role: "user", kind: "ask", content: prompt });
-    let answer = "";
-    let error: string | undefined;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = subscribe(conversationId, (ev: AskEvent) => {
+        const written = stream.writeSSE({ data: JSON.stringify(ev) }).catch(() => {});
+        // done 要等写完再收流，否则最后一帧会丢。
+        if (ev.type === "done") void written.then(() => resolve());
+      });
+      if (!unsubscribe) {
+        void stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
+        resolve();
+        return;
+      }
+      stream.onAbort(() => {
+        unsubscribe();
+        resolve();
+      });
+    });
+  });
+}
+
+export const ask = new Hono()
+  .post("/ask", async (c) => {
+    const parsed = body.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "prompt 不能为空" }, 400);
+    const { prompt } = parsed.data;
+    const conv = parsed.data.conversationId && conversationExists(parsed.data.conversationId) ? parsed.data.conversationId : createConversation().id;
+    if (isRunning(conv)) return c.json({ error: "这个会话正在生成，先等它结束或按 Esc 中断" }, 409);
+
     const prefs = userSettings();
-    const events = askStream(prompt, {
+    startRun(conv, prompt, {
       systemPrompt: friday(loadMemoryContext(), prefs.skills),
       cwd: config.dataDir,
-      signal: ac.signal,
       skills: prefs.skills,
-      ...(conv ? { resume: claudeSessionId(conv) } : {}),
+      ...(claudeSessionId(conv) ? { resume: claudeSessionId(conv) } : {}),
       ...(prefs.model ? { model: prefs.model } : {}),
     });
-    try {
-      for await (const ev of events) {
-        if (ev.type === "delta") answer += ev.text;
-        if (ev.type === "reset") answer = "";
-        if (ev.type === "error") error = ev.message;
-        if (ev.type === "session" && conv) setClaudeSessionId(conv, ev.sessionId);
-        await stream.writeSSE({ data: JSON.stringify(ev) });
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      await stream.writeSSE({ data: JSON.stringify({ type: "error", message: error }) });
-      await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
-    } finally {
-      finishSession(sessionId, answer);
-      if (conv) {
-        if (answer) addMessage(conv, { role: "assistant", kind: "ask", content: answer });
-        if (error) addMessage(conv, { role: "assistant", kind: "error", content: error });
-      }
-    }
+    c.header("x-conversation-id", conv);
+    return streamRun(c, conv);
+  })
+  .get("/ask/stream", (c) => {
+    const conv = c.req.query("conversationId");
+    if (!conv || !isRunning(conv)) return c.json({ error: "没有进行中的生成" }, 404);
+    return streamRun(c, conv);
+  })
+  .post("/ask/cancel", async (c) => {
+    const { conversationId } = (await c.req.json().catch(() => ({}))) as { conversationId?: string };
+    return conversationId && cancelRun(conversationId) ? c.json({ ok: true }) : c.json({ error: "没有进行中的生成" }, 404);
   });
-});

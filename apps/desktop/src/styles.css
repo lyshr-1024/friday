@@ -1169,3 +1169,15 @@ kbd {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+.side__spin {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--label-3);
+  border-top-color: var(--label);
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}

@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday/shared";
-import { ask, conversationById, conversations, deleteConversation, hot, newConversation, settings, updateSettings } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, newConversation, settings, updateSettings } from "../lib/core";
+import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, HotList, fmtTime } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -47,6 +48,13 @@ export function Chat() {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
 
+  // 有别的会话在后台生成时定时刷新侧栏，跑完把转圈去掉。
+  useEffect(() => {
+    if (!list.some((c) => c.running)) return;
+    const t = setInterval(() => void refreshList(), 5000);
+    return () => clearInterval(t);
+  }, [list]);
+
   async function refreshList() {
     try {
       setList(await conversations());
@@ -62,13 +70,54 @@ export function Chat() {
     else inputRef.current?.focus();
   }
 
+  // 切换会话只取消订阅，后台生成继续；切回来时若还在跑就重新订阅并回放。
   async function load(id: string) {
     abortRef.current?.abort();
     setBusy(false);
     setDraft("");
     const conv = await conversationById(id);
     setConvId(conv.id);
+    convRef.current = conv.id;
     setMessages(conv.messages);
+    if (conv.running) void follow(conv.id, askSubscribe(conv.id, newSubscription()));
+  }
+
+  function newSubscription(): AbortSignal {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    return ctrl.signal;
+  }
+
+  // 消费一条事件流；结束后从 core 重新拉这条会话，拿到落库后的消息。
+  async function follow(id: string, events: AsyncGenerator<AskEvent>) {
+    setBusy(true);
+    let answer = "";
+    try {
+      for await (const ev of events) {
+        if (convRef.current !== id) return;
+        if (ev.type === "delta") {
+          answer += ev.text;
+          setDraft(answer);
+        }
+        if (ev.type === "reset") {
+          answer = "";
+          setDraft("");
+        }
+        if (ev.type === "error") push({ role: "assistant", kind: "error", content: ev.message });
+      }
+    } catch {
+      return;
+    }
+    if (convRef.current !== id) return;
+    try {
+      const conv = await conversationById(id);
+      setMessages(conv.messages);
+    } catch {
+      if (answer) push({ role: "assistant", kind: "ask", content: answer });
+    }
+    setDraft("");
+    setBusy(false);
+    void refreshList();
   }
 
   async function remove(id: string) {
@@ -99,32 +148,14 @@ export function Chat() {
   async function send(text: string, id = convRef.current) {
     const prompt = text.trim();
     if (!prompt || busy || !id) return;
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setBusy(true);
     setInput("");
     push({ role: "user", kind: "ask", content: prompt });
-    let answer = "";
-    try {
-      for await (const ev of ask({ prompt, conversationId: id }, ctrl.signal)) {
-        if (ev.type === "delta") {
-          answer += ev.text;
-          setDraft(answer);
-        }
-        if (ev.type === "reset") {
-          answer = "";
-          setDraft("");
-        }
-        if (ev.type === "error") push({ role: "assistant", kind: "error", content: ev.message });
-      }
-    } catch (e) {
-      if (!ctrl.signal.aborted) push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
-    } finally {
-      if (answer) push({ role: "assistant", kind: "ask", content: answer });
-      setDraft("");
-      setBusy(false);
-      void refreshList();
-    }
+    void refreshList();
+    await follow(id, ask({ prompt, conversationId: id }, newSubscription()));
+  }
+
+  function interrupt() {
+    if (convRef.current) void cancelAsk(convRef.current);
   }
 
   async function loadHot(refresh = false) {
@@ -149,7 +180,7 @@ export function Chat() {
       e.preventDefault();
       void send(input);
     }
-    if (e.key === "Escape" && busy) abortRef.current?.abort();
+    if (e.key === "Escape" && busy) interrupt();
   }
 
   // 挂在 window 上，焦点不在输入框（比如点了空白处）时快捷键也要生效。
@@ -186,7 +217,10 @@ export function Chat() {
         <div className="side__list">
           {list.map((c) => (
             <div key={c.id} className={`side__item ${c.id === convId ? "side__item--active" : ""}`} onClick={() => void load(c.id)}>
-              <span className="side__title">{c.title}</span>
+              <span className="side__title">
+                {c.running && <span className="side__spin" aria-label="生成中" />}
+                {c.title}
+              </span>
               <span className="side__time">{fmtTime(c.updatedAt)}</span>
               <button
                 className="side__del"
@@ -264,7 +298,7 @@ export function Chat() {
             ref={inputRef}
             className="composer__input"
             rows={1}
-            placeholder={busy ? "生成中，Esc 中断" : "给 Friday 发消息"}
+            placeholder={busy ? "生成中，切到别的会话它会继续跑；Esc 中断" : "给 Friday 发消息"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}

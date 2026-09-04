@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
 import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
@@ -245,8 +245,10 @@ export function Palette() {
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
-      if (busy) abortRef.current?.abort();
-      else if (hasResult) reset();
+      if (busy) {
+        if (convRef.current) void cancelAsk(convRef.current);
+        abortRef.current?.abort();
+      } else if (hasResult) reset();
       else void invoke("hide_main");
     } else if (e.key === "Enter") {
       if (ime.isImeEnter(e)) return;

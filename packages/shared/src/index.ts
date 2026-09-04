@@ -114,6 +114,9 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** 是否有后台生成任务在跑，以及已生成的部分 */
+  running?: boolean;
+  partial?: string;
 }
 
 export interface ConversationSummary {
@@ -122,6 +125,7 @@ export interface ConversationSummary {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+  running?: boolean;
 }
 
 export type MemoryFile = "projects" | "decisions" | "people";

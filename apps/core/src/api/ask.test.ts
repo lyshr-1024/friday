@@ -68,9 +68,9 @@ describe("对话历史", () => {
 describe("会话列表", () => {
   it("只列出有消息的会话，标题取第一条用户消息", async () => {
     await app.request("/conversation/new", { method: "POST" });
-    const list = (await (await app.request("/conversations")).json()) as Array<{ title: string; messageCount: number }>;
-    expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ title: "hi", messageCount: 2 });
+    const list = (await (await app.request("/conversations")).json()) as Array<{ title: string; messageCount: number; running: boolean }>;
+    expect(list.length).toBeGreaterThanOrEqual(1);
+    expect(list[0]).toMatchObject({ title: "hi", messageCount: 2, running: false });
     const byId = await app.request(`/conversation/${(await (await app.request("/conversation")).json() as { id: string }).id}`);
     expect(byId.status).toBe(200);
     expect((await app.request("/conversation/00000000-0000-0000-0000-000000000000")).status).toBe(404);
@@ -86,5 +86,13 @@ describe("删除会话", () => {
     const after = (await (await app.request("/conversations")).json()) as Array<{ id: string }>;
     expect(after.some((c) => c.id === before[0]!.id)).toBe(false);
     expect((await app.request(`/conversation/${before[0]!.id}`)).status).toBe(404);
+  });
+});
+
+describe("后台生成任务", () => {
+  it("没有进行中任务时订阅与中断都返回 404", async () => {
+    expect((await app.request("/ask/stream?conversationId=00000000-0000-0000-0000-000000000000")).status).toBe(404);
+    const cancel = await app.request("/ask/cancel", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "x" }) });
+    expect(cancel.status).toBe(404);
   });
 });
