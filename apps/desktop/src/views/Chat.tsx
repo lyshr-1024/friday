@@ -42,7 +42,7 @@ export function Chat() {
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages, draft]);
+  }, [messages, draft, busy]);
 
   async function refreshList() {
     try {
@@ -175,7 +175,6 @@ export function Chat() {
       <main className="chat__main">
         <header className="chat__head" data-tauri-drag-region>
           <span className="chat__title">{title}</span>
-          {busy && <span className="chat__busy" />}
           <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
           <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
         </header>
@@ -200,6 +199,14 @@ export function Chat() {
                 </div>
               </div>
             ),
+          )}
+          {busy && !draft && (
+            <div className="turn turn--assistant">
+              <div className="avatar">F</div>
+              <div className="bubble bubble--assistant thinking" aria-label="思考中">
+                <span /><span /><span />
+              </div>
+            </div>
           )}
           {draft && (
             <div className="turn turn--assistant">
