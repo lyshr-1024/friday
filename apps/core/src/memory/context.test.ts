@@ -16,6 +16,6 @@ describe("记忆注入", () => {
     expect(system).toContain("## whale");
     expect(system).not.toContain("注释");
     expect(system).toContain("- [local] 给 Friday 写测试（截止 2026-09-05）");
-    expect(system).toContain("没有任何工具");
+    expect(system).toContain("memory_write");
   });
 });

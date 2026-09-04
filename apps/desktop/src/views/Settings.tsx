@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import type { SettingsResponse } from "@friday/shared";
+import type { MemoryFile, SettingsResponse } from "@friday/shared";
+import { MEMORY_FILES, MemoryEditor } from "./MemoryEditor";
 import { coreBaseUrl, health, settings } from "../lib/core";
 
 export function Settings() {
@@ -9,6 +10,7 @@ export function Settings() {
   const [core, setCore] = useState<{ url: string; version?: string; ok: boolean } | null>(null);
   const [hotkey, setHotkey] = useState("");
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
+  const [editing, setEditing] = useState<MemoryFile | null>(null);
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
@@ -32,9 +34,32 @@ export function Settings() {
     setAutostart(await isEnabled());
   }
 
+  if (editing) {
+    return (
+      <MemoryEditor
+        name={editing}
+        onBack={() => {
+          setEditing(null);
+          void settings().then(setPrefs).catch(() => {});
+        }}
+      />
+    );
+  }
+
   return (
     <div className="settings">
       <h1 className="settings__title">Friday 设置</h1>
+
+      <section>
+        <h2>记忆库</h2>
+        <div className="group">
+          {MEMORY_FILES.map((f) => (
+            <Row key={f.name} label={f.label} hint={f.name === "projects" ? `${prefs?.projects.length ?? "…"} 个项目，别名在这里改` : f.hint}>
+              <button className="btn" onClick={() => setEditing(f.name)}>编辑</button>
+            </Row>
+          ))}
+        </div>
+      </section>
 
       <section>
         <h2>通用</h2>
@@ -53,9 +78,6 @@ export function Settings() {
         </Row>
         <Row label="跑 Claude 用的终端" hint="settings.json 的 terminal：ghostty 或 terminal">
           <span className="mono">{prefs ? (prefs.terminal === "ghostty" ? "Ghostty" : "Terminal") : "…"}</span>
-        </Row>
-        <Row label="已登记项目" hint="编辑记忆库里的 projects.md">
-          <span className="mono">{prefs ? (prefs.projects.length ? prefs.projects.join("、") : "无") : "…"}</span>
         </Row>
         </div>
       </section>

@@ -52,7 +52,8 @@ apps/core/src/
 - **进入会话**：启动器里 `⌘↵` 直接带着问题开会话窗；或者一问一答后再输入，视为追问，整段搬进会话窗继续。启动器每次呼出会为本次动作懒建一个 conversation，搬过去时沿用它的 id。
 - 会话窗开着时应用切到 `ActivationPolicy::Regular`（有 Dock 图标、可 `⌘Tab`），关掉后回到 Accessory。热键在会话窗可见但未聚焦时优先聚焦它，否则切换启动器。
 - 会话窗刚创建时前端还没就位，`open_chat` 把参数放进 `PendingChat` 状态，前端 mount 后调 `take_pending_chat` 取；已存在的窗口走 `friday://open-conversation` 事件。
-- `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。不展示过程文案，忙碌时只有细进度条 / 小转圈；简报的待办折叠成「N 条待办 ›」。
+- `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。内置工具全部禁用（`tools: []`），只挂 `agent/tools.ts` 里进程内 MCP 工具：`memory_read` / `memory_write`（记忆库三个 markdown 整篇读写）、`todo_add`，通过 `allowedTools` 自动放行，`maxTurns: 8`。用户在对话里说"给 X 加别名 / 登记项目 / 记决策 / 记待办"由 Claude 自己调工具完成。系统提示注入记忆库全文（`memory/context.ts`），并明确除此之外没有工具，防止它假装执行命令。
+- 设置页有「记忆库」一组，内置编辑器直接改三个 markdown（`GET/PUT /memory/:name`，`⌘S` 保存），保存即生效。不展示过程文案，忙碌时只有细进度条 / 小转圈；简报的待办折叠成「N 条待办 ›」。
 
 ## 浮窗命令约定
 

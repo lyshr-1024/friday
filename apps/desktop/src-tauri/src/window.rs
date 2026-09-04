@@ -88,8 +88,8 @@ pub fn open_settings(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?view=settings".into()))
         .title("Friday 设置")
-        .inner_size(480.0, 560.0)
-        .resizable(false)
+        .inner_size(560.0, 640.0)
+        .min_inner_size(480.0, 520.0)
         .center()
         .build();
 }

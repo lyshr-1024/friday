@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { FRIDAY_TOOL_NAMES, fridayTools } from "./tools.js";
 
 export type AskEvent =
   | { type: "delta"; text: string }
@@ -23,7 +24,9 @@ export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerat
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,
       tools: [],
-      maxTurns: 1,
+      mcpServers: { friday: fridayTools },
+      allowedTools: FRIDAY_TOOL_NAMES,
+      maxTurns: 8,
       includePartialMessages: true,
       persistSession: true,
       settingSources: [],

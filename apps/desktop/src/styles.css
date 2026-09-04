@@ -766,3 +766,95 @@ kbd {
   margin-top: 3px;
   color: var(--label-3);
 }
+
+/* ---------- 设置页按钮与记忆库编辑器 ---------- */
+
+.btn {
+  border: none;
+  background: var(--fill-2);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: default;
+}
+.btn:hover {
+  background: var(--separator);
+}
+
+.editor {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+}
+.editor__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px 0 8px;
+  border-bottom: 1px solid var(--separator);
+}
+.editor__back {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  cursor: default;
+}
+.editor__title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.editor__status {
+  margin-left: auto;
+  color: var(--label-2);
+}
+.editor__save {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+}
+.editor__save kbd {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.editor__save:disabled {
+  opacity: 0.4;
+}
+.editor__text {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--card);
+  color: var(--label);
+  font: 13px/1.6 var(--mono);
+  user-select: text;
+  tab-size: 2;
+}
+.editor__foot {
+  flex: none;
+  padding: 6px 16px;
+  border-top: 1px solid var(--separator);
+  color: var(--label-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

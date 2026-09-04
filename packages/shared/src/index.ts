@@ -105,3 +105,11 @@ export interface ConversationSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+export type MemoryFile = "projects" | "decisions" | "people";
+
+export interface MemoryFileResponse {
+  name: MemoryFile;
+  path: string;
+  content: string;
+}

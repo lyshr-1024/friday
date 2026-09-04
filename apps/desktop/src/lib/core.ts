@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, HealthResponse, HotResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, HealthResponse, HotResponse, MemoryFile, MemoryFileResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -143,3 +143,19 @@ export async function conversationById(id: string): Promise<Conversation> {
   return res.json();
 }
 
+
+export async function readMemory(name: MemoryFile): Promise<MemoryFileResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/memory/${name}`);
+  if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function writeMemory(name: MemoryFile, content: string): Promise<MemoryFileResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/memory/${name}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`保存失败：core 返回 ${res.status}`);
+  return res.json();
+}
