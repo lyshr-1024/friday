@@ -1,10 +1,3 @@
-@font-face {
-  font-family: "LXGW WenKai";
-  font-weight: 400;
-  font-display: block;
-  src: url("./assets/fonts/LXGWWenKai-Regular.woff2") format("woff2");
-}
-
 /* WebKit 的 -apple-system 在系统语言为英文时会把中文回退到华文黑体/冬青黑体。
    这里用 unicode-range 把 CJK 强制指到苹方，拉丁字符仍走 SF。 */
 @font-face {
@@ -28,7 +21,7 @@
 
 :root {
   --font: "Friday CJK", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  --font-text: "LXGW WenKai", "Friday CJK", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-text: var(--font);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   --label: rgba(0, 0, 0, 0.85);
   --label-2: rgba(0, 0, 0, 0.5);
