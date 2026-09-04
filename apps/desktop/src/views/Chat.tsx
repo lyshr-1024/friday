@@ -142,6 +142,7 @@ export function Chat() {
   return (
     <div className="chat" onKeyDown={onGlobalKey}>
       <aside className="chat__side">
+        <div className="side__drag" data-tauri-drag-region />
         <button className="side__new" onClick={() => void startNew()}>
           <span>新对话</span>
           <kbd>⌘N</kbd>

@@ -514,7 +514,16 @@ kbd {
   flex-direction: column;
   border-right: 1px solid var(--separator);
   background: var(--card);
-  padding: 44px 8px 8px; /* 顶部留出红绿灯 */
+  padding: 0 8px 8px;
+}
+.side__drag {
+  flex: none;
+  height: 44px; /* 红绿灯所在的一条，可拖 */
+  margin: 0 -8px;
+}
+/* data-tauri-drag-region 只认事件目标自身，子元素不吃鼠标才能整条拖 */
+.chat__head > * {
+  pointer-events: none;
 }
 .side__new,
 .side__item,
