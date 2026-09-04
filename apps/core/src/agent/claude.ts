@@ -52,6 +52,9 @@ export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerat
       announced = true;
       yield { type: "session", sessionId: msg.session_id };
     }
+    if (msg.type === "system" && msg.subtype === "init") {
+      console.log(`[claude] init model=${msg.model} mode=${msg.permissionMode} tools=${msg.tools.join(",")} skills=${msg.skills.length}`);
+    }
     if (msg.type === "stream_event") {
       const ev = msg.event;
       if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {

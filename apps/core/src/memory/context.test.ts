@@ -19,3 +19,12 @@ describe("记忆注入", () => {
     expect(system).toContain("memory_write");
   });
 });
+
+describe("Skill 模式提示词", () => {
+  it("开着时说明 Bash/Skill 可用，关着时明确不能执行命令", () => {
+    expect(friday(undefined, true)).toContain("Bash（执行命令）");
+    expect(friday(undefined, true)).not.toContain("不能执行任意命令");
+    expect(friday(undefined, false)).toContain("不能执行任意命令");
+    expect(friday(undefined, false)).not.toContain("Skill（");
+  });
+});
