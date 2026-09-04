@@ -65,7 +65,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let WindowEvent::Focused(false) = event {
-                    let _ = window.hide();
+                    if let Some(win) = window.get_webview_window("main") {
+                        window::hide_if_unfocused(win);
+                    }
                 }
             }
         })
