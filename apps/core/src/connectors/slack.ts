@@ -56,10 +56,20 @@ export interface SlackFetchResult {
  * 拉两类新消息：@ 我的（search.messages）和有未读的私聊（client.counts + conversations.history）。
  * cursors 是按来源记的最后 ts，只取更新的。
  */
-export async function fetchSlack(call: Call, me: string, cursors: Record<string, string | undefined>): Promise<SlackFetchResult> {
+const COLD_START_MS = 24 * 3600 * 1000;
+
+export async function fetchSlack(
+  call: Call,
+  me: string,
+  cursors: Record<string, string | undefined>,
+  now = Date.now(),
+): Promise<SlackFetchResult> {
   const out: NewInboxItem[] = [];
   const next: Record<string, string> = {};
   const names = new Map<string, string>();
+  // 没有游标（首次运行）时只看最近 24 小时，避免把早就处理过的老消息灌进收件箱。
+  const floor = String((now - COLD_START_MS) / 1000);
+  const since = (key: string) => cursors[key] ?? floor;
 
   const userName = async (id: string): Promise<string> => {
     if (!id) return "未知";
@@ -75,7 +85,7 @@ export async function fetchSlack(call: Call, me: string, cursors: Record<string,
     }
   };
 
-  const mentionsSince = cursors["slack:mentions"] ?? "0";
+  const mentionsSince = since("slack:mentions");
   const search = (await call("search.messages", { query: `<@${me}>`, sort: "timestamp", sort_dir: "desc", count: "20" })) as {
     messages?: { matches?: SearchMatch[] };
   };
@@ -101,14 +111,14 @@ export async function fetchSlack(call: Call, me: string, cursors: Record<string,
   for (const im of counts.ims ?? []) {
     if (!im.has_unreads) continue;
     const key = `slack:im:${im.id}`;
-    const since = cursors[key] ?? "0";
-    if (im.latest && Number(im.latest) <= Number(since)) continue;
-    const hist = (await call("conversations.history", { channel: im.id, oldest: since, limit: "20" })) as {
+    const imSince = since(key);
+    if (im.latest && Number(im.latest) <= Number(imSince)) continue;
+    const hist = (await call("conversations.history", { channel: im.id, oldest: imSince, limit: "20" })) as {
       messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string }>;
     };
-    let max = since;
+    let max = imSince;
     for (const msg of hist.messages ?? []) {
-      if (msg.subtype || !msg.user || msg.user === me || Number(msg.ts) <= Number(since)) continue;
+      if (msg.subtype || !msg.user || msg.user === me || Number(msg.ts) <= Number(imSince)) continue;
       if (Number(msg.ts) > Number(max)) max = msg.ts;
       const name = await userName(msg.user);
       const link = (await call("chat.getPermalink", { channel: im.id, message_ts: msg.ts }).catch(() => ({}))) as { permalink?: string };
@@ -124,7 +134,7 @@ export async function fetchSlack(call: Call, me: string, cursors: Record<string,
         ts: msg.ts,
       });
     }
-    if (max !== since) next[key] = max;
+    if (max !== imSince) next[key] = max;
   }
 
   out.sort((a, b) => Number(a.ts) - Number(b.ts));

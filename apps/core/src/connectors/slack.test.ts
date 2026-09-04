@@ -24,7 +24,7 @@ const call = async (method: string) => {
 
 describe("Slack 拉取", () => {
   it("只取游标之后、不是自己发的 @ 与私聊，并给出新游标", async () => {
-    const res = await fetchSlack(call, "U1", { "slack:mentions": "1757000200.000000" });
+    const res = await fetchSlack(call, "U1", { "slack:mentions": "1757000200.000000" }, 1757000700_000);
     expect(res.items.map((i) => [i.kind, i.userName, i.text])).toEqual([
       ["mention", "灵雨", "<@U1> 帮看下登录报错"],
       ["dm", "小明", "在吗"],
@@ -33,5 +33,14 @@ describe("Slack 拉取", () => {
     expect(res.items[1]!.permalink).toBe("https://s/dm1");
     expect(res.cursors).toEqual({ "slack:mentions": "1757000300.000100", "slack:im:D1": "1757000500.000100" });
     expect(calls.filter((m) => m === "conversations.history")).toHaveLength(1);
+  });
+});
+
+describe("冷启动", () => {
+  it("没有游标时只取最近 24 小时的消息", async () => {
+    const res = await fetchSlack(call, "U1", {}, 1757000700_000 + 24 * 3600 * 1000 + 1);
+    expect(res.items).toHaveLength(0);
+    const recent = await fetchSlack(call, "U1", {}, 1757000700_000);
+    expect(recent.items.length).toBeGreaterThan(0);
   });
 });
