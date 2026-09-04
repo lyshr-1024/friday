@@ -182,3 +182,13 @@ export async function inboxDone(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/done`, { method: "POST" });
   if (!res.ok) throw new Error(`标记失败：core 返回 ${res.status}`);
 }
+
+export async function inboxHandle(id: string, project?: string): Promise<RunResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/handle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(project ? { project } : {}),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}

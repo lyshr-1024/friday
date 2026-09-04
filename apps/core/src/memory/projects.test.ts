@@ -13,6 +13,7 @@ const md = `# 项目注册表
 ## whale-console
 - 目录: ~/workspace/whale-console
 - 别名: 后台, console
+- 频道: team-fe-bo, #proj-whale-console
 
 ## whale-console-crypto
 - 目录：~/workspace/whale-console-crypto
@@ -27,6 +28,7 @@ describe("项目注册表", () => {
   it("解析标题与字段，忽略没有目录的项目，展开 ~", () => {
     expect(projects.map((p) => p.name)).toEqual(["friday", "whale-console", "whale-console-crypto"]);
     expect(projects[0]).toMatchObject({ dir: `${homedir()}/hr-lys/friday`, aliases: ["助理", "fri"], status: "开发中", note: "个人助理" });
+    expect(projects[1]!.channels).toEqual(["#team-fe-bo", "#proj-whale-console"]);
   });
 
   it("精确名优先，其次唯一的部分匹配，多个则返回候选", () => {

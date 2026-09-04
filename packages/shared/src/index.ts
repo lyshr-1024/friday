@@ -140,6 +140,10 @@ export interface Triage {
   urgency: Urgency;
   summary: string;
   draft?: string;
+  /** 推导出的关联项目名（projects.md 里的名字），没有则缺省 */
+  project?: string;
+  /** 若是要动代码的事，一句可直接交给 Claude Code 的任务描述 */
+  task?: string;
 }
 
 export interface InboxItem {

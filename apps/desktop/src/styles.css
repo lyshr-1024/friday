@@ -1125,3 +1125,15 @@ kbd {
   color: var(--label);
   text-decoration: underline;
 }
+
+.inbox__project {
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--fill-2);
+  color: var(--label-2);
+}
+.inbox__actions .inbox__go {
+  color: var(--label);
+  font-weight: 500;
+}

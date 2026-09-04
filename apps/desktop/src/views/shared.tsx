@@ -71,7 +71,15 @@ export function HotList({ items }: { items: HotItem[] }) {
   );
 }
 
-export function InboxList({ items, onDone }: { items: InboxItem[]; onDone?: (id: string) => void }) {
+export function InboxList({
+  items,
+  onDone,
+  onHandle,
+}: {
+  items: InboxItem[];
+  onDone?: (id: string) => void;
+  onHandle?: (item: InboxItem) => void;
+}) {
   if (!items.length) return <div className="muted">没有待处理的 Slack 消息</div>;
   return (
     <ul className="inbox">
@@ -81,10 +89,12 @@ export function InboxList({ items, onDone }: { items: InboxItem[]; onDone?: (id:
             <span className="inbox__who">{it.userName}</span>
             <span className="inbox__where mono">{it.channelName}</span>
             {it.triage?.needsReply && <span className="inbox__tag">待回复</span>}
+            {it.triage?.project && <span className="inbox__project mono">{it.triage.project}</span>}
             <span className="inbox__time mono">{fmtTime(new Date(Number(it.ts) * 1000).toISOString())}</span>
           </div>
           <div className="inbox__summary">{it.triage?.summary ?? it.text}</div>
           {it.triage?.draft && <div className="inbox__draft">草稿：{it.triage.draft}</div>}
+          {it.triage?.task && <div className="inbox__draft">任务：{it.triage.task}</div>}
           <div className="inbox__actions">
             {it.permalink && (
               <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.permalink); }}>
@@ -93,6 +103,11 @@ export function InboxList({ items, onDone }: { items: InboxItem[]; onDone?: (id:
             )}
             {it.triage?.draft && (
               <button onClick={() => void navigator.clipboard.writeText(it.triage!.draft!)}>复制草稿</button>
+            )}
+            {onHandle && it.triage?.project && (
+              <button className="inbox__go" onClick={() => onHandle(it)}>
+                去处理 → {it.triage.project}
+              </button>
             )}
             {onDone && <button onClick={() => onDone(it.id)}>已处理</button>}
           </div>

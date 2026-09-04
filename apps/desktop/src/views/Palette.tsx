@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
-import type { HotResponse, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
+import { ask, commandOf, health, hot, inbox, inboxDone, inboxHandle, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
 import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
@@ -186,6 +186,22 @@ export function Palette() {
     }
   }
 
+  async function inboxItemHandle(item: InboxItem) {
+    try {
+      const res = await inboxHandle(item.id);
+      if (res.status === "launched") {
+        setResult({ id: "r", role: "assistant", kind: "run", content: `已在 ${res.terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}，任务已带过去`, createdAt: "" });
+        setPanel(null);
+      } else {
+        setResult({ id: "r", role: "assistant", kind: "run", content: `「${item.triage?.project}」匹配到多个项目，请在会话窗里指定`, payload: res, createdAt: "" });
+        setPanel(null);
+      }
+    } catch (e) {
+      setResult({ id: "r", role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e), createdAt: "" });
+      setPanel(null);
+    }
+  }
+
   function inboxItemDone(id: string) {
     void inboxDone(id);
     setPanel((p) => (p?.kind === "inbox" ? { kind: "inbox", data: { ...p.data, items: p.data.items.filter((i) => i.id !== id) } } : p));
@@ -308,7 +324,7 @@ export function Palette() {
               <>
                 {!panel.data.configured && <div className="err">Slack 还没接入：在终端跑 scripts/slack-auth.sh 写入登录态。</div>}
                 {panel.data.lastError && <div className="err">{panel.data.lastError}</div>}
-                <InboxList items={panel.data.items} onDone={inboxItemDone} />
+                <InboxList items={panel.data.items} onDone={inboxItemDone} onHandle={(it) => void inboxItemHandle(it)} />
                 {panel.data.lastSyncAt && <div className="muted mono" style={{ marginTop: 10 }}>上次同步 {new Date(panel.data.lastSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</div>}
               </>
             )}

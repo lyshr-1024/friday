@@ -59,6 +59,11 @@ export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   return rows.map(toItem);
 }
 
+export function getInboxItem(id: string): InboxItem | undefined {
+  const row = db().prepare("SELECT * FROM inbox WHERE id = ?").get(id) as unknown as Row | undefined;
+  return row ? toItem(row) : undefined;
+}
+
 export function markInboxDone(id: string): boolean {
   return db().prepare("UPDATE inbox SET done = 1 WHERE id = ?").run(id).changes > 0;
 }

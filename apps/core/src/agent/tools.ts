@@ -5,6 +5,7 @@ import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { launchClaude } from "./runner.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
+import { listInbox } from "../memory/inbox.js";
 import { resolveProject } from "../memory/projects.js";
 import { addLocalTodo } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
@@ -58,6 +59,23 @@ export const fridayTools = createSdkMcpServer({
       },
     ),
     tool(
+      "slack_inbox",
+      "列出 Slack 收件箱里未处理的消息（已预处理：谁、摘要、是否需回复、紧急度、关联项目、建议任务、链接）。用户问“Slack 有什么”“谁找我”“处理 XX 那条”时先用它。",
+      {},
+      async () => {
+        const items = listInbox();
+        if (!items.length) return text("收件箱没有未处理消息。");
+        return text(
+          items
+            .map((it, i) => {
+              const t = it.triage;
+              return `${i + 1}. [${it.kind === "dm" ? "私聊" : it.channelName}] ${it.userName}：${t?.summary ?? it.text.slice(0, 80)}${t?.needsReply ? " · 需回复" : ""}${t ? ` · ${t.urgency}` : ""}${t?.project ? ` · 项目 ${t.project}` : ""}${t?.task ? `\n   建议任务：${t.task}` : ""}${t?.draft ? `\n   草稿：${t.draft}` : ""}${it.permalink ? `\n   ${it.permalink}` : ""}`;
+            })
+            .join("\n"),
+        );
+      },
+    ),
+    tool(
       "run_claude",
       "在用户默认终端打开该项目目录并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
       { project, task: z.string().max(4000).optional().describe("交给 Claude Code 的任务，一句话") },
@@ -79,5 +97,6 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__memory_write",
   "mcp__friday__todo_add",
   "mcp__friday__git_inspect",
+  "mcp__friday__slack_inbox",
   "mcp__friday__run_claude",
 ];
