@@ -988,3 +988,33 @@ kbd {
     opacity: 1;
   }
 }
+
+/* ---------- 滚动条：细条、透明轨道、悬停显现 ---------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--label-3) transparent;
+}
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--label-3);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--label-2);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
