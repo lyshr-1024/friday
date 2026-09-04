@@ -1137,3 +1137,12 @@ kbd {
   color: var(--label);
   font-weight: 500;
 }
+
+.inbox__text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

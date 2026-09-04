@@ -44,15 +44,16 @@ export async function syncSlackOnce(): Promise<number> {
     state.configured = true;
     const call = slackCaller(creds);
     if (!me) {
-      const auth = (await call("auth.test", {})) as { user_id?: string; team_id?: string };
+      const auth = (await call("auth.test", {})) as { user_id?: string; team_id?: string; url?: string };
       me = String(auth.user_id ?? "");
       if (auth.team_id) setSlackTeam(auth.team_id);
+      if (auth.url) setCursor("slack:url", auth.url);
     }
     const keys = ["slack:mentions"];
     const cursors: Record<string, string | undefined> = Object.fromEntries(keys.map((k) => [k, getCursor(k)]));
     // 私聊游标按 channel 记，fetchSlack 里按需查；这里给它一个懒读取的代理。
     const proxy = new Proxy(cursors, { get: (t, k: string) => (k in t ? t[k] : getCursor(k)) });
-    const { items, cursors: next } = await fetchSlack(call, me, proxy);
+    const { items, cursors: next } = await fetchSlack(call, me, proxy, Date.now(), getCursor("slack:url"));
     const added = addInboxItems(items);
     for (const [k, v] of Object.entries(next)) setCursor(k, v);
 

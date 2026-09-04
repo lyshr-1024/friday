@@ -58,11 +58,18 @@ export interface SlackFetchResult {
  */
 const COLD_START_MS = 24 * 3600 * 1000;
 
+/** chat.getPermalink 对部分私聊拿不到链接时，用团队域名手动拼一个官方格式的 permalink。 */
+export function permalinkFor(teamUrl: string | undefined, channelId: string, ts: string): string {
+  if (!teamUrl) return "";
+  return `${teamUrl.replace(/\/$/, "")}/archives/${channelId}/p${ts.replace(".", "")}`;
+}
+
 export async function fetchSlack(
   call: Call,
   me: string,
   cursors: Record<string, string | undefined>,
   now = Date.now(),
+  teamUrl?: string,
 ): Promise<SlackFetchResult> {
   const out: NewInboxItem[] = [];
   const next: Record<string, string> = {};
@@ -101,7 +108,7 @@ export async function fetchSlack(
       userId: m.user ?? "",
       userName: m.username ?? (await userName(m.user ?? "")),
       text: m.text,
-      permalink: m.permalink ?? "",
+      permalink: m.permalink ?? permalinkFor(teamUrl, m.channel.id, m.ts),
       ts: m.ts,
     });
   }
@@ -130,7 +137,7 @@ export async function fetchSlack(
         userId: msg.user,
         userName: name,
         text: msg.text ?? "",
-        permalink: link.permalink ?? "",
+        permalink: link.permalink ?? permalinkFor(teamUrl, im.id, msg.ts),
         ts: msg.ts,
       });
     }

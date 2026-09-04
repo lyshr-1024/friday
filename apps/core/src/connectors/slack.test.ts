@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchSlack } from "./slack.js";
+import { fetchSlack, permalinkFor } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -42,5 +42,18 @@ describe("冷启动", () => {
     expect(res.items).toHaveLength(0);
     const recent = await fetchSlack(call, "U1", {}, 1757000700_000);
     expect(recent.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("permalink 兜底", () => {
+  it("getPermalink 失败时按团队域名拼官方格式链接", async () => {
+    const failing = async (method: string) => {
+      if (method === "chat.getPermalink") throw new Error("Slack chat.getPermalink 失败：channel_not_found");
+      return responses[method] as Record<string, unknown>;
+    };
+    const res = await fetchSlack(failing, "U1", { "slack:mentions": "1757000200.000000" }, 1757000700_000, "https://acme.slack.com/");
+    const dm = res.items.find((i) => i.kind === "dm")!;
+    expect(dm.permalink).toBe("https://acme.slack.com/archives/D1/p1757000500000100");
+    expect(permalinkFor(undefined, "D1", "1.2")).toBe("");
   });
 });

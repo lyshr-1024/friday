@@ -69,7 +69,18 @@ export const fridayTools = createSdkMcpServer({
           items
             .map((it, i) => {
               const t = it.triage;
-              return `${i + 1}. [${it.kind === "dm" ? "私聊" : it.channelName}] ${it.userName}：${t?.summary ?? it.text.slice(0, 80)}${t?.needsReply ? " · 需回复" : ""}${t ? ` · ${t.urgency}` : ""}${t?.project ? ` · 项目 ${t.project}` : ""}${t?.task ? `\n   建议任务：${t.task}` : ""}${t?.draft ? `\n   草稿：${t.draft}` : ""}${it.permalink ? `\n   ${it.permalink}` : ""}`;
+              // 摘要和原文都给：纯链接、纯图片的消息摘要会把关键信息吃掉。
+              const flags = [t?.needsReply && "需回复", t && t.urgency, t?.project && `项目 ${t.project}`].filter(Boolean).join(" · ");
+              return [
+                `${i + 1}. [${it.kind === "dm" ? "私聊" : it.channelName}] ${it.userName}${flags ? ` · ${flags}` : ""}`,
+                t?.summary ? `   摘要：${t.summary}` : "",
+                `   原文：${it.text.slice(0, 300)}${it.text.length > 300 ? "…" : ""}`,
+                t?.task ? `   建议任务：${t.task}` : "",
+                t?.draft ? `   草稿：${t.draft}` : "",
+                it.permalink ? `   链接：${it.permalink}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n");
             })
             .join("\n"),
         );

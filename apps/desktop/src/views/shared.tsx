@@ -94,6 +94,7 @@ export function InboxList({
             <span className="inbox__time mono">{fmtTime(new Date(Number(it.ts) * 1000).toISOString())}</span>
           </div>
           <div className="inbox__summary">{it.triage?.summary ?? it.text}</div>
+          {it.triage?.summary && it.text && <div className="inbox__text">{it.text.length > 240 ? `${it.text.slice(0, 240)}…` : it.text}</div>}
           <div className="inbox__actions">
             {onOpen && (
               <button className="inbox__go" onClick={() => onOpen(it)}>
