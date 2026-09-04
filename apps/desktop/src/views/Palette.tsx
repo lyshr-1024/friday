@@ -44,7 +44,13 @@ export function Palette() {
       inputRef.current?.focus();
       void refresh();
     });
-    return () => void unlisten.then((f) => f());
+    // 点到面板空白处后焦点会离开输入框，把它拉回来，快捷键才不会失灵。
+    const refocus = () => setTimeout(() => inputRef.current?.focus(), 0);
+    window.addEventListener("mouseup", refocus);
+    return () => {
+      void unlisten.then((f) => f());
+      window.removeEventListener("mouseup", refocus);
+    };
   }, []);
 
   useEffect(() => {

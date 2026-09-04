@@ -139,22 +139,29 @@ export function Chat() {
     if (e.key === "Escape" && busy) abortRef.current?.abort();
   }
 
-  function onGlobalKey(e: React.KeyboardEvent) {
-    if (e.metaKey && e.key === "n") {
-      e.preventDefault();
-      void startNew();
-    } else if (e.metaKey && e.key === "w") {
-      e.preventDefault();
-      void getCurrentWindow().close();
-    } else if (e.metaKey && e.key === ",") {
-      void invoke("open_settings");
+  // 挂在 window 上，焦点不在输入框（比如点了空白处）时快捷键也要生效。
+  useEffect(() => {
+    function onGlobalKey(e: KeyboardEvent) {
+      if (!e.metaKey) return;
+      if (e.key === "n") {
+        e.preventDefault();
+        void startNew();
+      } else if (e.key === "w") {
+        e.preventDefault();
+        void getCurrentWindow().close();
+      } else if (e.key === ",") {
+        e.preventDefault();
+        void invoke("open_settings");
+      }
     }
-  }
+    window.addEventListener("keydown", onGlobalKey);
+    return () => window.removeEventListener("keydown", onGlobalKey);
+  }, []);
 
   const title = messages.find((m) => m.role === "user")?.content.slice(0, 40) ?? "新对话";
 
   return (
-    <div className="chat" onKeyDown={onGlobalKey}>
+    <div className="chat">
       <aside className="chat__side">
         <div className="side__drag" data-tauri-drag-region />
         <button className="side__new" onClick={() => void startNew()}>
