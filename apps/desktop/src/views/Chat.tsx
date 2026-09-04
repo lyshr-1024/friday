@@ -26,6 +26,7 @@ export function Chat() {
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
+  const [skills, setSkills] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -34,7 +35,7 @@ export function Chat() {
 
   useEffect(() => {
     void refreshList();
-    void settings().then((s) => setModel(s.model)).catch(() => {});
+    void settings().then((s) => { setModel(s.model); setSkills(s.skills); }).catch(() => {});
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => void openPayload(p ?? {}));
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     return () => void unlisten.then((f) => f());
@@ -97,6 +98,10 @@ export function Chat() {
         if (ev.type === "delta") {
           answer += ev.text;
           setDraft(answer);
+        }
+        if (ev.type === "reset") {
+          answer = "";
+          setDraft("");
         }
         if (ev.type === "error") push({ role: "assistant", kind: "error", content: ev.message });
       }
@@ -176,6 +181,14 @@ export function Chat() {
         <header className="chat__head" data-tauri-drag-region>
           <span className="chat__title">{title}</span>
           <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
+          <button
+            className={`pill ${skills ? "pill--on" : ""}`}
+            disabled={skills === null}
+            title="Skill 模式：会话里直接调用本机 skill"
+            onClick={() => { const next = !skills; setSkills(next); void updateSettings({ skills: next }); }}
+          >
+            Skill
+          </button>
           <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
         </header>
         <div className="chat__body" ref={bodyRef}>
@@ -183,7 +196,7 @@ export function Chat() {
             <div className="chat__empty">
               <div className="chat__mark">F</div>
               <div className="chat__empty-title">和 Friday 聊点什么</div>
-              <div className="chat__empty-hint">它记得这个对话里说过的话，能查项目 git 状态、改记忆库、记待办，涉及编码会在终端里帮你打开 Claude Code。</div>
+              <div className="chat__empty-hint">它记得这个对话里说过的话，能查项目 git 状态、改记忆库、记待办；开着 Skill 模式时可直接用你本机的 skill，比如「/lark-calendar 明天有什么安排」。涉及编码会在终端里帮你打开 Claude Code。</div>
             </div>
           )}
           {messages.map((m) =>

@@ -8,6 +8,7 @@ import { updateSettings, userSettings } from "../settings.js";
 const patch = z.object({
   terminal: z.enum(["ghostty", "terminal"]).optional(),
   model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
+  skills: z.boolean().optional(),
 });
 
 function respond(): SettingsResponse {

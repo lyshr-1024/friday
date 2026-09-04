@@ -53,7 +53,9 @@ apps/core/src/
 - 会话窗开着时应用切到 `ActivationPolicy::Regular`（有 Dock 图标、可 `⌘Tab`），关掉后回到 Accessory。热键在会话窗可见但未聚焦时优先聚焦它，否则切换启动器。
 - 会话窗刚创建时前端还没就位，`open_chat` 把参数放进 `PendingChat` 状态，前端 mount 后调 `take_pending_chat` 取；已存在的窗口走 `friday://open-conversation` 事件。
 - `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。内置工具全部禁用（`tools: []`），只挂 `agent/tools.ts` 里进程内 MCP 工具：`memory_read` / `memory_write`（记忆库三个 markdown 整篇读写）、`todo_add`，通过 `allowedTools` 自动放行，`maxTurns: 8`。用户在对话里说"给 X 加别名 / 登记项目 / 记决策 / 记待办"由 Claude 自己调工具完成。系统提示注入记忆库全文（`memory/context.ts`），并明确除此之外没有工具，防止它假装执行命令。
-- 设置页有「记忆库」一组，内置编辑器直接改三个 markdown（`GET/PUT /memory/:name`，`⌘S` 保存），保存即生效。不展示过程文案，忙碌时只有细进度条 / 小转圈；简报的待办折叠成「N 条待办 ›」。
+- 设置页有「记忆库」一组，内置编辑器直接改三个 markdown（`GET/PUT /memory/:name`，`⌘S` 保存），保存即生效。
+- **Skill 模式**（`settings.skills`，默认开，设置页与会话窗标题栏 Skill 胶囊可切）：开着时 `/ask` 用 `settingSources: ["user"]` 读用户 `~/.claude` 的 skill，内置工具放行 `Skill / Bash / Read / Glob / Grep`（不开 Edit / Write，改代码仍走 run_claude），`permissionMode: "bypassPermissions"` + `allowDangerouslySkipPermissions`（用户明确要求），`maxTurns: 30`。关着时回到隔离模式只有 Friday 自己的 MCP 工具。skill 文档重，一问可到 $1+，建议 Skill 模式配 Sonnet。
+- 流式输出里 Claude 调工具前的碎话（"我先查一下"）不该留在会话里：`askStream` 在 `tool_use` 块开始时发 `{type:"reset"}`，前端清草稿、core 清 answer，最终只落最后一段文字。不展示过程文案，忙碌时只有细进度条 / 小转圈；简报的待办折叠成「N 条待办 ›」。
 
 ## 浮窗命令约定
 

@@ -13,6 +13,13 @@ describe("settings", () => {
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ hotkey: "Alt+Space", model: "claude-sonnet-5" });
   });
 
+  it("skills 开关可读写，默认开", async () => {
+    const before = (await (await app.request("/settings")).json()) as { skills: boolean };
+    expect(before.skills).toBe(true);
+    const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ skills: false }) });
+    expect(((await res.json()) as { skills: boolean }).skills).toBe(false);
+  });
+
   it("拒绝未知模型", async () => {
     const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-9" }) });
     expect(res.status).toBe(400);

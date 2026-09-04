@@ -27,16 +27,19 @@ export const ask = new Hono().post("/ask", async (c) => {
     if (conv) addMessage(conv, { role: "user", kind: "ask", content: prompt });
     let answer = "";
     let error: string | undefined;
+    const prefs = userSettings();
     const events = askStream(prompt, {
-      systemPrompt: friday(loadMemoryContext()),
+      systemPrompt: friday(loadMemoryContext(), prefs.skills),
       cwd: config.dataDir,
       signal: ac.signal,
+      skills: prefs.skills,
       ...(conv ? { resume: claudeSessionId(conv) } : {}),
-      ...(userSettings().model ? { model: userSettings().model } : {}),
+      ...(prefs.model ? { model: prefs.model } : {}),
     });
     try {
       for await (const ev of events) {
         if (ev.type === "delta") answer += ev.text;
+        if (ev.type === "reset") answer = "";
         if (ev.type === "error") error = ev.message;
         if (ev.type === "session" && conv) setClaudeSessionId(conv, ev.sessionId);
         await stream.writeSSE({ data: JSON.stringify(ev) });

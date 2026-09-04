@@ -87,6 +87,7 @@ export type ModelId = (typeof MODEL_OPTIONS)[number]["id"];
 export interface SettingsResponse {
   terminal: TerminalApp;
   model: ModelId;
+  skills: boolean;
   dataDir: string;
   projects: string[];
 }
@@ -94,6 +95,7 @@ export interface SettingsResponse {
 export interface SettingsUpdate {
   terminal?: TerminalApp;
   model?: ModelId;
+  skills?: boolean;
 }
 
 export type MessageKind = "ask" | "today" | "note" | "run" | "error";

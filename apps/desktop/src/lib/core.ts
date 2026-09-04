@@ -16,6 +16,7 @@ export async function health(): Promise<HealthResponse> {
 
 export type AskEvent =
   | { type: "delta"; text: string }
+  | { type: "reset" }
   | { type: "session"; sessionId: string }
   | { type: "done" }
   | { type: "error"; message: string };

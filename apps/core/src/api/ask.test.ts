@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../agent/claude.js", () => ({
   askStream: async function* () {
     yield { type: "session", sessionId: "s-1" };
+    yield { type: "delta", text: "我先查一下" };
+    yield { type: "reset" };
     yield { type: "delta", text: "你" };
     yield { type: "delta", text: "好" };
     yield { type: "done" };
@@ -34,6 +36,8 @@ describe("POST /ask", () => {
       .map((f) => JSON.parse(f.replace(/^data: /, "")));
     expect(frames).toEqual([
       { type: "session", sessionId: "s-1" },
+      { type: "delta", text: "我先查一下" },
+      { type: "reset" },
       { type: "delta", text: "你" },
       { type: "delta", text: "好" },
       { type: "done" },

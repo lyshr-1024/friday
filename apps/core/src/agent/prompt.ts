@@ -3,7 +3,7 @@ import type { MemoryContext } from "../memory/context.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
-export function friday(memory?: MemoryContext): string {
+export function friday(memory?: MemoryContext, skills = false): string {
   const sections = [
     "你是 Friday，用户的私人助理，常驻在他的 Mac 菜单栏里。用户是前端工程师，主力 TypeScript，也读 Go / Rust 后端代码。",
     "用简体中文回答，直接给结论和要点，不要客套和复述问题。",

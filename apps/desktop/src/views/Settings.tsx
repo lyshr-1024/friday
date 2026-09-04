@@ -80,6 +80,15 @@ export function Settings() {
         <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
           <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>
+        <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write">
+          <button
+            className={`switch ${prefs?.skills ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.skills}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
+          />
+        </Row>
         <Row label="跑 Claude 用的终端" hint="settings.json 的 terminal：ghostty 或 terminal">
           <span className="mono">{prefs ? (prefs.terminal === "ghostty" ? "Ghostty" : "Terminal") : "…"}</span>
         </Row>

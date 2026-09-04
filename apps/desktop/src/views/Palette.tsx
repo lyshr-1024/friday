@@ -140,6 +140,10 @@ export function Palette() {
           answer += ev.text;
           setDraft(answer);
         }
+        if (ev.type === "reset") {
+          answer = "";
+          setDraft("");
+        }
         if (ev.type === "error") done(ctrl, { role: "assistant", kind: "error", content: ev.message });
       }
       if (answer) done(ctrl, { role: "assistant", kind: "ask", content: answer });

@@ -31,6 +31,7 @@ export async function buildHot(): Promise<HotResponse> {
   const { model } = userSettings();
   for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, ...(model ? { model } : {}) })) {
     if (ev.type === "delta") text += ev.text;
+    if (ev.type === "reset") text = "";
   }
   finishSession(sessionId, text);
 
