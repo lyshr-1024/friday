@@ -60,3 +60,15 @@ describe("对话历史", () => {
     expect(claudeSessionId(conv.id)).toBe("s-1");
   });
 });
+
+describe("会话列表", () => {
+  it("只列出有消息的会话，标题取第一条用户消息", async () => {
+    await app.request("/conversation/new", { method: "POST" });
+    const list = (await (await app.request("/conversations")).json()) as Array<{ title: string; messageCount: number }>;
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ title: "hi", messageCount: 2 });
+    const byId = await app.request(`/conversation/${(await (await app.request("/conversation")).json() as { id: string }).id}`);
+    expect(byId.status).toBe(200);
+    expect((await app.request("/conversation/00000000-0000-0000-0000-000000000000")).status).toBe(404);
+  });
+});

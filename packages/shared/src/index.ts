@@ -82,3 +82,11 @@ export interface Conversation {
   updatedAt: string;
   messages: Message[];
 }
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}

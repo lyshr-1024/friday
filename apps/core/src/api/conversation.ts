@@ -1,6 +1,12 @@
 import { Hono } from "hono";
-import { createConversation, currentConversation } from "../memory/conversations.js";
+import { createConversation, currentConversation, getConversation, latestToday, listConversations } from "../memory/conversations.js";
 
 export const conversation = new Hono()
+  .get("/conversations", (c) => c.json(listConversations()))
   .get("/conversation", (c) => c.json(currentConversation()))
-  .post("/conversation/new", (c) => c.json(createConversation(), 201));
+  .get("/conversation/:id", (c) => {
+    const conv = getConversation(c.req.param("id"));
+    return conv ? c.json(conv) : c.json({ error: "会话不存在" }, 404);
+  })
+  .post("/conversation/new", (c) => c.json(createConversation(), 201))
+  .get("/today/latest", (c) => c.json(latestToday() ?? null));
