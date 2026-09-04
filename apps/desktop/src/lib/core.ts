@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
+import type { Conversation, HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -16,6 +16,7 @@ export async function health(): Promise<HealthResponse> {
 
 export type AskEvent =
   | { type: "delta"; text: string }
+  | { type: "session"; sessionId: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -67,8 +68,9 @@ export function parseNote(input: string): string | null {
   return m ? input.slice(m[0].length).trim() || null : null;
 }
 
-export async function today(signal: AbortSignal): Promise<TodayResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/today`, { signal });
+export async function today(signal: AbortSignal, conversationId?: string): Promise<TodayResponse> {
+  const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : "";
+  const res = await fetch(`${await coreBaseUrl()}/today${qs}`, { signal });
   if (!res.ok) throw new Error(`简报失败：core 返回 ${res.status}`);
   return res.json();
 }
@@ -102,4 +104,22 @@ export function parseRun(input: string): RunRequest | null {
   if (!rest) return null;
   const [project, ...task] = rest.split(/\s+/);
   return { project: project!, ...(task.length ? { task: task.join(" ") } : {}) };
+}
+
+export async function conversation(): Promise<Conversation> {
+  const res = await fetch(`${await coreBaseUrl()}/conversation`);
+  if (!res.ok) throw new Error(`conversation ${res.status}`);
+  return res.json();
+}
+
+export async function newConversation(): Promise<Conversation> {
+  const res = await fetch(`${await coreBaseUrl()}/conversation/new`, { method: "POST" });
+  if (!res.ok) throw new Error(`conversation ${res.status}`);
+  return res.json();
+}
+
+export async function openTodos(): Promise<Todo[]> {
+  const res = await fetch(`${await coreBaseUrl()}/todos`);
+  if (!res.ok) throw new Error(`todos ${res.status}`);
+  return res.json();
 }

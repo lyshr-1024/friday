@@ -45,6 +45,14 @@ apps/core/src/
 - 核心 API 只监听 `127.0.0.1`。
 - 操作分级见 `apps/core/src/agent/permission.ts`：只读放行 / 可逆写记日志 / 不可逆必须确认。第一版只有类型定义。
 
+## 浮窗交互
+
+- 呼出后空闲态：输入框 + 引导面板（今日简报 / 记一条待办 / 跑项目 / 打开设置，↑↓ 选、回车执行）+ 一行状态（待办数）。空闲态失焦自动收起。
+- 一旦有输出进入对话流：历史消息在上、输入框在顶，窗口钉住（失焦不收，`Esc` 才收）。历史存 `conversations` / `messages` 表，收起再开仍在；`⌘N` 新开对话。
+- `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。
+- 不展示过程文案，忙碌时只有输入框下一条 2px 进度条；`/today` 只显示简报，待办折叠成「N 条待办 ›」。
+- 隐藏 / 显示：`⌘⇧Space` 切换，托盘图标左键呼出（右键菜单），启动台再点一次也呼出。
+
 ## 浮窗命令约定
 
 - 直接输入 → `POST /ask`（SSE 流式）。
