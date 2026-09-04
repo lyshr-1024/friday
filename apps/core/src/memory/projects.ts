@@ -58,7 +58,7 @@ export function resolveProject(query: string, projects = loadProjects()): Resolu
 
   const asPath = expandHome(query.trim());
   if ((asPath.startsWith("/") || query.startsWith("~")) && existsSync(asPath) && statSync(asPath).isDirectory()) {
-    return { kind: "match", project: { name: basename(asPath), dir: asPath } };
+    return { kind: "match", project: { name: basename(asPath), dir: asPath, aliases: [] } };
   }
   return { kind: "none" };
 }
