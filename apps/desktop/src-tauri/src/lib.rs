@@ -1,4 +1,5 @@
 mod env_path;
+mod notify;
 mod settings;
 mod sidecar;
 mod tray;
@@ -65,6 +66,7 @@ pub fn run() {
             }
             app.manage(window::PendingChat(std::sync::Mutex::new(None)));
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
+            notify::start(app.handle().clone(), sidecar::port());
             if let Some(win) = app.get_webview_window("main") {
                 window_vibrancy::apply_vibrancy(
                     &win,

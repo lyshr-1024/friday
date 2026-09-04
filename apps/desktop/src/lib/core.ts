@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, HealthResponse, HotResponse, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -81,9 +81,10 @@ export async function hot(signal: AbortSignal, refresh = false): Promise<HotResp
   return res.json();
 }
 
-export function commandOf(input: string): "hot" | "todos" | null {
+export function commandOf(input: string): "hot" | "todos" | "inbox" | null {
   if (/^(\/hot|热点)$/.test(input)) return "hot";
   if (/^(\/todos|待办)$/.test(input)) return "todos";
+  if (/^(\/inbox|\/slack|slack|收件|消息)$/i.test(input)) return "inbox";
   return null;
 }
 
@@ -169,4 +170,15 @@ export async function updateSettings(patch: SettingsUpdate): Promise<SettingsRes
   });
   if (!res.ok) throw new Error(`保存设置失败：core 返回 ${res.status}`);
   return res.json();
+}
+
+export async function inbox(sync = false, signal?: AbortSignal): Promise<InboxResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/inbox${sync ? "/sync" : ""}`, { method: sync ? "POST" : "GET", ...(signal ? { signal } : {}) });
+  if (!res.ok) throw new Error(`收件箱获取失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function inboxDone(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/done`, { method: "POST" });
+  if (!res.ok) throw new Error(`标记失败：core 返回 ${res.status}`);
 }

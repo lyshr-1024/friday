@@ -35,6 +35,22 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages (conversation_id, created_at);
 
+CREATE TABLE IF NOT EXISTS inbox (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('dm', 'mention')),
+  channel_id TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  user_name TEXT NOT NULL,
+  text TEXT NOT NULL,
+  permalink TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  triage TEXT,
+  done INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS inbox_open ON inbox (done, ts);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

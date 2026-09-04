@@ -1043,3 +1043,85 @@ kbd {
 .pill:disabled {
   opacity: 0.4;
 }
+
+/* ---------- Slack 收件 ---------- */
+
+.inbox {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.inbox__item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  border-left: 3px solid var(--separator);
+}
+.inbox__item--high {
+  border-left-color: var(--red);
+}
+.inbox__item--low {
+  opacity: 0.75;
+}
+.inbox__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.inbox__who {
+  font-weight: 600;
+}
+.inbox__where {
+  color: var(--label-3);
+}
+.inbox__tag {
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.inbox__time {
+  margin-left: auto;
+  color: var(--label-3);
+}
+.inbox__summary {
+  margin-top: 4px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.inbox__draft {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+}
+.inbox__actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+.inbox__actions a,
+.inbox__actions button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--label-2);
+  text-decoration: none;
+  cursor: default;
+}
+.inbox__actions a:hover,
+.inbox__actions button:hover {
+  color: var(--label);
+  text-decoration: underline;
+}

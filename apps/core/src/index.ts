@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
+import { startScheduler } from "./scheduler/index.js";
 
 initMemory();
 console.log(`memory at ${config.dataDir}`);
@@ -9,6 +10,7 @@ console.log(`memory at ${config.dataDir}`);
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);
 });
+if (process.env.FRIDAY_NO_SCHEDULER !== "1") startScheduler();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => process.exit(0));

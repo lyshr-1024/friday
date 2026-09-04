@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
-import type { HotResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, commandOf, health, hot, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
-import { AssistantBody, HotList, TodoList } from "./shared";
+import type { HotResponse, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
+import { ask, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
-type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse };
+type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse } | { kind: "inbox"; data: InboxResponse };
 
 const GUIDE = [
+  { key: "inbox", label: "Slack 收件", hint: "@ 我的与私聊，已预处理并附回复草稿" },
   { key: "hot", label: "AI 热点", hint: "HN · HF Papers · OpenAI · Simon W · 量子位" },
   { key: "todos", label: "待办", hint: "Meegle + 本地，秒开" },
   { key: "note", label: "记一条待办", hint: "记 买牛奶" },
@@ -120,6 +121,7 @@ export function Palette() {
     const cmd = commandOf(text);
     if (cmd === "hot") return submitHot();
     if (cmd === "todos") return submitTodos();
+    if (cmd === "inbox") return submitInbox();
     const noteText = parseNote(text);
     if (noteText) return submitNote(noteText);
     const runReq = parseRun(text);
@@ -132,6 +134,7 @@ export function Palette() {
   function runGuide(key: (typeof GUIDE)[number]["key"]) {
     if (key === "hot") return void submitHot();
     if (key === "todos") return void submitTodos();
+    if (key === "inbox") return void submitInbox();
     if (key === "settings") return void invoke("open_settings");
     if (key === "chat") return void openChat();
     setPrompt(key === "note" ? "记 " : "跑 ");
@@ -170,6 +173,22 @@ export function Palette() {
     } catch (e) {
       done(ctrl, undefined, e);
     }
+  }
+
+  async function submitInbox(sync = false) {
+    const ctrl = begin();
+    try {
+      const data = await inbox(sync, ctrl.signal);
+      setPanel({ kind: "inbox", data });
+      setBusy(false);
+    } catch (e) {
+      done(ctrl, undefined, e);
+    }
+  }
+
+  function inboxItemDone(id: string) {
+    void inboxDone(id);
+    setPanel((p) => (p?.kind === "inbox" ? { kind: "inbox", data: { ...p.data, items: p.data.items.filter((i) => i.id !== id) } } : p));
   }
 
   async function submitTodos() {
@@ -222,6 +241,9 @@ export function Palette() {
     } else if (e.metaKey && e.key === "r" && panel?.kind === "hot") {
       e.preventDefault();
       void submitHot(true);
+    } else if (e.metaKey && e.key === "r" && panel?.kind === "inbox") {
+      e.preventDefault();
+      void submitInbox(true);
     } else if (!hasResult && !prompt && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       setGuideIndex((i) => (i + (e.key === "ArrowDown" ? 1 : GUIDE.length - 1)) % GUIDE.length);
@@ -282,6 +304,14 @@ export function Palette() {
                 <HotList items={panel.data.items} />
               </>
             )}
+            {panel?.kind === "inbox" && (
+              <>
+                {!panel.data.configured && <div className="err">Slack 还没接入：在终端跑 scripts/slack-auth.sh 写入登录态。</div>}
+                {panel.data.lastError && <div className="err">{panel.data.lastError}</div>}
+                <InboxList items={panel.data.items} onDone={inboxItemDone} />
+                {panel.data.lastSyncAt && <div className="muted mono" style={{ marginTop: 10 }}>上次同步 {new Date(panel.data.lastSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</div>}
+              </>
+            )}
             {panel?.kind === "todos" && (
               <>
                 {Object.keys(panel.data.sourceErrors).length > 0 && (
@@ -297,6 +327,7 @@ export function Palette() {
             <span className="foot__right">
               {result?.kind === "ask" && <span><kbd>↵</kbd> 追问进会话窗</span>}
               {panel?.kind === "hot" && <span><kbd>⌘R</kbd> 重新拉取</span>}
+              {panel?.kind === "inbox" && <span><kbd>⌘R</kbd> 立即同步</span>}
               <span><kbd>esc</kbd> {busy ? "中断" : "清空"}</span>
             </span>
           </footer>

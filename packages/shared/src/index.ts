@@ -131,3 +131,40 @@ export interface MemoryFileResponse {
   path: string;
   content: string;
 }
+
+export type InboxKind = "dm" | "mention";
+export type Urgency = "high" | "normal" | "low";
+
+export interface Triage {
+  needsReply: boolean;
+  urgency: Urgency;
+  summary: string;
+  draft?: string;
+}
+
+export interface InboxItem {
+  id: string;
+  kind: InboxKind;
+  channelId: string;
+  channelName: string;
+  userId: string;
+  userName: string;
+  text: string;
+  permalink: string;
+  ts: string;
+  receivedAt: string;
+  triage?: Triage;
+  done: boolean;
+}
+
+export interface InboxResponse {
+  items: InboxItem[];
+  lastSyncAt: string | null;
+  lastError: string | null;
+  configured: boolean;
+}
+
+export interface Notice {
+  title: string;
+  body: string;
+}

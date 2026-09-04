@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { HotItem, Message, RunResponse, Todo } from "@friday/shared";
+import type { HotItem, InboxItem, Message, RunResponse, Todo } from "@friday/shared";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -68,5 +68,36 @@ export function HotList({ items }: { items: HotItem[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+export function InboxList({ items, onDone }: { items: InboxItem[]; onDone?: (id: string) => void }) {
+  if (!items.length) return <div className="muted">没有待处理的 Slack 消息</div>;
+  return (
+    <ul className="inbox">
+      {items.map((it) => (
+        <li key={it.id} className={`inbox__item inbox__item--${it.triage?.urgency ?? "normal"}`}>
+          <div className="inbox__head">
+            <span className="inbox__who">{it.userName}</span>
+            <span className="inbox__where mono">{it.channelName}</span>
+            {it.triage?.needsReply && <span className="inbox__tag">待回复</span>}
+            <span className="inbox__time mono">{fmtTime(new Date(Number(it.ts) * 1000).toISOString())}</span>
+          </div>
+          <div className="inbox__summary">{it.triage?.summary ?? it.text}</div>
+          {it.triage?.draft && <div className="inbox__draft">草稿：{it.triage.draft}</div>}
+          <div className="inbox__actions">
+            {it.permalink && (
+              <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.permalink); }}>
+                在 Slack 打开
+              </a>
+            )}
+            {it.triage?.draft && (
+              <button onClick={() => void navigator.clipboard.writeText(it.triage!.draft!)}>复制草稿</button>
+            )}
+            {onDone && <button onClick={() => onDone(it.id)}>已处理</button>}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
