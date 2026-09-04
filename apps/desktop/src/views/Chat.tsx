@@ -150,9 +150,11 @@ export function Chat() {
       <aside className="chat__side">
         <div className="side__drag" data-tauri-drag-region />
         <button className="side__new" onClick={() => void startNew()}>
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
           <span>新对话</span>
           <kbd>⌘N</kbd>
         </button>
+        <div className="side__label">最近</div>
         <div className="side__list">
           {list.map((c) => (
             <button key={c.id} className={`side__item ${c.id === convId ? "side__item--active" : ""}`} onClick={() => void load(c.id)}>
@@ -171,31 +173,54 @@ export function Chat() {
         <header className="chat__head" data-tauri-drag-region>
           <span className="chat__title">{title}</span>
           {busy && <span className="chat__busy" />}
+          <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
         </header>
         <div className="chat__body" ref={bodyRef}>
-          {messages.length === 0 && !draft && <div className="chat__empty">和 Friday 聊点什么。它记得这个对话里说过的话。</div>}
+          {messages.length === 0 && !draft && (
+            <div className="chat__empty">
+              <div className="chat__mark">F</div>
+              <div className="chat__empty-title">和 Friday 聊点什么</div>
+              <div className="chat__empty-hint">它记得这个对话里说过的话，能查项目 git 状态、改记忆库、记待办，涉及编码会在终端里帮你打开 Claude Code。</div>
+            </div>
+          )}
           {messages.map((m) =>
             m.role === "user" ? (
-              <div key={m.id} className="bubble bubble--user">{m.content}</div>
+              <div key={m.id} className="turn turn--user">
+                <div className="bubble bubble--user">{m.content}</div>
+              </div>
             ) : (
-              <div key={m.id} className="bubble bubble--assistant">
-                <AssistantBody m={m} />
+              <div key={m.id} className="turn turn--assistant">
+                <div className="avatar">F</div>
+                <div className="bubble bubble--assistant">
+                  <AssistantBody m={m} />
+                </div>
               </div>
             ),
           )}
-          {draft && <div className="bubble bubble--assistant answer">{draft}</div>}
+          {draft && (
+            <div className="turn turn--assistant">
+              <div className="avatar">F</div>
+              <div className="bubble bubble--assistant answer">{draft}</div>
+            </div>
+          )}
         </div>
         <div className="composer">
+          <div className="composer__box">
           <textarea
             ref={inputRef}
             className="composer__input"
             rows={1}
-            placeholder={busy ? "生成中，Esc 中断" : "输入消息，Enter 发送，Shift+Enter 换行"}
+            placeholder={busy ? "生成中，Esc 中断" : "给 Friday 发消息"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             autoFocus
           />
+          <button className="composer__send" disabled={busy || !input.trim()} onClick={() => void send(input)} aria-label="发送">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
+          </button>
+          </div>
+          <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘N 新对话</div>
         </div>
       </main>
 
