@@ -45,13 +45,14 @@ apps/core/src/
 - 核心 API 只监听 `127.0.0.1`。
 - 操作分级见 `apps/core/src/agent/permission.ts`：只读放行 / 可逆写记日志 / 不可逆必须确认。第一版只有类型定义。
 
-## 浮窗交互
+## 两种形态：启动器与会话窗
 
-- 呼出后空闲态：输入框 + 引导面板（今日简报 / 记一条待办 / 跑项目 / 打开设置，↑↓ 选、回车执行）+ 一行状态（待办数）。空闲态失焦自动收起。
-- 一旦有输出进入对话流：历史消息在上、输入框在顶，窗口钉住（失焦不收，`Esc` 才收）。历史存 `conversations` / `messages` 表，收起再开仍在；`⌘N` 新开对话。
-- `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。
-- 不展示过程文案，忙碌时只有输入框下一条 2px 进度条；`/today` 只显示简报，待办折叠成「N 条待办 ›」。
-- 隐藏 / 显示：`⌘⇧Space` 切换，托盘图标左键呼出（右键菜单），启动台再点一次也呼出。
+- **启动器**（窗口 `main`，透明毛玻璃、置顶、失焦即收）只做一次性动作：空闲态是输入框 + 引导面板（今日简报 / 记一条待办 / 跑项目 / 打开会话窗 / 设置，↑↓ 选、回车执行）+ 一行状态；结果就地显示，`Esc` 清空再 `Esc` 收起。每次呼出都是干净的。
+- **会话窗**（窗口 `chat`，普通 macOS 窗口，可拖可缩放，`tauri-plugin-window-state` 记位置）承载多轮对话：左侧会话列表 + 「今天」侧栏开关，中间消息流 + 底部输入框，右侧可展开「今天」面板（最近一次简报与待办，可刷新）。`⌘N` 新对话，`⌘W` 关窗。
+- **进入会话**：启动器里 `⌘↵` 直接带着问题开会话窗；或者一问一答后再输入，视为追问，整段搬进会话窗继续。启动器每次呼出会为本次动作懒建一个 conversation，搬过去时沿用它的 id。
+- 会话窗开着时应用切到 `ActivationPolicy::Regular`（有 Dock 图标、可 `⌘Tab`），关掉后回到 Accessory。热键在会话窗可见但未聚焦时优先聚焦它，否则切换启动器。
+- 会话窗刚创建时前端还没就位，`open_chat` 把参数放进 `PendingChat` 状态，前端 mount 后调 `take_pending_chat` 取；已存在的窗口走 `friday://open-conversation` 事件。
+- `/ask` 多轮靠 Agent SDK `resume` 续同一个 Claude 会话（`persistSession: true`），`conversations.claude_session_id` 记会话 id。不展示过程文案，忙碌时只有细进度条 / 小转圈；简报的待办折叠成「N 条待办 ›」。
 
 ## 浮窗命令约定
 

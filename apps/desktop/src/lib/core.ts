@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, Message, HealthResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodayResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -121,5 +121,23 @@ export async function newConversation(): Promise<Conversation> {
 export async function openTodos(): Promise<Todo[]> {
   const res = await fetch(`${await coreBaseUrl()}/todos`);
   if (!res.ok) throw new Error(`todos ${res.status}`);
+  return res.json();
+}
+
+export async function conversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${await coreBaseUrl()}/conversations`);
+  if (!res.ok) throw new Error(`conversations ${res.status}`);
+  return res.json();
+}
+
+export async function conversationById(id: string): Promise<Conversation> {
+  const res = await fetch(`${await coreBaseUrl()}/conversation/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`conversation ${res.status}`);
+  return res.json();
+}
+
+export async function latestToday(): Promise<Message | null> {
+  const res = await fetch(`${await coreBaseUrl()}/today/latest`);
+  if (!res.ok) throw new Error(`today ${res.status}`);
   return res.json();
 }

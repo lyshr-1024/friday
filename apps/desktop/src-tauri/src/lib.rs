@@ -4,8 +4,6 @@ mod sidecar;
 mod tray;
 mod window;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use tauri::{ActivationPolicy, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -25,12 +23,15 @@ fn hide_main(window: tauri::Window) {
     let _ = window.hide();
 }
 
-/// 浮窗一旦有过交互就"钉住"：失焦不再自动隐藏，只有 Esc 才收起。
-pub struct Pinned(pub AtomicBool);
-
 #[tauri::command]
-fn set_pinned(app: tauri::AppHandle, pinned: bool) {
-    app.state::<Pinned>().0.store(pinned, Ordering::Relaxed);
+fn open_chat(app: tauri::AppHandle, conversation_id: Option<String>, initial_prompt: Option<String>) {
+    window::open_chat(&app, conversation_id, initial_prompt);
+}
+
+/// 会话窗前端就位后调用，取回 open_chat 时暂存的参数（窗口刚建时 emit 会丢）。
+#[tauri::command]
+fn take_pending_chat(app: tauri::AppHandle) -> Option<serde_json::Value> {
+    app.try_state::<window::PendingChat>().and_then(|p| p.0.lock().ok()?.take())
 }
 
 #[tauri::command]
@@ -42,6 +43,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| window::show_main(app)))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_window_state::Builder::new().with_denylist(&["main", "settings"]).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(
@@ -53,7 +55,7 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![core_base_url, current_hotkey, hide_main, open_settings, set_pinned])
+        .invoke_handler(tauri::generate_handler![core_base_url, current_hotkey, hide_main, open_settings, open_chat, take_pending_chat])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
             let hotkey = settings::hotkey();
@@ -61,7 +63,7 @@ pub fn run() {
             if let Err(e) = app.global_shortcut().register(hotkey.as_str()) {
                 eprintln!("[friday] 注册热键 {hotkey} 失败：{e}");
             }
-            app.manage(Pinned(AtomicBool::new(false)));
+            app.manage(window::PendingChat(std::sync::Mutex::new(None)));
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
             if let Some(win) = app.get_webview_window("main") {
                 window_vibrancy::apply_vibrancy(
@@ -73,17 +75,14 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let WindowEvent::Focused(false) = event {
-                    let pinned = window.state::<Pinned>().0.load(Ordering::Relaxed);
-                    if !pinned {
-                        if let Some(win) = window.get_webview_window("main") {
-                            window::hide_if_unfocused(win);
-                        }
-                    }
+        .on_window_event(|window, event| match (window.label(), event) {
+            ("main", WindowEvent::Focused(false)) => {
+                if let Some(win) = window.get_webview_window("main") {
+                    window::hide_if_unfocused(win);
                 }
             }
+            ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

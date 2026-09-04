@@ -2,13 +2,15 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "主浮窗与设置页的权限",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "chat"],
   "permissions": [
     "core:default",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-set-size",
+    "core:window:allow-close",
+    "core:event:allow-emit",
     "autostart:default",
     "opener:default"
   ]
