@@ -107,3 +107,9 @@ export function listConversations(limit = 50): ConversationSummary[] {
   return rows.map((r) => ({ id: r.id, title: (r.title ?? "新对话").slice(0, 60), messageCount: r.count, createdAt: r.created_at, updatedAt: r.updated_at }));
 }
 
+
+export function deleteConversation(id: string): boolean {
+  const d = db();
+  d.prepare("DELETE FROM messages WHERE conversation_id = ?").run(id);
+  return d.prepare("DELETE FROM conversations WHERE id = ?").run(id).changes > 0;
+}

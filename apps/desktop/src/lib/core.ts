@@ -192,3 +192,8 @@ export async function inboxHandle(id: string, project?: string): Promise<RunResp
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }
+
+export async function deleteConversation(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/conversation/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`删除失败：core 返回 ${res.status}`);
+}

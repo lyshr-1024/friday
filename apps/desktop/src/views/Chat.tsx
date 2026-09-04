@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday/shared";
-import { ask, conversationById, conversations, hot, newConversation, settings, updateSettings } from "../lib/core";
+import { ask, conversationById, conversations, deleteConversation, hot, newConversation, settings, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, HotList, fmtTime } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -69,6 +69,16 @@ export function Chat() {
     const conv = await conversationById(id);
     setConvId(conv.id);
     setMessages(conv.messages);
+  }
+
+  async function remove(id: string) {
+    await deleteConversation(id);
+    const rest = list.filter((c) => c.id !== id);
+    setList(rest);
+    if (id === convId) {
+      if (rest[0]) await load(rest[0].id);
+      else await startNew();
+    }
   }
 
   async function startNew() {
@@ -175,10 +185,20 @@ export function Chat() {
         <div className="side__label">最近</div>
         <div className="side__list">
           {list.map((c) => (
-            <button key={c.id} className={`side__item ${c.id === convId ? "side__item--active" : ""}`} onClick={() => void load(c.id)}>
+            <div key={c.id} className={`side__item ${c.id === convId ? "side__item--active" : ""}`} onClick={() => void load(c.id)}>
               <span className="side__title">{c.title}</span>
               <span className="side__time">{fmtTime(c.updatedAt)}</span>
-            </button>
+              <button
+                className="side__del"
+                title="删除会话"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void remove(c.id);
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
         <button className={`side__today ${showHot ? "side__today--on" : ""}`} onClick={toggleHot}>

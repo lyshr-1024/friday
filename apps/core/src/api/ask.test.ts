@@ -76,3 +76,15 @@ describe("会话列表", () => {
     expect((await app.request("/conversation/00000000-0000-0000-0000-000000000000")).status).toBe(404);
   });
 });
+
+describe("删除会话", () => {
+  it("删掉会话及其消息，列表里消失", async () => {
+    const before = (await (await app.request("/conversations")).json()) as Array<{ id: string }>;
+    expect(before.length).toBeGreaterThan(0);
+    const res = await app.request(`/conversation/${before[0]!.id}`, { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const after = (await (await app.request("/conversations")).json()) as Array<{ id: string }>;
+    expect(after.some((c) => c.id === before[0]!.id)).toBe(false);
+    expect((await app.request(`/conversation/${before[0]!.id}`)).status).toBe(404);
+  });
+});
