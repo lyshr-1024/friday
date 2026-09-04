@@ -96,3 +96,17 @@ describe("后台生成任务", () => {
     expect(cancel.status).toBe(404);
   });
 });
+
+describe("重命名会话", () => {
+  it("自定义标题优先于第一条消息，清空则回退", async () => {
+    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
+    await (await app.request("/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello", conversationId: conv.id }) })).text();
+    const patch = await app.request(`/conversation/${conv.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "旅行计划" }) });
+    expect(patch.status).toBe(200);
+    const list = (await (await app.request("/conversations")).json()) as Array<{ id: string; title: string }>;
+    expect(list.find((c) => c.id === conv.id)?.title).toBe("旅行计划");
+    await app.request(`/conversation/${conv.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "  " }) });
+    const again = (await (await app.request("/conversations")).json()) as Array<{ id: string; title: string }>;
+    expect(again.find((c) => c.id === conv.id)?.title).toBe("hello");
+  });
+});

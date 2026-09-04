@@ -14,7 +14,7 @@ import { memory } from "./memory.js";
 const ALLOWED_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "http://localhost:1420"];
 
 export const app = new Hono()
-  .use(cors({ origin: ALLOWED_ORIGINS, allowMethods: ["GET", "POST", "PUT", "DELETE"], allowHeaders: ["content-type", "accept"] }))
+  .use(cors({ origin: ALLOWED_ORIGINS, allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowHeaders: ["content-type", "accept"] }))
   .route("/", health)
   .route("/", ask)
   .route("/", note)

@@ -20,7 +20,14 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
   instance = new Database(join(dir, "todos.db"));
   instance.exec("PRAGMA journal_mode = WAL");
   instance.exec(SCHEMA);
+  migrate(instance);
   return instance;
+}
+
+// 增量列：CREATE TABLE IF NOT EXISTS 不会给老库加列，这里按需补。
+function migrate(d: DatabaseSync): void {
+  const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
 }
 
 export function db(): DatabaseSync {

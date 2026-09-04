@@ -218,3 +218,12 @@ export async function deleteConversation(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/conversation/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`删除失败：core 返回 ${res.status}`);
 }
+
+export async function renameConversation(id: string, title: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/conversation/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`重命名失败：core 返回 ${res.status}`);
+}

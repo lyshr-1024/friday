@@ -4,6 +4,7 @@ import { db } from "./db.js";
 
 interface ConvRow {
   id: string;
+  title: string | null;
   claude_session_id: string | null;
   created_at: string;
   updated_at: string;
@@ -42,7 +43,7 @@ export function createConversation(): Conversation {
 export function currentConversation(): Conversation {
   const row = db().prepare("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT 1").get() as unknown as ConvRow | undefined;
   if (!row) return createConversation();
-  return { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at, messages: listMessages(row.id) };
+  return { id: row.id, ...(row.title ? { title: row.title } : {}), createdAt: row.created_at, updatedAt: row.updated_at, messages: listMessages(row.id) };
 }
 
 export function conversationExists(id: string): boolean {
@@ -89,7 +90,7 @@ export function addMessage(
 export function getConversation(id: string): Conversation | undefined {
   const row = db().prepare("SELECT * FROM conversations WHERE id = ?").get(id) as unknown as ConvRow | undefined;
   if (!row) return undefined;
-  return { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at, messages: listMessages(row.id) };
+  return { id: row.id, ...(row.title ? { title: row.title } : {}), createdAt: row.created_at, updatedAt: row.updated_at, messages: listMessages(row.id) };
 }
 
 // 只列有消息的会话，空会话（刚建未用）不显示。标题取第一条用户消息。
@@ -97,7 +98,7 @@ export function listConversations(limit = 50): ConversationSummary[] {
   const rows = db()
     .prepare(
       `SELECT c.id, c.created_at, c.updated_at,
-              (SELECT content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.created_at, m.rowid LIMIT 1) AS title,
+              COALESCE(c.title, (SELECT content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.created_at, m.rowid LIMIT 1)) AS title,
               (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS count
        FROM conversations c
        WHERE count > 0
@@ -112,4 +113,8 @@ export function deleteConversation(id: string): boolean {
   const d = db();
   d.prepare("DELETE FROM messages WHERE conversation_id = ?").run(id);
   return d.prepare("DELETE FROM conversations WHERE id = ?").run(id).changes > 0;
+}
+
+export function renameConversation(id: string, title: string): boolean {
+  return db().prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title.trim() || null, id).changes > 0;
 }

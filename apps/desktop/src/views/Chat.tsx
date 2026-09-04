@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, newConversation, settings, updateSettings } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, newConversation, renameConversation, settings, updateSettings } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, HotList, fmtTime } from "./shared";
@@ -28,6 +28,8 @@ export function Chat() {
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
   const [skills, setSkills] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -120,6 +122,29 @@ export function Chat() {
     void refreshList();
   }
 
+  async function rename(id: string, title: string) {
+    await renameConversation(id, title);
+    setEditing(null);
+    void refreshList();
+  }
+
+  function openMenu(e: React.MouseEvent, id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ id, x: e.clientX, y: e.clientY });
+  }
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [menu]);
+
   async function remove(id: string) {
     await deleteConversation(id);
     const rest = list.filter((c) => c.id !== id);
@@ -202,7 +227,7 @@ export function Chat() {
     return () => window.removeEventListener("keydown", onGlobalKey);
   }, []);
 
-  const title = messages.find((m) => m.role === "user")?.content.slice(0, 40) ?? "新对话";
+  const title = list.find((c) => c.id === convId)?.title ?? messages.find((m) => m.role === "user")?.content.slice(0, 40) ?? "新对话";
 
   return (
     <div className="chat">
@@ -216,21 +241,35 @@ export function Chat() {
         <div className="side__label">最近</div>
         <div className="side__list">
           {list.map((c) => (
-            <div key={c.id} className={`side__item ${c.id === convId ? "side__item--active" : ""}`} onClick={() => void load(c.id)}>
-              <span className="side__title">
-                {c.running && <span className="side__spin" aria-label="生成中" />}
-                {c.title}
-              </span>
+            <div
+              key={c.id}
+              className={`side__item ${c.id === convId ? "side__item--active" : ""}`}
+              onClick={() => void load(c.id)}
+              onContextMenu={(e) => openMenu(e, c.id)}
+            >
+              {editing?.id === c.id ? (
+                <input
+                  className="side__edit"
+                  autoFocus
+                  value={editing.value}
+                  onChange={(e) => setEditing({ id: c.id, value: e.target.value })}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={() => void rename(c.id, editing.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") void rename(c.id, editing.value);
+                    if (e.key === "Escape") setEditing(null);
+                  }}
+                />
+              ) : (
+                <span className="side__title">
+                  {c.running && <span className="side__spin" aria-label="生成中" />}
+                  {c.title}
+                </span>
+              )}
               <span className="side__time">{fmtTime(c.updatedAt)}</span>
-              <button
-                className="side__del"
-                title="删除会话"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void remove(c.id);
-                }}
-              >
-                ×
+              <button className="side__more" title="更多" onClick={(e) => openMenu(e, c.id)}>
+                ···
               </button>
             </div>
           ))}
@@ -240,6 +279,29 @@ export function Chat() {
           {hotData && <span className="side__count">{hotData.items.length}</span>}
         </button>
       </aside>
+
+      {menu && (
+        <div className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => {
+              const c = list.find((x) => x.id === menu.id);
+              setEditing({ id: menu.id, value: c?.title ?? "" });
+              setMenu(null);
+            }}
+          >
+            重命名
+          </button>
+          <button
+            className="ctx__danger"
+            onClick={() => {
+              void remove(menu.id);
+              setMenu(null);
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
 
       <main className="chat__main">
         <header className="chat__head" data-tauri-drag-region>
