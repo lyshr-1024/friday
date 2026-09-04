@@ -74,11 +74,12 @@ export function HotList({ items }: { items: HotItem[] }) {
 export function InboxList({
   items,
   onDone,
-  onHandle,
+  onOpen,
 }: {
   items: InboxItem[];
   onDone?: (id: string) => void;
-  onHandle?: (item: InboxItem) => void;
+  /** 在会话窗里带着这条消息开新对话 */
+  onOpen?: (item: InboxItem) => void;
 }) {
   if (!items.length) return <div className="muted">没有待处理的 Slack 消息</div>;
   return (
@@ -93,21 +94,16 @@ export function InboxList({
             <span className="inbox__time mono">{fmtTime(new Date(Number(it.ts) * 1000).toISOString())}</span>
           </div>
           <div className="inbox__summary">{it.triage?.summary ?? it.text}</div>
-          {it.triage?.draft && <div className="inbox__draft">草稿：{it.triage.draft}</div>}
-          {it.triage?.task && <div className="inbox__draft">任务：{it.triage.task}</div>}
           <div className="inbox__actions">
+            {onOpen && (
+              <button className="inbox__go" onClick={() => onOpen(it)}>
+                在会话里处理
+              </button>
+            )}
             {(it.appLink || it.permalink) && (
               <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.appLink ?? it.permalink); }}>
                 在 Slack 打开
               </a>
-            )}
-            {it.triage?.draft && (
-              <button onClick={() => void navigator.clipboard.writeText(it.triage!.draft!)}>复制草稿</button>
-            )}
-            {onHandle && it.triage?.project && (
-              <button className="inbox__go" onClick={() => onHandle(it)}>
-                去处理 → {it.triage.project}
-              </button>
             )}
             {onDone && <button onClick={() => onDone(it.id)}>已处理</button>}
           </div>

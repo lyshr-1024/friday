@@ -28,7 +28,7 @@ apps/core/src/
 
 第一版（已完成）：热键呼出浮窗、`POST /ask`、`POST /note`、待办同步 `GET /todos?sync=1`、记忆库初始化、开机自启。原「今日简报」`GET /today`（Claude 总结待办）已按用户要求移除，换成 `GET /hot`（AI 热点）。
 第二版（已完成）：`POST /run` 在 Ghostty 打开项目目录跑交互式 Claude Code；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
-第三版（已完成）：Slack 收件——`connectors/slack.ts` 用浏览器登录态（钥匙串 `friday-slack` 的 `token` xoxc + `cookie` xoxd，`scripts/slack-auth.sh` 写入）调 Web API：`search.messages` 查 `<@me>`、`client.counts` 找有未读的私聊再 `conversations.history`；`scheduler/index.ts` 10:00–20:00（Asia/Shanghai）每 3 分钟、其余 15 分钟拉一次；新消息交 `agent/triage.ts` 用 Sonnet 5 批量判断是否需回复 / 紧急度 / 摘要 / 回复草稿，落 `inbox` 表；只有需回复且在活跃时段才进通知队列，壳 `notify.rs` 每 20 秒 `GET /notifications` 取走弹系统通知。Friday 只读 Slack，不发消息。启动器「Slack 收件」面板 / `⌘R` 立即同步。预处理同时按项目注册表（名字、别名、`- 频道：#a, #b`）推导关联项目 `triage.project`，编码类消息给一句 `triage.task`；收件条目「去处理」→ `POST /inbox/:id/handle` 在终端打开该项目跑 Claude Code，任务带摘要、原文、链接。会话里有 `slack_inbox` 工具，"处理拂晓那条"走 slack_inbox → run_claude。不自动处理，必须用户点。
+第三版（已完成）：Slack 收件——`connectors/slack.ts` 用浏览器登录态（钥匙串 `friday-slack` 的 `token` xoxc + `cookie` xoxd，`scripts/slack-auth.sh` 写入）调 Web API：`search.messages` 查 `<@me>`、`client.counts` 找有未读的私聊再 `conversations.history`；`scheduler/index.ts` 10:00–20:00（Asia/Shanghai）每 3 分钟、其余 15 分钟拉一次；新消息交 `agent/triage.ts` 用 Sonnet 5 批量判断是否需回复 / 紧急度 / 摘要 / 回复草稿，落 `inbox` 表；只有需回复且在活跃时段才进通知队列，壳 `notify.rs` 每 20 秒 `GET /notifications` 取走弹系统通知。Friday 只读 Slack，不发消息。启动器「Slack 收件」面板 / `⌘R` 立即同步。预处理同时按项目注册表（名字、别名、`- 频道：#a, #b`）推导关联项目 `triage.project`，编码类消息给一句 `triage.task`；收件条目「在会话里处理」→ 带原文、链接、预处理结果开一个新对话（`open_chat` + initialPrompt），Friday 在会话里先给判断（项目、怎么回、要不要动代码、用哪个 skill），用户确认后再 run_claude / skill / 给草稿；操作区不直接动手。`POST /inbox/:id/handle` 仍保留给程序化调用。会话里有 `slack_inbox` 工具，"处理拂晓那条"同一流程。
 未做：项目智能匹配、自动更新、内嵌 node、Slack 发送。结构预留位置即可，不要提前实现。
 
 ## macOS 坑

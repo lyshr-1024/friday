@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, commandOf, health, hot, inbox, inboxDone, inboxHandle, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import { ask, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
 import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
@@ -186,20 +186,19 @@ export function Palette() {
     }
   }
 
-  async function inboxItemHandle(item: InboxItem) {
-    try {
-      const res = await inboxHandle(item.id);
-      if (res.status === "launched") {
-        setResult({ id: "r", role: "assistant", kind: "run", content: `已在 ${res.terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}，任务已带过去`, createdAt: "" });
-        setPanel(null);
-      } else {
-        setResult({ id: "r", role: "assistant", kind: "run", content: `「${item.triage?.project}」匹配到多个项目，请在会话窗里指定`, payload: res, createdAt: "" });
-        setPanel(null);
-      }
-    } catch (e) {
-      setResult({ id: "r", role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e), createdAt: "" });
-      setPanel(null);
-    }
+  // 把这条 Slack 消息连同预处理结果带进会话窗开新对话，项目、skill、是否开终端都在会话里商量。
+  async function inboxItemOpen(item: InboxItem) {
+    const t = item.triage;
+    const lines = [
+      `帮我处理这条 Slack 消息。`,
+      `来自 ${item.userName}（${item.channelName}）：`,
+      item.text,
+      item.permalink ? `链接：${item.permalink}` : "",
+      t ? `你之前的预处理：${t.summary}${t.needsReply ? "，需要回复" : ""}${t.project ? `，可能关联项目 ${t.project}` : ""}${t.task ? `，建议任务：${t.task}` : ""}${t.draft ? `，回复草稿：${t.draft}` : ""}` : "",
+      `先告诉我你的判断：属于哪个项目、该怎么回、要不要动代码或用哪个 skill；等我确认再动手。`,
+    ].filter(Boolean);
+    await invoke("open_chat", { conversationId: null, initialPrompt: lines.join("\n") });
+    reset();
   }
 
   function inboxItemDone(id: string) {
@@ -324,7 +323,7 @@ export function Palette() {
               <>
                 {!panel.data.configured && <div className="err">Slack 还没接入：在终端跑 scripts/slack-auth.sh 写入登录态。</div>}
                 {panel.data.lastError && <div className="err">{panel.data.lastError}</div>}
-                <InboxList items={panel.data.items} onDone={inboxItemDone} onHandle={(it) => void inboxItemHandle(it)} />
+                <InboxList items={panel.data.items} onDone={inboxItemDone} onOpen={(it) => void inboxItemOpen(it)} />
                 {panel.data.lastSyncAt && <div className="muted mono" style={{ marginTop: 10 }}>上次同步 {new Date(panel.data.lastSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</div>}
               </>
             )}
