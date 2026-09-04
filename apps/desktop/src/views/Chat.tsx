@@ -6,6 +6,7 @@ import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday
 import { ask, conversationById, conversations, hot, newConversation, settings, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, HotList, fmtTime } from "./shared";
+import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
   conversationId?: string | null;
@@ -31,6 +32,7 @@ export function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const convRef = useRef<string | null>(null);
+  const ime = useImeGuard();
   convRef.current = convId;
 
   useEffect(() => {
@@ -132,7 +134,8 @@ export function Chat() {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      if (ime.isImeEnter(e)) return;
       e.preventDefault();
       void send(input);
     }
@@ -245,6 +248,7 @@ export function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            {...ime.handlers}
             autoFocus
           />
           <button className="composer__send" disabled={busy || !input.trim()} onClick={() => void send(input)} aria-label="发送">

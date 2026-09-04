@@ -5,6 +5,7 @@ import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, Message, TodosSyncResponse } from "@friday/shared";
 import { ask, commandOf, health, hot, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
 import { AssistantBody, HotList, TodoList } from "./shared";
+import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
 type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse };
@@ -34,6 +35,7 @@ export function Palette() {
   const abortRef = useRef<AbortController | null>(null);
   // 本次呼出期间的临时会话：追问时整段搬进会话窗继续。
   const convRef = useRef<string | null>(null);
+  const ime = useImeGuard();
 
   const hasResult = Boolean(result || panel || draft || busy);
 
@@ -212,7 +214,8 @@ export function Palette() {
       if (busy) abortRef.current?.abort();
       else if (hasResult) reset();
       else void invoke("hide_main");
-    } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+    } else if (e.key === "Enter") {
+      if (ime.isImeEnter(e)) return;
       void submit(e.metaKey);
     } else if (e.metaKey && e.key === ",") {
       void invoke("open_settings");
@@ -234,6 +237,7 @@ export function Palette() {
           placeholder={result?.kind === "ask" ? "继续问会打开会话窗…" : "问点什么…"}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          {...ime.handlers}
           autoFocus
           spellCheck={false}
         />
