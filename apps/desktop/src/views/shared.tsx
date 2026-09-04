@@ -96,8 +96,8 @@ export function InboxList({
           {it.triage?.draft && <div className="inbox__draft">草稿：{it.triage.draft}</div>}
           {it.triage?.task && <div className="inbox__draft">任务：{it.triage.task}</div>}
           <div className="inbox__actions">
-            {it.permalink && (
-              <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.permalink); }}>
+            {(it.appLink || it.permalink) && (
+              <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.appLink ?? it.permalink); }}>
                 在 Slack 打开
               </a>
             )}

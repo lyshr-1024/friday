@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addInboxItems, listInbox, markInboxDone, setTriage } from "./inbox.js";
+import { addInboxItems, listInbox, markInboxDone, setSlackTeam, setTriage } from "./inbox.js";
 import { initMemory } from "./db.js";
 
 const base = { kind: "dm" as const, channelId: "D1", channelName: "与 A 的私聊", userId: "U9", userName: "A", text: "hi", permalink: "https://s/1" };
@@ -15,5 +15,13 @@ describe("收件箱", () => {
     expect(listInbox()[0]!.triage?.urgency).toBe("high");
     expect(markInboxDone("D1:1")).toBe(true);
     expect(listInbox().map((i) => i.id)).toEqual(["D1:2"]);
+  });
+});
+
+describe("Slack 深链", () => {
+  it("知道团队 ID 后每条消息带 slack:// 链接", () => {
+    setSlackTeam("T123");
+    const item = listInbox(true).find((i) => i.id === "D1:2")!;
+    expect(item.appLink).toBe("slack://channel?team=T123&id=D1&message=2");
   });
 });

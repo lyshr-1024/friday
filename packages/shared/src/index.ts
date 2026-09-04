@@ -155,6 +155,8 @@ export interface InboxItem {
   userName: string;
   text: string;
   permalink: string;
+  /** slack:// 深链，有 Slack 桌面端时优先用它 */
+  appLink?: string;
   ts: string;
   receivedAt: string;
   triage?: Triage;

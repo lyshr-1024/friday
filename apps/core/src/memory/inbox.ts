@@ -16,6 +16,17 @@ interface Row {
   done: number;
 }
 
+const TEAM_KEY = "slack:team";
+
+export function setSlackTeam(teamId: string): void {
+  setCursor(TEAM_KEY, teamId);
+}
+
+const appLink = (r: Row): string | undefined => {
+  const team = getCursor(TEAM_KEY);
+  return team ? `slack://channel?team=${team}&id=${r.channel_id}&message=${r.ts}` : undefined;
+};
+
 const toItem = (r: Row): InboxItem => ({
   id: r.id,
   kind: r.kind,
@@ -25,6 +36,7 @@ const toItem = (r: Row): InboxItem => ({
   userName: r.user_name,
   text: r.text,
   permalink: r.permalink,
+  ...(appLink(r) ? { appLink: appLink(r)! } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
   ...(r.triage ? { triage: JSON.parse(r.triage) as Triage } : {}),
