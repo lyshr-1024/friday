@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, HealthResponse, HotResponse, MemoryFile, MemoryFileResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, HealthResponse, HotResponse, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -157,5 +157,15 @@ export async function writeMemory(name: MemoryFile, content: string): Promise<Me
     body: JSON.stringify({ content }),
   });
   if (!res.ok) throw new Error(`保存失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function updateSettings(patch: SettingsUpdate): Promise<SettingsResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`保存设置失败：core 返回 ${res.status}`);
   return res.json();
 }

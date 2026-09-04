@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import type { MemoryFile, SettingsResponse } from "@friday/shared";
 import { MEMORY_FILES, MemoryEditor } from "./MemoryEditor";
-import { coreBaseUrl, health, settings } from "../lib/core";
+import { coreBaseUrl, health, settings, updateSettings } from "../lib/core";
+import { ModelSelect } from "./ModelSelect";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
@@ -75,6 +76,9 @@ export function Settings() {
         </Row>
         <Row label="呼出热键" hint="改 ~/Library/Application Support/Friday/settings.json 的 hotkey 后重启生效">
           <kbd>{formatHotkey(hotkey)}</kbd>
+        </Row>
+        <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
+          <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>
         <Row label="跑 Claude 用的终端" hint="settings.json 的 terminal：ghostty 或 terminal">
           <span className="mono">{prefs ? (prefs.terminal === "ghostty" ? "Ghostty" : "Terminal") : "…"}</span>

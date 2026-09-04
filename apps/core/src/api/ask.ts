@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
 import { addMessage, claudeSessionId, conversationExists, setClaudeSessionId } from "../memory/conversations.js";
 import { finishSession, startSession } from "../memory/sessions.js";
+import { userSettings } from "../settings.js";
 
 const body = z.object({
   prompt: z.string().trim().min(1).max(8000),
@@ -31,6 +32,7 @@ export const ask = new Hono().post("/ask", async (c) => {
       cwd: config.dataDir,
       signal: ac.signal,
       ...(conv ? { resume: claudeSessionId(conv) } : {}),
+      ...(userSettings().model ? { model: userSettings().model } : {}),
     });
     try {
       for await (const ev of events) {

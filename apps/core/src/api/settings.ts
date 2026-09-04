@@ -1,10 +1,28 @@
 import { Hono } from "hono";
-import type { SettingsResponse } from "@friday/shared";
+import { z } from "zod";
+import { MODEL_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
-import { userSettings } from "../settings.js";
+import { updateSettings, userSettings } from "../settings.js";
 
-export const settings = new Hono().get("/settings", (c) => {
-  const res: SettingsResponse = { ...userSettings(), dataDir: config.dataDir, projects: loadProjects().map((p) => (p.aliases.length ? `${p.name}（${p.aliases.join(" / ")}）` : p.name)) };
-  return c.json(res);
+const patch = z.object({
+  terminal: z.enum(["ghostty", "terminal"]).optional(),
+  model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
 });
+
+function respond(): SettingsResponse {
+  return {
+    ...userSettings(),
+    dataDir: config.dataDir,
+    projects: loadProjects().map((p) => (p.aliases.length ? `${p.name}（${p.aliases.join(" / ")}）` : p.name)),
+  };
+}
+
+export const settings = new Hono()
+  .get("/settings", (c) => c.json(respond()))
+  .put("/settings", async (c) => {
+    const parsed = patch.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "无效的设置项" }, 400);
+    updateSettings(parsed.data as Parameters<typeof updateSettings>[0]);
+    return c.json(respond());
+  });

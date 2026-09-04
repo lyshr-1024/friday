@@ -5,6 +5,7 @@ import { hotBrief } from "../agent/prompt.js";
 import { config } from "../config.js";
 import { SOURCES, fresh, type RawItem } from "../connectors/news.js";
 import { finishSession, startSession } from "../memory/sessions.js";
+import { userSettings } from "../settings.js";
 
 const CACHE_MS = 60 * 60 * 1000;
 let cache: HotResponse | undefined;
@@ -27,7 +28,8 @@ export async function buildHot(): Promise<HotResponse> {
   const { system, prompt } = hotBrief(raw);
   const sessionId = startSession("hot", prompt);
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir })) {
+  const { model } = userSettings();
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, ...(model ? { model } : {}) })) {
     if (ev.type === "delta") text += ev.text;
   }
   finishSession(sessionId, text);

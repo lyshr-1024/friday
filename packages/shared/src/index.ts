@@ -74,10 +74,26 @@ export type RunResponse =
   | { status: "launched"; project: string; dir: string; terminal: TerminalApp; task?: string }
   | { status: "ambiguous"; candidates: Array<{ name: string; dir: string }> };
 
+export const MODEL_OPTIONS = [
+  { id: "", label: "跟随 Claude Code 默认" },
+  { id: "claude-fable-5-1", label: "Fable 5.1" },
+  { id: "claude-opus-5", label: "Opus 5" },
+  { id: "claude-sonnet-5", label: "Sonnet 5" },
+  { id: "claude-haiku-4-5", label: "Haiku 4.5" },
+] as const;
+
+export type ModelId = (typeof MODEL_OPTIONS)[number]["id"];
+
 export interface SettingsResponse {
   terminal: TerminalApp;
+  model: ModelId;
   dataDir: string;
   projects: string[];
+}
+
+export interface SettingsUpdate {
+  terminal?: TerminalApp;
+  model?: ModelId;
 }
 
 export type MessageKind = "ask" | "today" | "note" | "run" | "error";

@@ -12,6 +12,7 @@ export interface AskOptions {
   cwd: string;
   signal?: AbortSignal;
   resume?: string;
+  model?: string;
 }
 
 export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerator<AskEvent> {
@@ -32,6 +33,7 @@ export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerat
       settingSources: [],
       abortController,
       ...(opts.resume ? { resume: opts.resume } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
       stderr: (line) => console.error(`[claude] ${line.trimEnd()}`),
     },
   });
@@ -50,6 +52,7 @@ export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerat
     } else if (msg.type === "assistant" && msg.error) {
       yield { type: "error", message: `Claude 返回错误：${msg.error}` };
     } else if (msg.type === "result") {
+      console.log(`[claude] model=${Object.keys(msg.modelUsage).join(",") || "?"} cost=$${msg.total_cost_usd.toFixed(4)} turns=${msg.num_turns}`);
       if (msg.subtype !== "success") {
         yield { type: "error", message: msg.errors.join("; ") || msg.subtype };
       } else if (msg.is_error) {

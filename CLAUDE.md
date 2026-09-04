@@ -68,10 +68,10 @@ apps/core/src/
 ## settings.json（记忆库目录下，可选）
 
 ```json
-{ "hotkey": "CmdOrCtrl+Shift+Space", "terminal": "ghostty" }
+{ "hotkey": "CmdOrCtrl+Shift+Space", "terminal": "ghostty", "model": "claude-sonnet-5" }
 ```
 
-壳只读 `hotkey`，core 只读 `terminal`（`ghostty` | `terminal`）。
+壳只读 `hotkey`；core 读写 `terminal`（`ghostty` | `terminal`）和 `model`（空串 = 跟随 Claude Code 默认，候选见 `packages/shared` 的 `MODEL_OPTIONS`），`PUT /settings` 写回时保留其他键。模型对 `/ask` 与 `/hot` 全局生效，设置页和会话窗标题栏都能切。
 
 ## 打包
 

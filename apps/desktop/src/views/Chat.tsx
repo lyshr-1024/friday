@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, Message } from "@friday/shared";
-import { ask, conversationById, conversations, hot, newConversation } from "../lib/core";
+import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday/shared";
+import { ask, conversationById, conversations, hot, newConversation, settings, updateSettings } from "../lib/core";
+import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, HotList, fmtTime } from "./shared";
 
 interface OpenPayload {
@@ -24,6 +25,7 @@ export function Chat() {
   const [showHot, setShowHot] = useState(false);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
+  const [model, setModel] = useState<ModelId | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -32,6 +34,7 @@ export function Chat() {
 
   useEffect(() => {
     void refreshList();
+    void settings().then((s) => setModel(s.model)).catch(() => {});
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => void openPayload(p ?? {}));
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     return () => void unlisten.then((f) => f());
@@ -174,6 +177,7 @@ export function Chat() {
           <span className="chat__title">{title}</span>
           {busy && <span className="chat__busy" />}
           <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
+          <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
         </header>
         <div className="chat__body" ref={bodyRef}>
           {messages.length === 0 && !draft && (
