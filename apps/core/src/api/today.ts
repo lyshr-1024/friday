@@ -4,6 +4,7 @@ import { askStream } from "../agent/claude.js";
 import { todayBrief } from "../agent/prompt.js";
 import { config } from "../config.js";
 import { connectors } from "../connectors/index.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishSession, startSession } from "../memory/sessions.js";
 import { listOpenTodos, syncSourceTodos } from "../memory/todos.js";
 
@@ -31,4 +32,10 @@ export async function buildToday(): Promise<TodayResponse> {
   return { generatedAt: new Date().toISOString(), brief: brief.trim(), todos, sourceErrors };
 }
 
-export const today = new Hono().get("/today", async (c) => c.json(await buildToday()));
+export const today = new Hono().get("/today", async (c) => {
+  const conv = c.req.query("conversationId");
+  if (conv && conversationExists(conv)) addMessage(conv, { role: "user", kind: "today", content: "今日简报" });
+  const res = await buildToday();
+  if (conv && conversationExists(conv)) addMessage(conv, { role: "assistant", kind: "today", content: res.brief, payload: res });
+  return c.json(res);
+});

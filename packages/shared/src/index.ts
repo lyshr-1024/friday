@@ -11,6 +11,7 @@ export interface HealthResponse {
 
 export interface AskRequest {
   prompt: string;
+  conversationId?: string;
 }
 
 export interface AskResponse {
@@ -20,6 +21,7 @@ export interface AskResponse {
 export interface NoteRequest {
   text: string;
   due?: string;
+  conversationId?: string;
 }
 
 export interface Todo {
@@ -50,6 +52,7 @@ export interface Settings {
 export interface RunRequest {
   project: string;
   task?: string;
+  conversationId?: string;
 }
 
 export type RunResponse =
@@ -60,4 +63,22 @@ export interface SettingsResponse {
   terminal: TerminalApp;
   dataDir: string;
   projects: string[];
+}
+
+export type MessageKind = "ask" | "today" | "note" | "run" | "error";
+
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  kind: MessageKind;
+  content: string;
+  payload?: unknown;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
 }

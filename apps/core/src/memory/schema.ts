@@ -17,6 +17,24 @@ CREATE TABLE IF NOT EXISTS sync_state (
   cursor TEXT
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  claude_session_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  kind TEXT NOT NULL CHECK (kind IN ('ask', 'today', 'note', 'run', 'error')),
+  content TEXT NOT NULL,
+  payload TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_conv ON messages (conversation_id, created_at);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

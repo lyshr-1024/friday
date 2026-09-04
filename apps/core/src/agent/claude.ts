@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 export type AskEvent =
   | { type: "delta"; text: string }
+  | { type: "session"; sessionId: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -9,6 +10,7 @@ export interface AskOptions {
   systemPrompt: string;
   cwd: string;
   signal?: AbortSignal;
+  resume?: string;
 }
 
 export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerator<AskEvent> {
@@ -23,14 +25,20 @@ export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerat
       tools: [],
       maxTurns: 1,
       includePartialMessages: true,
-      persistSession: false,
+      persistSession: true,
       settingSources: [],
       abortController,
+      ...(opts.resume ? { resume: opts.resume } : {}),
       stderr: (line) => console.error(`[claude] ${line.trimEnd()}`),
     },
   });
 
+  let announced = false;
   for await (const msg of q) {
+    if (!announced && "session_id" in msg && typeof msg.session_id === "string") {
+      announced = true;
+      yield { type: "session", sessionId: msg.session_id };
+    }
     if (msg.type === "stream_event") {
       const ev = msg.event;
       if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {

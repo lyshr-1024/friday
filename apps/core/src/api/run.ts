@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
 import { launchClaude } from "../agent/runner.js";
 import { resolveProject } from "../memory/projects.js";
 import { finishSession, startSession } from "../memory/sessions.js";
@@ -11,19 +12,25 @@ import { userSettings } from "../settings.js";
 const body = z.object({
   project: z.string().trim().min(1),
   task: z.string().trim().max(4000).optional(),
+  conversationId: z.string().uuid().optional(),
 });
 
 export const run = new Hono().post("/run", async (c) => {
   const parsed = body.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "project 不能为空" }, 400);
-  const { project, task } = parsed.data;
+  const { project, task, conversationId } = parsed.data;
+  const conv = conversationId && conversationExists(conversationId) ? conversationId : undefined;
+  if (conv) addMessage(conv, { role: "user", kind: "run", content: `跑 ${project}${task ? ` ${task}` : ""}` });
 
   const resolved = resolveProject(project);
   if (resolved.kind === "none") {
-    return c.json({ error: `没找到项目「${project}」，请在 projects.md 里登记，或直接给目录路径` }, 404);
+    const error = `没找到项目「${project}」，请在 projects.md 里登记，或直接给目录路径`;
+    if (conv) addMessage(conv, { role: "assistant", kind: "error", content: error });
+    return c.json({ error }, 404);
   }
   if (resolved.kind === "ambiguous") {
     const res: RunResponse = { status: "ambiguous", candidates: resolved.candidates.map((p) => ({ name: p.name, dir: p.dir })) };
+    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `「${project}」匹配到多个项目，请用完整名字`, payload: res });
     return c.json(res);
   }
 
@@ -36,10 +43,12 @@ export const run = new Hono().post("/run", async (c) => {
     const script = await launchClaude({ id, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) });
     finishSession(id, `launched ${terminal} ${script}`);
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) };
+    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 ${terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}`, payload: res });
     return c.json(res);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     finishSession(id, `failed: ${message}`);
+    if (conv) addMessage(conv, { role: "assistant", kind: "error", content: message });
     return c.json({ error: message }, 500);
   }
 });
