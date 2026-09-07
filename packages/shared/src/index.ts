@@ -98,6 +98,7 @@ export interface SettingsResponse {
   terminal: TerminalApp;
   model: ModelId;
   skills: boolean;
+  name: string;
   dataDir: string;
   projects: string[];
 }
@@ -106,6 +107,18 @@ export interface SettingsUpdate {
   terminal?: TerminalApp;
   model?: ModelId;
   skills?: boolean;
+  name?: string;
+}
+
+/** 工作台首屏：Friday 自动拉好的“现在该做什么” */
+export interface Desk {
+  name: string;
+  greeting: string;
+  advice: string;
+  threads: Array<{ id: string; userName: string; situation: string; needs: string; urgency: Urgency; reply?: string }>;
+  todos: Todo[];
+  jobs: Job[];
+  generatedAt: string;
 }
 
 export type MessageKind = "ask" | "today" | "note" | "run" | "error";
@@ -205,4 +218,49 @@ export interface Job {
   lastMessage?: string;
   startedAt: string;
   finishedAt?: string;
+}
+
+export type ThreadStatus = "open" | "done" | "ignored";
+
+export interface ThreadAction {
+  type: "reply" | "run_claude" | "todo" | "meegle" | "none";
+  label: string;
+  detail?: string;
+}
+
+/** Friday 对一个线程做完功课后的情境卡 */
+export interface ThreadBrief {
+  situation: string;
+  needs: string;
+  needsReply: boolean;
+  urgency: Urgency;
+  reply?: string;
+  actions: ThreadAction[];
+  context: string[];
+  todo?: { text: string; due?: string };
+  person?: string;
+}
+
+export interface Thread {
+  id: string;
+  kind: InboxKind;
+  userId: string;
+  userName: string;
+  channelId: string;
+  channelName: string;
+  project?: string;
+  status: ThreadStatus;
+  firstTs: string;
+  lastTs: string;
+  updatedAt: string;
+  brief?: ThreadBrief;
+  items: InboxItem[];
+}
+
+export interface ThreadsResponse {
+  threads: Thread[];
+  lastSyncAt: string | null;
+  nextSyncAt: string | null;
+  lastError: string | null;
+  configured: boolean;
 }

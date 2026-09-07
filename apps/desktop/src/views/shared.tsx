@@ -1,6 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
-import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Todo } from "@friday/shared";
+import type { Attachment, Desk, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
@@ -233,6 +233,101 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
         <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
       </div>
+    </div>
+  );
+}
+
+const URG: Record<string, string> = { high: "紧急", normal: "一般", low: "不急" };
+
+/** 一个人找你的一组消息 + Friday 做好的功课 */
+export function ThreadCard({ t, onOpen, onDone, onIgnore }: { t: Thread; onOpen?: (t: Thread) => void; onDone?: (id: string) => void; onIgnore?: (id: string) => void }) {
+  const b = t.brief;
+  const [showRaw, setShowRaw] = useState(false);
+  return (
+    <div className={`thread thread--${b?.urgency ?? "normal"}`}>
+      <div className="thread__head">
+        <span className="thread__who">{t.userName}</span>
+        <span className="thread__where mono">{t.kind === "dm" ? "私聊" : t.channelName} · {t.items.length} 条</span>
+        {b?.needsReply && <span className="inbox__tag">等你回</span>}
+        {t.project && <span className="inbox__project mono">{t.project}</span>}
+        <span className="thread__time mono">{URG[b?.urgency ?? "normal"]} · {fmtTime(new Date(Number(t.lastTs) * 1000).toISOString())}</span>
+      </div>
+      {b ? (
+        <>
+          <div className="thread__situation">{b.situation}</div>
+          <div className="thread__needs"><span className="k mono">需要你</span>{b.needs}</div>
+          {b.reply && <div className="thread__reply"><span className="k mono">建议回复</span>{b.reply}</div>}
+          {b.context.length > 0 && (
+            <ul className="thread__ctx">
+              {b.context.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          )}
+        </>
+      ) : (
+        <div className="thread__situation muted">Friday 还在做功课…</div>
+      )}
+      <button className="thread__raw-toggle" onClick={() => setShowRaw((v) => !v)}>{showRaw ? "收起原文" : "看原文"}</button>
+      {showRaw && (
+        <ul className="thread__raw">
+          {t.items.map((i) => (
+            <li key={i.id}>
+              <Linkified text={i.text} />
+              {(i.appLink || i.permalink) && (
+                <a href={i.permalink} className="link" onClick={(e) => { e.preventDefault(); void openUrl(i.appLink ?? i.permalink); }}> 在 Slack 打开</a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="inbox__actions">
+        {b?.reply && <button onClick={() => void navigator.clipboard.writeText(b.reply!)}>复制回复</button>}
+        {onOpen && <button className="inbox__go" onClick={() => onOpen(t)}>在会话里处理</button>}
+        {onDone && <button onClick={() => onDone(t.id)}>已处理</button>}
+        {onIgnore && <button onClick={() => onIgnore(t.id)}>忽略</button>}
+      </div>
+    </div>
+  );
+}
+
+/** 工作台首屏：问候 + 现在先做什么 + 素材 */
+export function DeskView({ d, onOpenThread }: { d: Desk; onOpenThread?: (id: string) => void }) {
+  return (
+    <div className="desk">
+      <div className="desk__hello">Hello {d.name}！{d.greeting}，有什么可以帮你？</div>
+      {d.advice && (
+        <div className="desk__advice">
+          <div className="k mono">现在先做什么</div>
+          {d.advice.split("\n").filter(Boolean).map((l, i) => <div key={i} className="desk__line">{l}</div>)}
+        </div>
+      )}
+      {d.threads.length > 0 && (
+        <div className="desk__section">
+          <div className="k mono">等你回 · {d.threads.length}</div>
+          {d.threads.map((t) => (
+            <div key={t.id} className={`desk__item desk__item--${t.urgency}`}>
+              <div className="desk__item-main">
+                <span className="thread__who">{t.userName}</span> {t.situation}
+              </div>
+              <div className="inbox__actions">
+                {t.reply && <button onClick={() => void navigator.clipboard.writeText(t.reply!)}>复制回复</button>}
+                {onOpenThread && <button className="inbox__go" onClick={() => onOpenThread(t.id)}>处理</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {d.todos.length > 0 && (
+        <div className="desk__section">
+          <div className="k mono">待办 · {d.todos.length}</div>
+          <TodoList todos={d.todos} />
+        </div>
+      )}
+      {d.jobs.length > 0 && (
+        <div className="desk__section">
+          <div className="k mono">进行中 · {d.jobs.length}</div>
+          {d.jobs.map((j) => <JobCard key={j.id} job={j} />)}
+        </div>
+      )}
     </div>
   );
 }

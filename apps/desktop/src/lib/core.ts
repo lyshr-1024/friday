@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, Conversation, ConversationSummary, Desk, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -264,4 +264,34 @@ export async function uploadAttachment(file: File): Promise<Attachment> {
 
 export async function attachmentUrl(id: string): Promise<string> {
   return `${await coreBaseUrl()}/attachments/${encodeURIComponent(id)}`;
+}
+
+export async function threads(): Promise<ThreadsResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/threads`);
+  if (!res.ok) throw new Error(`threads ${res.status}`);
+  return res.json();
+}
+
+export async function threadAction(id: string, action: "done" | "ignore" | "refresh"): Promise<Thread | null> {
+  const res = await fetch(`${await coreBaseUrl()}/threads/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+  if (!res.ok) throw new Error(`thread ${action} ${res.status}`);
+  return action === "refresh" ? res.json() : null;
+}
+
+export async function desk(): Promise<Desk> {
+  const res = await fetch(`${await coreBaseUrl()}/desk`);
+  if (!res.ok) throw new Error(`desk ${res.status}`);
+  return res.json();
+}
+
+/** 把一个线程连同 Friday 做好的功课带进会话窗开新对话。 */
+export function threadPrompt(t: Thread): string {
+  const b = t.brief;
+  return [
+    `帮我处理 ${t.userName} 在 Slack 找我的这件事（${t.kind === "dm" ? "私聊" : t.channelName}）。`,
+    `原文：`,
+    ...t.items.map((i) => `- ${i.text}${i.permalink ? `（${i.permalink}）` : ""}`),
+    b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}${b.reply ? `你拟的回复：${b.reply}` : ""}` : "",
+    `先给判断和方案，等我确认再动手。`,
+  ].filter(Boolean).join("\n");
 }

@@ -75,6 +75,23 @@ CREATE TABLE IF NOT EXISTS attachments (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS threads (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('dm', 'mention')),
+  user_id TEXT NOT NULL,
+  user_name TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  project TEXT,
+  status TEXT NOT NULL CHECK (status IN ('open', 'done', 'ignored')),
+  first_ts TEXT NOT NULL,
+  last_ts TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  brief TEXT,
+  auto_done TEXT
+);
+CREATE INDEX IF NOT EXISTS threads_open ON threads (status, last_ts);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

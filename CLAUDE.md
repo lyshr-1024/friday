@@ -53,6 +53,14 @@ apps/core/src/
 - 动效克制但有生命感：引导项按 `--i` 错落浮现，窗口高度用 8 步缓动，回复流式时有光标，思考时头像有光环。
 - 启动器空闲态底部是仪表式状态带（等宽、大写小字）：slack 下次同步倒计时（来自 `/inbox.nextSyncAt`）、inbox 需回复/总数、todo 数、当前模型。
 
+## 工作台：线程、功课、首屏
+
+- Slack 消息逐条分类后按人聚合成**线程**（`memory/threads.ts`）：私聊按人、频道 @ 按频道+人，同键 2 小时内接续（`THREAD_GAP_MS`）。`inbox.thread_id` 增量列。
+- 每个被新消息触及的线程做功课（`agent/enrich.ts`，只读）：同一人历史线程的情境、`people.md` 里的条目、消息里 Meegle 链接用 `meegle` CLI 拉标题/状态/优先级/负责人、关联项目的 git 状态；然后 `agent/brief.ts` 用 Sonnet 出**情境卡**（situation / needs / needsReply / urgency / reply / actions / context / todo / person），最多 3 个线程并行。
+- 可逆自动写（`agent/autowrite.ts`，permission.ts 的 reversible 级）：情境卡给了 todo 就记待办，给了 person 就往 `people.md` 该人条目追加一行「备注（日期，Friday 自动）」；每个线程每类只做一次（`threads.auto_done`），结果写进 context 留痕。
+- 通知按线程发「N 个人等你回」。`GET /threads`、`POST /threads/:id/{refresh,done,ignore}`；`slack_inbox` 工具输出线程视角。启动器「Slack 找我的人」是线程卡片（情境、需要你、建议回复、背景、原文折叠、复制回复 / 在会话里处理 / 已处理 / 忽略）。
+- **首屏**（`GET /desk`，`agent/desk.ts`）：会话窗空对话不再是介绍文案，而是「Hello {name}！{时段问候}，有什么可以帮你？」+ Sonnet 写的「现在先做什么」（≤5 行，素材没变 10 分钟内用缓存）+ 等你回的人 / 待办 / 进行中任务，带一键动作。名字取 `settings.name`，缺省用 macOS 账户全名（`id -F`），设置页可改；启动器占位符同样问候。
+
 ## 附件与链接
 
 - 会话窗支持粘贴图片、拖入文件、📎 选文件：前端读成 base64 `POST /attachments` 存到记忆库目录 `attachments/`（表 `attachments`，单个 20MB 上限，一条消息最多 10 个），`/ask` 带 `attachments: [id]`。`agent/content.ts` 组装 Anthropic 消息内容：png/jpg/gif/webp → image 块，pdf → document 块，文本类（按 mime 或扩展名）→ 内联 text 块（10 万字截断），其他类型只告知文件名。带附件时 `askStream` 走流式输入（一条 `SDKUserMessage`）。用户消息 `payload.attachments` 存元数据，缩略图从 `GET /attachments/:id` 加载（CSP `img-src` 已放行 127.0.0.1）。

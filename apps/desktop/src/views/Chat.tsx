@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, updateSettings, uploadAttachment } from "../lib/core";
+import type { Attachment, ConversationSummary, Desk, HotResponse, Job, Message, ModelId, Thread } from "@friday/shared";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, desk as fetchDesk, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, AttachmentStrip, HotList, JobCard, LinkMenuHost, Linkified, fmtTime } from "./shared";
+import { AssistantBody, AttachmentStrip, DeskView, HotList, JobCard, LinkMenuHost, Linkified, fmtTime } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
@@ -29,6 +29,7 @@ export function Chat() {
   const [jobList, setJobList] = useState<Job[]>([]);
   const [logView, setLogView] = useState<{ job: Job; tail: string } | null>(null);
   const [pending, setPending] = useState<Attachment[]>([]);
+  const [deskData, setDeskData] = useState<Desk | null>(null);
   const [uploading, setUploading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
@@ -55,6 +56,18 @@ export function Chat() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
+
+  // 空对话时拉工作台首屏；素材没变 core 会直接给缓存。
+  useEffect(() => {
+    if (messages.length === 0 && !busy) void fetchDesk().then(setDeskData).catch(() => setDeskData(null));
+  }, [convId, messages.length === 0, busy]);
+
+  async function openThreadById(id: string) {
+    const list = await fetchThreads();
+    const t: Thread | undefined = list.threads.find((x) => x.id === id);
+    if (!t) return;
+    void send(threadPrompt(t));
+  }
 
   // 任务列表：有运行中的每 5 秒刷，否则 30 秒。
   useEffect(() => {
@@ -373,12 +386,15 @@ export function Chat() {
           <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
         </header>
         <div className="chat__body" ref={bodyRef}>
-          {messages.length === 0 && !draft && (
-            <div className="chat__empty">
-              <div className="chat__mark">F</div>
-              <div className="chat__empty-title">和 Friday 聊点什么</div>
-              <div className="chat__empty-hint">它记得这个对话里说过的话，能查项目 git 状态、改记忆库、记待办；开着 Skill 模式时可直接用你本机的 skill，比如「/lark-calendar 明天有什么安排」。涉及编码会在终端里帮你打开 Claude Code。</div>
-            </div>
+          {messages.length === 0 && !draft && !busy && (
+            deskData ? (
+              <DeskView d={deskData} onOpenThread={(id) => void openThreadById(id)} />
+            ) : (
+              <div className="chat__empty">
+                <div className="chat__mark">F</div>
+                <div className="chat__empty-title">Friday 正在整理今天的局面…</div>
+              </div>
+            )
           )}
           {messages.map((m) =>
             m.role === "user" ? (

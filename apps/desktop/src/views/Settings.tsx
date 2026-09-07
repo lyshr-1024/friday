@@ -78,6 +78,16 @@ export function Settings() {
         <Row label="呼出热键" hint="改 ~/Library/Application Support/Friday/settings.json 的 hotkey 后重启生效">
           <kbd>{formatHotkey(hotkey)}</kbd>
         </Row>
+        <Row label="怎么称呼你" hint="启动器与工作台问候用">
+          <input
+            className="side__edit"
+            style={{ width: 160 }}
+            defaultValue={prefs?.name ?? ""}
+            key={prefs?.name}
+            onBlur={(e) => { const v = e.target.value.trim(); if (prefs && v && v !== prefs.name) void updateSettings({ name: v }).then(setPrefs); }}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          />
+        </Row>
         <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
           <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>

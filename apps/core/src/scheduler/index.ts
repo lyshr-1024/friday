@@ -1,5 +1,10 @@
 import type { Notice } from "@friday/shared";
+import { applyReversibleWrites } from "../agent/autowrite.js";
+import { buildBrief } from "../agent/brief.js";
+import { enrichThread } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
+import { mapLimit } from "../connectors/exec.js";
+import { attachToThread, getThread, setThreadBrief } from "../memory/threads.js";
 import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "../memory/inbox.js";
 
@@ -60,15 +65,29 @@ export async function syncSlackOnce(): Promise<number> {
 
     if (added.length) {
       const result = await triage(added);
-      const needReply: string[] = [];
       added.forEach((it, i) => {
         const t = result.get(i + 1);
-        if (!t) return;
-        setTriage(it.id, t);
-        if (t.needsReply) needReply.push(`${it.userName}：${t.summary}`);
+        if (t) setTriage(it.id, t);
+      });
+      // 逐条分类之后按人聚合成线程，对每个被触及的线程做功课、出情境卡、做可逆自动写。
+      const touched = new Set(added.map((it) => attachToThread({ ...it, ...(result.get(added.indexOf(it) + 1) ? { triage: result.get(added.indexOf(it) + 1)! } : {}) })));
+      const needReply: string[] = [];
+      await mapLimit([...touched], 3, async (id) => {
+        const thread = getThread(id);
+        if (!thread) return;
+        try {
+          const enrichment = await enrichThread(thread);
+          const brief = await buildBrief(thread, enrichment);
+          if (!brief) return;
+          const writes = applyReversibleWrites(thread, brief);
+          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
+          if (brief.needsReply) needReply.push(`${thread.userName}：${brief.situation}`);
+        } catch (e) {
+          console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
+        }
       });
       if (needReply.length && isActive()) {
-        state.notices.push({ title: `Slack ${needReply.length} 条待回复`, body: needReply.slice(0, 3).join("\n") });
+        state.notices.push({ title: `Slack ${needReply.length} 个人等你回`, body: needReply.slice(0, 3).join("\n") });
       }
     }
     state.lastSyncAt = new Date().toISOString();

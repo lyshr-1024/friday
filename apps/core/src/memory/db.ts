@@ -28,6 +28,8 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
 function migrate(d: DatabaseSync): void {
   const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
+  const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!inboxCols.includes("thread_id")) d.exec("ALTER TABLE inbox ADD COLUMN thread_id TEXT");
 }
 
 export function db(): DatabaseSync {

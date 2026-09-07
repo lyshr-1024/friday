@@ -9,9 +9,10 @@ export interface UserSettings {
   terminal: TerminalApp;
   model: ModelId;
   skills: boolean;
+  name: string;
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, name: "" };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 
 const file = () => join(config.dataDir, "settings.json");
@@ -31,6 +32,7 @@ export function userSettings(): UserSettings {
     terminal: raw.terminal === "terminal" ? "terminal" : DEFAULTS.terminal,
     model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
   };
 }
 
@@ -39,7 +41,23 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.terminal !== undefined) raw.terminal = patch.terminal;
   if (patch.model !== undefined) raw.model = patch.model;
   if (patch.skills !== undefined) raw.skills = patch.skills;
+  if (patch.name !== undefined) raw.name = patch.name;
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();
+}
+
+import { execFileSync } from "node:child_process";
+import { userInfo } from "node:os";
+
+let cachedName: string | undefined;
+/** 没配名字时用 macOS 账户的全名（id -F），再退到登录名。 */
+function defaultName(): string {
+  if (cachedName !== undefined) return cachedName;
+  try {
+    cachedName = execFileSync("/usr/bin/id", ["-F"], { encoding: "utf8" }).trim() || userInfo().username;
+  } catch {
+    cachedName = userInfo().username;
+  }
+  return cachedName;
 }

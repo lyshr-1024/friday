@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
-import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos } from "../lib/core";
+import type { HotResponse, Message, Thread, ThreadsResponse, TodosSyncResponse } from "@friday/shared";
+import { ask, cancelAsk, commandOf, health, hot, inbox, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos, threadAction, threadPrompt, threads as fetchThreads } from "../lib/core";
 import { modelLabel } from "./ModelSelect";
-import { AssistantBody, HotList, InboxList, LinkMenuHost, TodoList } from "./shared";
+import { AssistantBody, HotList, LinkMenuHost, ThreadCard, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
-type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean; jobsRunning: number };
+type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean; jobsRunning: number; name: string };
 
 // 窗口高度变化做一个短促的缓动，不要跳变。
 async function animateHeight(from: number, to: number) {
@@ -22,10 +22,10 @@ async function animateHeight(from: number, to: number) {
   }
 }
 let lastHeight = 0;
-type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse } | { kind: "inbox"; data: InboxResponse };
+type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse } | { kind: "inbox"; data: ThreadsResponse };
 
 const GUIDE = [
-  { key: "inbox", label: "Slack 收件", hint: "@ 我的与私聊，已预处理并附回复草稿" },
+  { key: "inbox", label: "Slack 找我的人", hint: "按人聚合，Friday 已做好功课与回复" },
   { key: "hot", label: "AI 热点", hint: "HN · HF Papers · OpenAI · Simon W · 量子位" },
   { key: "todos", label: "待办", hint: "Meegle + 本地，秒开" },
   { key: "note", label: "记一条待办", hint: "记 买牛奶" },
@@ -109,6 +109,7 @@ export function Palette() {
         model: prefs.model ? modelLabel(prefs.model) : "默认",
         configured: ib.configured,
         jobsRunning: jl.filter((j) => j.status === "running").length,
+        name: prefs.name,
       });
     } catch {
       setStatus({ state: "down" });
@@ -213,7 +214,8 @@ export function Palette() {
   async function submitInbox(sync = false) {
     const ctrl = begin();
     try {
-      const data = await inbox(sync, ctrl.signal);
+      if (sync) await inbox(true, ctrl.signal);
+      const data = await fetchThreads();
       setPanel({ kind: "inbox", data });
       setBusy(false);
     } catch (e) {
@@ -221,24 +223,15 @@ export function Palette() {
     }
   }
 
-  // 把这条 Slack 消息连同预处理结果带进会话窗开新对话，项目、skill、是否开终端都在会话里商量。
-  async function inboxItemOpen(item: InboxItem) {
-    const t = item.triage;
-    const lines = [
-      `帮我处理这条 Slack 消息。`,
-      `来自 ${item.userName}（${item.channelName}）：`,
-      item.text,
-      item.permalink ? `链接：${item.permalink}` : "",
-      t ? `你之前的预处理：${t.summary}${t.needsReply ? "，需要回复" : ""}${t.project ? `，可能关联项目 ${t.project}` : ""}${t.task ? `，建议任务：${t.task}` : ""}${t.draft ? `，回复草稿：${t.draft}` : ""}` : "",
-      `先告诉我你的判断：属于哪个项目、该怎么回、要不要动代码或用哪个 skill；等我确认再动手。`,
-    ].filter(Boolean);
-    await invoke("open_chat", { conversationId: null, initialPrompt: lines.join("\n") });
-    reset();
+  function threadSettle(id: string, action: "done" | "ignore") {
+    void threadAction(id, action);
+    setPanel((p) => (p?.kind === "inbox" ? { kind: "inbox", data: { ...p.data, threads: p.data.threads.filter((t) => t.id !== id) } } : p));
   }
 
-  function inboxItemDone(id: string) {
-    void inboxDone(id);
-    setPanel((p) => (p?.kind === "inbox" ? { kind: "inbox", data: { ...p.data, items: p.data.items.filter((i) => i.id !== id) } } : p));
+  // 把整个线程连同 Friday 做好的功课带进会话窗开新对话。
+  async function threadOpen(t: Thread) {
+    await invoke("open_chat", { conversationId: null, initialPrompt: threadPrompt(t) });
+    reset();
   }
 
   async function submitTodos() {
@@ -309,7 +302,7 @@ export function Palette() {
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder={result?.kind === "ask" ? "继续问会打开会话窗…" : "问点什么…"}
+          placeholder={result?.kind === "ask" ? "继续问会打开会话窗…" : gauge?.name ? `Hello ${gauge.name}，有什么可以帮你？` : "问点什么…"}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           {...ime.handlers}
@@ -388,7 +381,15 @@ export function Palette() {
               <>
                 {!panel.data.configured && <div className="err">Slack 还没接入：在终端跑 scripts/slack-auth.sh 写入登录态。</div>}
                 {panel.data.lastError && <div className="err">{panel.data.lastError}</div>}
-                <InboxList items={panel.data.items} onDone={inboxItemDone} onOpen={(it) => void inboxItemOpen(it)} />
+                {panel.data.threads.length ? (
+                  <div className="threads">
+                    {panel.data.threads.map((t) => (
+                      <ThreadCard key={t.id} t={t} onOpen={(th) => void threadOpen(th)} onDone={(id) => threadSettle(id, "done")} onIgnore={(id) => threadSettle(id, "ignore")} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted">没有等处理的人。</div>
+                )}
                 {panel.data.lastSyncAt && <div className="muted mono" style={{ marginTop: 10 }}>上次同步 {new Date(panel.data.lastSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</div>}
               </>
             )}

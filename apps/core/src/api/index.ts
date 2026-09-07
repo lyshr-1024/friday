@@ -3,10 +3,12 @@ import { cors } from "hono/cors";
 import { ask } from "./ask.js";
 import { attachments } from "./attachments.js";
 import { conversation } from "./conversation.js";
+import { desk } from "./desk.js";
 import { health } from "./health.js";
 import { note } from "./note.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
+import { threads } from "./threads.js";
 import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
@@ -27,4 +29,6 @@ export const app = new Hono()
   .route("/", memory)
   .route("/", inbox)
   .route("/", jobs)
-  .route("/", attachments);
+  .route("/", attachments)
+  .route("/", threads)
+  .route("/", desk);

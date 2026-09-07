@@ -6,7 +6,7 @@ import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
-import { listInbox } from "../memory/inbox.js";
+import { listThreads } from "../memory/threads.js";
 import { resolveProject } from "../memory/projects.js";
 import { addLocalTodo } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
@@ -61,24 +61,23 @@ export const fridayTools = createSdkMcpServer({
     ),
     tool(
       "slack_inbox",
-      "列出 Slack 收件箱里未处理的消息（已预处理：谁、摘要、是否需回复、紧急度、关联项目、建议任务、链接）。用户问“Slack 有什么”“谁找我”“处理 XX 那条”时先用它。",
+      "列出 Slack 上找用户的人（按人聚合的线程，Friday 已做完功课：情境、需要用户做什么、建议回复、关联工单与项目、原文和链接）。用户问“Slack 有什么”“谁找我”“处理 XX 那件事”时先用它。",
       {},
       async () => {
-        const items = listInbox();
-        if (!items.length) return text("收件箱没有未处理消息。");
+        const list = listThreads("open");
+        if (!list.length) return text("没有等处理的 Slack 线程。");
         return text(
-          items
-            .map((it, i) => {
-              const t = it.triage;
-              // 摘要和原文都给：纯链接、纯图片的消息摘要会把关键信息吃掉。
-              const flags = [t?.needsReply && "需回复", t && t.urgency, t?.project && `项目 ${t.project}`].filter(Boolean).join(" · ");
+          list
+            .map((th, i) => {
+              const b = th.brief;
               return [
-                `${i + 1}. [${it.kind === "dm" ? "私聊" : it.channelName}] ${it.userName}${flags ? ` · ${flags}` : ""}`,
-                t?.summary ? `   摘要：${t.summary}` : "",
-                `   原文：${it.text.slice(0, 300)}${it.text.length > 300 ? "…" : ""}`,
-                t?.task ? `   建议任务：${t.task}` : "",
-                t?.draft ? `   草稿：${t.draft}` : "",
-                it.permalink ? `   链接：${it.permalink}` : "",
+                `${i + 1}. ${th.userName}（${th.kind === "dm" ? "私聊" : th.channelName}，${th.items.length} 条）${b ? ` · ${b.urgency}${b.needsReply ? " · 等你回" : ""}` : ""}${th.project ? ` · 项目 ${th.project}` : ""}`,
+                b ? `   情境：${b.situation}` : "",
+                b ? `   需要你：${b.needs}` : "",
+                b?.reply ? `   建议回复：${b.reply}` : "",
+                b?.context.length ? `   背景：${b.context.join("；")}` : "",
+                `   原文：${th.items.map((it) => it.text.slice(0, 200)).join(" / ")}`,
+                th.items.some((it) => it.permalink) ? `   链接：${th.items.map((it) => it.permalink).filter(Boolean).join(" ")}` : "",
               ]
                 .filter(Boolean)
                 .join("\n");
