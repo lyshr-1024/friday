@@ -62,7 +62,8 @@ apps/core/src/
 - **交付报告**（`DeliveryReport`）是验收的唯一依据：概要、改动、测试过程、测试结果、截图、请你验证。用户明确要求：功能长什么样 + 测试过程，用截图和文本，不要视频。这条对 Friday 派出的任务和改 Friday 本身都适用。
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
-- 下一步已定：任务详情内嵌 PTY 终端（sidecar node-pty + xterm.js），一个任务一个终端，可直接与 Claude Code 对话，Ghostty 变成可选弹出。
+- **内嵌终端**（已做）：`settings.terminal` 新增并默认 `embedded`：`launchClaude` 不再 `open` 外部终端，而是 `agent/pty.ts` 用 node-pty 在 PTY 里跑同一份任务脚本（锁 / script 录日志 / Stop hook / 退出回报都不变），输出留 400KB 回放缓冲。接口 `GET /pty/:id/stream`（SSE，先回放再实时）、`POST /pty/:id/{input,resize,kill}`。前端 `views/Terminal.tsx` 用 @xterm/xterm + fit + web-links 渲染在任务详情里（任务 `source.jobId`），可直接打字与 Claude Code 对话。node-pty 的 `spawn-helper` 复制后会丢可执行位，`bundle-core.sh` 里 chmod；esbuild 不打包原生模块，用 `createRequire` 运行时加载。Ghostty / Terminal 仍可在设置里选回。
+- **第三块修正**：不是给用户推荐学什么，而是 Friday 自己学——根据用户近期业务主动研究社区的好做法、交互、产品设计（WebSearch/WebFetch），产出针对手头项目的具体建议并沉淀进记忆库（待做）。
 
 ## 工作台：线程、功课、首屏
 
