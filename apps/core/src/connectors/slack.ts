@@ -164,3 +164,11 @@ export async function fetchSlack(
   out.sort((a, b) => Number(a.ts) - Number(b.ts));
   return { items: out, cursors: next };
 }
+
+/** 审核通过后才会调用：往频道或私聊发一条消息；@ 我的消息回在原 thread 里。 */
+export async function postMessage(call: Call, channel: string, text: string, threadTs?: string): Promise<{ ts: string; permalink?: string }> {
+  const res = (await call("chat.postMessage", { channel, text, ...(threadTs ? { thread_ts: threadTs } : {}) })) as { ts?: string };
+  const ts = String(res.ts ?? "");
+  const link = ts ? ((await call("chat.getPermalink", { channel, message_ts: ts }).catch(() => ({}))) as { permalink?: string }) : {};
+  return { ts, ...(link.permalink ? { permalink: link.permalink } : {}) };
+}

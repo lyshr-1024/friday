@@ -264,3 +264,77 @@ export interface ThreadsResponse {
   lastError: string | null;
   configured: boolean;
 }
+
+/* ---------- 任务中枢与账本 ---------- */
+
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "other";
+export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
+export type Risk = "read" | "reversible" | "irreversible";
+
+export interface TaskSource {
+  threadId?: string;
+  meegleId?: string;
+  url?: string;
+  note?: string;
+  jobId?: string;
+}
+
+/** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */
+export interface DeliveryReport {
+  summary: string;
+  changes: string[];
+  testSteps: string[];
+  testResult: string;
+  screenshots: Attachment[];
+  verify: string[];
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  kind: TaskKind;
+  source: TaskSource;
+  project?: string;
+  status: TaskStatus;
+  priority: Urgency;
+  understanding?: string;
+  plan?: string;
+  progress?: string;
+  report?: DeliveryReport;
+  /** 等用户点头的不可逆动作 */
+  pending?: PendingAction[];
+  due?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "custom";
+
+export interface PendingAction {
+  id: string;
+  type: PendingActionType;
+  label: string;
+  detail: string;
+  payload: Record<string, unknown>;
+}
+
+export type AuditStatus = "done" | "pending" | "approved" | "rejected" | "undone" | "failed";
+
+/** Friday 的每个动作都记一条 */
+export interface AuditEvent {
+  id: string;
+  taskId?: string;
+  ts: string;
+  action: string;
+  why: string;
+  how: string;
+  evidence: Record<string, unknown>;
+  risk: Risk;
+  reversible: boolean;
+  status: AuditStatus;
+}
+
+export interface TaskBoard {
+  tasks: Task[];
+  counts: Record<TaskStatus, number>;
+}

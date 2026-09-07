@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { z } from "zod";
+import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage } from "../memory/jobs.js";
@@ -39,6 +40,8 @@ export const jobs = new Hono()
     if (!parsed.success) return c.json({ error: "code 需为整数" }, 400);
     const job = finishJob(c.req.param("id"), parsed.data.code);
     if (!job) return c.json({ error: "任务不存在" }, 404);
+    const task = onJobExit(job.id, parsed.data.code);
+    if (task) state.notices.push({ title: `交付待审核 · ${job.project}`, body: task.report?.summary ?? task.progress ?? "" });
     const summary = `${job.project} 的终端任务已结束（退出码 ${parsed.data.code}）${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 300)}` : ""}`;
     if (job.conversationId && conversationExists(job.conversationId)) {
       addMessage(job.conversationId, { role: "assistant", kind: "run", content: summary, payload: { status: "finished", jobId: job.id } });

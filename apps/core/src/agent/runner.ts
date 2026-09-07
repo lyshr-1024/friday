@@ -12,6 +12,38 @@ export interface LaunchRequest {
   dir: string;
   task?: string;
   terminal: TerminalApp;
+  /** 自主模式：claude -p 跑完即退，按交付报告约定产出 report.md 与截图 */
+  autonomous?: boolean;
+}
+
+export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
+export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
+
+/** 自主任务的提示词：分支、测试、交付报告、截图，全部落在约定路径，Friday 事后解析进审核。 */
+export function autonomousPrompt(id: string, task: string, project: string): string {
+  return [
+    `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
+    `任务：${task}`,
+    "",
+    "规则：",
+    `1. 先 git status 确认工作区；新建分支 friday/${id.slice(0, 8)} 再改，不要动 main / master，不要 push，不要 merge。`,
+    "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
+    `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
+    `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
+    "## 概要",
+    "一句话说做了什么。",
+    "## 改动",
+    "- 每个文件一行：路径 — 改了什么",
+    "## 测试",
+    "- 每一步一行：跑了什么命令 / 做了什么操作 → 结果",
+    "## 测试结果",
+    "一句话：全部通过 / 哪些没过。",
+    "## 请验证",
+    "- 用户应该亲自确认的点，每行一条，写清楚打开哪里看什么。",
+    "## 截图",
+    "- 文件名 — 说明（没有就写 无）",
+    "5. 全程不要问用户问题；拿不准就按最保守的方式做并在报告里写明。",
+  ].join("\n");
 }
 
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -70,7 +102,11 @@ export function buildHookSettings(hookScript: string): string {
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, settingsFile?: string): string {
-  const flags = ["--dangerously-skip-permissions", ...(settingsFile ? ["--settings", shellQuote(settingsFile)] : [])].join(" ");
+  const flags = [
+    ...(req.autonomous ? ["-p"] : []),
+    "--dangerously-skip-permissions",
+    ...(settingsFile ? ["--settings", shellQuote(settingsFile)] : []),
+  ].join(" ");
   const claude = `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
   return [
     "#!/bin/zsh",

@@ -8,6 +8,7 @@ import { health } from "./health.js";
 import { note } from "./note.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
+import { tasks } from "./tasks.js";
 import { threads } from "./threads.js";
 import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
@@ -31,4 +32,5 @@ export const app = new Hono()
   .route("/", jobs)
   .route("/", attachments)
   .route("/", threads)
-  .route("/", desk);
+  .route("/", desk)
+  .route("/", tasks);

@@ -3,6 +3,7 @@ import type { ThreadsResponse } from "@friday/shared";
 import { buildBrief } from "../agent/brief.js";
 import { enrichThread } from "../agent/enrich.js";
 import { applyReversibleWrites } from "../agent/autowrite.js";
+import { threadToTask } from "../agent/pipeline.js";
 import { getThread, listThreads, setThreadBrief, setThreadStatus } from "../memory/threads.js";
 import { state } from "../scheduler/index.js";
 
@@ -22,7 +23,8 @@ export const threads = new Hono()
     const enrichment = await enrichThread(t);
     const brief = await buildBrief(t, enrichment);
     if (!brief) return c.json({ error: "情境卡生成失败" }, 502);
-    const writes = applyReversibleWrites(t, brief);
+    const task = await threadToTask(t, brief, enrichment.project?.name);
+    const writes = applyReversibleWrites(t, brief, task.id);
     setThreadBrief(t.id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
     return c.json(getThread(t.id));
   })

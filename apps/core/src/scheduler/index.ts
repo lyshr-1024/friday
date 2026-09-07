@@ -1,5 +1,6 @@
 import type { Notice } from "@friday/shared";
 import { applyReversibleWrites } from "../agent/autowrite.js";
+import { threadToTask } from "../agent/pipeline.js";
 import { buildBrief } from "../agent/brief.js";
 import { enrichThread } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
@@ -79,7 +80,8 @@ export async function syncSlackOnce(): Promise<number> {
           const enrichment = await enrichThread(thread);
           const brief = await buildBrief(thread, enrichment);
           if (!brief) return;
-          const writes = applyReversibleWrites(thread, brief);
+          const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name);
+          const writes = applyReversibleWrites(thread, brief, task.id);
           setThreadBrief(id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
           if (brief.needsReply) needReply.push(`${thread.userName}：${brief.situation}`);
         } catch (e) {

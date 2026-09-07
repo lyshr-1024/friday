@@ -92,6 +92,41 @@ CREATE TABLE IF NOT EXISTS threads (
 );
 CREATE INDEX IF NOT EXISTS threads_open ON threads (status, last_ts);
 
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  source TEXT NOT NULL,
+  project TEXT,
+  status TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'normal',
+  understanding TEXT,
+  plan TEXT,
+  progress TEXT,
+  report TEXT,
+  pending TEXT,
+  due TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks (status, updated_at);
+
+CREATE TABLE IF NOT EXISTS audit (
+  id TEXT PRIMARY KEY,
+  task_id TEXT,
+  ts TEXT NOT NULL,
+  action TEXT NOT NULL,
+  why TEXT NOT NULL,
+  how TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  risk TEXT NOT NULL,
+  reversible INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  undo TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);
+CREATE INDEX IF NOT EXISTS audit_task ON audit (task_id, ts);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

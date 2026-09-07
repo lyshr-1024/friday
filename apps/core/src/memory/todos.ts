@@ -72,3 +72,7 @@ export function syncSourceTodos(source: Exclude<TodoSource, "local">, todos: Tod
     throw e;
   }
 }
+
+export function deleteTodo(id: string): boolean {
+  return db().prepare("DELETE FROM todos WHERE id = ?").run(id).changes > 0;
+}

@@ -41,9 +41,11 @@ describe("做功课", () => {
     const people = "# 人物\n\n## 灵雨 (Hu Xuefang)\n- 角色：QA\n- 联系：Slack\n\n## 大黄\n- 角色：后端\n";
     expect(personNote("灵雨 (Hu Xuefang)", people)).toBe("灵雨 (Hu Xuefang)：角色：QA；联系：Slack");
     expect(personNote("Zhou Jiwei", people)).toBeUndefined();
-    const next = upsertPerson("大黄", "常来问权限策略", people);
-    expect(next).toMatch(/## 大黄\n- 角色：后端\n- 备注（\d{4}-\d{2}-\d{2}，Friday 自动）：常来问权限策略\n/);
-    const added = upsertPerson("新人", "刚来的前端", people);
-    expect(added.trim().endsWith("## 新人\n- 备注（" + new Date().toISOString().slice(0, 10) + "，Friday 自动）：刚来的前端")).toBe(true);
+    let written = "";
+    const line = upsertPerson("大黄", "常来问权限策略", people, (_n, content) => { written = content; });
+    expect(line).toMatch(/^- 备注（\d{4}-\d{2}-\d{2}，Friday 自动）：常来问权限策略$/);
+    expect(written).toMatch(/## 大黄\n- 角色：后端\n- 备注（\d{4}-\d{2}-\d{2}，Friday 自动）：常来问权限策略\n/);
+    upsertPerson("新人", "刚来的前端", people, (_n, content) => { written = content; });
+    expect(written.trim().endsWith("## 新人\n- 备注（" + new Date().toISOString().slice(0, 10) + "，Friday 自动）：刚来的前端")).toBe(true);
   });
 });
