@@ -1,5 +1,5 @@
 export const DEFAULT_CORE_PORT = 7788;
-export type TerminalApp = "ghostty" | "terminal";
+export type TerminalApp = "embedded" | "ghostty" | "terminal";
 
 export const DEFAULT_HOTKEY = "CmdOrCtrl+Shift+Space";
 
@@ -338,3 +338,5 @@ export interface TaskBoard {
   tasks: Task[];
   counts: Record<TaskStatus, number>;
 }
+
+export const TERMINAL_LABEL: Record<TerminalApp, string> = { embedded: "内嵌终端", ghostty: "Ghostty", terminal: "Terminal" };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
+import { TERMINAL_LABEL } from "@friday/shared";
 import type { HotResponse, Message, Thread, ThreadsResponse, TodosSyncResponse } from "@friday/shared";
 import { ask, cancelAsk, commandOf, health, hot, inbox, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos, taskBoard, threadAction, threadPrompt, threads as fetchThreads } from "../lib/core";
 import { modelLabel } from "./ModelSelect";
@@ -267,7 +268,7 @@ export function Palette() {
       const content =
         res.status === "ambiguous"
           ? `「${req.project}」匹配到多个项目，请用完整名字`
-          : `已在 ${res.terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}`;
+          : `已在 ${TERMINAL_LABEL[res.terminal] ?? res.terminal} 打开 ${res.project}`;
       done(ctrl, { role: "assistant", kind: "run", content, payload: res });
     } catch (e) {
       done(ctrl, undefined, e);

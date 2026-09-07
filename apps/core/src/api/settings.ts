@@ -6,7 +6,7 @@ import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
 
 const patch = z.object({
-  terminal: z.enum(["ghostty", "terminal"]).optional(),
+  terminal: z.enum(["embedded", "ghostty", "terminal"]).optional(),
   model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
   skills: z.boolean().optional(),
   name: z.string().max(40).optional(),

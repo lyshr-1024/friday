@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
+import { spawnSession } from "./pty.js";
 
 const execFileP = promisify(execFile);
 
@@ -138,6 +139,11 @@ export async function launchClaude(req: LaunchRequest): Promise<string> {
   writeFileSync(script, buildScript(req, claudePath, config.port, settingsFile));
   chmodSync(script, 0o755);
 
+  // 内嵌终端：sidecar 自己用 PTY 跑脚本，前端 xterm 接 /pty/:id/stream；上下文和任务绑在一起，不会串。
+  if (req.terminal === "embedded") {
+    spawnSession(req.id, script, req.dir);
+    return script;
+  }
   const args =
     req.terminal === "terminal"
       ? ["-a", "Terminal", script]
@@ -148,5 +154,6 @@ export async function launchClaude(req: LaunchRequest): Promise<string> {
 
 /** 把终端 app 带到前台。 */
 export async function focusTerminal(terminal: TerminalApp): Promise<void> {
+  if (terminal === "embedded") return;
   await execFileP("/usr/bin/open", ["-a", terminal === "terminal" ? "Terminal" : "Ghostty"]);
 }

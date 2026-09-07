@@ -63,7 +63,7 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     evidence: { jobId: id, project, dir },
     risk: "reversible",
   });
-  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 的分支 friday/${id.slice(0, 8)} 上处理` })!;
+  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 的分支 friday/${id.slice(0, 8)} 上处理`, source: { ...task.source, jobId: id } })!;
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
@@ -81,9 +81,11 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     risk: "read",
     status: exitCode === 0 ? "done" : "failed",
   });
+  // 自主任务必须有交付报告才算交付；交互式会话（你自己在终端里聊的）退出即完成。
+  const interactive = !job.task.plan && !report;
   let task = updateTask(job.task.id, {
-    status: report ? "review" : exitCode === 0 ? "review" : "blocked",
-    progress: report ? "交付报告已生成，等你审核" : `终端任务结束（退出码 ${exitCode}），未生成交付报告`,
+    status: report ? "review" : interactive && exitCode === 0 ? "done" : exitCode === 0 ? "review" : "blocked",
+    progress: report ? "交付报告已生成，等你审核" : interactive ? `终端会话已结束（退出码 ${exitCode}）` : `终端任务结束（退出码 ${exitCode}），未生成交付报告`,
     ...(report ? { report } : {}),
   })!;
   if (report && !(task.pending ?? []).some((p) => p.type === "git_merge")) {

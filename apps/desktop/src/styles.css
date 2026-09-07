@@ -1815,7 +1815,7 @@ kbd {
 
 .tdetail {
   flex: none;
-  width: 420px;
+  width: 560px;
   border-left: 1px solid var(--separator);
   background: var(--card);
   overflow-y: auto;
@@ -2020,4 +2020,15 @@ kbd {
   font: 11px/1.5 var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.xterm-host {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0e0f12;
+  border: 1px solid var(--separator);
+  padding: 6px;
+}
+.xterm-host .xterm {
+  height: 100%;
 }

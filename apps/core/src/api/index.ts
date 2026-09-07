@@ -6,6 +6,7 @@ import { conversation } from "./conversation.js";
 import { desk } from "./desk.js";
 import { health } from "./health.js";
 import { note } from "./note.js";
+import { pty } from "./pty.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
@@ -33,4 +34,5 @@ export const app = new Hono()
   .route("/", attachments)
   .route("/", threads)
   .route("/", desk)
-  .route("/", tasks);
+  .route("/", tasks)
+  .route("/", pty);

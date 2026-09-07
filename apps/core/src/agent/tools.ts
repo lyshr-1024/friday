@@ -1,10 +1,13 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { createTask } from "../memory/tasks.js";
+import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listThreads } from "../memory/threads.js";
 import { resolveProject } from "../memory/projects.js";
@@ -111,8 +114,10 @@ export const fridayTools = createSdkMcpServer({
         const id = randomUUID();
         await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
         createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}) });
+        const t = createTask({ title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`, kind: "code", source: { jobId: id }, project: r.name, status: "processing", understanding: task ?? "会话里让 Friday 开的终端" });
+        record({ taskId: t.id, action: "claude_code_start", why: "会话里让 Friday 去干活", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: r.name, dir: r.dir }, risk: "reversible" });
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
-        return text(`已在 ${terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
+        return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },
     ),
   ],

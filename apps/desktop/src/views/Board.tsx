@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AuditEvent, Task, TaskBoard, TaskStatus } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, createTask, taskApprove, taskBoard, taskReject, taskSet } from "../lib/core";
 import { AttachmentStrip, Linkified, fmtTime } from "./shared";
+import { Terminal } from "./Terminal";
 
 const COLS: Array<{ key: TaskStatus; label: string; hint: string }> = [
   { key: "review", label: "等你审核", hint: "Friday 做完了，看报告决定" },
@@ -168,6 +169,12 @@ function TaskDetail({ t, onClose, onAct, onDiscuss }: { t: Task; onClose: () => 
       {t.understanding && <Block k="Friday 的理解"><Linkified text={t.understanding} /></Block>}
       {t.plan && <Block k="方案">{t.plan.split("\n").map((l, i) => <div key={i}>{l}</div>)}</Block>}
       {t.progress && <Block k="进展">{t.progress}</Block>}
+      {t.source.jobId && (
+        <div className="tblock">
+          <div className="k mono">终端 · 就在这里和 Claude Code 对话</div>
+          <Terminal id={t.source.jobId} height={380} />
+        </div>
+      )}
       {t.source.note && <Block k="你交代的">{t.source.note}</Block>}
       {t.source.url && <Block k="链接"><Linkified text={t.source.url} /></Block>}
 

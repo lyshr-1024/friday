@@ -100,8 +100,12 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
-        <Row label="跑 Claude 用的终端" hint="settings.json 的 terminal：ghostty 或 terminal">
-          <span className="mono">{prefs ? (prefs.terminal === "ghostty" ? "Ghostty" : "Terminal") : "…"}</span>
+        <Row label="跑 Claude 用的终端" hint="内嵌：在任务详情里直接看和聊；Ghostty / Terminal：弹外部窗口">
+          <select className="model-select" value={prefs?.terminal ?? "embedded"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "embedded" | "ghostty" | "terminal" }).then(setPrefs)}>
+            <option value="embedded">内嵌终端</option>
+            <option value="ghostty">Ghostty</option>
+            <option value="terminal">Terminal</option>
+          </select>
         </Row>
         </div>
       </section>

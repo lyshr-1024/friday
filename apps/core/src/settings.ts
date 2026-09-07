@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { MODEL_OPTIONS, type ModelId, type SettingsUpdate } from "@friday/shared";
 import { config } from "./config.js";
 
-export type TerminalApp = "ghostty" | "terminal";
+export type TerminalApp = "embedded" | "ghostty" | "terminal";
 
 export interface UserSettings {
   terminal: TerminalApp;
@@ -12,7 +12,7 @@ export interface UserSettings {
   name: string;
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, name: "" };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "" };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 
 const file = () => join(config.dataDir, "settings.json");
@@ -29,7 +29,7 @@ function readRaw(): Record<string, unknown> {
 export function userSettings(): UserSettings {
   const raw = readRaw();
   return {
-    terminal: raw.terminal === "terminal" ? "terminal" : DEFAULTS.terminal,
+    terminal: raw.terminal === "terminal" || raw.terminal === "ghostty" || raw.terminal === "embedded" ? raw.terminal : DEFAULTS.terminal,
     model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),

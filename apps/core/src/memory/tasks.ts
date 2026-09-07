@@ -78,14 +78,14 @@ export function findTaskBySource(pred: (s: TaskSource) => boolean, includeClosed
 
 export function updateTask(
   id: string,
-  patch: Partial<Pick<Task, "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due">>,
+  patch: Partial<Pick<Task, "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due" | "source">>,
 ): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
-  const next = { ...cur, ...patch };
+  const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
   db()
     .prepare(
-      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, updated_at = ? WHERE id = ?",
+      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, updated_at = ? WHERE id = ?",
     )
     .run(
       next.title,
@@ -98,6 +98,7 @@ export function updateTask(
       next.report ? JSON.stringify(next.report) : null,
       next.pending && next.pending.length ? JSON.stringify(next.pending) : null,
       next.due ?? null,
+      JSON.stringify(next.source),
       now(),
       id,
     );
