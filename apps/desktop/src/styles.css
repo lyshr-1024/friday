@@ -1469,3 +1469,30 @@ kbd {
 .composer__attach:hover {
   color: var(--label);
 }
+
+/* ---------- 禁止横向溢出：长 URL / 长单词一律断行 ---------- */
+
+.chat__body,
+.palette__body,
+.today__body {
+  overflow-x: hidden;
+}
+.bubble,
+.answer,
+.link,
+.msg,
+.inbox__summary,
+.inbox__text,
+.inbox__draft,
+.hot__title,
+.hot__summary,
+.job__last,
+.job__task,
+.chat__empty-hint {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+.turn {
+  min-width: 0;
+}
