@@ -5,7 +5,9 @@ import type { RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { launchClaude } from "../agent/runner.js";
+import { createJob, recentDuplicate } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
+import { jobLog } from "../agent/runner.js";
 import { finishSession, startSession } from "../memory/sessions.js";
 import { userSettings } from "../settings.js";
 
@@ -37,12 +39,18 @@ export const run = new Hono().post("/run", async (c) => {
   // 拉起的是交互式 Claude Code，写操作由它在终端里再向用户确认，因此归为可逆操作：放行并记日志。
   if (!decide("reversible").allowed) return c.json({ error: "操作被拒绝" }, 403);
 
+  const dup = recentDuplicate(resolved.project.dir, task);
+  if (dup) {
+    const res: RunResponse = { status: "launched", project: dup.project, dir: dup.dir, terminal: userSettings().terminal, jobId: dup.id, ...(dup.task ? { task: dup.task } : {}) };
+    return c.json(res);
+  }
   const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
   const { terminal } = userSettings();
   try {
     const script = await launchClaude({ id, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) });
     finishSession(id, `launched ${terminal} ${script}`);
-    const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) };
+    createJob({ id, project: resolved.project.name, dir: resolved.project.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conv ? { conversationId: conv } : {}) });
+    const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, jobId: id, ...(task ? { task } : {}) };
     if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 ${terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${res.project}`, payload: res });
     return c.json(res);
   } catch (e) {

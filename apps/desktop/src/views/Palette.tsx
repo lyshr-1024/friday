@@ -3,13 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos } from "../lib/core";
+import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos } from "../lib/core";
 import { modelLabel } from "./ModelSelect";
 import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
-type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean };
+type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean; jobsRunning: number };
 
 // 窗口高度变化做一个短促的缓动，不要跳变。
 async function animateHeight(from: number, to: number) {
@@ -101,13 +101,14 @@ export function Palette() {
       const h = await health();
       setStatus({ state: "ok", version: h.version });
       setTodoCount((await openTodos()).length);
-      const [ib, prefs] = await Promise.all([inbox(), settings()]);
+      const [ib, prefs, jl] = await Promise.all([inbox(), settings(), fetchJobs().catch(() => [])]);
       setGauge({
         nextSyncAt: ib.nextSyncAt,
         needReply: ib.items.filter((i) => i.triage?.needsReply).length,
         inboxTotal: ib.items.length,
         model: prefs.model ? modelLabel(prefs.model) : "默认",
         configured: ib.configured,
+        jobsRunning: jl.filter((j) => j.status === "running").length,
       });
     } catch {
       setStatus({ state: "down" });
@@ -354,6 +355,12 @@ export function Palette() {
                   <span className="k">model </span>
                   {gauge.model}
                 </span>
+                {gauge.jobsRunning > 0 && (
+                  <span>
+                    <span className="k">jobs </span>
+                    <span className="live">{gauge.jobsRunning}</span>
+                  </span>
+                )}
               </>
             )}
             <span className="brand">friday</span>

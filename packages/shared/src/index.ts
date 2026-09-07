@@ -71,7 +71,7 @@ export interface RunRequest {
 }
 
 export type RunResponse =
-  | { status: "launched"; project: string; dir: string; terminal: TerminalApp; task?: string }
+  | { status: "launched"; project: string; dir: string; terminal: TerminalApp; task?: string; jobId?: string }
   | { status: "ambiguous"; candidates: Array<{ name: string; dir: string }> };
 
 export const MODEL_OPTIONS = [
@@ -179,4 +179,20 @@ export interface InboxResponse {
 export interface Notice {
   title: string;
   body: string;
+}
+
+export type JobStatus = "running" | "done" | "failed";
+
+/** 一次「跑 Claude Code」的终端任务 */
+export interface Job {
+  id: string;
+  project: string;
+  dir: string;
+  task?: string;
+  conversationId?: string;
+  status: JobStatus;
+  exitCode?: number;
+  lastMessage?: string;
+  startedAt: string;
+  finishedAt?: string;
 }

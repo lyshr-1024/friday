@@ -52,6 +52,20 @@ CREATE TABLE IF NOT EXISTS inbox (
 );
 CREATE INDEX IF NOT EXISTS inbox_open ON inbox (done, ts);
 
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  dir TEXT NOT NULL,
+  task TEXT,
+  conversation_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+  exit_code INTEGER,
+  last_message TEXT,
+  log_path TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

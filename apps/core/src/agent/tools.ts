@@ -3,7 +3,8 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
-import { launchClaude } from "./runner.js";
+import { jobLog, launchClaude } from "./runner.js";
+import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listInbox } from "../memory/inbox.js";
 import { resolveProject } from "../memory/projects.js";
@@ -87,6 +88,17 @@ export const fridayTools = createSdkMcpServer({
       },
     ),
     tool(
+      "jobs_list",
+      "列出最近的终端任务（跑 Claude Code 的记录）：项目、任务、状态、退出码、终端里 Claude 最后一轮说了什么。用户问“刚才那个任务怎么样了”“终端跑完了吗”时用。",
+      {},
+      async () =>
+        text(
+          listJobs(10)
+            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : ""}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
+            .join("\n") || "还没有任务记录。",
+        ),
+    ),
+    tool(
       "run_claude",
       "在用户默认终端打开该项目目录并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
       { project, task: z.string().max(4000).optional().describe("交给 Claude Code 的任务，一句话") },
@@ -95,9 +107,13 @@ export const fridayTools = createSdkMcpServer({
         if (typeof r === "string") return text(r);
         if (!decide("reversible").allowed) return text("操作被拒绝");
         const { terminal } = userSettings();
-        await launchClaude({ id: randomUUID(), dir: r.dir, terminal, ...(task ? { task } : {}) });
+        const dup = recentDuplicate(r.dir, task);
+        if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
+        const id = randomUUID();
+        await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
+        createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}) });
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
-        return text(`已在 ${terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}`);
+        return text(`已在 ${terminal === "ghostty" ? "Ghostty" : "Terminal"} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },
     ),
   ],
@@ -109,5 +125,6 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__todo_add",
   "mcp__friday__git_inspect",
   "mcp__friday__slack_inbox",
+  "mcp__friday__jobs_list",
   "mcp__friday__run_claude",
 ];

@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, Message, ModelId } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, newConversation, renameConversation, settings, updateSettings } from "../lib/core";
+import type { ConversationSummary, HotResponse, Job, Message, ModelId } from "@friday/shared";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, updateSettings } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, HotList, fmtTime } from "./shared";
+import { AssistantBody, HotList, JobCard, fmtTime } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
@@ -25,6 +25,9 @@ export function Chat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [showHot, setShowHot] = useState(false);
+  const [showJobs, setShowJobs] = useState(false);
+  const [jobList, setJobList] = useState<Job[]>([]);
+  const [logView, setLogView] = useState<{ job: Job; tail: string } | null>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
@@ -49,6 +52,19 @@ export function Chat() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
+
+  // 任务列表：有运行中的每 5 秒刷，否则 30 秒。
+  useEffect(() => {
+    const load = () => void fetchJobs().then(setJobList).catch(() => {});
+    load();
+    const t = setInterval(load, jobList.some((j) => j.status === "running") ? 5000 : 30000);
+    return () => clearInterval(t);
+  }, [jobList.some((j) => j.status === "running")]);
+
+  async function openLog(job: Job) {
+    const { tail } = await jobLog(job.id);
+    setLogView({ job, tail });
+  }
 
   // 有别的会话在后台生成时定时刷新侧栏，跑完把转圈去掉。
   useEffect(() => {
@@ -274,6 +290,11 @@ export function Chat() {
             </div>
           ))}
         </div>
+        <button className={`side__today ${showJobs ? "side__today--on" : ""}`} onClick={() => setShowJobs((v) => !v)}>
+          {jobList.some((j) => j.status === "running") && <span className="side__spin" aria-label="有任务运行中" />}
+          任务
+          {jobList.length > 0 && <span className="side__count">{jobList.filter((j) => j.status === "running").length}/{jobList.length}</span>}
+        </button>
         <button className={`side__today ${showHot ? "side__today--on" : ""}`} onClick={toggleHot}>
           AI 热点
           {hotData && <span className="side__count">{hotData.items.length}</span>}
@@ -334,7 +355,7 @@ export function Chat() {
               <div key={m.id} className="turn turn--assistant">
                 <div className="avatar">F</div>
                 <div className="bubble bubble--assistant">
-                  <AssistantBody m={m} />
+                  <AssistantBody m={m} jobs={jobList} />
                 </div>
               </div>
             ),
@@ -374,6 +395,32 @@ export function Chat() {
           <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘N 新对话</div>
         </div>
       </main>
+
+      {showJobs && (
+        <aside className="chat__today">
+          <header className="today__head">
+            <span>任务</span>
+            <button className="today__refresh" onClick={() => void fetchJobs().then(setJobList)}>刷新</button>
+          </header>
+          <div className="today__body">
+            {logView ? (
+              <>
+                <button className="editor__back" onClick={() => setLogView(null)}>‹ 返回</button>
+                <div className="job__logtitle">{logView.job.project}{logView.job.task ? ` · ${logView.job.task}` : ""}</div>
+                <pre className="job__log">{logView.tail || "（日志为空）"}</pre>
+              </>
+            ) : jobList.length ? (
+              <div className="jobs">
+                {jobList.map((j) => (
+                  <JobCard key={j.id} job={j} onLog={(job) => void openLog(job)} />
+                ))}
+              </div>
+            ) : (
+              <div className="chat__empty">还没有终端任务。说「跑 后台 …」或让 Friday 去改代码时会出现在这里。</div>
+            )}
+          </div>
+        </aside>
+      )}
 
       {showHot && (
         <aside className="chat__today">

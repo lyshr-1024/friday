@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -230,4 +230,20 @@ export async function renameConversation(id: string, title: string): Promise<voi
 
 export async function testNotification(): Promise<void> {
   await fetch(`${await coreBaseUrl()}/notifications/test`, { method: "POST" });
+}
+
+export async function jobs(): Promise<Job[]> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs`);
+  if (!res.ok) throw new Error(`jobs ${res.status}`);
+  return res.json();
+}
+
+export async function jobLog(id: string): Promise<{ tail: string; lines: number }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/log`);
+  if (!res.ok) throw new Error(`log ${res.status}`);
+  return res.json();
+}
+
+export async function jobFocus(id: string): Promise<void> {
+  await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => {});
 }

@@ -4,7 +4,7 @@ import type { MemoryContext } from "../memory/context.js";
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
 const MEMORY_TOOLS =
-  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；run_claude 在终端里打开某项目并启动 Claude Code 去干活。";
+  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活。";
 
 const ISOLATED = [
   `你有五个工具：${MEMORY_TOOLS}`,

@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { HotItem, InboxItem, Message, RunResponse, Todo } from "@friday/shared";
+import type { HotItem, InboxItem, Job, Message, RunResponse, Todo } from "@friday/shared";
+import { jobFocus } from "../lib/core";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -21,8 +22,18 @@ export function TodoList({ todos }: { todos: Todo[] }) {
   );
 }
 
-export function AssistantBody({ m }: { m: Message }) {
+export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   if (m.kind === "error") return <div className="err">{m.content}</div>;
+  if (m.kind === "run" && m.payload && (m.payload as { jobId?: string }).jobId) {
+    const jobId = (m.payload as { jobId: string }).jobId;
+    const job = jobs?.find((j) => j.id === jobId);
+    return (
+      <>
+        <div className="answer">{m.content}</div>
+        {job && <JobCard job={job} />}
+      </>
+    );
+  }
   if (m.kind === "run" && m.payload && (m.payload as RunResponse).status === "ambiguous") {
     const res = m.payload as Extract<RunResponse, { status: "ambiguous" }>;
     return (
@@ -111,5 +122,36 @@ export function InboxList({
         </li>
       ))}
     </ul>
+  );
+}
+
+export function elapsed(job: Job, now = Date.now()): string {
+  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : now;
+  const s = Math.max(0, Math.floor((end - new Date(job.startedAt).getTime()) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${s % 60}s` : `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
+}
+
+export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }) {
+  const label = job.status === "running" ? "运行中" : job.status === "done" ? "已完成" : `失败 · 退出码 ${job.exitCode ?? "?"}`;
+  return (
+    <div className={`job job--${job.status}`}>
+      <div className="job__head">
+        <span className={`job__dot ${job.status === "running" ? "job__dot--live" : ""}`} />
+        <span className="job__project">{job.project}</span>
+        <span className="job__status mono">{label}</span>
+        <span className="job__time mono">{elapsed(job)}</span>
+      </div>
+      {job.task && <div className="job__task">{job.task}</div>}
+      {job.lastMessage && (
+        <div className="job__last">
+          <span className="job__last-k mono">终端里的 Claude</span>
+          {job.lastMessage.length > 400 ? `${job.lastMessage.slice(0, 400)}…` : job.lastMessage}
+        </div>
+      )}
+      <div className="job__actions">
+        <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
+        {onLog && <button onClick={() => onLog(job)}>看日志</button>}
+      </div>
+    </div>
   );
 }

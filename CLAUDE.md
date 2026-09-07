@@ -53,6 +53,14 @@ apps/core/src/
 - 动效克制但有生命感：引导项按 `--i` 错落浮现，窗口高度用 8 步缓动，回复流式时有光标，思考时头像有光环。
 - 启动器空闲态底部是仪表式状态带（等宽、大写小字）：slack 下次同步倒计时（来自 `/inbox.nextSyncAt`）、inbox 需回复/总数、todo 数、当前模型。
 
+## 终端任务（会话 ↔ Ghostty 的关联）
+
+- 每次 run_claude / `POST /run` / 收件「处理」都建一条 `jobs` 记录。启动脚本（`agent/runner.ts`）：`mkdir` 原子锁防 Ghostty 双开 → `script -q <runs>/<id>.log zsh -c 'claude --dangerously-skip-permissions --settings <id>.settings.json <task>'` 录整个终端会话 → 退出后复位终端（关鼠标追踪等）→ `curl POST /jobs/:id/exit {code}` → `exec zsh -il`。
+- `--settings` 注入一个 Stop hook（`<id>.hook.sh`，用 sidecar 自己的 node 绝对路径，因为 Ghostty 由 open 拉起没有 nvm PATH），每轮回答结束读 stdin 的 `last_assistant_message` POST 到 `/jobs/:id/message`；错误写 `<id>.hook.log`。
+- 退出回报时：状态改 done/failed，若任务带 conversationId 则往会话追加一条 run 消息，并进通知队列「任务结束 · 项目」。
+- 前端：会话窗侧栏「任务」面板（运行中 5 秒刷一次）、run 消息下挂任务卡片（状态、耗时、终端里 Claude 最后一轮、聚焦终端、看日志），启动器状态带显示 `jobs N`。会话里有 `jobs_list` 工具。10 秒内同目录同任务的重复启动直接复用（`recentDuplicate`）。
+- 做不到：从会话窗往终端里输入指令（需要接管 TTY）。
+
 ## 两种形态：启动器与会话窗
 
 - **启动器**（窗口 `main`，透明毛玻璃、置顶、失焦即收）只做一次性动作：空闲态是输入框 + 引导面板（AI 热点 / 待办 / 记一条待办 / 跑项目 / 打开会话窗 / 设置，↑↓ 选、回车执行）+ 一行状态；结果就地显示，`Esc` 清空再 `Esc` 收起。每次呼出都是干净的。
