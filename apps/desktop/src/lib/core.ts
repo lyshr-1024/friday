@@ -320,6 +320,12 @@ export async function taskReject(id: string, reason?: string): Promise<Task> {
   return res.json();
 }
 
+export async function taskRetry(id: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function taskSet(id: string, action: "done" | "ignore"): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/${action}`, { method: "POST" });
   if (!res.ok) throw new Error(`${action} ${res.status}`);

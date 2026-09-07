@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
-import { executePending } from "../agent/pipeline.js";
+import { executePending, startAutonomousJob } from "../agent/pipeline.js";
+import { resolveProject } from "../memory/projects.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, getTask, taskBoard, updateTask } from "../memory/tasks.js";
@@ -53,6 +54,18 @@ export const tasks = new Hono()
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
+  })
+  // 卡住的任务重新开工（比如用量上限恢复后）
+  .post("/tasks/:id/retry", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    if (!t.project) return c.json({ error: "任务没有关联项目，无法开工" }, 400);
+    const r = resolveProject(t.project);
+    if (r.kind !== "match") return c.json({ error: `找不到项目 ${t.project}` }, 400);
+    const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.understanding ?? t.title;
+    record({ taskId: t.id, action: "retry", why: "你让它重新开工", how: "重新拉起自主 Claude Code 任务", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
+    const next = await startAutonomousJob({ ...t, source: { ...t.source, jobId: undefined } }, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
+    return c.json(next);
   })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [] });

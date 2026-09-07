@@ -9,6 +9,17 @@ import { addPending, createTask, findTaskBySource, getTask, updateTask } from ".
 import { userSettings } from "../settings.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
+import { existsSync, readFileSync } from "node:fs";
+
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
+
+/** 终端日志最后几百字（去掉控制字符），用来解释任务为什么没交付。 */
+export function logTail(jobId: string, chars = 300): string {
+  const p = jobLog(jobId);
+  if (!existsSync(p)) return "";
+  const raw = readFileSync(p, "latin1").replace(ANSI, "");
+  return Buffer.from(raw, "latin1").toString("utf8").replace(/\s+/g, " ").trim().slice(-chars);
+}
 
 const execFileP = promisify(execFile);
 
@@ -83,9 +94,14 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   });
   // 自主任务必须有交付报告才算交付；交互式会话（你自己在终端里聊的）退出即完成。
   const interactive = !job.task.plan && !report;
+  const tail = !report && exitCode !== 0 ? logTail(jobId) : "";
   let task = updateTask(job.task.id, {
     status: report ? "review" : interactive && exitCode === 0 ? "done" : exitCode === 0 ? "review" : "blocked",
-    progress: report ? "交付报告已生成，等你审核" : interactive ? `终端会话已结束（退出码 ${exitCode}）` : `终端任务结束（退出码 ${exitCode}），未生成交付报告`,
+    progress: report
+      ? "交付报告已生成，等你审核"
+      : interactive
+        ? `终端会话已结束（退出码 ${exitCode}）`
+        : `终端任务结束（退出码 ${exitCode}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
     ...(report ? { report } : {}),
   })!;
   if (report && !(task.pending ?? []).some((p) => p.type === "git_merge")) {

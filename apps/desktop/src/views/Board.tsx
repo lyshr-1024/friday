@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AuditEvent, Desk, Task, TaskBoard, TaskStatus } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, createTask, desk as fetchDesk, taskApprove, taskBoard, taskReject, taskSet } from "../lib/core";
+import { audit as fetchAudit, auditUndo, createTask, desk as fetchDesk, taskApprove, taskBoard, taskReject, taskRetry, taskSet } from "../lib/core";
 import { AttachmentStrip, DeskView, Linkified, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
@@ -225,6 +225,7 @@ function TaskDetail({ t, onClose, onAct, onDiscuss }: { t: Task; onClose: () => 
       <div className="tdetail__ops">
         <input className="side__edit" placeholder="打回原因（可选）" value={reason} onChange={(e) => setReason(e.target.value)} />
         <div className="inbox__actions">
+          {(t.status === "blocked" || t.status === "processing") && t.project && <button className="inbox__go" onClick={() => void onAct(() => taskRetry(t.id))}>重新开工</button>}
           {t.status !== "done" && <button onClick={() => void onAct(() => taskReject(t.id, reason || undefined))}>打回</button>}
           {t.status !== "done" && <button onClick={() => void onAct(() => taskSet(t.id, "done"))}>标记完成</button>}
           {t.status !== "ignored" && <button onClick={() => void onAct(() => taskSet(t.id, "ignore"))}>忽略</button>}
