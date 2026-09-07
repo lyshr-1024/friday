@@ -31,9 +31,12 @@ export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => vo
     try {
       const b = await taskBoard();
       setBoard(b);
+      setErr("");
       if (active) setActive(b.tasks.find((t) => t.id === active.id) ?? null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      // WebKit 的网络错误文案是 "Load failed"，对用户没意义
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/load failed|fetch/i.test(msg) ? "连接 Friday 失败，15 秒后自动重试" : msg);
     }
   };
   useEffect(() => {
