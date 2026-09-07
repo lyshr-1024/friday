@@ -12,10 +12,11 @@ pub fn start(app: AppHandle, port: u16) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(20));
         for (title, body) in fetch(port) {
-            match app.notification().builder().title(&title).body(&body).show() {
-                Ok(()) => eprintln!("[friday] 通知已发出：{title}"),
-                Err(e) => eprintln!("[friday] 通知发送失败：{e}"),
-            }
+            let result = app.notification().builder().title(&title).body(&body).show();
+            log(&match &result {
+                Ok(()) => format!("通知已发出：{title}"),
+                Err(e) => format!("通知发送失败：{e}"),
+            });
         }
     });
 }
@@ -35,4 +36,15 @@ fn fetch(port: u16) -> Vec<(String, String)> {
     list.iter()
         .filter_map(|n| Some((n.get("title")?.as_str()?.to_string(), n.get("body")?.as_str()?.to_string())))
         .collect()
+}
+
+/// 打包后的壳没有可见的 stderr，通知结果写到记忆库目录的 logs/shell.log 便于排查。
+fn log(line: &str) {
+    use std::io::Write as _;
+    eprintln!("[friday] {line}");
+    let path = crate::settings::data_dir().join("logs").join("shell.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "{ts} {line}");
+    }
 }
