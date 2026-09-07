@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import type { MemoryFile, SettingsResponse } from "@friday/shared";
 import { MEMORY_FILES, MemoryEditor } from "./MemoryEditor";
-import { coreBaseUrl, health, settings, updateSettings } from "../lib/core";
+import { coreBaseUrl, health, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 
 export function Settings() {
@@ -12,6 +12,7 @@ export function Settings() {
   const [hotkey, setHotkey] = useState("");
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
   const [editing, setEditing] = useState<MemoryFile | null>(null);
+  const [notified, setNotified] = useState(false);
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
@@ -113,6 +114,9 @@ export function Settings() {
       <section>
         <h2>系统权限</h2>
         <div className="group">
+        <Row label="系统通知" hint={notified ? "已发出，20 秒内应弹出；没弹就去 系统设置 › 通知 里允许 Friday" : "Slack 待回复消息靠它提醒"}>
+          <button className="btn" onClick={() => void testNotification().then(() => setNotified(true))}>测试通知</button>
+        </Row>
         <Row label="自动化" hint="控制其他应用。第一版不需要">
           <span className="mono muted">未申请</span>
         </Row>

@@ -12,7 +12,10 @@ pub fn start(app: AppHandle, port: u16) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(20));
         for (title, body) in fetch(port) {
-            let _ = app.notification().builder().title(title).body(body).show();
+            match app.notification().builder().title(&title).body(&body).show() {
+                Ok(()) => eprintln!("[friday] 通知已发出：{title}"),
+                Err(e) => eprintln!("[friday] 通知发送失败：{e}"),
+            }
         }
     });
 }

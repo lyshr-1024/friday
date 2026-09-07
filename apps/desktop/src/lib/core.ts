@@ -227,3 +227,7 @@ export async function renameConversation(id: string, title: string): Promise<voi
   });
   if (!res.ok) throw new Error(`重命名失败：core 返回 ${res.status}`);
 }
+
+export async function testNotification(): Promise<void> {
+  await fetch(`${await coreBaseUrl()}/notifications/test`, { method: "POST" });
+}

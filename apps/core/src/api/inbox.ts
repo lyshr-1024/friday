@@ -42,4 +42,9 @@ export const inbox = new Hono()
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, task };
     return c.json(res);
   })
-  .get("/notifications", (c) => c.json(drainNotices()));
+  .get("/notifications", (c) => c.json(drainNotices()))
+  // 设置页「测试通知」：塞一条进队列，壳 20 秒内取走弹出；弹不出来就是系统通知权限问题。
+  .post("/notifications/test", (c) => {
+    state.notices.push({ title: "Friday 测试通知", body: `通知链路正常 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` });
+    return c.json({ ok: true });
+  });

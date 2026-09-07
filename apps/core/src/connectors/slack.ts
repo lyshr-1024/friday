@@ -78,6 +78,21 @@ export async function fetchSlack(
   const floor = String((now - COLD_START_MS) / 1000);
   const since = (key: string) => cursors[key] ?? floor;
 
+  const bots = new Map<string, boolean>();
+  const isBot = async (id: string): Promise<boolean> => {
+    const hit = bots.get(id);
+    if (hit !== undefined) return hit;
+    try {
+      const res = (await call("users.info", { user: id })) as { user?: { is_bot?: boolean; real_name?: string; name?: string } };
+      const bot = Boolean(res.user?.is_bot);
+      bots.set(id, bot);
+      if (res.user) names.set(id, res.user.real_name || res.user.name || id);
+      return bot;
+    } catch {
+      return false;
+    }
+  };
+
   const userName = async (id: string): Promise<string> => {
     if (!id) return "未知";
     const hit = names.get(id);
@@ -121,11 +136,13 @@ export async function fetchSlack(
     const imSince = since(key);
     if (im.latest && Number(im.latest) <= Number(imSince)) continue;
     const hist = (await call("conversations.history", { channel: im.id, oldest: imSince, limit: "20" })) as {
-      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string }>;
+      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string; bot_id?: string }>;
     };
     let max = imSince;
     for (const msg of hist.messages ?? []) {
-      if (msg.subtype || !msg.user || msg.user === me || Number(msg.ts) <= Number(imSince)) continue;
+      // 机器人（Meegle、日历提醒等）的私聊不进收件箱，只要真人发的。
+      if (msg.subtype || msg.bot_id || !msg.user || msg.user === me || Number(msg.ts) <= Number(imSince)) continue;
+      if (await isBot(msg.user)) continue;
       if (Number(msg.ts) > Number(max)) max = msg.ts;
       const name = await userName(msg.user);
       const link = (await call("chat.getPermalink", { channel: im.id, message_ts: msg.ts }).catch(() => ({}))) as { permalink?: string };

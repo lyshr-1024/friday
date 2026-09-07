@@ -12,7 +12,13 @@ const responses: Record<string, unknown> = {
     },
   },
   "client.counts": { ims: [{ id: "D1", has_unreads: true, latest: "1757000500.000100" }, { id: "D2", has_unreads: false, latest: "1757000600.000100" }] },
-  "conversations.history": { messages: [{ ts: "1757000500.000100", text: "在吗", user: "U3" }, { ts: "1757000450.000100", text: "join", user: "U3", subtype: "channel_join" }] },
+  "conversations.history": {
+    messages: [
+      { ts: "1757000500.000100", text: "在吗", user: "U3" },
+      { ts: "1757000450.000100", text: "join", user: "U3", subtype: "channel_join" },
+      { ts: "1757000460.000100", text: "Meegle 通知", user: "UBOT", bot_id: "B1" },
+    ],
+  },
   "users.info": { user: { real_name: "小明" } },
   "chat.getPermalink": { permalink: "https://s/dm1" },
 };
