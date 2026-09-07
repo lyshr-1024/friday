@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { ask } from "./ask.js";
+import { attachments } from "./attachments.js";
 import { conversation } from "./conversation.js";
 import { health } from "./health.js";
 import { note } from "./note.js";
@@ -25,4 +26,5 @@ export const app = new Hono()
   .route("/", conversation)
   .route("/", memory)
   .route("/", inbox)
-  .route("/", jobs);
+  .route("/", jobs)
+  .route("/", attachments);

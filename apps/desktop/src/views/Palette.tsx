@@ -5,7 +5,7 @@ import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
 import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos } from "../lib/core";
 import { modelLabel } from "./ModelSelect";
-import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
+import { AssistantBody, HotList, InboxList, LinkMenuHost, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
@@ -304,6 +304,7 @@ export function Palette() {
 
   return (
     <div className="palette" onKeyDown={onKeyDown}>
+      <LinkMenuHost />
       <div className="palette__bar">
         <input
           ref={inputRef}

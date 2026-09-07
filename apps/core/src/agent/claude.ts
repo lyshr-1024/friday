@@ -1,4 +1,5 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { FRIDAY_TOOL_NAMES, fridayTools } from "./tools.js";
 
 export type AskEvent =
@@ -21,12 +22,17 @@ export interface AskOptions {
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
 
-export async function* askStream(prompt: string, opts: AskOptions): AsyncGenerator<AskEvent> {
+/** 带图片/文档时走流式输入：一条 SDKUserMessage 就结束。 */
+async function* single(content: MessageParam["content"]): AsyncGenerator<SDKUserMessage> {
+  yield { type: "user", message: { role: "user", content }, parent_tool_use_id: null };
+}
+
+export async function* askStream(prompt: string | MessageParam["content"], opts: AskOptions): AsyncGenerator<AskEvent> {
   const abortController = new AbortController();
   opts.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
 
   const q = query({
-    prompt,
+    prompt: typeof prompt === "string" ? prompt : single(prompt),
     options: {
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,

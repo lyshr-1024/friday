@@ -53,6 +53,11 @@ apps/core/src/
 - 动效克制但有生命感：引导项按 `--i` 错落浮现，窗口高度用 8 步缓动，回复流式时有光标，思考时头像有光环。
 - 启动器空闲态底部是仪表式状态带（等宽、大写小字）：slack 下次同步倒计时（来自 `/inbox.nextSyncAt`）、inbox 需回复/总数、todo 数、当前模型。
 
+## 附件与链接
+
+- 会话窗支持粘贴图片、拖入文件、📎 选文件：前端读成 base64 `POST /attachments` 存到记忆库目录 `attachments/`（表 `attachments`，单个 20MB 上限，一条消息最多 10 个），`/ask` 带 `attachments: [id]`。`agent/content.ts` 组装 Anthropic 消息内容：png/jpg/gif/webp → image 块，pdf → document 块，文本类（按 mime 或扩展名）→ 内联 text 块（10 万字截断），其他类型只告知文件名。带附件时 `askStream` 走流式输入（一条 `SDKUserMessage`）。用户消息 `payload.attachments` 存元数据，缩略图从 `GET /attachments/:id` 加载（CSP `img-src` 已放行 127.0.0.1）。
+- 消息文本里的 URL 由 `Linkified` 变成可点链接（点击 / ⌘点击 都用系统浏览器打开），页面根挂 `LinkMenuHost`：任何 `<a href>` 右键弹「打开链接 / 复制链接」。
+
 ## 终端任务（会话 ↔ Ghostty 的关联）
 
 - 每次 run_claude / `POST /run` / 收件「处理」都建一条 `jobs` 记录。启动脚本（`agent/runner.ts`）：`mkdir` 原子锁防 Ghostty 双开 → `script -q <runs>/<id>.log zsh -c 'claude --dangerously-skip-permissions --settings <id>.settings.json <task>'` 录整个终端会话 → 退出后复位终端（关鼠标追踪等）→ `curl POST /jobs/:id/exit {code}` → `exec zsh -il`。

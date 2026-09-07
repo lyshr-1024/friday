@@ -12,6 +12,7 @@ import { userSettings } from "../settings.js";
 const body = z.object({
   prompt: z.string().trim().min(1).max(8000),
   conversationId: z.string().uuid().optional(),
+  attachments: z.array(z.string().uuid()).max(10).optional(),
 });
 
 /** 把某个会话的进行中任务以 SSE 推给客户端；客户端断开只取消订阅。 */
@@ -45,13 +46,18 @@ export const ask = new Hono()
     if (isRunning(conv)) return c.json({ error: "这个会话正在生成，先等它结束或按 Esc 中断" }, 409);
 
     const prefs = userSettings();
-    startRun(conv, prompt, {
-      systemPrompt: friday(loadMemoryContext(), prefs.skills),
-      cwd: config.dataDir,
-      skills: prefs.skills,
-      ...(claudeSessionId(conv) ? { resume: claudeSessionId(conv) } : {}),
-      ...(prefs.model ? { model: prefs.model } : {}),
-    });
+    startRun(
+      conv,
+      prompt,
+      {
+        systemPrompt: friday(loadMemoryContext(), prefs.skills),
+        cwd: config.dataDir,
+        skills: prefs.skills,
+        ...(claudeSessionId(conv) ? { resume: claudeSessionId(conv) } : {}),
+        ...(prefs.model ? { model: prefs.model } : {}),
+      },
+      parsed.data.attachments ?? [],
+    );
     c.header("x-conversation-id", conv);
     return streamRun(c, conv);
   })

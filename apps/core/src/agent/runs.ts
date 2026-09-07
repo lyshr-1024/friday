@@ -1,4 +1,6 @@
+import type { Attachment } from "@friday/shared";
 import { askStream, type AskEvent, type AskOptions } from "./claude.js";
+import { buildUserContent } from "./content.js";
 import { addMessage, setClaudeSessionId } from "../memory/conversations.js";
 import { finishSession, startSession } from "../memory/sessions.js";
 
@@ -27,19 +29,20 @@ export function partialAnswer(conversationId: string): string | undefined {
   return runs.get(conversationId)?.answer;
 }
 
-export function startRun(conversationId: string, prompt: string, opts: Omit<AskOptions, "signal">): Run {
+export function startRun(conversationId: string, prompt: string, opts: Omit<AskOptions, "signal">, attachmentIds: string[] = []): Run {
   const existing = runs.get(conversationId);
   if (existing) return existing;
   const run: Run = { conversationId, answer: "", done: false, controller: new AbortController(), listeners: new Set() };
   runs.set(conversationId, run);
-  addMessage(conversationId, { role: "user", kind: "ask", content: prompt });
+  const { content, attached } = buildUserContent(prompt, attachmentIds);
+  addMessage(conversationId, { role: "user", kind: "ask", content: prompt, ...(attached.length ? { payload: { attachments: attached satisfies Attachment[] } } : {}) });
   // 延后一拍启动，让发起请求的那次 SSE 先订阅上，避免开头几个事件被合并回放。
-  setTimeout(() => void execute(run, prompt, opts), 0);
+  setTimeout(() => void execute(run, content, opts), 0);
   return run;
 }
 
-async function execute(run: Run, prompt: string, opts: Omit<AskOptions, "signal">): Promise<void> {
-  const sessionId = startSession("ask", prompt);
+async function execute(run: Run, prompt: Parameters<typeof askStream>[0], opts: Omit<AskOptions, "signal">): Promise<void> {
+  const sessionId = startSession("ask", typeof prompt === "string" ? prompt : "(带附件)");
   let error: string | undefined;
   const emit = (ev: AskEvent) => run.listeners.forEach((l) => l(ev));
   try {

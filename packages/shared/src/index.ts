@@ -12,6 +12,16 @@ export interface HealthResponse {
 export interface AskRequest {
   prompt: string;
   conversationId?: string;
+  /** 先上传到 /attachments 拿到的 id */
+  attachments?: string[];
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  createdAt: string;
 }
 
 export interface AskResponse {

@@ -17,6 +17,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.259
         version: 0.3.259(@anthropic-ai/sdk@0.123.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)
+      '@anthropic-ai/sdk':
+        specifier: 0.123.0
+        version: 0.123.0(zod@4.5.4)
       '@friday/shared':
         specifier: workspace:*
         version: link:../../packages/shared

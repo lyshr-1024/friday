@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, Job, Message, ModelId } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, updateSettings } from "../lib/core";
+import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId } from "@friday/shared";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, HotList, JobCard, fmtTime } from "./shared";
+import { AssistantBody, AttachmentStrip, HotList, JobCard, LinkMenuHost, Linkified, fmtTime } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
@@ -28,6 +28,9 @@ export function Chat() {
   const [showJobs, setShowJobs] = useState(false);
   const [jobList, setJobList] = useState<Job[]>([]);
   const [logView, setLogView] = useState<{ job: Job; tail: string } | null>(null);
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
@@ -187,12 +190,42 @@ export function Chat() {
   }
 
   async function send(text: string, id = convRef.current) {
-    const prompt = text.trim();
-    if (!prompt || busy || !id) return;
+    const prompt = text.trim() || (pending.length ? "看看这些附件" : "");
+    if (!prompt || busy || !id || uploading > 0) return;
+    const attachments = pending;
     setInput("");
-    push({ role: "user", kind: "ask", content: prompt });
+    setPending([]);
+    push({ role: "user", kind: "ask", content: prompt, ...(attachments.length ? { payload: { attachments } } : {}) });
     void refreshList();
-    await follow(id, ask({ prompt, conversationId: id }, newSubscription()));
+    await follow(id, ask({ prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) }, newSubscription()));
+  }
+
+  async function addFiles(files: Iterable<File>) {
+    const list = [...files].filter((f) => f.size > 0).slice(0, 10 - pending.length);
+    if (!list.length) return;
+    setUploading((n) => n + list.length);
+    for (const f of list) {
+      try {
+        const a = await uploadAttachment(f);
+        setPending((p) => [...p, a]);
+      } catch (e) {
+        push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  }
+
+  function onPaste(e: React.ClipboardEvent) {
+    const files = [...e.clipboardData.items].filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter((f): f is File => Boolean(f));
+    if (!files.length) return;
+    e.preventDefault();
+    void addFiles(files);
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
   }
 
   function interrupt() {
@@ -247,6 +280,7 @@ export function Chat() {
 
   return (
     <div className="chat">
+      <LinkMenuHost />
       <aside className="chat__side">
         <div className="side__drag" data-tauri-drag-region />
         <button className="side__new" onClick={() => void startNew()}>
@@ -324,7 +358,7 @@ export function Chat() {
         </div>
       )}
 
-      <main className="chat__main">
+      <main className="chat__main" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
         <header className="chat__head" data-tauri-drag-region>
           <span className="chat__title">{title}</span>
           <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
@@ -349,7 +383,12 @@ export function Chat() {
           {messages.map((m) =>
             m.role === "user" ? (
               <div key={m.id} className="turn turn--user">
-                <div className="bubble bubble--user">{m.content}</div>
+                <div className="bubble bubble--user">
+                  {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
+                    <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
+                  )}
+                  <Linkified text={m.content} />
+                </div>
               </div>
             ) : (
               <div key={m.id} className="turn turn--assistant">
@@ -376,19 +415,25 @@ export function Chat() {
           )}
         </div>
         <div className="composer">
+          {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
           <div className="composer__box">
+          <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" onClick={() => fileRef.current?.click()}>
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
+          </button>
+          <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
           <textarea
             ref={inputRef}
             className="composer__input"
             rows={1}
-            placeholder={busy ? "生成中，切到别的会话它会继续跑；Esc 中断" : "给 Friday 发消息"}
+            placeholder={busy ? "生成中，切到别的会话它会继续跑；Esc 中断" : uploading ? "上传中…" : "给 Friday 发消息，可粘贴图片或拖入文件"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             {...ime.handlers}
             autoFocus
           />
-          <button className="composer__send" disabled={busy || !input.trim()} onClick={() => void send(input)} aria-label="发送">
+          <button className="composer__send" disabled={busy || uploading > 0 || (!input.trim() && !pending.length)} onClick={() => void send(input)} aria-label="发送">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
           </button>
           </div>

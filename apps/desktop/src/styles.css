@@ -1390,3 +1390,75 @@ kbd {
 .guide__status .live {
   color: var(--live);
 }
+
+/* ---------- 附件与链接 ---------- */
+
+.link {
+  color: var(--label);
+  text-decoration: underline;
+  text-decoration-color: var(--label-3);
+  text-underline-offset: 2px;
+}
+.link:hover {
+  text-decoration-color: var(--live);
+}
+.bubble--user .link {
+  color: inherit;
+}
+
+.attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.attach__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.attach__img {
+  display: block;
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 8px;
+  border: 1px solid var(--separator);
+}
+.attach__file {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--fill-2);
+  color: var(--label-2);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach__x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--label);
+  color: var(--page);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: default;
+}
+.composer__attach {
+  flex: none;
+  width: 28px;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--label-3);
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+.composer__attach:hover {
+  color: var(--label);
+}

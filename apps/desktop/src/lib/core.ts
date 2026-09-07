@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -246,4 +246,22 @@ export async function jobLog(id: string): Promise<{ tail: string; lines: number 
 
 export async function jobFocus(id: string): Promise<void> {
   await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => {});
+}
+
+export async function uploadAttachment(file: File): Promise<Attachment> {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const res = await fetch(`${await coreBaseUrl()}/attachments`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: file.name || `粘贴的图片.${(file.type.split("/")[1] ?? "png").replace("jpeg", "jpg")}`, mime: file.type || "application/octet-stream", data: btoa(binary) }),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `上传失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function attachmentUrl(id: string): Promise<string> {
+  return `${await coreBaseUrl()}/attachments/${encodeURIComponent(id)}`;
 }

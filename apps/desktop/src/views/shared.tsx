@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { HotItem, InboxItem, Job, Message, RunResponse, Todo } from "@friday/shared";
-import { jobFocus } from "../lib/core";
+import { useEffect, useState } from "react";
+import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Todo } from "@friday/shared";
+import { attachmentUrl, jobFocus } from "../lib/core";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -50,7 +51,87 @@ export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
       </>
     );
   }
-  return <div className="answer">{m.content}</div>;
+  return (
+    <div className="answer">
+      <Linkified text={m.content} />
+    </div>
+  );
+}
+
+const URL_RE = /https?:\/\/[^\s<>"'）)】\]]+/g;
+
+/** 把文本里的 URL 变成可点的链接：点击 / ⌘点击 用系统浏览器打开，右键出菜单。 */
+export function Linkified({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const url = m[0];
+    const start = m.index ?? 0;
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push(
+      <a key={start} href={url} className="link" onClick={(e) => { e.preventDefault(); void openUrl(url); }}>
+        {url}
+      </a>,
+    );
+    last = start + url.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+/** 挂在页面根上：任何 <a href> 右键弹「打开链接 / 复制链接」。 */
+export function LinkMenuHost() {
+  const [menu, setMenu] = useState<{ href: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a) return;
+      e.preventDefault();
+      setMenu({ href: a.href, x: e.clientX, y: e.clientY });
+    };
+    const close = () => setMenu(null);
+    document.addEventListener("contextmenu", onCtx);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("contextmenu", onCtx);
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, []);
+  if (!menu) return null;
+  return (
+    <div className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+      <button onClick={() => { void openUrl(menu.href); setMenu(null); }}>打开链接</button>
+      <button onClick={() => { void navigator.clipboard.writeText(menu.href); setMenu(null); }}>复制链接</button>
+    </div>
+  );
+}
+
+const isImage = (mime: string) => /^image\/(png|jpe?g|gif|webp)$/.test(mime);
+
+export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRemove?: (id: string) => void }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    void Promise.all(items.map(async (a) => [a.id, await attachmentUrl(a.id)] as const)).then((pairs) => setUrls(Object.fromEntries(pairs)));
+  }, [items.map((a) => a.id).join(",")]);
+  if (!items.length) return null;
+  return (
+    <div className="attach">
+      {items.map((a) => (
+        <div key={a.id} className="attach__item" title={a.name}>
+          {isImage(a.mime) && urls[a.id] ? (
+            <a href={urls[a.id]} onClick={(e) => { e.preventDefault(); void openUrl(urls[a.id]!); }}>
+              <img className="attach__img" src={urls[a.id]} alt={a.name} />
+            </a>
+          ) : (
+            <span className="attach__file mono">{a.name}</span>
+          )}
+          {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除">×</button>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function fmtTime(iso: string): string {
