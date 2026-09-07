@@ -2173,3 +2173,65 @@ kbd {
     transform: none;
   }
 }
+
+/* ---------- 布局修正：任何地方不出横向滚动 ---------- */
+
+html,
+body,
+#root {
+  overflow: hidden;
+}
+.chat,
+.wb,
+.wb__body,
+.wb__nav,
+.board,
+.board__body {
+  overflow-x: hidden;
+  min-width: 0;
+}
+.wb__nav {
+  overflow: hidden;
+}
+.board__cols {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  min-width: 0;
+}
+.col {
+  min-width: 0;
+  max-width: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.tcard {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.tdetail {
+  width: min(560px, 46%);
+  min-width: 340px;
+  overflow-x: hidden;
+}
+.tdetail * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.tblock__body pre,
+.levent__evidence pre,
+.job__log {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.drawer {
+  width: min(440px, 40%);
+  min-width: 320px;
+  overflow-x: hidden;
+}
+.ledger {
+  overflow-x: hidden;
+}
