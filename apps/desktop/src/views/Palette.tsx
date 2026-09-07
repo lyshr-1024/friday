@@ -3,11 +3,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, InboxItem, InboxResponse, Message, TodosSyncResponse } from "@friday/shared";
-import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, syncTodos } from "../lib/core";
+import { ask, cancelAsk, commandOf, health, hot, inbox, inboxDone, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos } from "../lib/core";
+import { modelLabel } from "./ModelSelect";
 import { AssistantBody, HotList, InboxList, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
+type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean };
+
+// 窗口高度变化做一个短促的缓动，不要跳变。
+async function animateHeight(from: number, to: number) {
+  const win = getCurrentWindow();
+  const steps = 8;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const eased = 1 - Math.pow(1 - t, 3);
+    await win.setSize(new LogicalSize(680, Math.round(from + (to - from) * eased)));
+  }
+}
+let lastHeight = 0;
 type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse } | { kind: "inbox"; data: InboxResponse };
 
 const GUIDE = [
@@ -31,6 +45,8 @@ export function Palette() {
   const [busy, setBusy] = useState(false);
   const [guideIndex, setGuideIndex] = useState(0);
   const [todoCount, setTodoCount] = useState<number | null>(null);
+  const [gauge, setGauge] = useState<Gauge | null>(null);
+  const [now, setNow] = useState(Date.now());
   const [status, setStatus] = useState<Status>({ state: "checking" });
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -57,7 +73,17 @@ export function Palette() {
   }, []);
 
   useEffect(() => {
-    void getCurrentWindow().setSize(new LogicalSize(680, hasResult ? RESULT_HEIGHT : IDLE_HEIGHT));
+    const target = hasResult ? RESULT_HEIGHT : IDLE_HEIGHT;
+    if (lastHeight === 0) void getCurrentWindow().setSize(new LogicalSize(680, target));
+    else void animateHeight(lastHeight, target);
+    lastHeight = target;
+  }, [hasResult]);
+
+  // 状态带倒计时每秒走一下。
+  useEffect(() => {
+    if (hasResult) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
   }, [hasResult]);
 
   function reset() {
@@ -75,6 +101,14 @@ export function Palette() {
       const h = await health();
       setStatus({ state: "ok", version: h.version });
       setTodoCount((await openTodos()).length);
+      const [ib, prefs] = await Promise.all([inbox(), settings()]);
+      setGauge({
+        nextSyncAt: ib.nextSyncAt,
+        needReply: ib.items.filter((i) => i.triage?.needsReply).length,
+        inboxTotal: ib.items.length,
+        model: prefs.model ? modelLabel(prefs.model) : "默认",
+        configured: ib.configured,
+      });
     } catch {
       setStatus({ state: "down" });
     }
@@ -288,6 +322,7 @@ export function Palette() {
           {GUIDE.map((g, i) => (
             <button
               key={g.key}
+              style={{ "--i": i } as React.CSSProperties}
               className={`guide__item ${i === guideIndex ? "guide__item--active" : ""}`}
               onMouseEnter={() => setGuideIndex(i)}
               onClick={() => runGuide(g.key)}
@@ -299,9 +334,29 @@ export function Palette() {
           ))}
           <div className="guide__status">
             <span className={`dot dot--${status.state}`} />
-            {status.state === "ok" && (todoCount === null ? "Friday 就绪" : `${todoCount} 条待办 · Friday 就绪`)}
-            {status.state === "down" && "core 未响应"}
-            {status.state === "checking" && "连接中…"}
+            {status.state === "down" && <span>core 未响应</span>}
+            {status.state === "checking" && <span>连接中</span>}
+            {status.state === "ok" && gauge && (
+              <>
+                <span>
+                  <span className="k">slack </span>
+                  {gauge.configured ? (gauge.nextSyncAt ? `sync ${countdown(gauge.nextSyncAt, now)}` : "idle") : "off"}
+                </span>
+                <span>
+                  <span className="k">inbox </span>
+                  {gauge.needReply}/{gauge.inboxTotal}
+                </span>
+                <span>
+                  <span className="k">todo </span>
+                  {todoCount ?? "-"}
+                </span>
+                <span>
+                  <span className="k">model </span>
+                  {gauge.model}
+                </span>
+              </>
+            )}
+            <span className="brand">friday</span>
           </div>
         </div>
       )}
@@ -309,7 +364,7 @@ export function Palette() {
       {hasResult && (
         <>
           <div className="palette__body">
-            {draft && <div className="answer">{draft}</div>}
+            {draft && <div className="answer answer--streaming">{draft}</div>}
             {result && !draft && <AssistantBody m={result} />}
             {panel?.kind === "hot" && (
               <>
@@ -352,4 +407,9 @@ export function Palette() {
       )}
     </div>
   );
+}
+
+function countdown(iso: string, now: number): string {
+  const s = Math.max(0, Math.floor((new Date(iso).getTime() - now) / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }

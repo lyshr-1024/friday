@@ -70,7 +70,7 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 window_vibrancy::apply_vibrancy(
                     &win,
-                    window_vibrancy::NSVisualEffectMaterial::Popover,
+                    window_vibrancy::NSVisualEffectMaterial::HudWindow,
                     Some(window_vibrancy::NSVisualEffectState::Active),
                     Some(14.0),
                 )?;

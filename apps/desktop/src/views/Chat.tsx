@@ -341,7 +341,7 @@ export function Chat() {
           )}
           {busy && !draft && (
             <div className="turn turn--assistant">
-              <div className="avatar">F</div>
+              <div className="avatar avatar--live">F</div>
               <div className="bubble bubble--assistant thinking" aria-label="思考中">
                 <span /><span /><span />
               </div>
@@ -349,8 +349,8 @@ export function Chat() {
           )}
           {draft && (
             <div className="turn turn--assistant">
-              <div className="avatar">F</div>
-              <div className="bubble bubble--assistant answer">{draft}</div>
+              <div className="avatar avatar--live">F</div>
+              <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
             </div>
           )}
         </div>

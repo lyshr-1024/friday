@@ -20,41 +20,30 @@
 }
 
 :root {
-  --font: "Friday CJK", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
   --font-text: var(--font);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --label: rgba(0, 0, 0, 0.85);
-  --label-2: rgba(0, 0, 0, 0.5);
-  --label-3: rgba(0, 0, 0, 0.28);
-  --separator: rgba(0, 0, 0, 0.08);
-  --fill: rgba(0, 0, 0, 0.04);
-  --fill-2: rgba(0, 0, 0, 0.07);
-  --accent: #2c2c2e;
-  --accent-fg: #ffffff;
-  --ring: rgba(0, 0, 0, 0.08);
-  --red: #ff3b30;
-  --green: #28c840;
-  --card: #ffffff;
-  --side: #ebebed;
-  --page: #f5f5f7;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --label: rgba(255, 255, 255, 0.9);
-    --label-2: rgba(255, 255, 255, 0.55);
-    --label-3: rgba(255, 255, 255, 0.3);
-    --separator: rgba(255, 255, 255, 0.1);
-    --fill: rgba(255, 255, 255, 0.06);
-    --fill-2: rgba(255, 255, 255, 0.1);
-    --accent: #e5e5ea;
-    --accent-fg: #1d1d1f;
-    --ring: rgba(255, 255, 255, 0.12);
-    --card: #232326;
-    --side: #1c1c1e;
-    --page: #161618;
-  }
+  /* B 深色仪表盘：灰阶为主，青色只用于「正在活动」 */
+  --page: #0e0f12;
+  --panel: #14161a;
+  --card: #1a1c21;
+  --side: #111216;
+  --separator: #2a2d34;
+  --grid: rgba(255, 255, 255, 0.025);
+  --fill: rgba(255, 255, 255, 0.04);
+  --fill-2: rgba(255, 255, 255, 0.08);
+  --label: #e8eaee;
+  --label-2: #8c929e;
+  --label-3: #585e6a;
+  --accent: #262930;
+  --accent-fg: #e8eaee;
+  --live: #38d6ff;
+  --live-dim: rgba(56, 214, 255, 0.35);
+  --live-glow: rgba(56, 214, 255, 0.18);
+  --ring: rgba(56, 214, 255, 0.16);
+  --red: #ff5f57;
+  --green: #38d6ff;
+  color-scheme: dark;
 }
 
 * {
@@ -107,7 +96,8 @@ kbd {
   background: var(--label-3);
 }
 .dot--ok {
-  background: var(--green);
+  background: var(--live);
+  box-shadow: 0 0 8px var(--live-dim);
 }
 .dot--down {
   background: var(--red);
@@ -275,6 +265,7 @@ kbd {
   min-height: 100vh;
   padding: 24px 28px 36px;
   background: var(--page);
+  color: var(--label);
 }
 
 .settings__title {
@@ -411,6 +402,11 @@ kbd {
 }
 .guide__item--active {
   background: var(--fill-2);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+.guide__item {
+  animation: rise-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 55ms);
 }
 .guide__label {
   flex: none;
@@ -427,9 +423,23 @@ kbd {
 }
 .guide__status {
   margin-top: auto;
-  padding: 8px 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 10px 0;
+  border-top: 1px solid var(--separator);
   color: var(--label-2);
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.guide__status .k {
+  color: var(--label-3);
+}
+.guide__status .brand {
+  margin-left: auto;
+  color: var(--label-3);
 }
 
 /* ---------- 对话流 ---------- */
@@ -440,7 +450,7 @@ kbd {
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--label-2), transparent);
+  background: linear-gradient(90deg, transparent, var(--live), transparent);
   background-size: 40% 100%;
   animation: sweep 1.1s ease-in-out infinite;
 }
@@ -502,7 +512,10 @@ kbd {
 .chat {
   height: 100vh;
   display: flex;
-  background: var(--page);
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--page);
   color: var(--label);
   font-size: 13px;
 }
@@ -764,6 +777,7 @@ kbd {
   justify-content: flex-end;
 }
 .avatar {
+  position: relative;
   flex: none;
   width: 24px;
   height: 24px;
@@ -813,7 +827,7 @@ kbd {
   transition: border-color 120ms, box-shadow 120ms;
 }
 .composer__box:focus-within {
-  border-color: var(--label-3);
+  border-color: var(--live-dim);
   box-shadow: 0 0 0 3px var(--ring);
 }
 .composer__input {
@@ -1034,7 +1048,7 @@ kbd {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--label-3);
+  background: var(--live);
   animation: think 1.2s ease-in-out infinite;
 }
 .thinking span:nth-child(2) {
@@ -1128,7 +1142,7 @@ kbd {
   border-left: 3px solid var(--separator);
 }
 .inbox__item--high {
-  border-left-color: var(--red);
+  border-left-color: var(--live);
 }
 .inbox__item--low {
   opacity: 0.75;
@@ -1149,8 +1163,9 @@ kbd {
   font-size: 10.5px;
   padding: 0 6px;
   border-radius: 4px;
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--live);
+  color: #0b1a20;
+  font-weight: 600;
 }
 .inbox__time {
   margin-left: auto;
@@ -1221,7 +1236,49 @@ kbd {
   margin-right: 6px;
   border-radius: 50%;
   border: 1.5px solid var(--label-3);
-  border-top-color: var(--label);
+  border-top-color: var(--live);
   vertical-align: -1px;
   animation: spin 0.8s linear infinite;
+}
+
+/* ---------- B：活动状态动效 ---------- */
+
+.hot__item:hover {
+  border-left-color: var(--live);
+}
+.avatar--live::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--live);
+  border-right-color: var(--live-dim);
+  animation: spin 1.1s linear infinite;
+}
+.answer--streaming::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--live);
+  animation: blink 0.9s steps(2) infinite;
+}
+.palette__body > * {
+  animation: rise-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.turn {
+  animation: rise-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

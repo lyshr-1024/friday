@@ -171,6 +171,7 @@ export interface InboxItem {
 export interface InboxResponse {
   items: InboxItem[];
   lastSyncAt: string | null;
+  nextSyncAt: string | null;
   lastError: string | null;
   configured: boolean;
 }

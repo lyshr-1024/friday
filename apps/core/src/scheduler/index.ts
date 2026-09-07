@@ -24,6 +24,7 @@ export function intervalMs(d = new Date()): number {
 export const state = {
   configured: false,
   lastSyncAt: null as string | null,
+  nextSyncAt: null as string | null,
   lastError: null as string | null,
   notices: [] as Notice[],
   running: false,
@@ -90,7 +91,10 @@ export function drainNotices(): Notice[] {
 export function startScheduler(): void {
   const tick = async () => {
     await syncSlackOnce();
-    setTimeout(tick, intervalMs()).unref();
+    const wait = intervalMs();
+    state.nextSyncAt = new Date(Date.now() + wait).toISOString();
+    setTimeout(tick, wait).unref();
   };
+  state.nextSyncAt = new Date(Date.now() + 5_000).toISOString();
   setTimeout(tick, 5_000).unref();
 }
