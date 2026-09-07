@@ -2,19 +2,30 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Thread } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, taskBoard, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
+import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Task } from "@friday/shared";
+import { MODEL_OPTIONS } from "@friday/shared";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, fmtTime } from "./shared";
 import { Board } from "./Board";
-import type { Task } from "@friday/shared";
+import type { BoardView } from "./Board";
 import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
   conversationId?: string | null;
   initialPrompt?: string | null;
 }
+
+type View = BoardView | "hot";
+
+const NAV: Array<{ key: View; label: string }> = [
+  { key: "queue", label: "待我决定" },
+  { key: "doing", label: "Friday 在做" },
+  { key: "all", label: "全部任务" },
+  { key: "ledger", label: "操作记录" },
+  { key: "hot", label: "AI 热点" },
+];
 
 let localId = 0;
 const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `local-${++localId}`, createdAt: new Date().toISOString() });
@@ -32,8 +43,11 @@ export function Chat() {
   const [pending, setPending] = useState<Attachment[]>([]);
 
   const [drawer, setDrawer] = useState(false);
-  const [tab, setTab] = useState<"board" | "hot">("board");
-  const [reviewCount, setReviewCount] = useState(0);
+  const [view, setView] = useState<View>("queue");
+  const [railHover, setRailHover] = useState(false);
+  const [railPinned, setRailPinned] = useState(false);
+  const [counts, setCounts] = useState({ decide: 0, doing: 0 });
+  const [newTaskSignal, setNewTaskSignal] = useState(0);
   const [uploading, setUploading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
@@ -45,13 +59,14 @@ export function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const convRef = useRef<string | null>(null);
+  const railTimer = useRef<number | null>(null);
   const ime = useImeGuard();
   convRef.current = convId;
 
   useEffect(() => {
     void refreshList();
     void settings().then((s) => { setModel(s.model); setSkills(s.skills); }).catch(() => {});
-    void invoke<OpenPayload | null>("take_pending_chat").then((p) => void openPayload(p ?? {}));
+    void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     return () => void unlisten.then((f) => f());
   }, []);
@@ -59,13 +74,6 @@ export function Chat() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
-
-  useEffect(() => {
-    const tick = () => void taskBoard().then((b) => setReviewCount(b.counts.review)).catch(() => {});
-    tick();
-    const t = setInterval(tick, 20000);
-    return () => clearInterval(t);
-  }, []);
 
   function discussTask(t: Task) {
     setDrawer(true);
@@ -87,19 +95,6 @@ export function Chat() {
     })();
   }
 
-  async function openThreadById(id: string) {
-    const list = await fetchThreads();
-    const t: Thread | undefined = list.threads.find((x) => x.id === id);
-    if (!t) return;
-    setDrawer(true);
-    const conv = await newConversation();
-    setConvId(conv.id);
-    convRef.current = conv.id;
-    setMessages([]);
-    void send(threadPrompt(t), conv.id);
-  }
-
-  // 任务列表：有运行中的每 5 秒刷，否则 30 秒。
   useEffect(() => {
     const load = () => void fetchJobs().then(setJobList).catch(() => {});
     load();
@@ -107,7 +102,6 @@ export function Chat() {
     return () => clearInterval(t);
   }, [jobList.some((j) => j.status === "running")]);
 
-  // 有别的会话在后台生成时定时刷新侧栏，跑完把转圈去掉。
   useEffect(() => {
     if (!list.some((c) => c.running)) return;
     const t = setInterval(() => void refreshList(), 5000);
@@ -118,18 +112,17 @@ export function Chat() {
     try {
       setList(await conversations());
     } catch {
-      /* core 未响应时侧栏留空 */
     }
   }
 
   async function openPayload(p: OpenPayload) {
+    setDrawer(true);
     const id = p.conversationId ?? (await newConversation()).id;
     await load(id);
     if (p.initialPrompt) void send(p.initialPrompt, id);
     else inputRef.current?.focus();
   }
 
-  // 切换会话只取消订阅，后台生成继续；切回来时若还在跑就重新订阅并回放。
   async function load(id: string) {
     abortRef.current?.abort();
     setBusy(false);
@@ -147,7 +140,6 @@ export function Chat() {
     return ctrl.signal;
   }
 
-  // 消费一条事件流；结束后从 core 重新拉这条会话，拿到落库后的消息。
   async function follow(id: string, events: AsyncGenerator<AskEvent>) {
     setBusy(true);
     let answer = "";
@@ -190,6 +182,17 @@ export function Chat() {
     setMessages([]);
     setInput("");
     inputRef.current?.focus();
+  }
+
+  async function openDrawer() {
+    setDrawer(true);
+    if (!convRef.current) {
+      const conv = await newConversation();
+      setConvId(conv.id);
+      convRef.current = conv.id;
+      setMessages([]);
+    }
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   function push(m: Omit<Message, "id" | "createdAt">) {
@@ -248,8 +251,6 @@ export function Chat() {
     }
   }
 
-
-
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       if (ime.isImeEnter(e)) return;
@@ -259,16 +260,33 @@ export function Chat() {
     if (e.key === "Escape" && busy) interrupt();
   }
 
-  // 挂在 window 上，焦点不在输入框（比如点了空白处）时快捷键也要生效。
+  function newTask() {
+    setView("queue");
+    setNewTaskSignal((n) => n + 1);
+  }
+
+  function go(v: View) {
+    setView(v);
+    if (v === "hot" && !hotData) void loadHot();
+    setRailHover(false);
+  }
+
   useEffect(() => {
     function onGlobalKey(e: KeyboardEvent) {
       if (!e.metaKey) return;
-      if (e.key === "n") {
+      if (e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        newTask();
+      } else if ((e.key === "N" || e.key === "n") && e.shiftKey) {
         e.preventDefault();
         void startNew();
       } else if (e.key === "j") {
         e.preventDefault();
-        setDrawer((v) => !v);
+        if (drawer) setDrawer(false);
+        else void openDrawer();
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        setRailPinned((v) => !v);
       } else if (e.key === "w") {
         e.preventDefault();
         void getCurrentWindow().close();
@@ -279,42 +297,76 @@ export function Chat() {
     }
     window.addEventListener("keydown", onGlobalKey);
     return () => window.removeEventListener("keydown", onGlobalKey);
-  }, []);
+  }, [drawer]);
 
+  function railEnter() {
+    if (railTimer.current) window.clearTimeout(railTimer.current);
+    setRailHover(true);
+  }
+  function railLeave() {
+    if (railTimer.current) window.clearTimeout(railTimer.current);
+    railTimer.current = window.setTimeout(() => setRailHover(false), 260);
+  }
+
+  const running = jobList.filter((j) => j.status === "running").length;
+  const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
+  const railOpen = railPinned || railHover;
+
+  const tools = (
+    <>
+      <button className="b b--text" onClick={() => (drawer ? setDrawer(false) : void openDrawer())}>问 Friday<kbd>⌘J</kbd></button>
+      <button className="b b--ghost" onClick={newTask}>＋ 交代一件事<kbd>⌘N</kbd></button>
+    </>
+  );
 
   return (
     <div className="chat">
       <LinkMenuHost />
-      <div className="wb">
-        <header className="wb__nav" data-tauri-drag-region>
-          <div className="wb__tabs">
-            <button className={tab === "board" ? "on" : ""} onClick={() => setTab("board")}>工作台{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
-            <button className={tab === "hot" ? "on" : ""} onClick={() => { setTab("hot"); if (!hotData) void loadHot(); }}>AI 热点</button>
+      <div className="edge" onMouseEnter={railEnter} />
+      <nav className={`rail ${railOpen ? "rail--open" : ""}`} onMouseEnter={railEnter} onMouseLeave={railLeave}>
+        <div className="rail__brand">Friday</div>
+        {NAV.map((n) => (
+          <button key={n.key} className={`rail__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)}>
+            {n.key === "queue" && <span className="dot dot--decide" />}
+            {n.key === "doing" && <span className={`dot ${counts.doing ? "dot--processing" : ""}`} />}
+            {n.label}
+            {n.key === "queue" && counts.decide > 0 && <span className="mono amber">{counts.decide}</span>}
+            {n.key === "doing" && counts.doing > 0 && <span className="mono">{counts.doing}</span>}
+          </button>
+        ))}
+        <div className="rail__foot">
+          <button className="b b--ghost" onClick={newTask}>交代一件事<kbd>⌘N</kbd></button>
+          <button className="rail__row b b--text" style={{ padding: "0 8px" }} onClick={() => void openDrawer()}>问 Friday<kbd>⌘J</kbd></button>
+          <div className="rail__status">
+            {running > 0 && <><span className="side__spin" />{running} 个任务在跑 · </>}
+            {modelLabel || "跟随 Claude Code"} · ⌘\ 固定
           </div>
-          <div className="wb__right">
-            {jobList.some((j) => j.status === "running") && <span className="wb__jobs mono"><span className="side__spin" /> {jobList.filter((j) => j.status === "running").length} 个任务在跑</span>}
-            <button className={`pill ${drawer ? "pill--on" : ""}`} onClick={() => setDrawer((v) => !v)} title="问 Friday（⌘J）">问 Friday <kbd>⌘J</kbd></button>
-          </div>
-        </header>
-        <div className="wb__body">
-          {tab === "board" && <Board onDiscuss={discussTask} onOpenThread={(id) => void openThreadById(id)} />}
-          {tab === "hot" && (
-            <div className="wb__hot">
-              <div className="today__head" style={{ border: "none", padding: "0 0 8px" }}>
-                <span>AI 热点</span>
-                <button className="today__refresh" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>
-              </div>
-              {hotData ? (
-                <>
-                  <HotList items={hotData.items} />
-                  <div className="today__time">更新于 {fmtTime(hotData.generatedAt)}</div>
-                </>
-              ) : (
-                <div className="chat__empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>
-              )}
-            </div>
-          )}
         </div>
+      </nav>
+
+      <div className="wb">
+        {view === "hot" ? (
+          <>
+            <header className="q__head" data-tauri-drag-region>
+              <div className="q__row" data-tauri-drag-region>
+                <div className="q__title" data-tauri-drag-region>
+                  <h1 data-tauri-drag-region>AI 热点</h1>
+                  {hotData && <span className="q__count">更新于 {fmtTime(hotData.generatedAt)}</span>}
+                </div>
+                <div className="q__tools">
+                  <button className="b b--ghost" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>
+                </div>
+              </div>
+            </header>
+            <div className="wb__scroll">
+              <div className="wb__page hot__page">
+                {hotData ? <HotList items={hotData.items} /> : <div className="empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>}
+              </div>
+            </div>
+          </>
+        ) : (
+          <Board view={view} tools={tools} newTaskSignal={newTaskSignal} onDiscuss={discussTask} onCounts={setCounts} />
+        )}
       </div>
 
       {drawer && (
@@ -326,7 +378,7 @@ export function Chat() {
                 <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
               ))}
             </select>
-            <button className="pill" onClick={() => void startNew()} title="新对话（⌘N）">新对话</button>
+            <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话</button>
             <button
               className={`pill ${skills ? "pill--on" : ""}`}
               disabled={skills === null}
@@ -343,7 +395,7 @@ export function Chat() {
               <div className="chat__empty">
                 <div className="chat__mark">F</div>
                 <div className="chat__empty-title">问点什么</div>
-                <div className="chat__empty-hint">或者在任务详情里点「在会话里讨论」，我会带着那条任务的上下文过来。</div>
+                <div className="chat__empty-hint">或者在任务里点「在会话里讨论」，我会带着那条任务的上下文过来。</div>
               </div>
             )}
             {messages.map((m) =>
@@ -403,7 +455,7 @@ export function Chat() {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
               </button>
             </div>
-            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘J 收起</div>
+            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘J 收起 · ⌘⇧N 新对话</div>
           </div>
         </aside>
       )}

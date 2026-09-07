@@ -1,265 +1,444 @@
-import { useEffect, useState } from "react";
-import type { AuditEvent, Desk, Task, TaskBoard, TaskStatus } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, createTask, desk as fetchDesk, taskApprove, taskBoard, taskReject, taskRetry, taskSet } from "../lib/core";
-import { AttachmentStrip, DeskView, Linkified, fmtTime } from "./shared";
+import { useEffect, useRef, useState } from "react";
+import type { AuditEvent, Task, TaskBoard, TaskStatus } from "@friday/shared";
+import { audit as fetchAudit, auditUndo, createTask, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet } from "../lib/core";
+import { AttachmentStrip, Linkified, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
-const SECTIONS: Array<{ key: string; statuses: TaskStatus[]; label: string; hint: string; collapsedByDefault?: boolean }> = [
-  { key: "review", statuses: ["review"], label: "等你审核", hint: "Friday 做完了，看报告决定" },
-  { key: "blocked", statuses: ["blocked"], label: "卡住", hint: "需要你介入或重新开工" },
-  { key: "processing", statuses: ["processing"], label: "处理中", hint: "Friday 或 Claude Code 正在做" },
-  { key: "queue", statuses: ["understood", "collected"], label: "排队中", hint: "看懂了在等时机，或还没做功课" },
-  { key: "done", statuses: ["done"], label: "已完成", hint: "", collapsedByDefault: true },
-];
+export type BoardView = "queue" | "doing" | "all" | "ledger";
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
+const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "排队中", collected: "刚收到", done: "已完成", ignored: "已忽略" };
+const DECIDE: TaskStatus[] = ["review", "blocked"];
+const DOING: TaskStatus[] = ["processing", "understood", "collected"];
+const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
+const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 
-export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => void; onOpenThread?: (id: string) => void }) {
+function waited(iso: string): string {
+  const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (m < 60) return `等了 ${m} 分钟`;
+  if (m < 60 * 24) return `等了 ${Math.round(m / 60)} 小时`;
+  return `等了 ${Math.round(m / 60 / 24)} 天`;
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return "夜深了";
+  if (h < 12) return "早上好";
+  if (h < 14) return "中午好";
+  if (h < 18) return "下午好";
+  return "晚上好";
+}
+
+function needs(t: Task): string {
+  const first = t.pending?.[0];
+  if (first) return `需要你：${first.label}`;
+  if (t.report) return "需要你：看交付报告";
+  if (t.plan) return "需要你：定方案";
+  if (t.status === "review") return "需要你：过一眼";
+  if (t.status === "blocked") return "需要你：介入";
+  return "";
+}
+
+function meta(t: Task): string {
+  return [KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
+}
+
+function sortDecide(a: Task, b: Task): number {
+  const pa = a.pending?.length ? 0 : 1;
+  const pb = b.pending?.length ? 0 : 1;
+  if (pa !== pb) return pa - pb;
+  const ra = PRIORITY[a.priority] ?? 1;
+  const rb = PRIORITY[b.priority] ?? 1;
+  if (ra !== rb) return ra - rb;
+  return a.updatedAt.localeCompare(b.updatedAt);
+}
+
+function parseNew(text: string): { title: string; url?: string } {
+  const m = text.match(/https?:\/\/\S+/);
+  if (!m) return { title: text.trim() };
+  const title = text.replace(m[0], "").trim() || m[0];
+  return { title, url: m[0] };
+}
+
+export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
+  view: BoardView;
+  tools: React.ReactNode;
+  newTaskSignal: number;
+  onDiscuss?: (t: Task) => void;
+  onCounts?: (c: { decide: number; doing: number }) => void;
+}) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
-  const [deskData, setDeskData] = useState<Desk | null>(null);
-  const [deskOpen, setDeskOpen] = useState(true);
-  const [active, setActive] = useState<Task | null>(null);
-  const [tab, setTab] = useState<"board" | "ledger">("board");
-  const [ledger, setLedger] = useState<AuditEvent[]>([]);
+  const [name, setName] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [doingOpen, setDoingOpen] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ title: "", note: "", url: "" });
+  const [text, setText] = useState("");
   const [err, setErr] = useState("");
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(["done"]));
+  const [ledger, setLedger] = useState<AuditEvent[]>([]);
+  const newRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     try {
       const b = await taskBoard();
       setBoard(b);
       setErr("");
-      if (active) setActive(b.tasks.find((t) => t.id === active.id) ?? null);
+      onCounts?.({ decide: b.counts.review + b.counts.blocked, doing: b.counts.processing + b.counts.understood + b.counts.collected });
     } catch (e) {
-      // WebKit 的网络错误文案是 "Load failed"，对用户没意义
       const msg = e instanceof Error ? e.message : String(e);
       setErr(/load failed|fetch/i.test(msg) ? "连接 Friday 失败，15 秒后自动重试" : msg);
     }
   };
   useEffect(() => {
     void load();
-    void fetchDesk().then(setDeskData).catch(() => {});
+    void settings().then((s) => setName(s.name)).catch(() => {});
     const t = setInterval(() => void load(), 15000);
-    const d = setInterval(() => void fetchDesk().then(setDeskData).catch(() => {}), 10 * 60_000);
-    return () => {
-      clearInterval(t);
-      clearInterval(d);
-    };
+    return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    if (tab === "ledger") void fetchAudit(active?.id, 300).then(setLedger).catch(() => {});
-  }, [tab, active?.id]);
+    if (view === "doing") setDoingOpen(true);
+    if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
+  }, [view]);
+  useEffect(() => {
+    if (newTaskSignal > 0) {
+      setAdding(true);
+      setTimeout(() => newRef.current?.focus(), 0);
+    }
+  }, [newTaskSignal]);
 
-  async function act(fn: () => Promise<unknown>) {
+  async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
     try {
       await fn();
-      await load();
-      if (tab === "ledger") setLedger(await fetchAudit(active?.id, 300));
+      const b = await taskBoard();
+      setBoard(b);
+      const after = t ? b.tasks.find((x) => x.id === t.id) : undefined;
+      if (t && (!after || after.status !== t.status)) setSelectedId(null);
+      if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
   }
 
-  const reviewCount = board?.counts.review ?? 0;
+  function submitNew() {
+    const p = parseNew(text);
+    if (!p.title) return;
+    void act(null, async () => {
+      await createTask(p);
+      setText("");
+      setAdding(false);
+    });
+  }
 
-  return (
-    <div className="board">
-      <header className="board__head">
-        <div className="board__tabs">
-          <button className={tab === "board" ? "on" : ""} onClick={() => setTab("board")}>任务板{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
-          <button className={tab === "ledger" ? "on" : ""} onClick={() => setTab("ledger")} title="Friday 做过的每一步：为什么、怎么做、证据、能否撤销">操作记录</button>
-        </div>
-        <div className="board__actions">
-          <button className="btn" onClick={() => setAdding((v) => !v)}>＋ 交代一件事</button>
-          <button className="btn" onClick={() => void load()}>刷新</button>
-        </div>
-      </header>
-      {err && <div className="err" style={{ margin: "8px 20px" }}>{err}</div>}
+  const tasks = board?.tasks ?? [];
+  const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
+  const doing = tasks.filter((t) => DOING.includes(t.status));
+  const done = tasks.filter((t) => t.status === "done").slice(0, 8);
+  const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
+  const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
 
-      {adding && (
-        <form
-          className="board__new"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!draft.title.trim()) return;
-            void act(async () => {
-              await createTask({ title: draft.title.trim(), ...(draft.note.trim() ? { note: draft.note.trim() } : {}), ...(draft.url.trim() ? { url: draft.url.trim() } : {}) });
-              setDraft({ title: "", note: "", url: "" });
-              setAdding(false);
-            });
-          }}
-        >
-          <input className="side__edit" placeholder="一句话：这件事是什么" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} autoFocus />
-          <input className="side__edit" placeholder="补充说明（可选）" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
-          <input className="side__edit" placeholder="相关文档 / 工单链接（可选）" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} />
-          <button className="editor__save" type="submit">交给 Friday</button>
-        </form>
-      )}
+  const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
+  const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
+  const sub =
+    view === "ledger" || view === "all"
+      ? ""
+      : decide.length
+        ? `先把这 ${decide.length} 件定了，其他的 Friday 在做。`
+        : doing.length
+          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件。`
+          : "一切清爽，没有等你的事。";
 
-      {tab === "board" && deskData && (
-        <div className={`board__desk ${deskOpen ? "" : "board__desk--closed"}`}>
-          <button className="board__desk-toggle" onClick={() => setDeskOpen((v) => !v)}>{deskOpen ? "收起" : `Hello ${deskData.name}！${deskData.greeting} · 展开今天的局面`}</button>
-          {deskOpen && <DeskView d={deskData} onOpenThread={onOpenThread} />}
-        </div>
-      )}
-      {tab === "board" && board && (
-        <div className="board__body">
-          <div className="board__list">
-            {SECTIONS.map((sec) => {
-              const list = board.tasks.filter((t) => sec.statuses.includes(t.status));
-              const count = sec.statuses.reduce((n, st) => n + board.counts[st], 0);
-              const collapsed = collapsedSections.has(sec.key);
-              return (
-                <section key={sec.key} className={`sec sec--${sec.key}`}>
-                  <button className="sec__head" onClick={() => setCollapsedSections((c) => { const n = new Set(c); if (n.has(sec.key)) n.delete(sec.key); else n.add(sec.key); return n; })}>
-                    <span className="sec__chev">{collapsed ? "›" : "⌄"}</span>
-                    <span>{sec.label}</span>
-                    <span className="col__count mono">{count}</span>
-                    {!list.length && <span className="sec__hint">{sec.hint}</span>}
-                  </button>
-                  {!collapsed &&
-                    (sec.key === "done" ? list.slice(0, 8) : list).map((t) => (
-                      <button key={t.id} className={`tcard tcard--${t.priority} ${active?.id === t.id ? "tcard--active" : ""}`} onClick={() => setActive(t)}>
-                        <div className="tcard__row">
-                          <span className="tcard__meta mono">{KIND[t.kind] ?? t.kind}{t.project ? ` · ${t.project}` : ""}</span>
-                          <span className="tcard__meta mono">{fmtTime(t.updatedAt)}</span>
-                        </div>
-                        <div className="tcard__title">{t.title}</div>
-                        <div className="tcard__row">
-                          {t.pending?.length ? <span className="tcard__pending">{t.pending.length} 个动作等你点</span> : null}
-                          {t.progress && t.status !== "done" && <span className="tcard__progress">{t.progress.slice(0, 80)}</span>}
-                        </div>
-                      </button>
-                    ))}
-                </section>
-              );
-            })}
-          </div>
-          {active && (
-            <aside className="tdetail">
-              <TaskDetail t={active} onClose={() => setActive(null)} onAct={act} onDiscuss={onDiscuss} />
-            </aside>
-          )}
-        </div>
-      )}
-
-      {tab === "ledger" && (
-        <div className="ledger">
-          <div className="ledger__filter mono">{active ? `只看任务：${active.title}` : "全部动作"}{active && <button onClick={() => setActive(null)}>清除筛选</button>}</div>
-          {ledger.length === 0 && <div className="col__empty">还没有记录</div>}
-          {ledger.map((e) => (
-            <div key={e.id} className={`levent levent--${e.status}`}>
-              <div className="levent__head">
-                <span className="mono levent__time">{fmtTime(e.ts)}</span>
-                <span className="levent__action">{e.action}</span>
-                <span className={`levent__risk levent__risk--${e.risk}`}>{RISK[e.risk]}</span>
-                <span className="mono levent__status">{e.status}</span>
-                {e.reversible && e.status !== "undone" && <button className="levent__undo" onClick={() => void act(() => auditUndo(e.id))}>撤销</button>}
-              </div>
-              <div className="levent__why">{e.why}</div>
-              <div className="levent__how mono">{e.how}</div>
-              {Object.keys(e.evidence).length > 0 && (
-                <details className="levent__evidence">
-                  <summary>证据</summary>
-                  <pre>{JSON.stringify(e.evidence, null, 2)}</pre>
-                </details>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TaskDetail({ t, onClose, onAct, onDiscuss }: { t: Task; onClose: () => void; onAct: (fn: () => Promise<unknown>) => Promise<void>; onDiscuss?: (t: Task) => void }) {
-  const [reason, setReason] = useState("");
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  useEffect(() => {
-    void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
-  }, [t.id, t.updatedAt]);
-  const r = t.report;
   return (
     <>
-      <header className="tdetail__head">
-        <span className="tdetail__kind mono">{KIND[t.kind] ?? t.kind}{t.project ? ` · ${t.project}` : ""} · {t.status}</span>
-        <button className="editor__back" onClick={onClose}>关闭</button>
-      </header>
-      <h2 className="tdetail__title">{t.title}</h2>
-      {t.understanding && <Block k="Friday 的理解"><Linkified text={t.understanding} /></Block>}
-      {t.plan && <Block k="方案">{t.plan.split("\n").map((l, i) => <div key={i}>{l}</div>)}</Block>}
-      {t.progress && <Block k="进展">{t.progress}</Block>}
-      {t.source.jobId && (
-        <div className="tblock">
-          <div className="k mono">终端 · 就在这里和 Claude Code 对话</div>
-          <Terminal id={t.source.jobId} height={380} />
+      <header className="q__head" data-tauri-drag-region>
+        <div className="q__row" data-tauri-drag-region>
+          <div className="q__title" data-tauri-drag-region>
+            <h1 data-tauri-drag-region>{title}</h1>
+            {board && <span className="q__count">{count} {view === "ledger" ? "条" : "件"}</span>}
+          </div>
+          <div className="q__tools">{tools}</div>
         </div>
-      )}
-      {t.source.note && <Block k="你交代的">{t.source.note}</Block>}
-      {t.source.url && <Block k="链接"><Linkified text={t.source.url} /></Block>}
+        {sub && board && <p className="q__sub" data-tauri-drag-region>{name ? `Hello ${name}！` : ""}{greeting()}，{sub}</p>}
+      </header>
+      <div className="wb__scroll">
+        <div className="wb__page">
+          {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
 
-      {r && (
-        <div className="report">
-          <div className="report__title">交付报告</div>
-          <Block k="概要">{r.summary}</Block>
-          {r.changes.length > 0 && <Block k="改动"><ul>{r.changes.map((c, i) => <li key={i}>{c}</li>)}</ul></Block>}
-          {r.testSteps.length > 0 && <Block k="测试过程"><ol>{r.testSteps.map((c, i) => <li key={i}>{c}</li>)}</ol></Block>}
-          <Block k="测试结果">{r.testResult}</Block>
-          {r.screenshots.length > 0 && <Block k="截图"><AttachmentStrip items={r.screenshots} /></Block>}
-          {r.verify.length > 0 && (
-            <Block k="请你验证">
-              <ul className="report__verify">{r.verify.map((c, i) => <li key={i}><label><input type="checkbox" /> {c}</label></li>)}</ul>
-            </Block>
+          {adding && (
+            <form className="q__new" onSubmit={(e) => { e.preventDefault(); submitNew(); }}>
+              <input
+                ref={newRef}
+                value={text}
+                placeholder="一句话交代这件事，回车交给 Friday；带上链接也行"
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") { setAdding(false); setText(""); } }}
+              />
+              <kbd>↵ 交给 Friday · Esc 取消</kbd>
+            </form>
+          )}
+
+          {view === "ledger" ? (
+            <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />
+          ) : (
+            <>
+              {focus && <Focus t={focus} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} />}
+
+              {view === "all" ? (
+                ALL_ORDER.map((st) => {
+                  const list = tasks.filter((t) => t.status === st && t.id !== focus?.id);
+                  if (!list.length) return null;
+                  return (
+                    <section key={st} className="grp">
+                      <div className="grp__head"><span className={`dot dot--${st}`} />{STATUS[st]}<span className="mono">{list.length}</span></div>
+                      <div className="list">{list.map((t) => <Row key={t.id} t={t} right={needs(t) || fmtTime(t.updatedAt)} dim={!needs(t)} onClick={() => setSelectedId(t.id)} />)}</div>
+                    </section>
+                  );
+                })
+              ) : (
+                <>
+                  {!focus && board && (
+                    <div className="empty">
+                      <strong>没有等你决定的事</strong>
+                      {doing.length ? `Friday 手上有 ${doing.length} 件，做完会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
+                    </div>
+                  )}
+                  <div className="list">
+                    {decide.filter((t) => t.id !== focus?.id).map((t) => (
+                      <Row key={t.id} t={t} right={needs(t)} onClick={() => setSelectedId(t.id)} />
+                    ))}
+                  </div>
+
+                  <section className="grp">
+                    <button className="grp__head" onClick={() => setDoingOpen((v) => !v)}>
+                      Friday 在做<span className="mono">{doing.length}</span>
+                      <span className="grp__tog">{doingOpen ? "收起" : "展开 ›"}</span>
+                    </button>
+                    {doingOpen && (
+                      <div className="list">
+                        {doing.filter((t) => t.id !== focus?.id).map((t) => (
+                          <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar={t.status === "processing"} onClick={() => setSelectedId(t.id)} />
+                        ))}
+                        {!doing.length && <div className="row row--compact"><span className="row__meta">现在没有在做的事</span></div>}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="grp">
+                    <button className="grp__head" onClick={() => setDoneOpen((v) => !v)}>
+                      最近完成<span className="mono">{board?.counts.done ?? 0}</span>
+                      <span className="grp__tog">{doneOpen ? "收起" : "展开 ›"}</span>
+                    </button>
+                    {doneOpen && (
+                      <div className="list">
+                        {done.filter((t) => t.id !== focus?.id).map((t) => <Row key={t.id} t={t} compact right={fmtTime(t.updatedAt)} dim onClick={() => setSelectedId(t.id)} />)}
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
+            </>
           )}
         </div>
-      )}
-
-      {t.pending && t.pending.length > 0 && (
-        <div className="pending">
-          <div className="report__title">等你点头的动作</div>
-          {t.pending.map((a) => (
-            <div key={a.id} className="pending__item">
-              <div className="pending__label">{a.label}</div>
-              <div className="pending__detail">{a.detail}</div>
-              <div className="inbox__actions">
-                <button className="inbox__go" onClick={() => void onAct(() => taskApprove(t.id, a.id))}>通过并执行</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="tdetail__ops">
-        <input className="side__edit" placeholder="打回原因（可选）" value={reason} onChange={(e) => setReason(e.target.value)} />
-        <div className="inbox__actions">
-          {(t.status === "blocked" || t.status === "processing") && t.project && <button className="inbox__go" onClick={() => void onAct(() => taskRetry(t.id))}>重新开工</button>}
-          {t.status !== "done" && <button onClick={() => void onAct(() => taskReject(t.id, reason || undefined))}>打回</button>}
-          {t.status !== "done" && <button onClick={() => void onAct(() => taskSet(t.id, "done"))}>标记完成</button>}
-          {t.status !== "ignored" && <button onClick={() => void onAct(() => taskSet(t.id, "ignore"))}>忽略</button>}
-          {onDiscuss && <button className="inbox__go" onClick={() => onDiscuss(t)}>在会话里讨论</button>}
-        </div>
       </div>
-
-      {events.length > 0 && (
-        <Block k="这条任务的账">
-          <ul className="tdetail__events">
-            {events.map((e) => <li key={e.id}><span className="mono">{fmtTime(e.ts)}</span> {e.action} — {e.why}</li>)}
-          </ul>
-        </Block>
-      )}
     </>
   );
 }
 
-function Block({ k, children }: { k: string; children: React.ReactNode }) {
+function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string; dim?: boolean; compact?: boolean; bar?: boolean; onClick: () => void }) {
   return (
-    <div className="tblock">
-      <div className="k mono">{k}</div>
-      <div className="tblock__body">{children}</div>
+    <button className={`row ${compact ? "row--compact" : ""}`} onClick={onClick}>
+      <span className={`dot dot--${t.status}`} />
+      <span className="row__main">
+        <div className="row__title">{t.title}</div>
+        {!compact && <div className="row__meta">{meta(t)}</div>}
+      </span>
+      {bar && <span className="row__bar"><i /></span>}
+      <span className={`row__right ${dim ? "row__right--dim" : ""}`}>{right}</span>
+    </button>
+  );
+}
+
+function Focus({ t, onAct, onDiscuss, onClose, closable }: {
+  t: Task;
+  onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
+  onDiscuss?: (t: Task) => void;
+  onClose: () => void;
+  closable: boolean;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  useEffect(() => {
+    setRejecting(false);
+    setReason("");
+    void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
+  }, [t.id, t.updatedAt]);
+
+  const r = t.report;
+  const pending = t.pending ?? [];
+  const advice = pending[0]?.detail || t.plan || r?.summary || "";
+  const situation = t.understanding || t.source.note || "";
+  const open = t.status !== "done" && t.status !== "ignored";
+
+  const first = pending[0];
+  const primary: { label: string; run: () => Promise<unknown> } | null = first
+    ? { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
+    : t.status === "blocked" && t.project
+      ? { label: "重新开工", run: () => taskRetry(t.id) }
+      : t.status === "review"
+        ? { label: "标记完成", run: () => taskSet(t.id, "done") }
+        : null;
+
+  useEffect(() => {
+    if (!primary) return;
+    const run = primary.run;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Enter" || e.metaKey || e.shiftKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      if (el?.closest(".drawer, .xterm")) return;
+      e.preventDefault();
+      void onAct(t, run);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [t.id, t.updatedAt, primary?.label]);
+
+  return (
+    <article className="fx">
+      <div className="fx__meta">
+        <span className={`dot dot--${t.status}`} />
+        <span>{STATUS[t.status]} · {meta(t)}</span>
+        {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>回到队列</button>}
+      </div>
+      <h2 className="fx__title">{t.title}</h2>
+
+      <div className="fx__grid">
+        <div className="fx__col">
+          {situation && (
+            <div>
+              <span className="k">情境</span>
+              <div className="fx__text"><Linkified text={situation} /></div>
+            </div>
+          )}
+          {advice && (
+            <div>
+              <span className="k">{pending[0] ? `Friday 的建议：${pending[0].label}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}</span>
+              <div className="fx__quote"><Linkified text={advice} /></div>
+            </div>
+          )}
+          {!situation && !advice && t.progress && (
+            <div>
+              <span className="k">进展</span>
+              <div className="fx__text">{t.progress}</div>
+            </div>
+          )}
+        </div>
+        <div className="fx__col">
+          {r && r.verify.length > 0 && (
+            <div>
+              <span className="k">通过前请确认</span>
+              <ul className="fx__check">{r.verify.map((c, i) => <li key={i}><label><input type="checkbox" />{c}</label></li>)}</ul>
+            </div>
+          )}
+          {r && (
+            <div>
+              <span className="k">测试结果</span>
+              <div className="fx__text">{r.testResult}</div>
+            </div>
+          )}
+          {!r && t.progress && (situation || advice) && (
+            <div>
+              <span className="k">进展</span>
+              <div className="fx__text">{t.progress}</div>
+            </div>
+          )}
+          {pending.length > 1 && (
+            <div>
+              <span className="k">还有 {pending.length - 1} 个动作排在后面</span>
+              <div className="fx__text">{pending.slice(1).map((p) => p.label).join("、")}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {r && (r.changes.length > 0 || r.testSteps.length > 0 || r.screenshots.length > 0) && (
+        <details className="fx__more">
+          <summary>交付报告：改动 {r.changes.length} 处 · 测试 {r.testSteps.length} 步 · 截图 {r.screenshots.length} 张</summary>
+          <div className="fx__more-body">
+            {r.changes.length > 0 && <><span className="k">改动</span><ul>{r.changes.map((c, i) => <li key={i}>{c}</li>)}</ul></>}
+            {r.testSteps.length > 0 && <><span className="k">测试过程</span><ol>{r.testSteps.map((c, i) => <li key={i}>{c}</li>)}</ol></>}
+            {r.screenshots.length > 0 && <><span className="k">截图</span><AttachmentStrip items={r.screenshots} /></>}
+          </div>
+        </details>
+      )}
+      {t.source.url && (
+        <details className="fx__more">
+          <summary>链接</summary>
+          <div className="fx__more-body"><Linkified text={t.source.url} /></div>
+        </details>
+      )}
+      {t.source.jobId && (
+        <details className="fx__more" open={t.status === "processing"}>
+          <summary>终端 · 就在这里和 Claude Code 对话</summary>
+          <div className="fx__more-body"><Terminal id={t.source.jobId} height={360} /></div>
+        </details>
+      )}
+      {events.length > 0 && (
+        <details className="fx__more">
+          <summary>这条任务的账 · {events.length} 条</summary>
+          <div className="fx__more-body">
+            <ul>{events.map((e) => <li key={e.id}><span className="mono">{fmtTime(e.ts)}</span> {e.action} — {e.why}</li>)}</ul>
+          </div>
+        </details>
+      )}
+
+      {open && (
+        <>
+          <div className="fx__acts">
+            {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}<kbd>↵</kbd></button>}
+            {!primary && <button className="b b--ghost" onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>标记完成</button>}
+            <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
+            <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
+            <span className="fx__spacer" />
+            {onDiscuss && <button className="b b--text" onClick={() => onDiscuss(t)}>在会话里讨论</button>}
+          </div>
+          {rejecting && (
+            <form className="fx__reject" onSubmit={(e) => { e.preventDefault(); void onAct(t, () => taskReject(t.id, reason || undefined)); }}>
+              <input autoFocus placeholder="哪里不对？一句话，Friday 会按这个改" value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setRejecting(false); }} />
+              <button className="b b--ghost" type="submit">打回给 Friday</button>
+            </form>
+          )}
+        </>
+      )}
+    </article>
+  );
+}
+
+function Ledger({ events, onUndo }: { events: AuditEvent[]; onUndo: (id: string) => void }) {
+  if (!events.length) return <div className="empty"><strong>还没有记录</strong>Friday 做的每一步都会记在这里：为什么、怎么做、证据、能否撤销。</div>;
+  return (
+    <div className="ledger">
+      {events.map((e) => (
+        <div key={e.id} className={`levent levent--${e.status}`}>
+          <div className="levent__head">
+            <span className="mono levent__time">{fmtTime(e.ts)}</span>
+            <span className="levent__action">{e.action}</span>
+            <span className={`levent__risk levent__risk--${e.risk}`}>{RISK[e.risk]}</span>
+            <span className="mono levent__status">{e.status}</span>
+            {e.reversible && e.status !== "undone" && <button className="levent__undo" onClick={() => onUndo(e.id)}>撤销</button>}
+          </div>
+          <div className="levent__why">{e.why}</div>
+          <div className="levent__how mono">{e.how}</div>
+          {Object.keys(e.evidence).length > 0 && (
+            <details className="levent__evidence">
+              <summary>证据</summary>
+              <pre>{JSON.stringify(e.evidence, null, 2)}</pre>
+            </details>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

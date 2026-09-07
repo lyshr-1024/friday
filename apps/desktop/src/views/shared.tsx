@@ -1,6 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
-import type { Attachment, Desk, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
+import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
@@ -290,44 +290,3 @@ export function ThreadCard({ t, onOpen, onDone, onIgnore }: { t: Thread; onOpen?
 }
 
 /** 工作台首屏：问候 + 现在先做什么 + 素材 */
-export function DeskView({ d, onOpenThread }: { d: Desk; onOpenThread?: (id: string) => void }) {
-  return (
-    <div className="desk">
-      <div className="desk__hello">Hello {d.name}！{d.greeting}，有什么可以帮你？</div>
-      {d.advice && (
-        <div className="desk__advice">
-          <div className="k mono">现在先做什么</div>
-          {d.advice.split("\n").filter(Boolean).map((l, i) => <div key={i} className="desk__line">{l}</div>)}
-        </div>
-      )}
-      {d.threads.length > 0 && (
-        <div className="desk__section">
-          <div className="k mono">等你回 · {d.threads.length}</div>
-          {d.threads.map((t) => (
-            <div key={t.id} className={`desk__item desk__item--${t.urgency}`}>
-              <div className="desk__item-main">
-                <span className="thread__who">{t.userName}</span> {t.situation}
-              </div>
-              <div className="inbox__actions">
-                {t.reply && <button onClick={() => void navigator.clipboard.writeText(t.reply!)}>复制回复</button>}
-                {onOpenThread && <button className="inbox__go" onClick={() => onOpenThread(t.id)}>处理</button>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {d.todos.length > 0 && (
-        <div className="desk__section">
-          <div className="k mono">待办 · {d.todos.length}</div>
-          <TodoList todos={d.todos} />
-        </div>
-      )}
-      {d.jobs.length > 0 && (
-        <div className="desk__section">
-          <div className="k mono">进行中 · {d.jobs.length}</div>
-          {d.jobs.map((j) => <JobCard key={j.id} job={j} />)}
-        </div>
-      )}
-    </div>
-  );
-}
