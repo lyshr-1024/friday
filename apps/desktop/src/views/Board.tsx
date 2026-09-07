@@ -4,13 +4,12 @@ import { audit as fetchAudit, auditUndo, createTask, desk as fetchDesk, taskAppr
 import { AttachmentStrip, DeskView, Linkified, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
-const COLS: Array<{ key: TaskStatus; label: string; hint: string }> = [
-  { key: "review", label: "等你审核", hint: "Friday 做完了，看报告决定" },
-  { key: "processing", label: "处理中", hint: "Friday 或 Claude Code 正在做" },
-  { key: "understood", label: "已理解", hint: "看懂了，等时机或等你补充" },
-  { key: "collected", label: "刚收集", hint: "还没做功课" },
-  { key: "blocked", label: "卡住", hint: "需要你介入" },
-  { key: "done", label: "已完成", hint: "" },
+const SECTIONS: Array<{ key: string; statuses: TaskStatus[]; label: string; hint: string; collapsedByDefault?: boolean }> = [
+  { key: "review", statuses: ["review"], label: "等你审核", hint: "Friday 做完了，看报告决定" },
+  { key: "blocked", statuses: ["blocked"], label: "卡住", hint: "需要你介入或重新开工" },
+  { key: "processing", statuses: ["processing"], label: "处理中", hint: "Friday 或 Claude Code 正在做" },
+  { key: "queue", statuses: ["understood", "collected"], label: "排队中", hint: "看懂了在等时机，或还没做功课" },
+  { key: "done", statuses: ["done"], label: "已完成", hint: "", collapsedByDefault: true },
 ];
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
@@ -26,6 +25,7 @@ export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => vo
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ title: "", note: "", url: "" });
   const [err, setErr] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(["done"]));
 
   const load = async () => {
     try {
@@ -71,7 +71,7 @@ export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => vo
       <header className="board__head">
         <div className="board__tabs">
           <button className={tab === "board" ? "on" : ""} onClick={() => setTab("board")}>任务板{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
-          <button className={tab === "ledger" ? "on" : ""} onClick={() => setTab("ledger")}>账本</button>
+          <button className={tab === "ledger" ? "on" : ""} onClick={() => setTab("ledger")} title="Friday 做过的每一步：为什么、怎么做、证据、能否撤销">操作记录</button>
         </div>
         <div className="board__actions">
           <button className="btn" onClick={() => setAdding((v) => !v)}>＋ 交代一件事</button>
@@ -108,25 +108,33 @@ export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => vo
       )}
       {tab === "board" && board && (
         <div className="board__body">
-          <div className="board__cols">
-            {COLS.map((col) => {
-              const list = board.tasks.filter((t) => t.status === col.key);
-              if (col.key === "done") list.splice(8);
+          <div className="board__list">
+            {SECTIONS.map((sec) => {
+              const list = board.tasks.filter((t) => sec.statuses.includes(t.status));
+              const count = sec.statuses.reduce((n, st) => n + board.counts[st], 0);
+              const collapsed = collapsedSections.has(sec.key);
               return (
-                <section key={col.key} className={`col col--${col.key}`}>
-                  <div className="col__head">
-                    <span>{col.label}</span>
-                    <span className="col__count mono">{board.counts[col.key]}</span>
-                  </div>
-                  {list.length === 0 && <div className="col__empty">{col.hint || "—"}</div>}
-                  {list.map((t) => (
-                    <button key={t.id} className={`tcard tcard--${t.priority} ${active?.id === t.id ? "tcard--active" : ""}`} onClick={() => setActive(t)}>
-                      <div className="tcard__meta mono">{KIND[t.kind] ?? t.kind}{t.project ? ` · ${t.project}` : ""} · {fmtTime(t.updatedAt)}</div>
-                      <div className="tcard__title">{t.title}</div>
-                      {t.pending?.length ? <div className="tcard__pending">{t.pending.length} 个动作等你点</div> : null}
-                      {t.progress && t.status === "processing" && <div className="tcard__progress">{t.progress}</div>}
-                    </button>
-                  ))}
+                <section key={sec.key} className={`sec sec--${sec.key}`}>
+                  <button className="sec__head" onClick={() => setCollapsedSections((c) => { const n = new Set(c); if (n.has(sec.key)) n.delete(sec.key); else n.add(sec.key); return n; })}>
+                    <span className="sec__chev">{collapsed ? "›" : "⌄"}</span>
+                    <span>{sec.label}</span>
+                    <span className="col__count mono">{count}</span>
+                    {!list.length && <span className="sec__hint">{sec.hint}</span>}
+                  </button>
+                  {!collapsed &&
+                    (sec.key === "done" ? list.slice(0, 8) : list).map((t) => (
+                      <button key={t.id} className={`tcard tcard--${t.priority} ${active?.id === t.id ? "tcard--active" : ""}`} onClick={() => setActive(t)}>
+                        <div className="tcard__row">
+                          <span className="tcard__meta mono">{KIND[t.kind] ?? t.kind}{t.project ? ` · ${t.project}` : ""}</span>
+                          <span className="tcard__meta mono">{fmtTime(t.updatedAt)}</span>
+                        </div>
+                        <div className="tcard__title">{t.title}</div>
+                        <div className="tcard__row">
+                          {t.pending?.length ? <span className="tcard__pending">{t.pending.length} 个动作等你点</span> : null}
+                          {t.progress && t.status !== "done" && <span className="tcard__progress">{t.progress.slice(0, 80)}</span>}
+                        </div>
+                      </button>
+                    ))}
                 </section>
               );
             })}

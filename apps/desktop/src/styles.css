@@ -2235,3 +2235,67 @@ body,
 .ledger {
   overflow-x: hidden;
 }
+
+/* ---------- 任务板：纵向分组列表 ---------- */
+
+.board__list {
+  flex: 1;
+  min-width: 380px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 0;
+  text-align: left;
+  cursor: default;
+}
+.sec__chev {
+  width: 12px;
+  color: var(--label-3);
+}
+.sec--review .sec__head {
+  color: var(--live);
+}
+.sec--blocked .sec__head {
+  color: var(--red);
+}
+.sec__hint {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--label-3);
+}
+.tcard__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.tcard__row .tcard__pending,
+.tcard__row .tcard__progress {
+  margin-top: 6px;
+}
+.tcard__row .tcard__progress {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
