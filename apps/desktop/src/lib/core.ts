@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, AuditEvent, Conversation, ConversationSummary, Desk, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
 export function coreBaseUrl(): Promise<string> {
-  baseUrlPromise ??= invoke<string>("core_base_url");
+  // 浏览器里直接开 vite 页面（截图验收）时没有 Tauri，退到本机端口
+  baseUrlPromise ??= "__TAURI_INTERNALS__" in window ? invoke<string>("core_base_url") : Promise.resolve(`http://127.0.0.1:${import.meta.env.VITE_FRIDAY_PORT ?? "7788"}`);
   return baseUrlPromise;
 }
 
@@ -278,11 +279,6 @@ export async function threadAction(id: string, action: "done" | "ignore" | "refr
   return action === "refresh" ? res.json() : null;
 }
 
-export async function desk(): Promise<Desk> {
-  const res = await fetch(`${await coreBaseUrl()}/desk`);
-  if (!res.ok) throw new Error(`desk ${res.status}`);
-  return res.json();
-}
 
 /** 把一个线程连同 Friday 做好的功课带进会话窗开新对话。 */
 export function threadPrompt(t: Thread): string {

@@ -24,3 +24,5 @@ apps/desktop/src-tauri/resources/
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+.claude/
