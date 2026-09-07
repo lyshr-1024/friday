@@ -3,10 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Attachment, ConversationSummary, Desk, HotResponse, Job, Message, ModelId, Thread } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, desk as fetchDesk, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, desk as fetchDesk, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, taskBoard, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, AttachmentStrip, DeskView, HotList, JobCard, LinkMenuHost, Linkified, fmtTime } from "./shared";
+import { Board } from "./Board";
+import type { Task } from "@friday/shared";
 import { useImeGuard } from "../lib/ime";
 
 interface OpenPayload {
@@ -30,6 +32,8 @@ export function Chat() {
   const [logView, setLogView] = useState<{ job: Job; tail: string } | null>(null);
   const [pending, setPending] = useState<Attachment[]>([]);
   const [deskData, setDeskData] = useState<Desk | null>(null);
+  const [view, setView] = useState<"chat" | "board">("board");
+  const [reviewCount, setReviewCount] = useState(0);
   const [uploading, setUploading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
@@ -56,6 +60,33 @@ export function Chat() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
+
+  useEffect(() => {
+    const tick = () => void taskBoard().then((b) => setReviewCount(b.counts.review)).catch(() => {});
+    tick();
+    const t = setInterval(tick, 20000);
+    return () => clearInterval(t);
+  }, []);
+
+  function discussTask(t: Task) {
+    setView("chat");
+    void (async () => {
+      const conv = await newConversation();
+      setConvId(conv.id);
+      convRef.current = conv.id;
+      setMessages([]);
+      const lines = [
+        `和我讨论这个任务：${t.title}`,
+        t.understanding ? `你的理解：${t.understanding}` : "",
+        t.plan ? `你的方案：${t.plan}` : "",
+        t.progress ? `进展：${t.progress}` : "",
+        t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
+        t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
+        "先说你的判断，我有疑问会问。",
+      ].filter(Boolean);
+      void send(lines.join("\n"), conv.id);
+    })();
+  }
 
   // 空对话时拉工作台首屏；素材没变 core 会直接给缓存。
   useEffect(() => {
@@ -188,6 +219,7 @@ export function Chat() {
   }
 
   async function startNew() {
+    setView("chat");
     const conv = await newConversation();
     abortRef.current?.abort();
     setBusy(false);
@@ -301,13 +333,17 @@ export function Chat() {
           <span>新对话</span>
           <kbd>⌘N</kbd>
         </button>
+        <div className="side__views">
+          <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>工作台{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
+          <button className={view === "chat" ? "on" : ""} onClick={() => setView("chat")}>对话</button>
+        </div>
         <div className="side__label">最近</div>
         <div className="side__list">
           {list.map((c) => (
             <div
               key={c.id}
               className={`side__item ${c.id === convId ? "side__item--active" : ""}`}
-              onClick={() => void load(c.id)}
+              onClick={() => { setView("chat"); void load(c.id); }}
               onContextMenu={(e) => openMenu(e, c.id)}
             >
               {editing?.id === c.id ? (
@@ -371,7 +407,12 @@ export function Chat() {
         </div>
       )}
 
-      <main className="chat__main" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      {view === "board" && (
+        <main className="chat__main">
+          <Board onDiscuss={discussTask} />
+        </main>
+      )}
+      <main className="chat__main" style={view === "board" ? { display: "none" } : undefined} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
         <header className="chat__head" data-tauri-drag-region>
           <span className="chat__title">{title}</span>
           <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, Conversation, ConversationSummary, Desk, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, AuditEvent, Conversation, ConversationSummary, Desk, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -294,4 +294,46 @@ export function threadPrompt(t: Thread): string {
     b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}${b.reply ? `你拟的回复：${b.reply}` : ""}` : "",
     `先给判断和方案，等我确认再动手。`,
   ].filter(Boolean).join("\n");
+}
+
+export async function taskBoard(): Promise<TaskBoard> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks`);
+  if (!res.ok) throw new Error(`tasks ${res.status}`);
+  return res.json();
+}
+
+export async function createTask(input: { title: string; note?: string; url?: string; project?: string; due?: string }): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskApprove(id: string, actionId: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskReject(id: string, reason?: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
+  if (!res.ok) throw new Error(`reject ${res.status}`);
+  return res.json();
+}
+
+export async function taskSet(id: string, action: "done" | "ignore"): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+  if (!res.ok) throw new Error(`${action} ${res.status}`);
+  return res.json();
+}
+
+export async function audit(taskId?: string, limit = 200): Promise<AuditEvent[]> {
+  const qs = new URLSearchParams({ limit: String(limit), ...(taskId ? { taskId } : {}) });
+  const res = await fetch(`${await coreBaseUrl()}/audit?${qs}`);
+  if (!res.ok) throw new Error(`audit ${res.status}`);
+  return res.json();
+}
+
+export async function auditUndo(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/audit/${encodeURIComponent(id)}/undo`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `撤销失败 ${res.status}`);
 }

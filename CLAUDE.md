@@ -53,6 +53,17 @@ apps/core/src/
 - 动效克制但有生命感：引导项按 `--i` 错落浮现，窗口高度用 8 步缓动，回复流式时有光标，思考时头像有光环。
 - 启动器空闲态底部是仪表式状态带（等宽、大写小字）：slack 下次同步倒计时（来自 `/inbox.nextSyncAt`）、inbox 需回复/总数、todo 数、当前模型。
 
+## 任务中枢与账本（2026-09-07 对齐后的主干）
+
+- 目标形态：Friday 是握着全部上下文的专属 agent，**替用户干活，用户只审核**。一切输入（Slack 线程、Meegle 工单、口头交代、文档链接）汇成 `tasks` 表里的**任务**：collected → understood → processing → review → done（blocked / ignored）。
+- 三级权限落地：只读直接做；可逆直接做并记账、可撤销（记待办、更新 people.md）；不可逆挂成任务的 `pending` 动作等用户点「通过并执行」（发 Slack 回复 `slack_reply`、合并分支 `git_merge`）。用户已同意审核通过后由 Friday 发 Slack。
+- **账本** `audit` 表：Friday 每个动作一条（action / why / how / evidence / risk / reversible / status / undo）。`GET /audit`，`POST /audit/:id/undo`。账本视图在会话窗「工作台 → 账本」。
+- **自主改代码**（`agent/pipeline.ts`）：情境卡建议 run_claude 且能定位项目 → `startAutonomousJob`：Ghostty 里 `claude -p`（`autonomousPrompt`：新分支 friday/<id8>、跑类型检查与测试、界面改动用 agent-browser 截图到 `<runs>/<id>.shots/`、交付报告写到 `<runs>/<id>.report.md`，禁止 push/merge/提问）。任务退出 → `onJobExit` 用 `agent/report.ts` 解析报告与截图（存附件）→ 任务进 review，附 `git_merge` 待审核动作。
+- **交付报告**（`DeliveryReport`）是验收的唯一依据：概要、改动、测试过程、测试结果、截图、请你验证。用户明确要求：功能长什么样 + 测试过程，用截图和文本，不要视频。这条对 Friday 派出的任务和改 Friday 本身都适用。
+- 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
+- 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
+- 下一步已定：任务详情内嵌 PTY 终端（sidecar node-pty + xterm.js），一个任务一个终端，可直接与 Claude Code 对话，Ghostty 变成可选弹出。
+
 ## 工作台：线程、功课、首屏
 
 - Slack 消息逐条分类后按人聚合成**线程**（`memory/threads.ts`）：私聊按人、频道 @ 按频道+人，同键 2 小时内接续（`THREAD_GAP_MS`）。`inbox.thread_id` 增量列。

@@ -3,13 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { HotResponse, Message, Thread, ThreadsResponse, TodosSyncResponse } from "@friday/shared";
-import { ask, cancelAsk, commandOf, health, hot, inbox, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos, threadAction, threadPrompt, threads as fetchThreads } from "../lib/core";
+import { ask, cancelAsk, commandOf, health, hot, inbox, jobs as fetchJobs, newConversation, note, openTodos, parseNote, parseRun, run, settings, syncTodos, taskBoard, threadAction, threadPrompt, threads as fetchThreads } from "../lib/core";
 import { modelLabel } from "./ModelSelect";
 import { AssistantBody, HotList, LinkMenuHost, ThreadCard, TodoList } from "./shared";
 import { useImeGuard } from "../lib/ime";
 
 type Status = { state: "checking" } | { state: "ok"; version: string } | { state: "down" };
-type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean; jobsRunning: number; name: string };
+type Gauge = { nextSyncAt: string | null; needReply: number; inboxTotal: number; model: string; configured: boolean; jobsRunning: number; name: string; review: number };
 
 // 窗口高度变化做一个短促的缓动，不要跳变。
 async function animateHeight(from: number, to: number) {
@@ -25,6 +25,7 @@ let lastHeight = 0;
 type Panel = { kind: "hot"; data: HotResponse } | { kind: "todos"; data: TodosSyncResponse } | { kind: "inbox"; data: ThreadsResponse };
 
 const GUIDE = [
+  { key: "board", label: "工作台", hint: "等你审核的、处理中的、Friday 做过的账" },
   { key: "inbox", label: "Slack 找我的人", hint: "按人聚合，Friday 已做好功课与回复" },
   { key: "hot", label: "AI 热点", hint: "HN · HF Papers · OpenAI · Simon W · 量子位" },
   { key: "todos", label: "待办", hint: "Meegle + 本地，秒开" },
@@ -101,7 +102,7 @@ export function Palette() {
       const h = await health();
       setStatus({ state: "ok", version: h.version });
       setTodoCount((await openTodos()).length);
-      const [ib, prefs, jl] = await Promise.all([inbox(), settings(), fetchJobs().catch(() => [])]);
+      const [ib, prefs, jl, tb] = await Promise.all([inbox(), settings(), fetchJobs().catch(() => []), taskBoard().catch(() => null)]);
       setGauge({
         nextSyncAt: ib.nextSyncAt,
         needReply: ib.items.filter((i) => i.triage?.needsReply).length,
@@ -110,6 +111,7 @@ export function Palette() {
         configured: ib.configured,
         jobsRunning: jl.filter((j) => j.status === "running").length,
         name: prefs.name,
+        review: tb?.counts.review ?? 0,
       });
     } catch {
       setStatus({ state: "down" });
@@ -173,6 +175,7 @@ export function Palette() {
     if (key === "inbox") return void submitInbox();
     if (key === "settings") return void invoke("open_settings");
     if (key === "chat") return void openChat();
+    if (key === "board") return void invoke("open_chat", { conversationId: null, initialPrompt: null }).then(() => reset());
     setPrompt(key === "note" ? "记 " : "跑 ");
     inputRef.current?.focus();
   }
@@ -349,6 +352,12 @@ export function Palette() {
                   <span className="k">model </span>
                   {gauge.model}
                 </span>
+                {gauge.review > 0 && (
+                  <span>
+                    <span className="k">review </span>
+                    <span className="live">{gauge.review}</span>
+                  </span>
+                )}
                 {gauge.jobsRunning > 0 && (
                   <span>
                     <span className="k">jobs </span>
