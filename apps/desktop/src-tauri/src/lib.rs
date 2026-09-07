@@ -65,26 +65,15 @@ pub fn run() {
                 eprintln!("[friday] 注册热键 {hotkey} 失败：{e}");
             }
             app.manage(window::PendingChat(std::sync::Mutex::new(None)));
+            window::open_chat(app.handle(), None, None);
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
             notify::start(app.handle().clone(), sidecar::port());
-            if let Some(win) = app.get_webview_window("main") {
-                window_vibrancy::apply_vibrancy(
-                    &win,
-                    window_vibrancy::NSVisualEffectMaterial::HudWindow,
-                    Some(window_vibrancy::NSVisualEffectState::Active),
-                    Some(14.0),
-                )?;
-            }
             Ok(())
         })
-        .on_window_event(|window, event| match (window.label(), event) {
-            ("main", WindowEvent::Focused(false)) => {
-                if let Some(win) = window.get_webview_window("main") {
-                    window::hide_if_unfocused(win);
-                }
+        .on_window_event(|window, event| {
+            if let ("chat", WindowEvent::Destroyed) = (window.label(), event) {
+                window::on_chat_closed(window.app_handle());
             }
-            ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
-            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

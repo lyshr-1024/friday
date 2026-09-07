@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { AuditEvent, Task, TaskBoard, TaskStatus } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, createTask, taskApprove, taskBoard, taskReject, taskSet } from "../lib/core";
-import { AttachmentStrip, Linkified, fmtTime } from "./shared";
+import type { AuditEvent, Desk, Task, TaskBoard, TaskStatus } from "@friday/shared";
+import { audit as fetchAudit, auditUndo, createTask, desk as fetchDesk, taskApprove, taskBoard, taskReject, taskSet } from "../lib/core";
+import { AttachmentStrip, DeskView, Linkified, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
 const COLS: Array<{ key: TaskStatus; label: string; hint: string }> = [
@@ -16,8 +16,10 @@ const COLS: Array<{ key: TaskStatus; label: string; hint: string }> = [
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 
-export function Board({ onDiscuss }: { onDiscuss?: (t: Task) => void }) {
+export function Board({ onDiscuss, onOpenThread }: { onDiscuss?: (t: Task) => void; onOpenThread?: (id: string) => void }) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
+  const [deskData, setDeskData] = useState<Desk | null>(null);
+  const [deskOpen, setDeskOpen] = useState(true);
   const [active, setActive] = useState<Task | null>(null);
   const [tab, setTab] = useState<"board" | "ledger">("board");
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
@@ -36,8 +38,13 @@ export function Board({ onDiscuss }: { onDiscuss?: (t: Task) => void }) {
   };
   useEffect(() => {
     void load();
+    void fetchDesk().then(setDeskData).catch(() => {});
     const t = setInterval(() => void load(), 15000);
-    return () => clearInterval(t);
+    const d = setInterval(() => void fetchDesk().then(setDeskData).catch(() => {}), 10 * 60_000);
+    return () => {
+      clearInterval(t);
+      clearInterval(d);
+    };
   }, []);
   useEffect(() => {
     if (tab === "ledger") void fetchAudit(active?.id, 300).then(setLedger).catch(() => {});
@@ -90,6 +97,12 @@ export function Board({ onDiscuss }: { onDiscuss?: (t: Task) => void }) {
         </form>
       )}
 
+      {tab === "board" && deskData && (
+        <div className={`board__desk ${deskOpen ? "" : "board__desk--closed"}`}>
+          <button className="board__desk-toggle" onClick={() => setDeskOpen((v) => !v)}>{deskOpen ? "收起" : `Hello ${deskData.name}！${deskData.greeting} · 展开今天的局面`}</button>
+          {deskOpen && <DeskView d={deskData} onOpenThread={onOpenThread} />}
+        </div>
+      )}
       {tab === "board" && board && (
         <div className="board__body">
           <div className="board__cols">

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "主浮窗与设置页的权限",
-  "windows": ["main", "settings", "chat"],
+  "windows": ["settings", "chat"],
   "permissions": [
     "core:default",
     "core:window:allow-hide",

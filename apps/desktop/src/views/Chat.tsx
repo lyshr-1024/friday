@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Attachment, ConversationSummary, Desk, HotResponse, Job, Message, ModelId, Thread } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, deleteConversation, desk as fetchDesk, hot, jobLog, jobs as fetchJobs, newConversation, renameConversation, settings, taskBoard, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
+import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Thread } from "@friday/shared";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, taskBoard, threadPrompt, threads as fetchThreads, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, AttachmentStrip, DeskView, HotList, JobCard, LinkMenuHost, Linkified, fmtTime } from "./shared";
+import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, fmtTime } from "./shared";
 import { Board } from "./Board";
 import type { Task } from "@friday/shared";
 import { useImeGuard } from "../lib/ime";
@@ -26,21 +26,20 @@ export function Chat() {
   const [draft, setDraft] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showHot, setShowHot] = useState(false);
-  const [showJobs, setShowJobs] = useState(false);
+
   const [jobList, setJobList] = useState<Job[]>([]);
-  const [logView, setLogView] = useState<{ job: Job; tail: string } | null>(null);
+
   const [pending, setPending] = useState<Attachment[]>([]);
-  const [deskData, setDeskData] = useState<Desk | null>(null);
-  const [view, setView] = useState<"chat" | "board">("board");
+
+  const [drawer, setDrawer] = useState(false);
+  const [tab, setTab] = useState<"board" | "hot">("board");
   const [reviewCount, setReviewCount] = useState(0);
   const [uploading, setUploading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+
   const [skills, setSkills] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -69,7 +68,7 @@ export function Chat() {
   }, []);
 
   function discussTask(t: Task) {
-    setView("chat");
+    setDrawer(true);
     void (async () => {
       const conv = await newConversation();
       setConvId(conv.id);
@@ -88,16 +87,16 @@ export function Chat() {
     })();
   }
 
-  // 空对话时拉工作台首屏；素材没变 core 会直接给缓存。
-  useEffect(() => {
-    if (messages.length === 0 && !busy) void fetchDesk().then(setDeskData).catch(() => setDeskData(null));
-  }, [convId, messages.length === 0, busy]);
-
   async function openThreadById(id: string) {
     const list = await fetchThreads();
     const t: Thread | undefined = list.threads.find((x) => x.id === id);
     if (!t) return;
-    void send(threadPrompt(t));
+    setDrawer(true);
+    const conv = await newConversation();
+    setConvId(conv.id);
+    convRef.current = conv.id;
+    setMessages([]);
+    void send(threadPrompt(t), conv.id);
   }
 
   // 任务列表：有运行中的每 5 秒刷，否则 30 秒。
@@ -107,11 +106,6 @@ export function Chat() {
     const t = setInterval(load, jobList.some((j) => j.status === "running") ? 5000 : 30000);
     return () => clearInterval(t);
   }, [jobList.some((j) => j.status === "running")]);
-
-  async function openLog(job: Job) {
-    const { tail } = await jobLog(job.id);
-    setLogView({ job, tail });
-  }
 
   // 有别的会话在后台生成时定时刷新侧栏，跑完把转圈去掉。
   useEffect(() => {
@@ -185,46 +179,14 @@ export function Chat() {
     void refreshList();
   }
 
-  async function rename(id: string, title: string) {
-    await renameConversation(id, title);
-    setEditing(null);
-    void refreshList();
-  }
-
-  function openMenu(e: React.MouseEvent, id: string) {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenu({ id, x: e.clientX, y: e.clientY });
-  }
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", close);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", close);
-    };
-  }, [menu]);
-
-  async function remove(id: string) {
-    await deleteConversation(id);
-    const rest = list.filter((c) => c.id !== id);
-    setList(rest);
-    if (id === convId) {
-      if (rest[0]) await load(rest[0].id);
-      else await startNew();
-    }
-  }
-
   async function startNew() {
-    setView("chat");
+    setDrawer(true);
     const conv = await newConversation();
     abortRef.current?.abort();
     setBusy(false);
     setDraft("");
     setConvId(conv.id);
+    convRef.current = conv.id;
     setMessages([]);
     setInput("");
     inputRef.current?.focus();
@@ -286,12 +248,7 @@ export function Chat() {
     }
   }
 
-  function toggleHot() {
-    setShowHot((v) => {
-      if (!v && !hotData) void loadHot();
-      return !v;
-    });
-  }
+
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -309,6 +266,9 @@ export function Chat() {
       if (e.key === "n") {
         e.preventDefault();
         void startNew();
+      } else if (e.key === "j") {
+        e.preventDefault();
+        setDrawer((v) => !v);
       } else if (e.key === "w") {
         e.preventDefault();
         void getCurrentWindow().close();
@@ -321,225 +281,130 @@ export function Chat() {
     return () => window.removeEventListener("keydown", onGlobalKey);
   }, []);
 
-  const title = list.find((c) => c.id === convId)?.title ?? messages.find((m) => m.role === "user")?.content.slice(0, 40) ?? "新对话";
 
   return (
     <div className="chat">
       <LinkMenuHost />
-      <aside className="chat__side">
-        <div className="side__drag" data-tauri-drag-region />
-        <button className="side__new" onClick={() => void startNew()}>
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
-          <span>新对话</span>
-          <kbd>⌘N</kbd>
-        </button>
-        <div className="side__views">
-          <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>工作台{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
-          <button className={view === "chat" ? "on" : ""} onClick={() => setView("chat")}>对话</button>
-        </div>
-        <div className="side__label">最近</div>
-        <div className="side__list">
-          {list.map((c) => (
-            <div
-              key={c.id}
-              className={`side__item ${c.id === convId ? "side__item--active" : ""}`}
-              onClick={() => { setView("chat"); void load(c.id); }}
-              onContextMenu={(e) => openMenu(e, c.id)}
-            >
-              {editing?.id === c.id ? (
-                <input
-                  className="side__edit"
-                  autoFocus
-                  value={editing.value}
-                  onChange={(e) => setEditing({ id: c.id, value: e.target.value })}
-                  onClick={(e) => e.stopPropagation()}
-                  onBlur={() => void rename(c.id, editing.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === "Enter") void rename(c.id, editing.value);
-                    if (e.key === "Escape") setEditing(null);
-                  }}
-                />
-              ) : (
-                <span className="side__title">
-                  {c.running && <span className="side__spin" aria-label="生成中" />}
-                  {c.title}
-                </span>
-              )}
-              <span className="side__time">{fmtTime(c.updatedAt)}</span>
-              <button className="side__more" title="更多" onClick={(e) => openMenu(e, c.id)}>
-                ···
-              </button>
-            </div>
-          ))}
-        </div>
-        <button className={`side__today ${showJobs ? "side__today--on" : ""}`} onClick={() => setShowJobs((v) => !v)}>
-          {jobList.some((j) => j.status === "running") && <span className="side__spin" aria-label="有任务运行中" />}
-          任务
-          {jobList.length > 0 && <span className="side__count">{jobList.filter((j) => j.status === "running").length}/{jobList.length}</span>}
-        </button>
-        <button className={`side__today ${showHot ? "side__today--on" : ""}`} onClick={toggleHot}>
-          AI 热点
-          {hotData && <span className="side__count">{hotData.items.length}</span>}
-        </button>
-      </aside>
-
-      {menu && (
-        <div className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => {
-              const c = list.find((x) => x.id === menu.id);
-              setEditing({ id: menu.id, value: c?.title ?? "" });
-              setMenu(null);
-            }}
-          >
-            重命名
-          </button>
-          <button
-            className="ctx__danger"
-            onClick={() => {
-              void remove(menu.id);
-              setMenu(null);
-            }}
-          >
-            删除
-          </button>
-        </div>
-      )}
-
-      {view === "board" && (
-        <main className="chat__main">
-          <Board onDiscuss={discussTask} />
-        </main>
-      )}
-      <main className="chat__main" style={view === "board" ? { display: "none" } : undefined} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-        <header className="chat__head" data-tauri-drag-region>
-          <span className="chat__title">{title}</span>
-          <span className="chat__count">{messages.length ? `${messages.length} 条` : ""}</span>
-          <button
-            className={`pill ${skills ? "pill--on" : ""}`}
-            disabled={skills === null}
-            title="Skill 模式：会话里直接调用本机 skill"
-            onClick={() => { const next = !skills; setSkills(next); void updateSettings({ skills: next }); }}
-          >
-            Skill
-          </button>
-          <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
+      <div className="wb">
+        <header className="wb__nav" data-tauri-drag-region>
+          <div className="wb__tabs">
+            <button className={tab === "board" ? "on" : ""} onClick={() => setTab("board")}>工作台{reviewCount ? <span className="board__badge">{reviewCount}</span> : null}</button>
+            <button className={tab === "hot" ? "on" : ""} onClick={() => { setTab("hot"); if (!hotData) void loadHot(); }}>AI 热点</button>
+          </div>
+          <div className="wb__right">
+            {jobList.some((j) => j.status === "running") && <span className="wb__jobs mono"><span className="side__spin" /> {jobList.filter((j) => j.status === "running").length} 个任务在跑</span>}
+            <button className={`pill ${drawer ? "pill--on" : ""}`} onClick={() => setDrawer((v) => !v)} title="问 Friday（⌘J）">问 Friday <kbd>⌘J</kbd></button>
+          </div>
         </header>
-        <div className="chat__body" ref={bodyRef}>
-          {messages.length === 0 && !draft && !busy && (
-            deskData ? (
-              <DeskView d={deskData} onOpenThread={(id) => void openThreadById(id)} />
-            ) : (
+        <div className="wb__body">
+          {tab === "board" && <Board onDiscuss={discussTask} onOpenThread={(id) => void openThreadById(id)} />}
+          {tab === "hot" && (
+            <div className="wb__hot">
+              <div className="today__head" style={{ border: "none", padding: "0 0 8px" }}>
+                <span>AI 热点</span>
+                <button className="today__refresh" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>
+              </div>
+              {hotData ? (
+                <>
+                  <HotList items={hotData.items} />
+                  <div className="today__time">更新于 {fmtTime(hotData.generatedAt)}</div>
+                </>
+              ) : (
+                <div className="chat__empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {drawer && (
+        <aside className="drawer" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+          <header className="drawer__head">
+            <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => void load(e.target.value)} title="最近的对话">
+              {convId && !list.some((c) => c.id === convId) && <option value={convId}>当前对话</option>}
+              {list.slice(0, 12).map((c) => (
+                <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
+              ))}
+            </select>
+            <button className="pill" onClick={() => void startNew()} title="新对话（⌘N）">新对话</button>
+            <button
+              className={`pill ${skills ? "pill--on" : ""}`}
+              disabled={skills === null}
+              title="Skill 模式：会话里直接调用本机 skill"
+              onClick={() => { const next = !skills; setSkills(next); void updateSettings({ skills: next }); }}
+            >
+              Skill
+            </button>
+            <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
+            <button className="drawer__close" onClick={() => setDrawer(false)} aria-label="收起">×</button>
+          </header>
+          <div className="chat__body" ref={bodyRef}>
+            {messages.length === 0 && !draft && !busy && (
               <div className="chat__empty">
                 <div className="chat__mark">F</div>
-                <div className="chat__empty-title">Friday 正在整理今天的局面…</div>
+                <div className="chat__empty-title">问点什么</div>
+                <div className="chat__empty-hint">或者在任务详情里点「在会话里讨论」，我会带着那条任务的上下文过来。</div>
               </div>
-            )
-          )}
-          {messages.map((m) =>
-            m.role === "user" ? (
-              <div key={m.id} className="turn turn--user">
-                <div className="bubble bubble--user">
-                  {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
-                    <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
-                  )}
-                  <Linkified text={m.content} />
+            )}
+            {messages.map((m) =>
+              m.role === "user" ? (
+                <div key={m.id} className="turn turn--user">
+                  <div className="bubble bubble--user">
+                    {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
+                      <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
+                    )}
+                    <Linkified text={m.content} />
+                  </div>
+                </div>
+              ) : (
+                <div key={m.id} className="turn turn--assistant">
+                  <div className="avatar">F</div>
+                  <div className="bubble bubble--assistant">
+                    <AssistantBody m={m} jobs={jobList} />
+                  </div>
+                </div>
+              ),
+            )}
+            {busy && !draft && (
+              <div className="turn turn--assistant">
+                <div className="avatar avatar--live">F</div>
+                <div className="bubble bubble--assistant thinking" aria-label="思考中">
+                  <span /><span /><span />
                 </div>
               </div>
-            ) : (
-              <div key={m.id} className="turn turn--assistant">
-                <div className="avatar">F</div>
-                <div className="bubble bubble--assistant">
-                  <AssistantBody m={m} jobs={jobList} />
-                </div>
+            )}
+            {draft && (
+              <div className="turn turn--assistant">
+                <div className="avatar avatar--live">F</div>
+                <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
               </div>
-            ),
-          )}
-          {busy && !draft && (
-            <div className="turn turn--assistant">
-              <div className="avatar avatar--live">F</div>
-              <div className="bubble bubble--assistant thinking" aria-label="思考中">
-                <span /><span /><span />
-              </div>
-            </div>
-          )}
-          {draft && (
-            <div className="turn turn--assistant">
-              <div className="avatar avatar--live">F</div>
-              <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
-            </div>
-          )}
-        </div>
-        <div className="composer">
-          {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
-          <div className="composer__box">
-          <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" onClick={() => fileRef.current?.click()}>
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
-          </button>
-          <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-          <textarea
-            ref={inputRef}
-            className="composer__input"
-            rows={1}
-            placeholder={busy ? "生成中，切到别的会话它会继续跑；Esc 中断" : uploading ? "上传中…" : "给 Friday 发消息，可粘贴图片或拖入文件"}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            {...ime.handlers}
-            autoFocus
-          />
-          <button className="composer__send" disabled={busy || uploading > 0 || (!input.trim() && !pending.length)} onClick={() => void send(input)} aria-label="发送">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
-          </button>
-          </div>
-          <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘N 新对话</div>
-        </div>
-      </main>
-
-      {showJobs && (
-        <aside className="chat__today">
-          <header className="today__head">
-            <span>任务</span>
-            <button className="today__refresh" onClick={() => void fetchJobs().then(setJobList)}>刷新</button>
-          </header>
-          <div className="today__body">
-            {logView ? (
-              <>
-                <button className="editor__back" onClick={() => setLogView(null)}>‹ 返回</button>
-                <div className="job__logtitle">{logView.job.project}{logView.job.task ? ` · ${logView.job.task}` : ""}</div>
-                <pre className="job__log">{logView.tail || "（日志为空）"}</pre>
-              </>
-            ) : jobList.length ? (
-              <div className="jobs">
-                {jobList.map((j) => (
-                  <JobCard key={j.id} job={j} onLog={(job) => void openLog(job)} />
-                ))}
-              </div>
-            ) : (
-              <div className="chat__empty">还没有终端任务。说「跑 后台 …」或让 Friday 去改代码时会出现在这里。</div>
             )}
           </div>
-        </aside>
-      )}
-
-      {showHot && (
-        <aside className="chat__today">
-          <header className="today__head">
-            <span>AI 热点</span>
-            <button className="today__refresh" disabled={hotBusy} onClick={() => void loadHot(true)}>
-              {hotBusy ? "拉取中…" : "重新拉取"}
-            </button>
-          </header>
-          {hotData ? (
-            <div className="today__body">
-              <HotList items={hotData.items} />
-              <div className="today__time">更新于 {fmtTime(hotData.generatedAt)}</div>
+          <div className="composer">
+            {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
+            <div className="composer__box">
+              <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" onClick={() => fileRef.current?.click()}>
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
+              </button>
+              <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+              <textarea
+                ref={inputRef}
+                className="composer__input"
+                rows={1}
+                placeholder={busy ? "生成中，Esc 中断" : uploading ? "上传中…" : "问 Friday，可粘贴图片或拖入文件"}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                {...ime.handlers}
+                autoFocus
+              />
+              <button className="composer__send" disabled={busy || uploading > 0 || (!input.trim() && !pending.length)} onClick={() => void send(input)} aria-label="发送">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
+              </button>
             </div>
-          ) : (
-            <div className="today__body chat__empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>
-          )}
+            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘J 收起</div>
+          </div>
         </aside>
       )}
     </div>
