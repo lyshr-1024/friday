@@ -1809,6 +1809,18 @@ body,
   color: var(--fg-1);
   overflow-wrap: anywhere;
 }
+/* 标题、正文、确认项里常有长路径和 URL，没有可断点会撑出卡片被裁掉；允许在任意位置断 */
+.fx__title,
+.fx__text,
+.fx__quote,
+.fx__check label,
+.fx__links a,
+.fx__more-body,
+.fx__raw li {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
 .fx__grid {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
