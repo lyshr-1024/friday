@@ -99,8 +99,10 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
   ].join("\n");
 }
 
+/** SessionStart 一开始就把 session id 回传，不然 Claude 第一轮没说完 Friday 就重启，这条任务就再也接不上了；Stop 每轮回传最后一段回答。 */
 export function buildHookSettings(hookScript: string): string {
-  return JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }] } }, null, 2);
+  const hook = [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }];
+  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook } }, null, 2);
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
@@ -184,8 +186,11 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
   const claudePath = await findClaude();
   const settingsFile = writeHookFiles(jobId);
   const flags = ["--dangerously-skip-permissions", "--settings", shellQuote(settingsFile)].join(" ");
-  const resumable = Boolean(job.claudeSessionId && existsSync(transcriptPath(job.dir, job.claudeSessionId)));
+  // 有 id 就先试 --resume（transcript 可能刚建还没落盘，交给 claude 自己判断），失败再新开
+  const resumable = Boolean(job.claudeSessionId);
+  const hasTranscript = resumable && existsSync(transcriptPath(job.dir, job.claudeSessionId!));
   const script = join(runsDir(), `${jobId}.reopen.sh`);
+  const fresh = `这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`;
   writeFileSync(
     script,
     [
@@ -194,11 +199,11 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
       UNSET_CLAUDE_ENV,
       `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
       resumable
-        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话]\\033[0m\\n'`
-        : `printf '\\033[2m[Friday 重启过，${job.claudeSessionId ? "这条任务的会话记录没有保存下来（上次 Claude 被当成子会话运行）" : "这条任务没有记录到会话 id"}，开一个新会话]\\033[0m\\n'`,
+        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话${hasTranscript ? "" : "（记录可能还没落盘，接不上就新开）"}]\\033[0m\\n'`
+        : `printf '\\033[2m[Friday 重启过，这条任务没有记录到会话 id，开一个新会话]\\033[0m\\n'`,
       resumable
-        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags}`
-        : `${shellQuote(claudePath)} ${flags} ${shellQuote(`这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`)}`,
+        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`
+        : `${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`,
       "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
       "exec /bin/zsh -il",
       "",
