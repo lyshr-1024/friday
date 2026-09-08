@@ -11,6 +11,7 @@ import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, decod
 import { Board } from "./Board";
 import type { BoardView } from "./Board";
 import { useImeGuard } from "../lib/ime";
+import { applyTheme, onThemeChange } from "../lib/theme";
 
 interface OpenPayload {
   conversationId?: string | null;
@@ -71,7 +72,11 @@ export function Chat() {
     void loadSettings();
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
-    return () => void unlisten.then((f) => f());
+    const stopTheme = onThemeChange(applyTheme);
+    return () => {
+      void unlisten.then((f) => f());
+      stopTheme();
+    };
   }, []);
 
   useEffect(() => {
@@ -85,6 +90,7 @@ export function Chat() {
         const s = await settings();
         setModel(s.model);
         setSkills(s.skills);
+        applyTheme(s.theme);
         return;
       } catch {
         await new Promise((r) => setTimeout(r, 2000));

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { MODEL_OPTIONS, type SettingsResponse } from "@friday/shared";
+import { MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
@@ -10,6 +10,7 @@ const patch = z.object({
   model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
   skills: z.boolean().optional(),
   name: z.string().max(40).optional(),
+  theme: z.enum(THEME_OPTIONS.map((t) => t.id) as [string, ...string[]]).optional(),
 });
 
 function respond(): SettingsResponse {

@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MODEL_OPTIONS, type ModelId, type SettingsUpdate } from "@friday/shared";
+import { MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
 
 export type TerminalApp = "embedded" | "ghostty" | "terminal";
@@ -10,10 +10,12 @@ export interface UserSettings {
   model: ModelId;
   skills: boolean;
   name: string;
+  theme: ThemeId;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "" };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite" };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
+const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
 const file = () => join(config.dataDir, "settings.json");
 
@@ -33,6 +35,7 @@ export function userSettings(): UserSettings {
     model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
+    theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
   };
 }
 
@@ -42,6 +45,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.model !== undefined) raw.model = patch.model;
   if (patch.skills !== undefined) raw.skills = patch.skills;
   if (patch.name !== undefined) raw.name = patch.name;
+  if (patch.theme !== undefined) raw.theme = patch.theme;
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();

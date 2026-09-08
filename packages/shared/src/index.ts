@@ -94,11 +94,19 @@ export const MODEL_OPTIONS = [
 
 export type ModelId = (typeof MODEL_OPTIONS)[number]["id"];
 
+export const THEME_OPTIONS = [
+  { id: "graphite", label: "石墨", hint: "中性冷灰，默认" },
+  { id: "warm", label: "暖灰", hint: "偏暖的褐灰，文字米白" },
+  { id: "navy", label: "深蓝", hint: "蓝黑底，青色更融合" },
+] as const;
+export type ThemeId = (typeof THEME_OPTIONS)[number]["id"];
+
 export interface SettingsResponse {
   terminal: TerminalApp;
   model: ModelId;
   skills: boolean;
   name: string;
+  theme: ThemeId;
   dataDir: string;
   projects: string[];
 }
@@ -108,6 +116,7 @@ export interface SettingsUpdate {
   model?: ModelId;
   skills?: boolean;
   name?: string;
+  theme?: ThemeId;
 }
 
 /** 工作台首屏：Friday 自动拉好的“现在该做什么” */

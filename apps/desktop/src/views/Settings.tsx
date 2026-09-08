@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import type { MemoryFile, SettingsResponse } from "@friday/shared";
+import { THEME_OPTIONS, type MemoryFile, type SettingsResponse } from "@friday/shared";
+import { applyTheme, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor } from "./MemoryEditor";
 import { coreBaseUrl, health, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
@@ -17,7 +18,7 @@ export function Settings() {
   useEffect(() => {
     void isEnabled().then(setAutostart);
     void invoke<string>("current_hotkey").then(setHotkey);
-    void settings().then(setPrefs).catch(() => setPrefs(null));
+    void settings().then((p) => { setPrefs(p); applyTheme(p.theme); }).catch(() => setPrefs(null));
     void (async () => {
       const url = await coreBaseUrl();
       try {
@@ -60,6 +61,27 @@ export function Settings() {
               <button className="btn" onClick={() => setEditing(f.name)}>编辑</button>
             </Row>
           ))}
+        </div>
+      </section>
+
+      <section>
+        <h2>外观</h2>
+        <div className="group">
+          <Row label="主题" hint={THEME_OPTIONS.find((t) => t.id === prefs?.theme)?.hint ?? "三套深色预设，切换即生效"}>
+            <div className="seg">
+              {THEME_OPTIONS.map((t) => (
+                <button
+                  key={t.id}
+                  className={`seg__item ${prefs?.theme === t.id ? "on" : ""}`}
+                  disabled={!prefs}
+                  onClick={() => { broadcastTheme(t.id); void updateSettings({ theme: t.id }).then(setPrefs); }}
+                >
+                  <span className={`seg__swatch seg__swatch--${t.id}`} />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </Row>
         </div>
       </section>
 

@@ -286,7 +286,9 @@ kbd {
 /* ---------- 设置页 ---------- */
 
 .settings {
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 28px 36px;
   background: var(--page);
   color: var(--label);
@@ -2528,4 +2530,100 @@ body,
 /* AI 热点页 */
 .hot__page {
   max-width: 820px;
+}
+
+/* ---------- 主题预设：只换 :root 变量，布局不动 ---------- */
+
+:root[data-theme="warm"] {
+  --bg-1: #0f0e0c;
+  --bg-2: #171512;
+  --bg-3: #1f1c18;
+  --bg-4: #29251f;
+  --bg-5: #332e27;
+  --line-1: #2e2a24;
+  --line-2: #423c34;
+  --line-3: #5c554b;
+  --fg-1: #f0ebe3;
+  --fg-2: #b7b0a5;
+  --fg-2-dim: #948d83;
+  --fg-3: #6f6960;
+  --fg-4: #463f38;
+  --primary: #f0ebe3;
+  --primary-fg: #0f0e0c;
+  --live: #7fd1c0;
+  --live-solid: #2f9f8b;
+  --live-dim: rgba(127, 209, 192, 0.35);
+  --live-glow: rgba(127, 209, 192, 0.16);
+  --ring: rgba(127, 209, 192, 0.16);
+  --amber: #f2b635;
+  --red: #ff9a86;
+  --green: #8fcf7a;
+}
+:root[data-theme="navy"] {
+  --bg-1: #0b0d12;
+  --bg-2: #12151c;
+  --bg-3: #191d26;
+  --bg-4: #222735;
+  --bg-5: #2b3141;
+  --line-1: #262c39;
+  --line-2: #384051;
+  --line-3: #4f596d;
+  --fg-1: #e9edf5;
+  --fg-2: #aeb6c6;
+  --fg-2-dim: #8b94a6;
+  --fg-3: #66708a;
+  --fg-4: #3d4557;
+  --primary: #e9edf5;
+  --primary-fg: #0b0d12;
+  --live: #5cc9ea;
+  --live-solid: #1f9ec4;
+  --live-dim: rgba(92, 201, 234, 0.35);
+  --live-glow: rgba(92, 201, 234, 0.16);
+  --ring: rgba(92, 201, 234, 0.16);
+  --amber: #ffc94a;
+  --red: #ff9592;
+  --green: #4fd1a0;
+}
+
+/* 设置页：分段选择 */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-1);
+  gap: 2px;
+}
+.seg__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-2);
+  cursor: default;
+}
+.seg__item.on {
+  background: var(--bg-5);
+  color: var(--fg-1);
+}
+.seg__item:disabled {
+  opacity: 0.5;
+}
+.seg__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, #1c1f23 50%, #edeef0 50%);
+}
+.seg__swatch--warm {
+  background: linear-gradient(135deg, #1f1c18 50%, #f0ebe3 50%);
+}
+.seg__swatch--navy {
+  background: linear-gradient(135deg, #191d26 50%, #5cc9ea 50%);
 }
