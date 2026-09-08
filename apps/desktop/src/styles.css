@@ -2069,6 +2069,12 @@ body,
 .term {
   position: relative;
 }
+.xterm-host .xterm-viewport {
+  scrollbar-width: none;
+}
+.xterm-host .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
 .term__dead {
   position: absolute;
   inset: 0;

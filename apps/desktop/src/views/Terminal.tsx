@@ -113,12 +113,18 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
     })();
 
     const onData = term.onData((d) => void post("input", { data: d }));
+    // 聚焦就回到底部：终端是用来接着聊的，不是用来翻历史的
+    const toBottom = () => term.scrollToBottom();
+    term.textarea?.addEventListener("focus", toBottom);
+    el.addEventListener("mousedown", toBottom);
     const ro = new ResizeObserver(() => {
       fit.fit();
       void post("resize", { cols: term.cols, rows: term.rows });
     });
     ro.observe(el);
     return () => {
+      term.textarea?.removeEventListener("focus", toBottom);
+      el.removeEventListener("mousedown", toBottom);
       onData.dispose();
       ro.disconnect();
       ctrl.abort();
