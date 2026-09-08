@@ -18,13 +18,14 @@ interface OpenPayload {
   initialPrompt?: string | null;
 }
 
-type View = BoardView | "hot";
+type View = BoardView | "hot" | "history";
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
 
 const NAV: Array<{ key: View; label: string }> = [
   { key: "queue", label: "待我决定" },
   { key: "doing", label: "Friday 在做" },
+  { key: "history", label: "会话历史" },
   { key: "all", label: "全部任务" },
   { key: "ledger", label: "操作记录" },
   { key: "hot", label: "AI 热点" },
@@ -389,6 +390,7 @@ export function Chat() {
 
   function go(v: View) {
     setView(v);
+    if (v === "history") void refreshList();
     if (v === "hot" && !hotData) void loadHot();
     setRailHover(false);
   }
@@ -427,6 +429,18 @@ export function Chat() {
   }
 
   const running = jobList.filter((j) => j.status === "running").length;
+  const convTitle = convId ? (list.find((c) => c.id === convId)?.title ?? "当前对话") : "新话题 · 发出后判断";
+
+  /** 从「会话历史」点开一段旧会话：自由对话模式，不跟任务板走 */
+  function openHistory(id: string) {
+    setDrawer(true);
+    setFree(true);
+    freeRef.current = true;
+    setRouteHint(null);
+    setConvTask(null);
+    taskRef.current = null;
+    void load(id);
+  }
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
   const railOpen = railPinned || railHover;
 
@@ -461,7 +475,38 @@ export function Chat() {
       </nav>
 
       <div className="wb">
-        {view === "hot" ? (
+        {view === "history" ? (
+          <>
+            <header className="q__head" data-tauri-drag-region>
+              <div className="q__row" data-tauri-drag-region>
+                <div className="q__title" data-tauri-drag-region>
+                  <h1 data-tauri-drag-region>会话历史</h1>
+                  <span className="q__count">{list.length} 段</span>
+                </div>
+                <div className="q__tools">{tools}</div>
+              </div>
+            </header>
+            <div className="wb__scroll">
+              <div className="wb__page">
+                {list.length === 0 ? (
+                  <div className="empty"><strong>还没有会话</strong>⌘N 问 Friday 一句就有了。</div>
+                ) : (
+                  <div className="list">
+                    {list.map((c) => (
+                      <button key={c.id} className={`row row--compact ${c.id === convId ? "row--on" : ""}`} onClick={() => openHistory(c.id)}>
+                        <span className={`dot ${c.running ? "dot--processing" : ""}`} />
+                        <span className="row__main">
+                          <div className="row__title">{c.title}</div>
+                        </span>
+                        <span className="row__right row__right--dim">{c.running ? "生成中 · " : ""}{c.messageCount} 条 · {fmtTime(c.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : view === "hot" ? (
           <>
             <header className="q__head" data-tauri-drag-region>
               <div className="q__row" data-tauri-drag-region>
@@ -491,13 +536,7 @@ export function Chat() {
             {convTask ? (
               <span className="drawer__task" title={convTask.title}><span className="dot dot--processing" />{convTask.title}</span>
             ) : (
-            <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => { setConvTask(null); void load(e.target.value); }} title="最近的对话">
-              {convId && !list.some((c) => c.id === convId) && <option value={convId}>当前对话</option>}
-              {!convId && <option value="">新话题 · 发出后判断</option>}
-              {list.slice(0, 12).map((c) => (
-                <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
-              ))}
-            </select>
+            <span className="drawer__task" title={convTitle}>{convTitle}</span>
             )}
             {!convTask && <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话</button>}
             <button

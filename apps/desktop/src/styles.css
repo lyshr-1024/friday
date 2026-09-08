@@ -2537,10 +2537,8 @@ body,
 .drawer__task .dot {
   box-shadow: none;
 }
-.drawer__conv {
-  flex: 1;
-  min-width: 0;
-  max-width: 180px;
+.row--on {
+  background: var(--bg-3);
 }
 .drawer__route {
   flex: none;
