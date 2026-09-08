@@ -102,6 +102,12 @@ export function contextFor(task: Task, job: Job): string {
     .join("\n");
 }
 
+/** 用户又给终端说话了（Friday 转达或直接打字）：上一轮的"等你看/卡住"标记清掉 */
+export function clearAttention(jobId: string): void {
+  const t = findTaskBySource((s) => s.jobId === jobId);
+  if (t?.attention) updateTask(t.id, { attention: undefined });
+}
+
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };
@@ -112,7 +118,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_progress") {
     const text = String(args.text ?? "").trim().slice(0, 300);
     if (!text) return { text: "text 不能为空", isError: true };
-    updateTask(task.id, { progress: text });
+    // 新一轮开始干活了，上一轮"等你看/卡住"的标记清掉
+    updateTask(task.id, { progress: text, attention: undefined });
     setJobMessage(jobId, text);
     return { text: "记下了，用户能在任务卡上看到。" };
   }
@@ -127,8 +134,15 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       screenshots: [],
       verify: strs(args.verify),
     };
-    let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     const branch = await currentBranch(job.dir);
+    if (!task.source.autonomous) {
+      // 交互式终端：这只是"这一轮做完了"，任务留在「Friday 在做」里标黄等用户看；任务完不完成由用户说
+      const t = updateTask(task.id, { report, attention: "review", progress: `这轮做完了：${report.summary}` })!;
+      record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
+      notify(t, job, "这轮做完了，等你看", report.summary, "finished");
+      return { text: "已交给用户看。任务是否算完成由用户决定，你等下一步指示即可；不要自己 merge。" };
+    }
+    let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     if (branch.startsWith("friday/") && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
       t = addPending(t.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: job.dir, branch } })!;
     }
@@ -140,7 +154,9 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_blocked") {
     const reason = String(args.reason ?? "").trim().slice(0, 500);
     if (!reason) return { text: "reason 不能为空", isError: true };
-    const t = updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!;
+    const t = task.source.autonomous
+      ? updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!
+      : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;
     record({ taskId: t.id, action: "terminal_blocked", why: "终端里的 Claude Code 报告卡住", how: reason, evidence: { jobId }, risk: "read" });
     notify(t, job, "卡住了，需要你", reason, "blocked");
     return { text: "已通知用户，等用户处理。" };

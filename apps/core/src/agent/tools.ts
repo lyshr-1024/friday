@@ -8,6 +8,7 @@ import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
+import { clearAttention } from "./bridge.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
@@ -135,6 +136,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         const bound = boundJob(conversationId);
         if (!bound) return text("这条会话没有绑定带终端的任务，转达不了。让用户从任务的「在会话里讨论」进来，或先用 run_claude 开一个。");
         const r = say(bound.jobId, msg);
+        if (r !== "no-terminal") clearAttention(bound.jobId);
         if (r === "no-terminal") return text("这条任务的终端不在了（不是内嵌终端，或已经关掉）。可以让用户在任务卡上点「重新打开终端」。");
         if (conversationId && conversationExists(conversationId)) {
           addMessage(conversationId, { role: "assistant", kind: "run", content: `${r === "sent" ? "→ 已转达给终端" : "→ 终端正忙，等它这轮说完转达"}：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });

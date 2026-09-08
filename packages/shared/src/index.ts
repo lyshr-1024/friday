@@ -292,7 +292,12 @@ export interface TaskSource {
   jobId?: string;
   /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
   conversationId?: string;
+  /** Friday 自主派出的 -p 任务：用户只审交付报告，friday_done 直接进 review */
+  autonomous?: boolean;
 }
+
+/** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */
+export type TaskAttention = "review" | "blocked";
 
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */
 export interface DeliveryReport {
@@ -321,6 +326,8 @@ export interface Task {
   due?: string;
   /** 只在 GET /tasks 里有：这条任务终端的真实状态 */
   terminal?: TerminalState;
+  /** 终端最近一轮的结果；任务是否完成由用户说 */
+  attention?: TaskAttention;
   createdAt: string;
   updatedAt: string;
 }

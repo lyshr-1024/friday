@@ -74,7 +74,7 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     evidence: { jobId: id, project, dir },
     risk: "reversible",
   });
-  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 的分支 friday/${id.slice(0, 8)} 上处理`, source: { ...task.source, jobId: id } })!;
+  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 的分支 friday/${id.slice(0, 8)} 上处理`, source: { ...task.source, jobId: id, autonomous: true } })!;
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
@@ -84,6 +84,10 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (job.task.report && job.task.status === "review") {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return job.task;
+  }
+  if (!job.task.source.autonomous) {
+    record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
+    return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}` })!;
   }
   const report = collectReport(jobId);
   const branch = `friday/${jobId.slice(0, 8)}`;

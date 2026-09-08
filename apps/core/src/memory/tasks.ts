@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DeliveryReport, PendingAction, Task, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
+import type { DeliveryReport, PendingAction, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
 
 interface Row {
@@ -16,6 +16,7 @@ interface Row {
   report: string | null;
   pending: string | null;
   due: string | null;
+  attention: TaskAttention | null;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +35,7 @@ const toTask = (r: Row): Task => ({
   ...(r.report ? { report: JSON.parse(r.report) as DeliveryReport } : {}),
   ...(r.pending ? { pending: JSON.parse(r.pending) as PendingAction[] } : {}),
   ...(r.due ? { due: r.due } : {}),
+  ...(r.attention ? { attention: r.attention } : {}),
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -78,14 +80,14 @@ export function findTaskBySource(pred: (s: TaskSource) => boolean, includeClosed
 
 export function updateTask(
   id: string,
-  patch: Partial<Pick<Task, "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due" | "source">>,
+  patch: Partial<Pick<Task, "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due" | "source" | "attention">>,
 ): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
   const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
   db()
     .prepare(
-      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, updated_at = ? WHERE id = ?",
+      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, attention = ?, updated_at = ? WHERE id = ?",
     )
     .run(
       next.title,
@@ -99,6 +101,7 @@ export function updateTask(
       next.pending && next.pending.length ? JSON.stringify(next.pending) : null,
       next.due ?? null,
       JSON.stringify(next.source),
+      next.attention ?? null,
       now(),
       id,
     );

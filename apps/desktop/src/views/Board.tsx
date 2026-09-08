@@ -60,6 +60,8 @@ function queuedRight(t: Task): string {
 /** 「Friday 在做」右侧：先说终端的真实状态，再带一句进展 */
 function doingRight(t: Task): string {
   const p = t.progress?.slice(0, 40);
+  if (t.attention === "review") return `这轮做完了 · 等你看${t.report ? `：${t.report.summary.slice(0, 30)}` : ""}`;
+  if (t.attention === "blocked") return p ?? "卡住了，需要你";
   switch (t.terminal) {
     case "gone":
       return "终端已断 · 点开重新打开";
@@ -157,7 +159,7 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
 
   const tasks = board?.tasks ?? [];
   const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
-  const doing = tasks.filter((t) => DOING.includes(t.status)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const doing = tasks.filter((t) => DOING.includes(t.status)).sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)) || b.createdAt.localeCompare(a.createdAt));
   const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
@@ -276,7 +278,7 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
 function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string; dim?: boolean; compact?: boolean; bar?: boolean; onClick: () => void }) {
   return (
     <button className={`row ${compact ? "row--compact" : ""}`} onClick={onClick}>
-      <span className={`dot dot--${t.status}`} />
+      <span className={`dot dot--${t.attention ?? t.status}`} />
       <span className="row__main">
         <div className="row__title">
           {t.title}
@@ -361,8 +363,8 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
   return (
     <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
-        <span className={`dot dot--${t.status}`} />
-        <span>{STATUS[t.status]} · {meta(t)}</span>
+        <span className={`dot dot--${t.attention ?? t.status}`} />
+        <span>{STATUS[t.status]}{t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)}</span>
         {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>

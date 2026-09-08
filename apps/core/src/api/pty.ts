@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getSession, kill, listSessions, resize, subscribe, write } from "../agent/pty.js";
 import { reopenClaude } from "../agent/runner.js";
 import { markInput } from "../agent/terminal.js";
+import { clearAttention } from "../agent/bridge.js";
 
 export const pty = new Hono()
   .get("/pty", (c) => c.json(listSessions()))
@@ -30,6 +31,8 @@ export const pty = new Hono()
     if (!parsed.success) return c.json({ error: "data 必填" }, 400);
     if (!write(c.req.param("id"), parsed.data.data)) return c.json({ error: "终端不存在或已退出" }, 404);
     markInput(c.req.param("id"));
+    // 用户在终端里敲了回车 = 给它新指示，上一轮"等你看"的标记清掉
+    if (parsed.data.data.includes("\r")) clearAttention(c.req.param("id"));
     return c.json({ ok: true });
   })
   .post("/pty/:id/resize", async (c) => {

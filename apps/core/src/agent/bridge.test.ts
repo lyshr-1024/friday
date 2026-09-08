@@ -18,7 +18,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect((await rpc("nope", "ping")).status).toBe(404);
   });
 
-  it("friday_progress 写进任务卡，friday_done 让任务进 review、通知、往会话追加消息", async () => {
+  it("friday_progress 写进任务卡，friday_done 只标「这轮做完了」、通知、往会话追加消息；任务仍在 processing", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-mcp-2", project: "demo", dir: "/tmp", task: "修登录", conversationId: conv.id, logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：修登录", kind: "code", source: { jobId: "job-mcp-2", conversationId: conv.id }, project: "demo", status: "processing" });
@@ -29,22 +29,34 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const done = (await (await rpc("job-mcp-2", "tools/call", { name: "friday_done", arguments: { summary: "补了 token 刷新", changes: ["auth.ts — 加 refresh"], testSteps: ["pnpm test → 通过"], testResult: "全部通过", verify: ["登录后放 1 小时再操作"] } })).json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
     expect(done.result.isError).toBeUndefined();
     const after = getTask(task.id)!;
-    expect(after.status).toBe("review");
+    expect(after.status).toBe("processing");
+    expect(after.attention).toBe("review");
     expect(after.report).toMatchObject({ summary: "补了 token 刷新", testResult: "全部通过", verify: ["登录后放 1 小时再操作"] });
+    // 再报进展 = 新一轮开始，标记清掉
+    await rpc("job-mcp-2", "tools/call", { name: "friday_progress", arguments: { text: "按反馈继续改" } });
+    expect(getTask(task.id)!.attention).toBeUndefined();
 
     const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string; body: string }>;
-    expect(notices.some((n) => n.title.includes("等你验收") && n.title.includes("demo"))).toBe(true);
+    expect(notices.some((n) => n.title.includes("这轮做完了") && n.title.includes("demo"))).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
     expect(c.messages.at(-1)).toMatchObject({ kind: "run" });
     expect(c.messages.at(-1)!.content).toContain("补了 token 刷新");
   });
 
-  it("friday_blocked 让任务 blocked 并通知；没有任务的 job 会补建一条", async () => {
+  it("friday_blocked 交互式只标 attention；没有任务的 job 会补建一条", async () => {
     createJob({ id: "job-mcp-3", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
     await rpc("job-mcp-3", "tools/call", { name: "friday_blocked", arguments: { reason: "需要生产库只读权限" } });
-    const board = (await (await app.request("/tasks")).json()) as { tasks: Array<{ status: string; progress?: string; source: { jobId?: string } }> };
+    const board = (await (await app.request("/tasks")).json()) as { tasks: Array<{ status: string; attention?: string; progress?: string; source: { jobId?: string } }> };
     const t = board.tasks.find((x) => x.source.jobId === "job-mcp-3")!;
-    expect(t.status).toBe("blocked");
+    expect(t.status).toBe("processing");
+    expect(t.attention).toBe("blocked");
     expect(t.progress).toContain("生产库只读权限");
+  });
+
+  it("Friday 自主派出的任务（source.autonomous）friday_done 仍直接进 review", async () => {
+    createJob({ id: "job-mcp-4", project: "demo", dir: "/tmp", task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：自主改", kind: "code", source: { jobId: "job-mcp-4", autonomous: true }, project: "demo", status: "processing", plan: "改" });
+    await rpc("job-mcp-4", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } });
+    expect(getTask(task.id)!.status).toBe("review");
   });
 });
