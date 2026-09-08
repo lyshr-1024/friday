@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
@@ -50,6 +51,13 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_e, uri) => void openUrl(uri)));
     term.open(el);
+    // Claude Code 这种全屏 TUI 每秒重绘几十次，DOM 渲染器扛不住；WebGL 不可用（上下文丢失）时自动退回
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+    }
     fit.fit();
 
     const ctrl = new AbortController();
@@ -68,6 +76,16 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
         return;
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      // 输出按帧合并再写进终端：一次 write 比几十次小 write 便宜得多
+      let pendingOut = "";
+      let raf = 0;
+      const flush = () => {
+        raf = 0;
+        if (!pendingOut) return;
+        const out = pendingOut;
+        pendingOut = "";
+        term.write(out);
+      };
       let buf = "";
       for (;;) {
         const { value, done } = await reader.read();
@@ -81,12 +99,17 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
           if (!data) continue;
           try {
             const msg = JSON.parse(data) as { d?: string };
-            if (msg.d) term.write(msg.d);
+            if (msg.d) {
+              pendingOut += msg.d;
+              if (!raf) raf = requestAnimationFrame(flush);
+            }
           } catch {
             /* 忽略坏帧 */
           }
         }
       }
+      if (raf) cancelAnimationFrame(raf);
+      flush();
     })();
 
     const onData = term.onData((d) => void post("input", { data: d }));

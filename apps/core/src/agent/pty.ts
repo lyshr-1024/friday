@@ -15,6 +15,7 @@ interface Session {
 }
 
 const MAX_BUFFER = 400_000;
+const REPLAY_TAIL = 64_000;
 
 /** Friday 若是从某个 Claude Code 会话里被拉起的，会继承 CLAUDECODE / CLAUDE_CODE_* 环境变量；带着它们跑 claude 会被当成子会话、不保存 transcript，重开时 --resume 就接不上。 */
 export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -82,7 +83,8 @@ export function kill(id: string): boolean {
 export function subscribe(id: string, listener: Listener): (() => void) | undefined {
   const s = sessions.get(id);
   if (!s) return undefined;
-  if (s.buffer) listener(s.buffer);
+  // 连上时只回放尾部：全屏 TUI 每次都整屏重绘，前面的内容没意义，回放太多反而卡一下
+  if (s.buffer) listener(s.buffer.length > REPLAY_TAIL ? s.buffer.slice(-REPLAY_TAIL) : s.buffer);
   s.listeners.add(listener);
   return () => s.listeners.delete(listener);
 }

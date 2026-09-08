@@ -247,19 +247,6 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
                   </div>
 
                   <section className="grp">
-                    <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
-                      排队中<span className="mono">{queued.length}</span>
-                      <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
-                    </button>
-                    {queuedOpen && (
-                      <div className="list">
-                        {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
-                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有排队的事</span></div>}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="grp">
                     <button className="grp__head" onClick={() => setDoingOpen((v) => !v)}>
                       Friday 在做<span className="mono">{doing.length}</span>
                       <span className="grp__tog">{doingOpen ? "收起" : "展开 ›"}</span>
@@ -272,6 +259,18 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
                     )}
                   </section>
 
+                  <section className="grp">
+                    <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
+                      排队中<span className="mono">{queued.length}</span>
+                      <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
+                    </button>
+                    {queuedOpen && (
+                      <div className="list">
+                        {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
+                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有排队的事</span></div>}
+                      </div>
+                    )}
+                  </section>
                   <section className="grp">
                     <button className="grp__head" onClick={() => setDoneOpen((v) => !v)}>
                       最近完成<span className="mono">{board?.counts.done ?? 0}</span>
