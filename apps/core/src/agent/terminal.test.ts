@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createJob } from "../memory/jobs.js";
-import { isIdle, markInput, markStop, resetTerminalState } from "./terminal.js";
+import { finishJob } from "../memory/jobs.js";
+import { isIdle, markInput, markStop, resetTerminalState, terminalState } from "./terminal.js";
 
 describe("往终端里说话的空闲判定", () => {
   it("带任务的会话一起来在干活，Stop 之后才空闲，有输入又变忙", () => {
@@ -17,5 +18,13 @@ describe("往终端里说话的空闲判定", () => {
     createJob({ id: "term-2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
     resetTerminalState("term-2");
     expect(isIdle("term-2")).toBe(true);
+  });
+
+  it("终端状态：没开过 PTY 的运行中 job 是外部终端，结束了或 PTY 没了就是 gone", () => {
+    createJob({ id: "term-3", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
+    expect(terminalState("term-3")).toBe("external");
+    finishJob("term-3", 0);
+    expect(terminalState("term-3")).toBe("gone");
+    expect(terminalState("no-such-job")).toBe("gone");
   });
 });

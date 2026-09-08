@@ -317,9 +317,14 @@ export interface Task {
   /** 等用户点头的不可逆动作 */
   pending?: PendingAction[];
   due?: string;
+  /** 只在 GET /tasks 里有：这条任务终端的真实状态 */
+  terminal?: TerminalState;
   createdAt: string;
   updatedAt: string;
 }
+
+/** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
+export type TerminalState = "busy" | "idle" | "gone" | "external";
 
 export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "custom";
 

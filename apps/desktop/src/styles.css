@@ -2188,6 +2188,24 @@ body,
   background: var(--live-solid);
   animation: bar-run 1.6s ease-in-out infinite;
 }
+/* 只有终端真在输出时才跑动画；等指示是静止细线，断了是暗红 */
+.row__bar--idle i,
+.row__bar--gone i,
+.row__bar--external i {
+  animation: none;
+  width: 100%;
+}
+.row__bar--idle i {
+  background: var(--line-3);
+}
+.row__bar--external i {
+  background: var(--line-3);
+  opacity: 0.6;
+}
+.row__bar--gone i {
+  background: var(--bad, #ff6b6b);
+  opacity: 0.45;
+}
 @keyframes bar-run {
   0% {
     transform: translateX(-100%);

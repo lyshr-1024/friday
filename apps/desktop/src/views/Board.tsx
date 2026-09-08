@@ -57,6 +57,21 @@ function queuedRight(t: Task): string {
   return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
 }
 
+/** 「Friday 在做」右侧：先说终端的真实状态，再带一句进展 */
+function doingRight(t: Task): string {
+  const p = t.progress?.slice(0, 40);
+  switch (t.terminal) {
+    case "gone":
+      return "终端已断 · 点开重新打开";
+    case "idle":
+      return p ? `等你指示 · ${p}` : "等你指示";
+    case "external":
+      return p ?? "在外部终端里跑";
+    default:
+      return p ?? STATUS[t.status];
+  }
+}
+
 function meta(t: Task): string {
   return [KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
 }
@@ -219,7 +234,7 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
                     </button>
                     {doingOpen && (
                       <div className="list">
-                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar onClick={() => setSelectedId(t.id)} />))}
+                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={doingRight(t)} dim bar={Boolean(t.source.jobId)} onClick={() => setSelectedId(t.id)} />))}
                         {!doing.length && <div className="row row--compact"><span className="row__meta">现在没有在做的事</span></div>}
                       </div>
                     )}
@@ -270,7 +285,7 @@ function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string;
         </div>
         {!compact && <div className="row__meta">{meta(t)}</div>}
       </span>
-      {bar && <span className="row__bar"><i /></span>}
+      {bar && <span className={`row__bar ${t.terminal ? `row__bar--${t.terminal}` : ""}`}><i /></span>}
       <span className={`row__right ${dim ? "row__right--dim" : ""}`}>{right}</span>
     </button>
   );

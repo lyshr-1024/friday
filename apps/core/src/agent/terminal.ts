@@ -1,3 +1,4 @@
+import type { TerminalState } from "@friday/shared";
 import { getJob } from "../memory/jobs.js";
 import { getSession, write } from "./pty.js";
 
@@ -52,6 +53,15 @@ export function say(jobId: string, text: string): SayResult {
   if (isIdle(jobId)) return send(jobId, text) ? "sent" : "no-terminal";
   pending.set(jobId, [...(pending.get(jobId) ?? []), text]);
   return "queued";
+}
+
+/** 任务卡上显示用：终端到底在不在、在不在干活 */
+export function terminalState(jobId: string): TerminalState {
+  const live = getSession(jobId);
+  if (live && live.exited === undefined) return isIdle(jobId) ? "idle" : "busy";
+  const job = getJob(jobId);
+  // 从没在 sidecar 里开过 PTY 的运行中 job 是外部终端（Ghostty / Terminal）
+  return job?.status === "running" && !live ? "external" : "gone";
 }
 
 export function pendingCount(jobId: string): number {

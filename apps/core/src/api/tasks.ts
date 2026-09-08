@@ -6,6 +6,7 @@ import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
+import { terminalState } from "../agent/terminal.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, getTask, taskBoard, updateTask } from "../memory/tasks.js";
@@ -20,7 +21,10 @@ const newTask = z.object({
 
 export const tasks = new Hono()
   .post("/tasks/sync-meegle", async (c) => c.json(await syncMeegleOnce()))
-  .get("/tasks", (c) => c.json(taskBoard()))
+  .get("/tasks", (c) => {
+    const board = taskBoard();
+    return c.json({ ...board, tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)) });
+  })
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
