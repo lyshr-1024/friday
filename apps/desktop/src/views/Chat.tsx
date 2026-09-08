@@ -4,8 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, taskBindConversation, threadById, updateSettings, uploadAttachment } from "../lib/core";
-import type { AskEvent } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, taskBindConversation, threadById, updateSettings, uploadAttachment } from "../lib/core";
+import type { AskEvent, RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, decodeSlack, fmtTime } from "./shared";
 import { Board } from "./Board";
@@ -51,7 +51,11 @@ export function Chat() {
   const [railHover, setRailHover] = useState(false);
   const [railPinned, setRailPinned] = useState(false);
   const [counts, setCounts] = useState({ decide: 0, doing: 0 });
-  const [newTaskSignal, setNewTaskSignal] = useState(0);
+  // 自由对话模式：⌘N 进来的，抽屉不跟任务板走；第一句发出时由 Friday 路由到旧会话或新开
+  const [free, setFree] = useState(false);
+  const freeRef = useRef(false);
+  const [routing, setRouting] = useState(false);
+  const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const [uploading, setUploading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
@@ -66,6 +70,7 @@ export function Chat() {
   const railTimer = useRef<number | null>(null);
   const ime = useImeGuard();
   convRef.current = convId;
+  freeRef.current = free;
 
   useEffect(() => {
     void refreshList();
@@ -102,6 +107,7 @@ export function Chat() {
 
   /** 工作台里展开哪条任务，抽屉就切到哪条任务的会话；没聊过的先空着，第一句话发出去时再建会话并绑定。 */
   function syncDrawerToTask(t: Task | null) {
+    if (freeRef.current) return;
     taskRef.current = t;
     if (!t) {
       setConvTask(null);
@@ -149,6 +155,9 @@ export function Chat() {
 
   function discussTask(t: Task) {
     setDrawer(true);
+    setFree(false);
+    freeRef.current = false;
+    setRouteHint(null);
     syncDrawerToTask(t);
     void (async () => {
       if (t.source.conversationId) {
@@ -239,6 +248,9 @@ export function Chat() {
 
   async function startNew() {
     setDrawer(true);
+    setFree(true);
+    freeRef.current = true;
+    setRouteHint(null);
     setConvTask(null);
     taskRef.current = null;
     const conv = await newConversation();
@@ -252,15 +264,37 @@ export function Chat() {
     inputRef.current?.focus();
   }
 
-  async function openDrawer() {
+  /** ⌘N：抽屉弹出但先不建会话，等第一句话出来再由 Friday 决定接旧还是开新。 */
+  function openFree() {
     setDrawer(true);
-    if (!convRef.current) {
-      const conv = await newConversation();
-      setConvId(conv.id);
-      convRef.current = conv.id;
-      setMessages([]);
-    }
+    setFree(true);
+    freeRef.current = true;
+    setConvTask(null);
+    taskRef.current = null;
+    setRouteHint(null);
+    abortRef.current?.abort();
+    setBusy(false);
+    setDraft("");
+    setConvId(null);
+    convRef.current = null;
+    setMessages([]);
     setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  /** 路由判断错了：换一段新会话，把刚才那句重新发过去。 */
+  async function redoAsNew() {
+    const hint = routeHint;
+    if (!hint) return;
+    if (convRef.current) void cancelAsk(convRef.current);
+    abortRef.current?.abort();
+    setBusy(false);
+    setDraft("");
+    setRouteHint(null);
+    const conv = await newConversation();
+    setConvId(conv.id);
+    convRef.current = conv.id;
+    setMessages([]);
+    void send(hint.prompt, conv.id);
   }
 
   function push(m: Omit<Message, "id" | "createdAt">) {
@@ -274,6 +308,22 @@ export function Chat() {
       const t = taskRef.current;
       id = await openTaskConversation(t);
       prompt = [...(await taskContext(t)), "", prompt].join("\n");
+    } else if (!id && freeRef.current) {
+      setRouting(true);
+      const r = await routeAsk(prompt).catch((): RouteResult => ({ why: "路由失败，新开一段" }));
+      setRouting(false);
+      if (r.conversationId) {
+        await load(r.conversationId).catch(() => {});
+        id = convRef.current;
+      }
+      if (!id) {
+        const conv = await newConversation();
+        setConvId(conv.id);
+        convRef.current = conv.id;
+        setMessages([]);
+        id = conv.id;
+      }
+      setRouteHint(r.conversationId && id === r.conversationId ? { ...r, prompt } : null);
     }
     if (!id) return;
     const attachments = pending;
@@ -331,12 +381,10 @@ export function Chat() {
       e.preventDefault();
       void send(input);
     }
-    if (e.key === "Escape" && busy) interrupt();
-  }
-
-  function newTask() {
-    setView("queue");
-    setNewTaskSignal((n) => n + 1);
+    if (e.key === "Escape") {
+      if (busy) interrupt();
+      else setDrawer(false);
+    }
   }
 
   function go(v: View) {
@@ -350,14 +398,10 @@ export function Chat() {
       if (!e.metaKey) return;
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        newTask();
+        openFree();
       } else if ((e.key === "N" || e.key === "n") && e.shiftKey) {
         e.preventDefault();
         void startNew();
-      } else if (e.key === "j") {
-        e.preventDefault();
-        if (drawer) setDrawer(false);
-        else void openDrawer();
       } else if (e.key === "\\") {
         e.preventDefault();
         setRailPinned((v) => !v);
@@ -388,8 +432,7 @@ export function Chat() {
 
   const tools = (
     <>
-      <button className="b b--text" onClick={() => (drawer ? setDrawer(false) : void openDrawer())}>问 Friday<kbd>⌘J</kbd></button>
-      <button className="b b--ghost" onClick={newTask}>＋ 交代一件事<kbd>⌘N</kbd></button>
+      <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>
     </>
   );
 
@@ -409,8 +452,7 @@ export function Chat() {
           </button>
         ))}
         <div className="rail__foot">
-          <button className="b b--ghost" onClick={newTask}>交代一件事<kbd>⌘N</kbd></button>
-          <button className="rail__row b b--text" style={{ padding: "0 8px" }} onClick={() => void openDrawer()}>问 Friday<kbd>⌘J</kbd></button>
+          <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>
           <div className="rail__status">
             {running > 0 && <><span className="side__spin" />{running} 个任务在跑 · </>}
             {modelLabel || "跟随 Claude Code"} · ⌘\ 固定
@@ -439,7 +481,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} newTaskSignal={newTaskSignal} onDiscuss={discussTask} onCounts={setCounts} onFocusChange={syncDrawerToTask} />
+          <Board view={view} tools={tools} onDiscuss={discussTask} onCounts={setCounts} onFocusChange={syncDrawerToTask} />
         )}
       </div>
 
@@ -451,6 +493,7 @@ export function Chat() {
             ) : (
             <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => { setConvTask(null); void load(e.target.value); }} title="最近的对话">
               {convId && !list.some((c) => c.id === convId) && <option value={convId}>当前对话</option>}
+              {!convId && <option value="">新话题 · 发出后判断</option>}
               {list.slice(0, 12).map((c) => (
                 <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
               ))}
@@ -468,14 +511,21 @@ export function Chat() {
             <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
             <button className="drawer__close" onClick={() => setDrawer(false)} aria-label="收起">×</button>
           </header>
+          {routeHint?.conversationId && (
+            <div className="drawer__route">
+              <span className="drawer__route-text" title={routeHint.why}>接着：{routeHint.title?.slice(0, 24)} · {routeHint.why}</span>
+              <button className="b b--text" onClick={() => void redoAsNew()}>其实是新话题</button>
+            </div>
+          )}
           <div className="chat__body" ref={bodyRef}>
-            {messages.length === 0 && !draft && !busy && (
+            {messages.length === 0 && !draft && !busy && !routing && (
               <div className="chat__empty">
                 <div className="chat__mark">F</div>
-                <div className="chat__empty-title">{convTask ? "关于这条任务，直接问" : "问点什么"}</div>
-                <div className="chat__empty-hint">{convTask ? `我会带着「${convTask.title.slice(0, 30)}」的情境、链接和原文来回答。` : "工作台里展开哪条任务，这里就跟到哪条。"}</div>
+                <div className="chat__empty-title">{convTask ? "关于这条任务，直接问" : free ? "说吧" : "问点什么"}</div>
+                <div className="chat__empty-hint">{convTask ? `我会带着「${convTask.title.slice(0, 30)}」的情境、链接和原文来回答。` : free ? "问题直接答；要干的活我先说判断，你点头我再开工。接着之前的话题说也行，我会认出来。" : "工作台里展开哪条任务，这里就跟到哪条。"}</div>
               </div>
             )}
+            {routing && <div className="drawer__routing"><span className="side__spin" />正在看这是不是接着之前聊的…</div>}
             {messages.map((m) =>
               m.role === "user" ? (
                 <div key={m.id} className="turn turn--user">
@@ -533,7 +583,7 @@ export function Chat() {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
               </button>
             </div>
-            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘J 收起 · ⌘⇧N 新对话</div>
+            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · Esc 收起 · ⌘⇧N 直接开新对话</div>
           </div>
         </aside>
       )}

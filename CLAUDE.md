@@ -90,9 +90,10 @@ apps/core/src/
 
 - 起因：用户看六列看板与纵向分组两版都"迷茫、乱、没重点、配色差"，要求先研究再改。研究笔记在记忆库 `research/2026-09-08-工作台配色与层级.md`（Radix/Geist/Linear/Apple HIG/Refactoring UI/Superhuman triage）。
 - 设计系统：`styles.css` `:root` 用 Radix Slate 深色 12 级（`--bg-1..5` 底与组件、`--line-1..3` 边框、`--fg-1..4` 四级文字），旧变量名（`--page`/`--card`/`--label-*`）映射到新 token。唯一主按钮 `.b--primary` 近白底深字；青色 `--live` 降饱和只标活动态与焦点；状态只用 `.dot--*` 小圆点（等你决定 amber / 卡住 red / 进行中 cyan / 完成 green）。一种边框、圆角 8，列表用分隔线不套卡片。
-- 布局（`views/Chat.tsx` + `views/Board.tsx`）：无顶栏、无常驻侧栏。页头 `.q__head`（可拖动，留红绿灯）右侧只有「问 Friday ⌘J」「＋ 交代一件事 ⌘N」。主区 = 待我决定队列：`review`/`blocked` 任务按有待审动作 → 优先级 → 等待时长排序，队首展开成 `Focus`（情境 / Friday 的建议 / 通过前请确认 / 测试结果，折叠：交付报告、链接、内嵌终端、这条任务的账；按钮 [通过并执行 ↵][打回][忽略] + 在会话里讨论），其余一行一条 `Row`（需要你：…），点哪条就在原位展开（不提到队首）。Slack 来源的任务右栏列「对方给的链接」（`extractUrls` 从线程原文提取，`<url|标题>`/`&amp;`/`<@U…>` 先由 `decodeSlack` 还原），底部折叠「Slack 原文」逐条可点、可跳 Slack。处理完自动跳下一条（`act` 里状态变了就清 `selectedId`）。「Friday 在做」「最近完成」折叠在下方。
-- 侧栏 `.rail` 默认隐藏：鼠标靠左边缘 `.edge` 滑出、`⌘\` 固定；项：待我决定（amber 计数）/ Friday 在做 / 全部任务 / 操作记录 / AI 热点，底部交代一件事、问 Friday、状态行。
-- 快捷键：`⌘N` 新建任务（一行输入，自动识别 URL 作为 `url`）、`⌘⇧N` 新对话、`⌘J` 抽屉、`⌘\` 侧栏、回车 = 队首主动作（输入框 / 抽屉 / 终端聚焦时不触发）。
+- 布局（`views/Chat.tsx` + `views/Board.tsx`）：无顶栏、无常驻侧栏。页头 `.q__head`（可拖动，留红绿灯）右侧只有「问 Friday ⌘N」。主区 = 待我决定队列：`review`/`blocked` 任务按有待审动作 → 优先级 → 等待时长排序，队首展开成 `Focus`（情境 / Friday 的建议 / 通过前请确认 / 测试结果，折叠：交付报告、链接、内嵌终端、这条任务的账；按钮 [通过并执行 ↵][打回][忽略] + 在会话里讨论），其余一行一条 `Row`（需要你：…），点哪条就在原位展开（不提到队首）。Slack 来源的任务右栏列「对方给的链接」（`extractUrls` 从线程原文提取，`<url|标题>`/`&amp;`/`<@U…>` 先由 `decodeSlack` 还原），底部折叠「Slack 原文」逐条可点、可跳 Slack。处理完自动跳下一条（`act` 里状态变了就清 `selectedId`）。「Friday 在做」「最近完成」折叠在下方。
+- 侧栏 `.rail` 默认隐藏：鼠标靠左边缘 `.edge` 滑出、`⌘\` 固定；项：待我决定（amber 计数）/ Friday 在做 / 全部任务 / 操作记录 / AI 热点，底部问 Friday、状态行。
+- 快捷键：`⌘N` 问 Friday（自由对话，见下条）、`⌘⇧N` 直接开新对话、`⌘\` 侧栏、回车 = 队首主动作（输入框 / 抽屉 / 终端聚焦时不触发）。
+- **唯一入口是对话（2026-09-08）**：「＋交代一件事」已删，`POST /tasks` 只剩程序化调用。`⌘N` 弹出抽屉进入自由对话模式（不建会话、不跟任务板的 `onFocusChange` 走），第一句发出时 `POST /route`（`agent/route.ts`，Sonnet，只给最近 20 条非生成中会话的标题 + `projects.md` 项目名/别名）判断接旧会话还是新开，规则偏保守默认新建；命中旧会话时抽屉顶部 `.drawer__route` 显示「接着：标题 · 理由」+「其实是新话题」（换新会话把那句重发）。`/ask` 只在 transcript 还在时才带 `resume`（`transcriptPath` 已修成 Claude Code 真实编码：非字母数字全换 `-`）。系统提示改为：涉及改代码先说判断（项目 / 改哪里 / 方案）等用户点头再 `run_claude`，用户明确说“直接做”可跳过。「在会话里讨论」进入的是任务会话，退出自由模式。
 - **Meegle 工单进任务**（`agent/meegle.ts`）：调度器启动 8 秒后、之后每 15 分钟 `syncMeegleOnce`：`MeegleConnector.fetchWorkItems()`（`mywork todo` + `workitem get --fields priority`）→ 每条分派给我的工单建 `kind: meegle` 任务（`source.meegleId/url`，理解里写节点、状态、优先级、截止），一律 `understood` 排队不占「待我决定」；已有的更新标题/优先级/截止，用户标完成或忽略的不再动；不在分派列表里的自动 done 并记账 `meegle_done`。项目按标题里出现的项目名/别名（≥3 字）匹配。同时仍写 `todos` 表供会话上下文。`POST /tasks/sync-meegle` 手动触发。前端「待办」分组（understood/collected：分派给用户、Friday 没在做、不需要拍板的事）默认展开，按截止日 → 优先级 → 创建时间排序；「Friday 在做」只剩 processing，排在待办之前。Friday 目前不会主动接待办里的工单，待定策略见 2026-09-08 讨论：先由 Friday 判断可做性挂「开工」待审动作。
 - **任务 ↔ 会话 ↔ 终端**：「在会话里讨论」新开会话时 `POST /tasks/:id/conversation` 把 `source.conversationId` 记到任务上，再点就是「继续会话」直接 `load` 原会话；`askStream` 收到 `conversationId` 后 `fridayTools(conversationId)` 按会话建 MCP 工具，`run_claude` 先找 `source.conversationId` 相同的任务，找到就把 job 挂上去（`source.jobId`、processing、progress），找不到才新建 code 任务。Focus 里有 jobId 就常显内嵌终端；Row 上有「终端」「会话」小标签。**抽屉跟随当前任务**：Board 的 `onFocusChange` → Chat `syncDrawerToTask`，展开哪条任务抽屉就切到它的会话（没聊过则空着，第一句发出时 `openTaskConversation` 建会话、绑定并把 `taskContext` 拼在前面）；`⌘⇧N` 才脱离任务开自由对话。绑定后前端广播 `friday:tasks-changed` 让任务板立刻刷新。
 - **终端性能**：xterm 用 `@xterm/addon-webgl` 渲染（上下文丢失自动退回 DOM），SSE 输出按 `requestAnimationFrame` 合帧后一次 `write`，连上时只回放缓冲尾部 64KB（`REPLAY_TAIL`），`.xterm-host` `contain: strict` 独立合成层。输入仍是每键一个 POST，若还卡再换 WebSocket。
@@ -104,7 +105,7 @@ apps/core/src/
 ## 窗口形态（2026-09-07 晚重排）：只有工作台
 
 - 启动器（Raycast 式浮窗）已删除。热键 `⌘⇧Space`、托盘左键、启动台再点、Reopen 都指向唯一的**工作台窗口**（label `chat`，普通 macOS 窗口，Overlay 标题栏，1180×760）；工作台开着且聚焦时按热键隐藏。应用启动即打开工作台。
-- 右上角「问 Friday」（`⌘J`）拉出右侧 440px 抽屉承载对话：最近对话下拉、新对话（`⌘⇧N`）、Skill、模型、消息流、输入框（附件粘贴/拖入）。会话历史不再是主体，用户明确"不在意曾经和 Friday 说过什么"。顶部标签与首屏横幅已被 2026-09-08 的队列式工作台取代。
+- 右上角「问 Friday」（`⌘N`）拉出右侧 440px 抽屉承载对话：最近对话下拉、新对话（`⌘⇧N`）、Skill、模型、消息流、输入框（附件粘贴/拖入）。会话历史不再是主体，用户明确"不在意曾经和 Friday 说过什么"。顶部标签与首屏横幅已被 2026-09-08 的队列式工作台取代。
 - 任务详情「在会话里讨论」和首屏「处理」都会打开抽屉并带上下文开新对话。
 
 ## 历史：启动器与会话窗（已废弃，仅供理解旧代码）

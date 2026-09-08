@@ -149,6 +149,19 @@ export async function newConversation(): Promise<Conversation> {
   return res.json();
 }
 
+export interface RouteResult {
+  conversationId?: string;
+  title?: string;
+  why: string;
+}
+
+/** 自由对话的第一句：让 Friday 判断接着哪段旧会话还是新话题。 */
+export async function routeAsk(prompt: string): Promise<RouteResult> {
+  const res = await fetch(`${await coreBaseUrl()}/route`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) });
+  if (!res.ok) throw new Error(`route ${res.status}`);
+  return res.json();
+}
+
 export async function openTodos(): Promise<Todo[]> {
   const res = await fetch(`${await coreBaseUrl()}/todos`);
   if (!res.ok) throw new Error(`todos ${res.status}`);

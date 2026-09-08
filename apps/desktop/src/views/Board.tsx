@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, createTask, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
@@ -70,17 +70,9 @@ function sortDecide(a: Task, b: Task): number {
   return a.updatedAt.localeCompare(b.updatedAt);
 }
 
-function parseNew(text: string): { title: string; url?: string } {
-  const m = text.match(/https?:\/\/\S+/);
-  if (!m) return { title: text.trim() };
-  const title = text.replace(m[0], "").trim() || m[0];
-  return { title, url: m[0] };
-}
-
-export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocusChange }: {
+export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
   view: BoardView;
   tools: React.ReactNode;
-  newTaskSignal: number;
   onDiscuss?: (t: Task) => void;
   onCounts?: (c: { decide: number; doing: number }) => void;
   onFocusChange?: (t: Task | null) => void;
@@ -91,11 +83,8 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
   const [doingOpen, setDoingOpen] = useState(true);
   const [queuedOpen, setQueuedOpen] = useState(true);
   const [doneOpen, setDoneOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [text, setText] = useState("");
   const [err, setErr] = useState("");
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
-  const newRef = useRef<HTMLInputElement>(null);
   const focusRef = useRef<HTMLElement>(null);
 
   const failures = useRef(0);
@@ -136,13 +125,6 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
     if (view === "doing") setDoingOpen(true);
     if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
   }, [view]);
-  useEffect(() => {
-    if (newTaskSignal > 0) {
-      setAdding(true);
-      setTimeout(() => newRef.current?.focus(), 0);
-    }
-  }, [newTaskSignal]);
-
   async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
     try {
@@ -155,17 +137,6 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }
-
-  function submitNew() {
-    const p = parseNew(text);
-    if (!p.title) return;
-    void act(null, async () => {
-      const t = await createTask(p);
-      setText("");
-      setAdding(false);
-      setSelectedId(t.id);
-    });
   }
 
   const tasks = board?.tasks ?? [];
@@ -213,19 +184,6 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
         <div className="wb__page">
           {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
 
-          {adding && (
-            <form className="q__new" onSubmit={(e) => { e.preventDefault(); submitNew(); }}>
-              <input
-                ref={newRef}
-                value={text}
-                placeholder="一句话交代这件事，回车交给 Friday；带上链接也行"
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") { setAdding(false); setText(""); } }}
-              />
-              <kbd>↵ 交给 Friday · Esc 取消</kbd>
-            </form>
-          )}
-
           {!board ? null : view === "ledger" ? (
             <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />
           ) : (
@@ -246,7 +204,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
                   {!decide.length && board && (
                     <div className="empty">
                       <strong>没有等你决定的事</strong>
-                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
+                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 问 Friday，要干的活它先说判断再开工；或者等 Slack 和 Meegle 来活。"}
                     </div>
                   )}
                   <div className="list">
