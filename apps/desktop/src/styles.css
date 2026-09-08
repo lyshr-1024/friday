@@ -2448,6 +2448,21 @@ body,
   padding: 0 12px;
   border-bottom: 1px solid var(--line-1);
 }
+.drawer__task {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer__task .dot {
+  box-shadow: none;
+}
 .drawer__conv {
   flex: 1;
   min-width: 0;

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { finishJob, getJob, jobLogPath, listJobs, setJobMessage } from "../memory/jobs.js";
+import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 
@@ -30,9 +30,12 @@ export const jobs = new Hono()
   })
   // Stop hook 回报：终端里 Claude 刚完成一轮的最后一段话
   .post("/jobs/:id/message", async (c) => {
-    const parsed = z.object({ text: z.string().min(1).max(20_000) }).safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "text 不能为空" }, 400);
-    return setJobMessage(c.req.param("id"), parsed.data.text) ? c.json({ ok: true }) : c.json({ error: "任务不存在" }, 404);
+    const parsed = z.object({ text: z.string().max(20_000).optional(), sessionId: z.string().max(200).optional() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId)) return c.json({ error: "text 或 sessionId 至少一个" }, 400);
+    const id = c.req.param("id");
+    const okText = parsed.data.text ? setJobMessage(id, parsed.data.text) : true;
+    const okSid = parsed.data.sessionId ? setJobSession(id, parsed.data.sessionId) : true;
+    return okText && okSid ? c.json({ ok: true }) : c.json({ error: "任务不存在" }, 404);
   })
   // 终端脚本回报退出码
   .post("/jobs/:id/exit", async (c) => {

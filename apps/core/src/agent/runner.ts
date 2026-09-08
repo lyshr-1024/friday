@@ -74,7 +74,7 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
     if (!text && transcript_path && fs.existsSync(transcript_path)) {
@@ -88,8 +88,8 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
         } catch {}
       }
     }
-    if (!text) { console.error("no assistant text"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) })
+    if (!text && !session_id) { console.error("no assistant text"); return; }
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }
@@ -126,14 +126,20 @@ export function buildScript(req: LaunchRequest, claudePath: string, port: number
   ].join("\n");
 }
 
+/** 写 Stop hook 脚本与 --settings 文件；每次启动/重开都重写，保证用的是当前版本的 hook。 */
+function writeHookFiles(id: string): string {
+  mkdirSync(runsDir(), { recursive: true });
+  const hook = join(runsDir(), `${id}.hook.sh`);
+  writeFileSync(hook, buildHookScript(id, config.port));
+  chmodSync(hook, 0o755);
+  const settingsFile = join(runsDir(), `${id}.settings.json`);
+  writeFileSync(settingsFile, buildHookSettings(hook));
+  return settingsFile;
+}
+
 export async function launchClaude(req: LaunchRequest): Promise<string> {
   const claudePath = await findClaude();
-  mkdirSync(runsDir(), { recursive: true });
-  const hook = join(runsDir(), `${req.id}.hook.sh`);
-  writeFileSync(hook, buildHookScript(req.id, config.port));
-  chmodSync(hook, 0o755);
-  const settingsFile = join(runsDir(), `${req.id}.settings.json`);
-  writeFileSync(settingsFile, buildHookSettings(hook));
+  const settingsFile = writeHookFiles(req.id);
 
   const ext = req.terminal === "terminal" ? ".command" : ".sh";
   const script = join(runsDir(), `${req.id}${ext}`);
@@ -159,15 +165,15 @@ export async function focusTerminal(terminal: TerminalApp): Promise<void> {
   await execFileP("/usr/bin/open", ["-a", terminal === "terminal" ? "Terminal" : "Ghostty"]);
 }
 
-/** 终端随 Friday 重启一起没了：在同一目录重开一个 PTY，用 --continue 接上该目录最近的 Claude 会话，并把旧日志尾部回放出来。 */
+/** 终端随 Friday 重启一起没了：在同一目录重开一个 PTY，用 --resume 接上这条任务自己的 Claude 会话（id 来自 Stop hook），并把旧日志尾部回放出来。 */
 export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" | "no-job"> {
   const live = getSession(jobId);
   if (live && live.exited === undefined) return "alive";
   const job = getJob(jobId);
   if (!job) return "no-job";
   const claudePath = await findClaude();
-  const settingsFile = join(runsDir(), `${jobId}.settings.json`);
-  const flags = ["--dangerously-skip-permissions", ...(existsSync(settingsFile) ? ["--settings", shellQuote(settingsFile)] : [])].join(" ");
+  const settingsFile = writeHookFiles(jobId);
+  const flags = ["--dangerously-skip-permissions", "--settings", shellQuote(settingsFile)].join(" ");
   const script = join(runsDir(), `${jobId}.reopen.sh`);
   writeFileSync(
     script,
@@ -175,8 +181,12 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
       "#!/bin/zsh",
       `cd ${shellQuote(job.dir)} || exit 1`,
       `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
-      `printf '\\033[2m[Friday 重启过，接上这个目录最近的 Claude 会话]\\033[0m\\n'`,
-      `${shellQuote(claudePath)} ${flags} --continue || ${shellQuote(claudePath)} ${flags}`,
+      job.claudeSessionId
+        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话]\\033[0m\\n'`
+        : `printf '\\033[2m[Friday 重启过，这条任务没有记录到会话 id，开一个新会话]\\033[0m\\n'`,
+      job.claudeSessionId
+        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId)} || ${shellQuote(claudePath)} ${flags}`
+        : `${shellQuote(claudePath)} ${flags} ${shellQuote(`这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`)}`,
       "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
       "exec /bin/zsh -il",
       "",

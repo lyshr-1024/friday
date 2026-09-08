@@ -213,6 +213,8 @@ export interface Job {
   dir: string;
   task?: string;
   conversationId?: string;
+  /** Stop hook 回报的 Claude Code 会话 id，重开终端时用 --resume 接上 */
+  claudeSessionId?: string;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;

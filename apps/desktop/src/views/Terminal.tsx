@@ -61,6 +61,7 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
       base = await coreBaseUrl();
       void post("resize", { cols: term.cols, rows: term.rows });
       const res = await fetch(`${base}/pty/${encodeURIComponent(id)}/stream`, { signal: ctrl.signal }).catch(() => null);
+      if (ctrl.signal.aborted) return;
       if (!res?.ok || !res.body) {
         term.writeln("\x1b[2m[这个终端随 Friday 重启一起关掉了，点下面「重新打开」接着聊]\x1b[0m");
         setDead(true);

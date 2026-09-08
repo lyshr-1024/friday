@@ -45,6 +45,7 @@ export function Chat() {
   const [pending, setPending] = useState<Attachment[]>([]);
 
   const [drawer, setDrawer] = useState(false);
+  const [convTask, setConvTask] = useState<{ id: string; title: string } | null>(null);
   const [view, setView] = useState<View>("queue");
   const [railHover, setRailHover] = useState(false);
   const [railPinned, setRailPinned] = useState(false);
@@ -67,7 +68,7 @@ export function Chat() {
 
   useEffect(() => {
     void refreshList();
-    void settings().then((s) => { setModel(s.model); setSkills(s.skills); }).catch(() => {});
+    void loadSettings();
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     return () => void unlisten.then((f) => f());
@@ -77,8 +78,23 @@ export function Chat() {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
 
+  // 窗口常比 sidecar 先起来，第一次拉设置会失败；失败就隔 2 秒再试，否则 Skill / 模型开关会一直是灰的
+  async function loadSettings(tries = 20) {
+    for (let i = 0; i < tries; i++) {
+      try {
+        const s = await settings();
+        setModel(s.model);
+        setSkills(s.skills);
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
   function discussTask(t: Task) {
     setDrawer(true);
+    setConvTask({ id: t.id, title: t.title });
     void (async () => {
       if (t.source.conversationId) {
         // 这条任务已经聊过：接着上次的会话，不再新开
@@ -192,6 +208,7 @@ export function Chat() {
 
   async function startNew() {
     setDrawer(true);
+    setConvTask(null);
     const conv = await newConversation();
     abortRef.current?.abort();
     setBusy(false);
@@ -391,13 +408,17 @@ export function Chat() {
       {drawer && (
         <aside className="drawer" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
           <header className="drawer__head">
-            <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => void load(e.target.value)} title="最近的对话">
+            {convTask ? (
+              <span className="drawer__task" title={convTask.title}><span className="dot dot--processing" />{convTask.title}</span>
+            ) : (
+            <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => { setConvTask(null); void load(e.target.value); }} title="最近的对话">
               {convId && !list.some((c) => c.id === convId) && <option value={convId}>当前对话</option>}
               {list.slice(0, 12).map((c) => (
                 <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
               ))}
             </select>
-            <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话</button>
+            )}
+            {!convTask && <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话</button>}
             <button
               className={`pill ${skills ? "pill--on" : ""}`}
               disabled={skills === null}

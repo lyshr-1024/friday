@@ -10,6 +10,7 @@ interface Row {
   status: JobStatus;
   exit_code: number | null;
   last_message: string | null;
+  claude_session_id: string | null;
   log_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -24,6 +25,7 @@ const toJob = (r: Row): Job => ({
   status: r.status,
   ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
   ...(r.last_message ? { lastMessage: r.last_message } : {}),
+  ...(r.claude_session_id ? { claudeSessionId: r.claude_session_id } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
@@ -54,6 +56,10 @@ export function listJobs(limit = 30): Job[] {
 export function runningJobs(): Job[] {
   const rows = db().prepare("SELECT * FROM jobs WHERE status = 'running' ORDER BY started_at DESC").all() as unknown as Row[];
   return rows.map(toJob);
+}
+
+export function setJobSession(id: string, sessionId: string): boolean {
+  return db().prepare("UPDATE jobs SET claude_session_id = ? WHERE id = ?").run(sessionId, id).changes > 0;
 }
 
 export function setJobMessage(id: string, text: string): boolean {
