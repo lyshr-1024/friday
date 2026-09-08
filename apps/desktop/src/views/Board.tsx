@@ -96,22 +96,36 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
   const newRef = useRef<HTMLInputElement>(null);
 
+  const failures = useRef(0);
   const load = async () => {
     try {
       const b = await taskBoard();
       setBoard(b);
       setErr("");
+      failures.current = 0;
       onCounts?.({ decide: b.counts.review + b.counts.blocked, doing: b.counts.processing + b.counts.understood + b.counts.collected });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(/load failed|fetch/i.test(msg) ? "连接 Friday 失败，15 秒后自动重试" : msg);
+      failures.current++;
+      // 窗口通常比 sidecar 先起来，启动阶段的连接失败静默重试，连续失败十几秒才提示
+      if (!/load failed|fetch/i.test(msg)) setErr(msg);
+      else if (failures.current >= 8) setErr("连接 Friday 失败，正在重试");
     }
   };
   useEffect(() => {
-    void load();
+    let timer: number | undefined;
+    let stopped = false;
+    const loop = async () => {
+      await load();
+      if (stopped) return;
+      timer = window.setTimeout(loop, failures.current > 0 ? 1500 : 15000);
+    };
+    void loop();
     void settings().then((s) => setName(s.name)).catch(() => {});
-    const t = setInterval(() => void load(), 15000);
-    return () => clearInterval(t);
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, []);
   useEffect(() => {
     if (view === "doing") setDoingOpen(true);
@@ -175,7 +189,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
         <div className="q__row" data-tauri-drag-region>
           <div className="q__title" data-tauri-drag-region>
             <h1 data-tauri-drag-region>{title}</h1>
-            {board && <span className="q__count">{count} {view === "ledger" ? "条" : "件"}</span>}
+            {board ? <span className="q__count">{count} {view === "ledger" ? "条" : "件"}</span> : !err && <span className="q__count">正在连接 Friday…</span>}
           </div>
           <div className="q__tools">{tools}</div>
         </div>
