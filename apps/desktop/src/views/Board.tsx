@@ -112,7 +112,8 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
       setBoard(b);
       setErr("");
       failures.current = 0;
-      onCounts?.({ decide: b.counts.review + b.counts.blocked, doing: b.counts.processing + b.counts.understood + b.counts.collected });
+      // 侧栏「Friday 在做」的数字要和页面上那个分组一致：只算 processing，待办另有分组
+      onCounts?.({ decide: b.counts.review + b.counts.blocked, doing: b.counts.processing });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       failures.current++;
