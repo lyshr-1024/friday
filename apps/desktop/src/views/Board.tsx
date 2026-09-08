@@ -327,13 +327,14 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
     setThread(null);
     if (t.source.threadId) void threadById(t.source.threadId).then(setThread).catch(() => {});
   }, [t.source.threadId]);
-  const links = [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
 
   const r = t.report;
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
   const situation = t.understanding || t.source.note || "";
+  const links = [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
+  const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
   const first = pending[0];
   const primary: { label: string; run: () => Promise<unknown> } | null = first
@@ -368,7 +369,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
       </div>
       <h2 className="fx__title">{t.title}</h2>
 
-      <div className="fx__grid">
+      <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
           {situation && (
             <div>
@@ -470,7 +471,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
       )}
 
       {open && (
-        <>
+        <div className="fx__foot">
           <div className="fx__acts">
             {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}<kbd>↵</kbd></button>}
             {!primary && <button className="b b--ghost" onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>标记完成</button>}
@@ -485,7 +486,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
               <button className="b b--ghost" type="submit">打回给 Friday</button>
             </form>
           )}
-        </>
+        </div>
       )}
     </article>
   );
