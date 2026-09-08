@@ -11,7 +11,8 @@ const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal:
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "排队中", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const DECIDE: TaskStatus[] = ["review", "blocked"];
-const DOING: TaskStatus[] = ["processing", "understood", "collected"];
+const DOING: TaskStatus[] = ["processing"];
+const QUEUED: TaskStatus[] = ["understood", "collected"];
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 
@@ -39,6 +40,20 @@ function needs(t: Task): string {
   if (t.status === "review") return "需要你：过一眼";
   if (t.status === "blocked") return "需要你：介入";
   return "";
+}
+
+function dueLabel(iso: string): string {
+  const days = Math.round((new Date(iso).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  if (days < 0) return `逾期 ${-days} 天`;
+  if (days === 0) return "今天到期";
+  if (days === 1) return "明天到期";
+  return `${days} 天后到期`;
+}
+
+function queuedRight(t: Task): string {
+  if (t.due) return dueLabel(t.due);
+  if (t.progress) return t.progress.slice(0, 40);
+  return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
 }
 
 function meta(t: Task): string {
@@ -73,6 +88,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [doingOpen, setDoingOpen] = useState(false);
+  const [queuedOpen, setQueuedOpen] = useState(true);
   const [doneOpen, setDoneOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
@@ -135,6 +151,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const tasks = board?.tasks ?? [];
   const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
   const doing = tasks.filter((t) => DOING.includes(t.status));
+  const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
@@ -148,8 +165,8 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
       ? ""
       : decide.length
         ? `先把这 ${decide.length} 件定了，其他的 Friday 在做。`
-        : doing.length
-          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件。`
+        : doing.length + queued.length
+          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件，排队 ${queued.length} 件。`
           : "一切清爽，没有等你的事。";
 
   return (
@@ -201,12 +218,25 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
                   {!decide.length && board && (
                     <div className="empty">
                       <strong>没有等你决定的事</strong>
-                      {doing.length ? `Friday 手上有 ${doing.length} 件，做完会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
+                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，排队 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
                     </div>
                   )}
                   <div className="list">
                     {decide.map((t) => item(t, <Row key={t.id} t={t} right={needs(t)} onClick={() => setSelectedId(t.id)} />))}
                   </div>
+
+                  <section className="grp">
+                    <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
+                      排队中<span className="mono">{queued.length}</span>
+                      <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
+                    </button>
+                    {queuedOpen && (
+                      <div className="list">
+                        {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
+                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有排队的事</span></div>}
+                      </div>
+                    )}
+                  </section>
 
                   <section className="grp">
                     <button className="grp__head" onClick={() => setDoingOpen((v) => !v)}>
@@ -215,7 +245,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
                     </button>
                     {doingOpen && (
                       <div className="list">
-                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar={t.status === "processing"} onClick={() => setSelectedId(t.id)} />))}
+                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar onClick={() => setSelectedId(t.id)} />))}
                         {!doing.length && <div className="row row--compact"><span className="row__meta">现在没有在做的事</span></div>}
                       </div>
                     )}

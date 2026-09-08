@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { syncMeegleOnce } from "../agent/meegle.js";
 import { z } from "zod";
 import type { Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
@@ -17,6 +18,7 @@ const newTask = z.object({
 });
 
 export const tasks = new Hono()
+  .post("/tasks/sync-meegle", async (c) => c.json(await syncMeegleOnce()))
   .get("/tasks", (c) => c.json(taskBoard()))
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));

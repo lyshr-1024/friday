@@ -4,6 +4,7 @@ import { threadToTask } from "../agent/pipeline.js";
 import { buildBrief } from "../agent/brief.js";
 import { enrichThread } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
+import { syncMeegleOnce } from "../agent/meegle.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, getThread, setThreadBrief } from "../memory/threads.js";
 import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
@@ -13,6 +14,7 @@ import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "..
 export const ACTIVE_HOURS: [number, number] = [10, 20];
 const ACTIVE_MS = 3 * 60_000;
 const QUIET_MS = 15 * 60_000;
+const MEEGLE_MS = 15 * 60_000;
 
 export function hourInShanghai(d = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).format(d)) % 24;
@@ -118,4 +120,9 @@ export function startScheduler(): void {
   };
   state.nextSyncAt = new Date(Date.now() + 5_000).toISOString();
   setTimeout(tick, 5_000).unref();
+  const meegleTick = async () => {
+    await syncMeegleOnce();
+    setTimeout(meegleTick, MEEGLE_MS).unref();
+  };
+  setTimeout(meegleTick, 8_000).unref();
 }

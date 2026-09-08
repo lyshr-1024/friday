@@ -9,7 +9,24 @@ interface AuthStatus {
 
 interface TodoItem {
   project_key: string;
+  project_name?: string;
+  node_info?: { node_name?: string };
+  schedule?: { end_time?: string };
   work_item_info: { work_item_id: number; work_item_type_key: string };
+}
+
+/** 分派给我的 Meegle 工作项，已拼好任务中枢需要的字段。 */
+export interface MeegleWorkItem {
+  id: string;
+  name: string;
+  typeName: string;
+  status: string;
+  priority?: string;
+  node?: string;
+  projectName: string;
+  url: string;
+  createdAt: string;
+  due?: string;
 }
 
 interface TodoPage {
@@ -43,12 +60,38 @@ export function toTodo(host: string, item: WorkItem): Todo {
   };
 }
 
+export function toWorkItem(host: string, todo: TodoItem, item: WorkItem): MeegleWorkItem {
+  const a = item.work_item_attribute;
+  const priority = (item.work_item_fields.find((f) => f.key === "priority")?.value as { label?: string } | undefined)?.label;
+  const due = todo.schedule?.end_time?.trim();
+  return {
+    id: a.work_item_id,
+    name: a.work_item_name.trim(),
+    typeName: a.work_item_type.name,
+    status: a.work_item_status.name,
+    ...(priority ? { priority } : {}),
+    ...(todo.node_info?.node_name ? { node: todo.node_info.node_name } : {}),
+    projectName: todo.project_name ?? a.owned_project.simple_name,
+    url: `https://${host}/${a.owned_project.simple_name}/${a.work_item_type.key}/detail/${a.work_item_id}`,
+    createdAt: a.create_time,
+    ...(due ? { due } : {}),
+  };
+}
+
 export class MeegleConnector implements Connector {
   source = "meegle" as const;
 
   constructor(private bin = "meegle") {}
 
   async fetchTodos(): Promise<Todo[]> {
+    return (await this.fetchRaw()).map(([, d, host]) => toTodo(host, d));
+  }
+
+  async fetchWorkItems(): Promise<MeegleWorkItem[]> {
+    return (await this.fetchRaw()).map(([it, d, host]) => toWorkItem(host, it, d));
+  }
+
+  private async fetchRaw(): Promise<Array<[TodoItem, WorkItem, string]>> {
     const auth = await runJson<AuthStatus>(this.bin, ["auth", "status", "--format", "json"]);
     if (!auth.authenticated || !auth.host) throw new Error("Meegle 未登录，请在终端执行 meegle auth login");
 
@@ -69,6 +112,6 @@ export class MeegleConnector implements Connector {
         "--format", "json",
       ]),
     );
-    return details.map((d) => toTodo(auth.host!, d));
+    return details.map((d, i) => [items[i]!, d, auth.host!]);
   }
 }
