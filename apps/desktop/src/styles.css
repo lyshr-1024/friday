@@ -2052,7 +2052,6 @@ body,
   overflow: hidden;
   border: 1px solid var(--line-1);
   /* 单独一层合成，终端重绘不带着卡片投影一起重绘 */
-  contain: strict;
   transform: translateZ(0);
 }
 .row__tag {
