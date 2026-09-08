@@ -162,6 +162,20 @@ export async function routeAsk(prompt: string): Promise<RouteResult> {
   return res.json();
 }
 
+export interface Activity {
+  ts: string;
+  kind: "say" | "tool" | "user";
+  text: string;
+  ok?: boolean;
+}
+
+/** 终端里 Claude Code 最近的动作（从 transcript 读） */
+export async function jobActivity(id: string, limit = 6): Promise<Activity[]> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/activity?limit=${limit}`);
+  if (!res.ok) throw new Error(`activity ${res.status}`);
+  return ((await res.json()) as { items: Activity[] }).items;
+}
+
 export async function openTodos(): Promise<Todo[]> {
   const res = await fetch(`${await coreBaseUrl()}/todos`);
   if (!res.ok) throw new Error(`todos ${res.status}`);

@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
+import { markStop } from "../agent/terminal.js";
+import { jobActivity } from "../agent/transcript.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { state } from "../scheduler/index.js";
@@ -30,14 +32,23 @@ export const jobs = new Hono()
   })
   // Stop hook 回报：终端里 Claude 刚完成一轮的最后一段话
   .post("/jobs/:id/message", async (c) => {
-    const parsed = z.object({ text: z.string().max(20_000).optional(), sessionId: z.string().max(200).optional() }).safeParse(await c.req.json().catch(() => null));
+    const parsed = z.object({ text: z.string().max(20_000).optional(), sessionId: z.string().max(200).optional(), event: z.string().max(40).optional(), source: z.string().max(40).optional() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId)) return c.json({ error: "text 或 sessionId 至少一个" }, 400);
     const id = c.req.param("id");
-    const okText = parsed.data.text ? setJobMessage(id, parsed.data.text) : true;
-    const okSid = parsed.data.sessionId ? setJobSession(id, parsed.data.sessionId) : true;
-    return okText && okSid ? c.json({ ok: true }) : c.json({ error: "任务不存在" }, 404);
+    const { text, sessionId, event, source } = parsed.data;
+    const okText = text ? setJobMessage(id, text) : true;
+    const okSid = sessionId ? setJobSession(id, sessionId) : true;
+    if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);
+    // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
+    if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) markStop(id);
+    return c.json({ ok: true });
   })
   // 终端脚本回报退出码
+  .get("/jobs/:id/activity", (c) => {
+    const job = getJob(c.req.param("id"));
+    if (!job) return c.json({ error: "任务不存在" }, 404);
+    return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)) });
+  })
   .post("/jobs/:id/exit", async (c) => {
     const parsed = z.object({ code: z.number().int() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "code 需为整数" }, 400);

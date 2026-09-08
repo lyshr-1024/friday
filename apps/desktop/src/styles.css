@@ -2008,6 +2008,57 @@ body,
   color: var(--fg-3);
 }
 
+/* 终端在做：从 transcript 读出来的动作流，一行一步 */
+.fx__doing {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-1);
+}
+.fx__activity {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.act {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-3);
+  transform: translateY(-1px);
+}
+.act--say {
+  color: var(--fg-3);
+}
+.act--ok i {
+  background: var(--ok, #3ecf8e);
+}
+.act--err i {
+  background: var(--bad, #ff6b6b);
+}
+.act--busy i {
+  background: var(--live);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 .fx__term {
   margin-top: 18px;
   padding-top: 14px;

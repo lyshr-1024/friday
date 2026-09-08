@@ -76,7 +76,7 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message, session_id } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id, hook_event_name, source } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
     if (!text && transcript_path && fs.existsSync(transcript_path)) {
@@ -91,7 +91,7 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
       }
     }
     if (!text && !session_id) { console.error("no assistant text"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}) }) })
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }

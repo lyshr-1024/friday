@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
+import type { Activity } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
@@ -287,6 +288,19 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
   const [reason, setReason] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
+  const [acts, setActs] = useState<Activity[]>([]);
+  // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
+  useEffect(() => {
+    const jobId = t.source.jobId;
+    setActs([]);
+    if (!jobId) return;
+    let stop = false;
+    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) setActs(a); }).catch(() => {});
+    pull();
+    if (t.status !== "processing") return () => { stop = true; };
+    const timer = window.setInterval(pull, 5000);
+    return () => { stop = true; window.clearInterval(timer); };
+  }, [t.source.jobId, t.status]);
   useEffect(() => {
     setRejecting(false);
     setReason("");
@@ -423,6 +437,18 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
             </ul>
           </div>
         </details>
+      )}
+      {t.source.jobId && acts.length > 0 && (
+        <div className="fx__doing">
+          <span className="k">终端在做</span>
+          <ul className="fx__activity">
+            {acts.map((a, i) => (
+              <li key={`${a.ts}-${i}`} className={`act act--${a.kind}${a.kind === "tool" ? (a.ok === undefined ? " act--busy" : a.ok ? " act--ok" : " act--err") : ""}`}>
+                <i />{a.text}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {t.source.jobId && (
         <div className="fx__term">

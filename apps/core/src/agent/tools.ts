@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
-import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
+import { say } from "./terminal.js";
+import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -124,8 +127,45 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },
     ),
+    tool(
+      "terminal_say",
+      "往当前会话绑定的任务的内嵌终端里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。它正忙时会排队，等它这轮说完再送进去。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
+      { text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理") },
+      async ({ text: msg }) => {
+        const bound = boundJob(conversationId);
+        if (!bound) return text("这条会话没有绑定带终端的任务，转达不了。让用户从任务的「在会话里讨论」进来，或先用 run_claude 开一个。");
+        const r = say(bound.jobId, msg);
+        if (r === "no-terminal") return text("这条任务的终端不在了（不是内嵌终端，或已经关掉）。可以让用户在任务卡上点「重新打开终端」。");
+        if (conversationId && conversationExists(conversationId)) {
+          addMessage(conversationId, { role: "assistant", kind: "run", content: `${r === "sent" ? "→ 已转达给终端" : "→ 终端正忙，等它这轮说完转达"}：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
+        }
+        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: r === "sent" ? "直接敲进 PTY" : "排队等它这轮结束", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
+        return text(r === "sent" ? "已敲进终端。它回话后会回报到任务卡，不用你复述。" : "终端里的 Claude 正在输出，已排队，它这轮说完就送进去。");
+      },
+    ),
+    tool(
+      "jobs_activity",
+      "看某个终端任务里 Claude Code 最近在做什么：读了/改了哪些文件、跑了什么命令、成败、说了什么。不给 jobId 就看当前会话绑定的任务。用户问“它做到哪了”“在干什么”时用。",
+      { jobId: z.string().optional(), limit: z.number().int().min(1).max(40).optional() },
+      async ({ jobId, limit }) => {
+        const id = jobId ?? boundJob(conversationId)?.jobId;
+        if (!id) return text("没有指定任务，这条会话也没绑定终端任务。");
+        const job = getJob(id);
+        if (!job) return text("没有这个任务。");
+        return text(`${job.project} · ${job.status}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
+      },
+    ),
   ],
 });
+
+/** 这条会话正在讨论的任务的终端：先看任务绑定，再看 run_claude 从这条会话开的 job */
+function boundJob(conversationId?: string): { jobId: string; taskId?: string } | undefined {
+  if (!conversationId) return undefined;
+  const t = findTaskBySource((s) => s.conversationId === conversationId);
+  if (t?.source.jobId) return { jobId: t.source.jobId, taskId: t.id };
+  const j = listJobs().find((x) => x.conversationId === conversationId && x.status === "running");
+  return j ? { jobId: j.id } : undefined;
+}
 
 export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__memory_read",
@@ -135,4 +175,6 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__slack_inbox",
   "mcp__friday__jobs_list",
   "mcp__friday__run_claude",
+  "mcp__friday__terminal_say",
+  "mcp__friday__jobs_activity",
 ];
