@@ -96,6 +96,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
   const [err, setErr] = useState("");
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
   const newRef = useRef<HTMLInputElement>(null);
+  const focusRef = useRef<HTMLElement>(null);
 
   const failures = useRef(0);
   const load = async () => {
@@ -160,15 +161,16 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
     const p = parseNew(text);
     if (!p.title) return;
     void act(null, async () => {
-      await createTask(p);
+      const t = await createTask(p);
       setText("");
       setAdding(false);
+      setSelectedId(t.id);
     });
   }
 
   const tasks = board?.tasks ?? [];
   const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
-  const doing = tasks.filter((t) => DOING.includes(t.status));
+  const doing = tasks.filter((t) => DOING.includes(t.status)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
@@ -176,8 +178,13 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
   useEffect(() => {
     onFocusChange?.(focus ?? null);
   }, [focus?.id]);
+  // 焦点换了人、或者这条任务挪了分组，卡片在页面里的位置就变了，滚回去
+  useEffect(() => {
+    if (!focus) return;
+    focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focus?.id, focus?.status]);
   const item = (t: Task, row: React.ReactNode) =>
-    t.id === focus?.id ? <Focus key={t.id} t={t} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
+    t.id === focus?.id ? <Focus key={t.id} ref={focusRef} t={t} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
 
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
@@ -310,12 +317,13 @@ function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string;
   );
 }
 
-function Focus({ t, onAct, onDiscuss, onClose, closable }: {
+function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
   t: Task;
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
   onDiscuss?: (t: Task) => void;
   onClose: () => void;
   closable: boolean;
+  ref?: React.Ref<HTMLElement>;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
@@ -364,7 +372,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
   }, [t.id, t.updatedAt, primary?.label]);
 
   return (
-    <article className="fx">
+    <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.status}`} />
         <span>{STATUS[t.status]} · {meta(t)}</span>
@@ -461,7 +469,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
       {t.source.jobId && (
         <div className="fx__term">
           <span className="k">终端 · Claude Code 就在这条任务里干活，可以直接打字</span>
-          <Terminal id={t.source.jobId} height={360} />
+          <Terminal id={t.source.jobId} />
         </div>
       )}
       {events.length > 0 && (
