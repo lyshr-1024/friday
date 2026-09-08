@@ -9,7 +9,7 @@ export type BoardView = "queue" | "doing" | "all" | "ledger";
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
-const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "排队中", collected: "刚收到", done: "已完成", ignored: "已忽略" };
+const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const DECIDE: TaskStatus[] = ["review", "blocked"];
 const DOING: TaskStatus[] = ["processing"];
 const QUEUED: TaskStatus[] = ["understood", "collected"];
@@ -187,7 +187,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
       : decide.length
         ? `先把这 ${decide.length} 件定了，其他的 Friday 在做。`
         : doing.length + queued.length
-          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件，排队 ${queued.length} 件。`
+          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件。`
           : "一切清爽，没有等你的事。";
 
   return (
@@ -239,7 +239,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
                   {!decide.length && board && (
                     <div className="empty">
                       <strong>没有等你决定的事</strong>
-                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，排队 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
+                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
                     </div>
                   )}
                   <div className="list">
@@ -261,13 +261,13 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
 
                   <section className="grp">
                     <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
-                      排队中<span className="mono">{queued.length}</span>
+                      待办<span className="mono">{queued.length}</span>
                       <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
                     </button>
                     {queuedOpen && (
                       <div className="list">
                         {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
-                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有排队的事</span></div>}
+                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有待办</span></div>}
                       </div>
                     )}
                   </section>
