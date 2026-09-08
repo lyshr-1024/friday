@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -9,8 +9,26 @@ import { coreBaseUrl } from "../lib/core";
 /** 任务内嵌终端：连 sidecar 的 PTY，输出经 SSE 回放 + 实时推送，按键直接写回去。 */
 export function Terminal({ id, height = 360 }: { id: string; height?: number }) {
   const host = useRef<HTMLDivElement>(null);
+  const [dead, setDead] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [reopening, setReopening] = useState(false);
+
+  async function reopen() {
+    setReopening(true);
+    try {
+      const base = await coreBaseUrl();
+      const res = await fetch(`${base}/pty/${encodeURIComponent(id)}/reopen`, { method: "POST" });
+      if (res.ok) {
+        setDead(false);
+        setAttempt((n) => n + 1);
+      }
+    } finally {
+      setReopening(false);
+    }
+  }
 
   useEffect(() => {
+    setDead(false);
     const el = host.current;
     if (!el) return;
     const term = new XTerm({
@@ -44,7 +62,8 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
       void post("resize", { cols: term.cols, rows: term.rows });
       const res = await fetch(`${base}/pty/${encodeURIComponent(id)}/stream`, { signal: ctrl.signal }).catch(() => null);
       if (!res?.ok || !res.body) {
-        term.writeln("\x1b[2m[这个任务没有活着的终端，可能已经结束或 Friday 重启过]\x1b[0m");
+        term.writeln("\x1b[2m[这个终端随 Friday 重启一起关掉了，点下面「重新打开」接着聊]\x1b[0m");
+        setDead(true);
         return;
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -81,7 +100,16 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
       ctrl.abort();
       term.dispose();
     };
-  }, [id]);
+  }, [id, attempt]);
 
-  return <div ref={host} className="xterm-host" style={{ height }} />;
+  return (
+    <div className="term">
+      <div ref={host} className="xterm-host" style={{ height }} />
+      {dead && (
+        <div className="term__dead">
+          <button className="b b--ghost" disabled={reopening} onClick={() => void reopen()}>{reopening ? "正在重开…" : "重新打开终端，接上之前的 Claude 会话"}</button>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { getSession, kill, listSessions, resize, subscribe, write } from "../agent/pty.js";
+import { reopenClaude } from "../agent/runner.js";
 
 export const pty = new Hono()
   .get("/pty", (c) => c.json(listSessions()))
@@ -32,5 +33,9 @@ export const pty = new Hono()
     const parsed = z.object({ cols: z.number().int(), rows: z.number().int() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "cols/rows 必填" }, 400);
     return resize(c.req.param("id"), parsed.data.cols, parsed.data.rows) ? c.json({ ok: true }) : c.json({ error: "终端不存在或已退出" }, 404);
+  })
+  .post("/pty/:id/reopen", async (c) => {
+    const r = await reopenClaude(c.req.param("id"));
+    return r === "no-job" ? c.json({ error: "找不到这个任务的记录" }, 404) : c.json({ status: r });
   })
   .post("/pty/:id/kill", (c) => (kill(c.req.param("id")) ? c.json({ ok: true }) : c.json({ error: "终端不存在" }, 404)));

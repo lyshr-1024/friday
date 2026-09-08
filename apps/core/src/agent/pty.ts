@@ -18,9 +18,10 @@ const MAX_BUFFER = 400_000;
 const sessions = new Map<string, Session>();
 
 /** 在 PTY 里跑任务脚本；输出留一份回放缓冲，前端随时接上都能看到之前的内容。 */
-export function spawnSession(id: string, script: string, cwd: string): Session {
+export function spawnSession(id: string, script: string, cwd: string, replay = ""): Session {
   const existing = sessions.get(id);
-  if (existing) return existing;
+  if (existing && existing.exited === undefined) return existing;
+  if (existing) sessions.delete(id);
   const pty = nodePty.spawn("/bin/zsh", [script], {
     name: "xterm-256color",
     cols: 120,
@@ -28,7 +29,7 @@ export function spawnSession(id: string, script: string, cwd: string): Session {
     cwd,
     env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8", FRIDAY_EMBEDDED: "1" } as Record<string, string>,
   });
-  const s: Session = { id, pty, buffer: "", listeners: new Set() };
+  const s: Session = { id, pty, buffer: replay, listeners: new Set() };
   pty.onData((d) => {
     s.buffer = (s.buffer + d).slice(-MAX_BUFFER);
     s.listeners.forEach((l) => l(d));

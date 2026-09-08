@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
-import { spawnSession } from "./pty.js";
+import { getSession, spawnSession } from "./pty.js";
+import { getJob } from "../memory/jobs.js";
 
 const execFileP = promisify(execFile);
 
@@ -156,4 +157,39 @@ export async function launchClaude(req: LaunchRequest): Promise<string> {
 export async function focusTerminal(terminal: TerminalApp): Promise<void> {
   if (terminal === "embedded") return;
   await execFileP("/usr/bin/open", ["-a", terminal === "terminal" ? "Terminal" : "Ghostty"]);
+}
+
+/** 终端随 Friday 重启一起没了：在同一目录重开一个 PTY，用 --continue 接上该目录最近的 Claude 会话，并把旧日志尾部回放出来。 */
+export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" | "no-job"> {
+  const live = getSession(jobId);
+  if (live && live.exited === undefined) return "alive";
+  const job = getJob(jobId);
+  if (!job) return "no-job";
+  const claudePath = await findClaude();
+  const settingsFile = join(runsDir(), `${jobId}.settings.json`);
+  const flags = ["--dangerously-skip-permissions", ...(existsSync(settingsFile) ? ["--settings", shellQuote(settingsFile)] : [])].join(" ");
+  const script = join(runsDir(), `${jobId}.reopen.sh`);
+  writeFileSync(
+    script,
+    [
+      "#!/bin/zsh",
+      `cd ${shellQuote(job.dir)} || exit 1`,
+      `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
+      `printf '\\033[2m[Friday 重启过，接上这个目录最近的 Claude 会话]\\033[0m\\n'`,
+      `${shellQuote(claudePath)} ${flags} --continue || ${shellQuote(claudePath)} ${flags}`,
+      "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
+      "exec /bin/zsh -il",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(script, 0o755);
+  let replay = "";
+  const log = jobLog(jobId);
+  if (existsSync(log)) {
+    const size = statSync(log).size;
+    const raw = readFileSync(log, "utf8");
+    replay = (size > 60_000 ? raw.slice(-60_000) : raw) + "\r\n\x1b[2m—— 以上是重启前的输出 ——\x1b[0m\r\n";
+  }
+  spawnSession(jobId, script, job.dir, replay);
+  return "reopened";
 }
