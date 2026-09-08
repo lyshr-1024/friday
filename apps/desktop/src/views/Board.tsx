@@ -87,7 +87,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [doingOpen, setDoingOpen] = useState(false);
+  const [doingOpen, setDoingOpen] = useState(true);
   const [queuedOpen, setQueuedOpen] = useState(true);
   const [doneOpen, setDoneOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -122,9 +122,12 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
     };
     void loop();
     void settings().then((s) => setName(s.name)).catch(() => {});
+    const onChanged = () => void load();
+    window.addEventListener("friday:tasks-changed", onChanged);
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
+      window.removeEventListener("friday:tasks-changed", onChanged);
     };
   }, []);
   useEffect(() => {
@@ -291,7 +294,11 @@ function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string;
     <button className={`row ${compact ? "row--compact" : ""}`} onClick={onClick}>
       <span className={`dot dot--${t.status}`} />
       <span className="row__main">
-        <div className="row__title">{t.title}</div>
+        <div className="row__title">
+          {t.title}
+          {t.source.jobId && <span className="row__tag">终端</span>}
+          {t.source.conversationId && <span className="row__tag">会话</span>}
+        </div>
         {!compact && <div className="row__meta">{meta(t)}</div>}
       </span>
       {bar && <span className="row__bar"><i /></span>}
@@ -448,10 +455,10 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
         </details>
       )}
       {t.source.jobId && (
-        <details className="fx__more" open={t.status === "processing"}>
-          <summary>终端 · 就在这里和 Claude Code 对话</summary>
-          <div className="fx__more-body"><Terminal id={t.source.jobId} height={360} /></div>
-        </details>
+        <div className="fx__term">
+          <span className="k">终端 · Claude Code 就在这条任务里干活，可以直接打字</span>
+          <Terminal id={t.source.jobId} height={360} />
+        </div>
       )}
       {events.length > 0 && (
         <details className="fx__more">
@@ -470,7 +477,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
             <span className="fx__spacer" />
-            {onDiscuss && <button className="b b--text" onClick={() => onDiscuss(t)}>在会话里讨论</button>}
+            {onDiscuss && <button className="b b--text" onClick={() => onDiscuss(t)}>{t.source.conversationId ? "继续会话" : "在会话里讨论"}</button>}
           </div>
           {rejecting && (
             <form className="fx__reject" onSubmit={(e) => { e.preventDefault(); void onAct(t, () => taskReject(t.id, reason || undefined)); }}>

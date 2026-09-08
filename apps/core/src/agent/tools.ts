@@ -6,7 +6,7 @@ import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
-import { createTask } from "../memory/tasks.js";
+import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listThreads } from "../memory/threads.js";
@@ -27,7 +27,7 @@ const file = z.enum(["projects", "decisions", "people"]).describe("projects=项�
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
 // Friday 在对话里能用的全部工具。都是对记忆库的可逆写操作，按 permission.ts 归为 reversible：放行并留痕。
-export const fridayTools = createSdkMcpServer({
+export const fridayTools = (conversationId?: string) => createSdkMcpServer({
   name: "friday",
   version: "0.1.0",
   tools: [
@@ -113,9 +113,13 @@ export const fridayTools = createSdkMcpServer({
         if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
         const id = randomUUID();
         await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
-        createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}) });
-        const t = createTask({ title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`, kind: "code", source: { jobId: id }, project: r.name, status: "processing", understanding: task ?? "会话里让 Friday 开的终端" });
-        record({ taskId: t.id, action: "claude_code_start", why: "会话里让 Friday 去干活", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: r.name, dir: r.dir }, risk: "reversible" });
+        createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conversationId ? { conversationId } : {}) });
+        // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
+        const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
+        const t = linked
+          ? updateTask(linked.id, { status: "processing", project: linked.project ?? r.name, progress: `Claude Code 正在 ${r.name} 上处理${task ? `：${task.slice(0, 80)}` : ""}`, source: { jobId: id } })!
+          : createTask({ title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`, kind: "code", source: { jobId: id, ...(conversationId ? { conversationId } : {}) }, project: r.name, status: "processing", understanding: task ?? "会话里让 Friday 开的终端" });
+        record({ taskId: t.id, action: "claude_code_start", why: linked ? "讨论这条任务时让 Friday 去干活" : "会话里让 Friday 去干活", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: r.name, dir: r.dir }, risk: "reversible" });
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
         return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },

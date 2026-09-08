@@ -69,6 +69,12 @@ export const tasks = new Hono()
     const next = await startAutonomousJob({ ...t, source: { ...t.source, jobId: undefined } }, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
     return c.json(next);
   })
+  .post("/tasks/:id/conversation", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { conversationId?: string };
+    if (!body.conversationId) return c.json({ error: "需要 conversationId" }, 400);
+    const t = updateTask(c.req.param("id"), { source: { conversationId: body.conversationId } });
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [] });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);

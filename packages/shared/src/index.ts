@@ -277,6 +277,8 @@ export interface TaskSource {
   url?: string;
   note?: string;
   jobId?: string;
+  /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
+  conversationId?: string;
 }
 
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */

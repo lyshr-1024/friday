@@ -334,6 +334,12 @@ export async function taskSet(id: string, action: "done" | "ignore"): Promise<Ta
   return res.json();
 }
 
+export async function taskBindConversation(id: string, conversationId: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/conversation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId }) });
+  if (!res.ok) throw new Error(`task conversation ${res.status}`);
+  return res.json();
+}
+
 export async function audit(taskId?: string, limit = 200): Promise<AuditEvent[]> {
   const qs = new URLSearchParams({ limit: String(limit), ...(taskId ? { taskId } : {}) });
   const res = await fetch(`${await coreBaseUrl()}/audit?${qs}`);

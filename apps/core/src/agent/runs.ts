@@ -46,7 +46,7 @@ async function execute(run: Run, prompt: Parameters<typeof askStream>[0], opts: 
   let error: string | undefined;
   const emit = (ev: AskEvent) => run.listeners.forEach((l) => l(ev));
   try {
-    for await (const ev of askStream(prompt, { ...opts, signal: run.controller.signal })) {
+    for await (const ev of askStream(prompt, { ...opts, signal: run.controller.signal, conversationId: run.conversationId })) {
       if (ev.type === "delta") run.answer += ev.text;
       if (ev.type === "reset") run.answer = "";
       if (ev.type === "error") error = ev.message;

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, threadById, updateSettings, uploadAttachment } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, taskBindConversation, threadById, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, decodeSlack, fmtTime } from "./shared";
@@ -80,10 +80,21 @@ export function Chat() {
   function discussTask(t: Task) {
     setDrawer(true);
     void (async () => {
+      if (t.source.conversationId) {
+        // 这条任务已经聊过：接着上次的会话，不再新开
+        try {
+          await load(t.source.conversationId);
+          setTimeout(() => inputRef.current?.focus(), 0);
+          return;
+        } catch {
+          // 会话被删了就重新开一个
+        }
+      }
       const conv = await newConversation();
       setConvId(conv.id);
       convRef.current = conv.id;
       setMessages([]);
+      void taskBindConversation(t.id, conv.id).then(() => window.dispatchEvent(new Event("friday:tasks-changed"))).catch(() => {});
       const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
       const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
       const lines = [

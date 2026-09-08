@@ -2013,6 +2013,23 @@ body,
   color: var(--fg-3);
 }
 
+.fx__term {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-1);
+}
+.row__tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+  font-size: 11px;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
+
 /* 一行一件 */
 .row {
   display: flex;

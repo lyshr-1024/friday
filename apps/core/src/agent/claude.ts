@@ -18,6 +18,8 @@ export interface AskOptions {
   model?: string;
   /** Skill 模式：读取用户 ~/.claude 的 skill，放行 Skill/Bash/Read/Glob/Grep，权限 bypass（用户明确要求）。 */
   skills?: boolean;
+  /** 当前会话 id，工具里用来把终端挂到正在讨论的任务上 */
+  conversationId?: string;
 }
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
@@ -37,7 +39,7 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,
       tools: opts.skills ? SKILL_TOOLS : [],
-      mcpServers: { friday: fridayTools },
+      mcpServers: { friday: fridayTools(opts.conversationId) },
       allowedTools: opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES,
       maxTurns: opts.skills ? 30 : 8,
       includePartialMessages: true,

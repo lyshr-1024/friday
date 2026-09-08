@@ -94,6 +94,7 @@ apps/core/src/
 - 侧栏 `.rail` 默认隐藏：鼠标靠左边缘 `.edge` 滑出、`⌘\` 固定；项：待我决定（amber 计数）/ Friday 在做 / 全部任务 / 操作记录 / AI 热点，底部交代一件事、问 Friday、状态行。
 - 快捷键：`⌘N` 新建任务（一行输入，自动识别 URL 作为 `url`）、`⌘⇧N` 新对话、`⌘J` 抽屉、`⌘\` 侧栏、回车 = 队首主动作（输入框 / 抽屉 / 终端聚焦时不触发）。
 - **Meegle 工单进任务**（`agent/meegle.ts`）：调度器启动 8 秒后、之后每 15 分钟 `syncMeegleOnce`：`MeegleConnector.fetchWorkItems()`（`mywork todo` + `workitem get --fields priority`）→ 每条分派给我的工单建 `kind: meegle` 任务（`source.meegleId/url`，理解里写节点、状态、优先级、截止），一律 `understood` 排队不占「待我决定」；已有的更新标题/优先级/截止，用户标完成或忽略的不再动；不在分派列表里的自动 done 并记账 `meegle_done`。项目按标题里出现的项目名/别名（≥3 字）匹配。同时仍写 `todos` 表供会话上下文。`POST /tasks/sync-meegle` 手动触发。前端「排队中」分组默认展开，按截止日 → 优先级 → 创建时间排序；「Friday 在做」只剩 processing。
+- **任务 ↔ 会话 ↔ 终端**：「在会话里讨论」新开会话时 `POST /tasks/:id/conversation` 把 `source.conversationId` 记到任务上，再点就是「继续会话」直接 `load` 原会话；`askStream` 收到 `conversationId` 后 `fridayTools(conversationId)` 按会话建 MCP 工具，`run_claude` 先找 `source.conversationId` 相同的任务，找到就把 job 挂上去（`source.jobId`、processing、progress），找不到才新建 code 任务。Focus 里有 jobId 就常显内嵌终端；Row 上有「终端」「会话」小标签。绑定后前端广播 `friday:tasks-changed` 让任务板立刻刷新。
 - 首屏问候用 `settings.name` + 本地时段，不再调 `/desk`（前端 `DeskView` 已删）。
 - 验收方式：core `FRIDAY_PORT=7791 FRIDAY_DATA_DIR=<临时目录> FRIDAY_NO_SCHEDULER=1` + `VITE_FRIDAY_PORT=7791 vite --port 1421`，浏览器直开 vite 页面（`coreBaseUrl` 无 Tauri 时回退到本机端口；CORS 放行所有本机 origin），用 agent-browser 截图。
 
