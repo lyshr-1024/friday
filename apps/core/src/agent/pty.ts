@@ -15,6 +15,11 @@ interface Session {
 }
 
 const MAX_BUFFER = 400_000;
+
+/** Friday 若是从某个 Claude Code 会话里被拉起的，会继承 CLAUDECODE / CLAUDE_CODE_* 环境变量；带着它们跑 claude 会被当成子会话、不保存 transcript，重开时 --resume 就接不上。 */
+export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !(k === "CLAUDECODE" || k === "CLAUDE_PID" || k.startsWith("CLAUDE_CODE_"))));
+}
 const sessions = new Map<string, Session>();
 
 /** 在 PTY 里跑任务脚本；输出留一份回放缓冲，前端随时接上都能看到之前的内容。 */
@@ -27,7 +32,7 @@ export function spawnSession(id: string, script: string, cwd: string, replay = "
     cols: 120,
     rows: 34,
     cwd,
-    env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8", FRIDAY_EMBEDDED: "1" } as Record<string, string>,
+    env: { ...cleanEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8", FRIDAY_EMBEDDED: "1" } as Record<string, string>,
   });
   const s: Session = { id, pty, buffer: replay, listeners: new Set() };
   pty.onData((d) => {

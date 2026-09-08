@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
@@ -103,6 +104,14 @@ export function buildHookSettings(hookScript: string): string {
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
+// 见 pty.ts cleanEnv：Ghostty / Terminal 由 open 拉起同样会继承这些变量
+const UNSET_CLAUDE_ENV = "unset CLAUDECODE CLAUDE_PID $(env | sed -n 's/^\\(CLAUDE_CODE_[A-Z_]*\\)=.*/\\1/p') 2>/dev/null";
+
+/** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里的 / 换成 ->/<session>.jsonl */
+export function transcriptPath(dir: string, sessionId: string): string {
+  return join(homedir(), ".claude", "projects", dir.replace(/[\/.]/g, "-"), `${sessionId}.jsonl`);
+}
+
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, settingsFile?: string): string {
   const flags = [
     ...(req.autonomous ? ["-p"] : []),
@@ -115,6 +124,7 @@ export function buildScript(req: LaunchRequest, claudePath: string, port: number
     // Ghostty 用 open -na 启动时偶发新旧实例各执行一次，用原子 mkdir 锁保证任务只跑一份，多出来的 tab 直接退出。
     `mkdir ${shellQuote(`${jobLog(req.id)}.lock`)} 2>/dev/null || exit 0`,
     `cd ${shellQuote(req.dir)} || exit 1`,
+    UNSET_CLAUDE_ENV,
     `printf '\\033]0;Friday · %s\\007' ${shellQuote(req.dir.split("/").pop() ?? "")}`,
     `script -q ${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
     "code=$?",
@@ -174,18 +184,20 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
   const claudePath = await findClaude();
   const settingsFile = writeHookFiles(jobId);
   const flags = ["--dangerously-skip-permissions", "--settings", shellQuote(settingsFile)].join(" ");
+  const resumable = Boolean(job.claudeSessionId && existsSync(transcriptPath(job.dir, job.claudeSessionId)));
   const script = join(runsDir(), `${jobId}.reopen.sh`);
   writeFileSync(
     script,
     [
       "#!/bin/zsh",
       `cd ${shellQuote(job.dir)} || exit 1`,
+      UNSET_CLAUDE_ENV,
       `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
-      job.claudeSessionId
+      resumable
         ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话]\\033[0m\\n'`
-        : `printf '\\033[2m[Friday 重启过，这条任务没有记录到会话 id，开一个新会话]\\033[0m\\n'`,
-      job.claudeSessionId
-        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId)} || ${shellQuote(claudePath)} ${flags}`
+        : `printf '\\033[2m[Friday 重启过，${job.claudeSessionId ? "这条任务的会话记录没有保存下来（上次 Claude 被当成子会话运行）" : "这条任务没有记录到会话 id"}，开一个新会话]\\033[0m\\n'`,
+      resumable
+        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags}`
         : `${shellQuote(claudePath)} ${flags} ${shellQuote(`这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`)}`,
       "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
       "exec /bin/zsh -il",
