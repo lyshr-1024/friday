@@ -273,6 +273,12 @@ export async function threads(): Promise<ThreadsResponse> {
   return res.json();
 }
 
+export async function threadById(id: string): Promise<Thread> {
+  const res = await fetch(`${await coreBaseUrl()}/threads/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`thread ${res.status}`);
+  return res.json();
+}
+
 export async function threadAction(id: string, action: "done" | "ignore" | "refresh"): Promise<Thread | null> {
   const res = await fetch(`${await coreBaseUrl()}/threads/${encodeURIComponent(id)}/${action}`, { method: "POST" });
   if (!res.ok) throw new Error(`thread ${action} ${res.status}`);

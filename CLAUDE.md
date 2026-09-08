@@ -90,7 +90,7 @@ apps/core/src/
 
 - 起因：用户看六列看板与纵向分组两版都"迷茫、乱、没重点、配色差"，要求先研究再改。研究笔记在记忆库 `research/2026-09-08-工作台配色与层级.md`（Radix/Geist/Linear/Apple HIG/Refactoring UI/Superhuman triage）。
 - 设计系统：`styles.css` `:root` 用 Radix Slate 深色 12 级（`--bg-1..5` 底与组件、`--line-1..3` 边框、`--fg-1..4` 四级文字），旧变量名（`--page`/`--card`/`--label-*`）映射到新 token。唯一主按钮 `.b--primary` 近白底深字；青色 `--live` 降饱和只标活动态与焦点；状态只用 `.dot--*` 小圆点（等你决定 amber / 卡住 red / 进行中 cyan / 完成 green）。一种边框、圆角 8，列表用分隔线不套卡片。
-- 布局（`views/Chat.tsx` + `views/Board.tsx`）：无顶栏、无常驻侧栏。页头 `.q__head`（可拖动，留红绿灯）右侧只有「问 Friday ⌘J」「＋ 交代一件事 ⌘N」。主区 = 待我决定队列：`review`/`blocked` 任务按有待审动作 → 优先级 → 等待时长排序，队首展开成 `Focus`（情境 / Friday 的建议 / 通过前请确认 / 测试结果，折叠：交付报告、链接、内嵌终端、这条任务的账；按钮 [通过并执行 ↵][打回][忽略] + 在会话里讨论），其余一行一条 `Row`（需要你：…）。处理完自动跳下一条（`act` 里状态变了就清 `selectedId`）。「Friday 在做」「最近完成」折叠在下方。
+- 布局（`views/Chat.tsx` + `views/Board.tsx`）：无顶栏、无常驻侧栏。页头 `.q__head`（可拖动，留红绿灯）右侧只有「问 Friday ⌘J」「＋ 交代一件事 ⌘N」。主区 = 待我决定队列：`review`/`blocked` 任务按有待审动作 → 优先级 → 等待时长排序，队首展开成 `Focus`（情境 / Friday 的建议 / 通过前请确认 / 测试结果，折叠：交付报告、链接、内嵌终端、这条任务的账；按钮 [通过并执行 ↵][打回][忽略] + 在会话里讨论），其余一行一条 `Row`（需要你：…），点哪条就在原位展开（不提到队首）。Slack 来源的任务右栏列「对方给的链接」（`extractUrls` 从线程原文提取，`<url|标题>`/`&amp;`/`<@U…>` 先由 `decodeSlack` 还原），底部折叠「Slack 原文」逐条可点、可跳 Slack。处理完自动跳下一条（`act` 里状态变了就清 `selectedId`）。「Friday 在做」「最近完成」折叠在下方。
 - 侧栏 `.rail` 默认隐藏：鼠标靠左边缘 `.edge` 滑出、`⌘\` 固定；项：待我决定（amber 计数）/ Friday 在做 / 全部任务 / 操作记录 / AI 热点，底部交代一件事、问 Friday、状态行。
 - 快捷键：`⌘N` 新建任务（一行输入，自动识别 URL 作为 `url`）、`⌘⇧N` 新对话、`⌘J` 抽屉、`⌘\` 侧栏、回车 = 队首主动作（输入框 / 抽屉 / 终端聚焦时不触发）。
 - 首屏问候用 `settings.name` + 本地时段，不再调 `/desk`（前端 `DeskView` 已删）。

@@ -58,16 +58,32 @@ export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   );
 }
 
-const URL_RE = /https?:\/\/[^\s<>"'）)】\]]+/g;
+const URL_RE = /https?:\/\/[^\s<>"'|）)】\]]+/g;
+const SLACK_LINK_RE = /<(https?:\/\/[^|>]+)(?:\|([^>]*))?>/g;
 
-/** 把文本里的 URL 变成可点的链接：点击 / ⌘点击 用系统浏览器打开，右键出菜单。 */
+/** Slack mrkdwn 的 <url|label> / <url> 与 &amp; 转义还原成普通文本，链接保留为 url 或 label。 */
+export function decodeSlack(text: string): string {
+  return text
+    .replace(SLACK_LINK_RE, (_m, url: string, label?: string) => (label ? `${label}（${url}）` : url))
+    .replace(/<[@!#]([^|>]+)(?:\|([^>]*))?>/g, (_m, id: string, label?: string) => `@${label || (id === "channel" || id === "here" ? id : "…")}`)
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+export function extractUrls(text: string): string[] {
+  const out: string[] = [];
+  for (const m of decodeSlack(text).matchAll(URL_RE)) if (!out.includes(m[0])) out.push(m[0]);
+  return out;
+}
+
+/** 把文本里的 URL 变成可点链接（点击用系统浏览器打开）；Slack 的 <url|label> 会先还原。 */
 export function Linkified({ text }: { text: string }) {
+  const plain = decodeSlack(text);
   const parts: React.ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(URL_RE)) {
+  for (const m of plain.matchAll(URL_RE)) {
     const url = m[0];
     const start = m.index ?? 0;
-    if (start > last) parts.push(text.slice(last, start));
+    if (start > last) parts.push(plain.slice(last, start));
     parts.push(
       <a key={start} href={url} className="link" onClick={(e) => { e.preventDefault(); void openUrl(url); }}>
         {url}
@@ -75,7 +91,7 @@ export function Linkified({ text }: { text: string }) {
     );
     last = start + url.length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < plain.length) parts.push(plain.slice(last));
   return <>{parts}</>;
 }
 

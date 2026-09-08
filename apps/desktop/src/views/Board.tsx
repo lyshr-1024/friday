@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { AuditEvent, Task, TaskBoard, TaskStatus } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, createTask, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet } from "../lib/core";
-import { AttachmentStrip, Linkified, fmtTime } from "./shared";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
+import { audit as fetchAudit, auditUndo, createTask, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
+import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
@@ -137,6 +138,8 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
+  const item = (t: Task, row: React.ReactNode) =>
+    t.id === focus?.id ? <Focus key={t.id} t={t} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
 
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
@@ -182,31 +185,27 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
             <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />
           ) : (
             <>
-              {focus && <Focus t={focus} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} />}
-
               {view === "all" ? (
                 ALL_ORDER.map((st) => {
-                  const list = tasks.filter((t) => t.status === st && t.id !== focus?.id);
+                  const list = tasks.filter((t) => t.status === st);
                   if (!list.length) return null;
                   return (
                     <section key={st} className="grp">
                       <div className="grp__head"><span className={`dot dot--${st}`} />{STATUS[st]}<span className="mono">{list.length}</span></div>
-                      <div className="list">{list.map((t) => <Row key={t.id} t={t} right={needs(t) || fmtTime(t.updatedAt)} dim={!needs(t)} onClick={() => setSelectedId(t.id)} />)}</div>
+                      <div className="list">{list.map((t) => item(t, <Row key={t.id} t={t} right={needs(t) || fmtTime(t.updatedAt)} dim={!needs(t)} onClick={() => setSelectedId(t.id)} />))}</div>
                     </section>
                   );
                 })
               ) : (
                 <>
-                  {!focus && board && (
+                  {!decide.length && board && (
                     <div className="empty">
                       <strong>没有等你决定的事</strong>
                       {doing.length ? `Friday 手上有 ${doing.length} 件，做完会放到这里。` : "⌘N 交代一件事，或者等 Slack 和 Meegle 来活。"}
                     </div>
                   )}
                   <div className="list">
-                    {decide.filter((t) => t.id !== focus?.id).map((t) => (
-                      <Row key={t.id} t={t} right={needs(t)} onClick={() => setSelectedId(t.id)} />
-                    ))}
+                    {decide.map((t) => item(t, <Row key={t.id} t={t} right={needs(t)} onClick={() => setSelectedId(t.id)} />))}
                   </div>
 
                   <section className="grp">
@@ -216,9 +215,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
                     </button>
                     {doingOpen && (
                       <div className="list">
-                        {doing.filter((t) => t.id !== focus?.id).map((t) => (
-                          <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar={t.status === "processing"} onClick={() => setSelectedId(t.id)} />
-                        ))}
+                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={t.progress ? t.progress.slice(0, 40) : STATUS[t.status]} dim bar={t.status === "processing"} onClick={() => setSelectedId(t.id)} />))}
                         {!doing.length && <div className="row row--compact"><span className="row__meta">现在没有在做的事</span></div>}
                       </div>
                     )}
@@ -231,7 +228,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
                     </button>
                     {doneOpen && (
                       <div className="list">
-                        {done.filter((t) => t.id !== focus?.id).map((t) => <Row key={t.id} t={t} compact right={fmtTime(t.updatedAt)} dim onClick={() => setSelectedId(t.id)} />)}
+                        {done.map((t) => item(t, <Row key={t.id} t={t} compact right={fmtTime(t.updatedAt)} dim onClick={() => setSelectedId(t.id)} />))}
                       </div>
                     )}
                   </section>
@@ -269,11 +266,17 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [thread, setThread] = useState<Thread | null>(null);
   useEffect(() => {
     setRejecting(false);
     setReason("");
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
+  useEffect(() => {
+    setThread(null);
+    if (t.source.threadId) void threadById(t.source.threadId).then(setThread).catch(() => {});
+  }, [t.source.threadId]);
+  const links = [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
 
   const r = t.report;
   const pending = t.pending ?? [];
@@ -310,7 +313,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
       <div className="fx__meta">
         <span className={`dot dot--${t.status}`} />
         <span>{STATUS[t.status]} · {meta(t)}</span>
-        {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>回到队列</button>}
+        {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
 
@@ -354,6 +357,16 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
               <div className="fx__text">{t.progress}</div>
             </div>
           )}
+          {links.length > 0 && (
+            <div>
+              <span className="k">对方给的链接</span>
+              <ul className="fx__links">
+                {links.map((u) => (
+                  <li key={u}><a href={u} className="link" onClick={(e) => { e.preventDefault(); void openUrl(u); }}>{u.replace(/^https?:\/\//, "").slice(0, 72)}</a></li>
+                ))}
+              </ul>
+            </div>
+          )}
           {pending.length > 1 && (
             <div>
               <span className="k">还有 {pending.length - 1} 个动作排在后面</span>
@@ -373,10 +386,21 @@ function Focus({ t, onAct, onDiscuss, onClose, closable }: {
           </div>
         </details>
       )}
-      {t.source.url && (
+      {thread && thread.items.length > 0 && (
         <details className="fx__more">
-          <summary>链接</summary>
-          <div className="fx__more-body"><Linkified text={t.source.url} /></div>
+          <summary>Slack 原文 · {thread.items.length} 条 · {thread.channelName || thread.userName}</summary>
+          <div className="fx__more-body">
+            <ul className="fx__raw">
+              {thread.items.map((i) => (
+                <li key={i.id}>
+                  <span className="fx__raw-who">{i.userName}</span>
+                  <span className="mono fx__raw-ts">{fmtTime(i.receivedAt)}</span>
+                  <a href={i.permalink} className="link fx__raw-open" onClick={(e) => { e.preventDefault(); void openUrl(i.appLink ?? i.permalink); }}>在 Slack 打开</a>
+                  <div><Linkified text={i.text} /></div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </details>
       )}
       {t.source.jobId && (
