@@ -8,7 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
 
 /** 任务内嵌终端：连 sidecar 的 PTY，输出经 SSE 回放 + 实时推送，按键直接写回去。 */
-export function Terminal({ id, height = 360 }: { id: string; height?: number }) {
+export function Terminal({ id }: { id: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [dead, setDead] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -65,6 +65,25 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
     const post = (path: string, body: unknown) =>
       fetch(`${base}/pty/${encodeURIComponent(id)}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
 
+    // 按键必须按顺序到 PTY：并发 POST 会乱序，Shift 组合键（?、大写、Shift+Enter）就像没按到。
+    // 一次只飞一个请求，飞行途中攒下的按键合并成下一个。
+    let inflight = false;
+    let queued = "";
+    const drain = async () => {
+      if (inflight || !queued) return;
+      inflight = true;
+      while (queued) {
+        const data = queued;
+        queued = "";
+        await post("input", { data });
+      }
+      inflight = false;
+    };
+    const send = (d: string) => {
+      queued += d;
+      void drain();
+    };
+
     void (async () => {
       base = await coreBaseUrl();
       void post("resize", { cols: term.cols, rows: term.rows });
@@ -112,7 +131,7 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
       flush();
     })();
 
-    const onData = term.onData((d) => void post("input", { data: d }));
+    const onData = term.onData(send);
     // 聚焦就回到底部：终端是用来接着聊的，不是用来翻历史的
     const toBottom = () => term.scrollToBottom();
     term.textarea?.addEventListener("focus", toBottom);
@@ -134,7 +153,7 @@ export function Terminal({ id, height = 360 }: { id: string; height?: number }) 
 
   return (
     <div className="term">
-      <div ref={host} className="xterm-host" style={{ height }} />
+      <div ref={host} className="xterm-host" />
       {dead && (
         <div className="term__dead">
           <button className="b b--ghost" disabled={reopening} onClick={() => void reopen()}>{reopening ? "正在重开…" : "重新打开终端，接上之前的 Claude 会话"}</button>
