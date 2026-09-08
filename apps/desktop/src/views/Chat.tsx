@@ -4,10 +4,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, updateSettings, uploadAttachment } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, threadById, updateSettings, uploadAttachment } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, fmtTime } from "./shared";
+import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, decodeSlack, fmtTime } from "./shared";
 import { Board } from "./Board";
 import type { BoardView } from "./Board";
 import { useImeGuard } from "../lib/ime";
@@ -18,6 +18,8 @@ interface OpenPayload {
 }
 
 type View = BoardView | "hot";
+
+const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
 
 const NAV: Array<{ key: View; label: string }> = [
   { key: "queue", label: "待我决定" },
@@ -82,8 +84,14 @@ export function Chat() {
       setConvId(conv.id);
       convRef.current = conv.id;
       setMessages([]);
+      const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
+      const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
       const lines = [
         `和我讨论这个任务：${t.title}`,
+        `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
+        t.source.note ? `我交代的原话：${t.source.note}` : "",
+        t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
+        raw ? `Slack 原文：\n${raw}` : "",
         t.understanding ? `你的理解：${t.understanding}` : "",
         t.plan ? `你的方案：${t.plan}` : "",
         t.progress ? `进展：${t.progress}` : "",
