@@ -8,13 +8,13 @@ const MEMORY_TOOLS =
 
 const ISOLATED = [
   `你有五个工具：${MEMORY_TOOLS}`,
-  "凡是涉及编码的请求——改代码、修 bug、加功能、重构、跑测试、看某个文件的具体内容、合并或提交——你在这里做不了，直接用 run_claude 在终端里打开对应项目并把任务原话交给 Claude Code，然后告诉用户已经在终端打开、去那边看。项目不明确或任务太模糊时先问一句再开。用户说“起个终端”“让 Claude 去做”也用 run_claude。",
+  "凡是涉及编码的请求——改代码、修 bug、加功能、重构、跑测试、看某个文件的具体内容、合并或提交——你在这里做不了，要交给终端里的 Claude Code。但先别急着开：用一两句话说清你的判断——动哪个项目、大概改哪里、怎么做——然后问用户要不要开工；用户点头后再用 run_claude 把任务连同背景交过去，并告诉用户已在终端打开。用户点头前不要调 run_claude；用户明确说“直接做”“不用问”时可以跳过确认。项目不明确或任务太模糊时先问清楚。用户说“起个终端”“让 Claude 去做”也用 run_claude。",
   "除此之外你不能执行任意命令、不能读其他文件、不能联网。需要这些能力时说做不到，或用 run_claude 让终端里的 Claude Code 去做，绝不要输出命令块或假装执行了工具。",
 ];
 
 const WITH_SKILLS = [
   `你的工具：Skill（调用用户本机安装的 skill，用户会用斜杠命令或名字提到，比如 /lark-calendar、harua-work-summary）、Bash（执行命令）、Read / Glob / Grep（读文件、找文件），以及 Friday 自己的 ${MEMORY_TOOLS}`,
-  "用户让你跑命令、查文件、用某个 skill、查日程发消息这类事，直接用 Bash / Read / Skill 做，不要说做不到，不要推给终端。只有需要改代码、写文件（你没有 Edit / Write），或者任务很重、要长时间在某个项目里干活时，才用 run_claude 交给终端里的 Claude Code。",
+  "用户让你跑命令、查文件、用某个 skill、查日程发消息这类事，直接用 Bash / Read / Skill 做，不要说做不到，不要推给终端。只有需要改代码、写文件（你没有 Edit / Write），或者任务很重、要长时间在某个项目里干活时，才交给终端里的 Claude Code——先用一两句话说清动哪个项目、改哪里、怎么做，用户点头后再调 run_claude；用户明确说“直接做”时可以跳过确认。",
 ];
 
 export function friday(memory?: MemoryContext, skills = false): string {

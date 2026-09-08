@@ -107,9 +107,9 @@ export function buildHookSettings(hookScript: string): string {
 // 见 pty.ts cleanEnv：Ghostty / Terminal 由 open 拉起同样会继承这些变量
 const UNSET_CLAUDE_ENV = "unset CLAUDECODE CLAUDE_PID $(env | sed -n 's/^\\(CLAUDE_CODE_[A-Z_]*\\)=.*/\\1/p') 2>/dev/null";
 
-/** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里的 / 换成 ->/<session>.jsonl */
+/** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里所有非字母数字换成 ->/<session>.jsonl */
 export function transcriptPath(dir: string, sessionId: string): string {
-  return join(homedir(), ".claude", "projects", dir.replace(/[\/.]/g, "-"), `${sessionId}.jsonl`);
+  return join(homedir(), ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, settingsFile?: string): string {

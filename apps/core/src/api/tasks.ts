@@ -25,7 +25,7 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
-  // 口头 / 文档：用户直接交代的事，交代完就是 Friday 的活，能定位项目就直接开工
+  // 口头 / 文档：程序化建任务（UI 入口已并入对话，开工由会话里确认后 run_claude）
   .post("/tasks", async (c) => {
     const parsed = newTask.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "title 不能为空" }, 400);
@@ -34,7 +34,7 @@ export const tasks = new Hono()
     const named = project ? resolveProject(project, projects) : undefined;
     const target = named?.kind === "match" ? named.project : projects.find((p) => p.name === matchProject(title, projects));
     const projectName = target?.name ?? project;
-    let t = createTask({
+    const t = createTask({
       title,
       kind: url ? "doc" : "verbal",
       source: { ...(note ? { note } : {}), ...(url ? { url } : {}) },
@@ -43,11 +43,6 @@ export const tasks = new Hono()
       status: "processing",
     });
     record({ taskId: t.id, action: "task_create", why: "你交代的", how: url ? "带文档链接建任务" : "建任务", evidence: { title, note: note ?? null, url: url ?? null, project: projectName ?? null }, risk: "read" });
-    if (target) {
-      t = await startAutonomousJob(t, target.name, target.dir, [title, note, url].filter(Boolean).join("\n"));
-    } else {
-      t = updateTask(t.id, { progress: "Friday 收下了，还没定位到项目，先自己看看" }) ?? t;
-    }
     return c.json(t, 201);
   })
   .post("/tasks/:id/approve/:actionId", async (c) => {
