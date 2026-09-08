@@ -60,9 +60,17 @@ export function terminalState(jobId: string): TerminalState {
   const live = getSession(jobId);
   if (live && live.exited === undefined) return isIdle(jobId) ? "idle" : "busy";
   const job = getJob(jobId);
-  // 从没在 sidecar 里开过 PTY 的运行中 job 是外部终端（Ghostty / Terminal）
-  return job?.status === "running" && !live ? "external" : "gone";
+  if (!job || job.status !== "running") return "gone";
+  // 内嵌 PTY 只活在 sidecar 内存里，重启就没了而 job 仍是 running：这是「断了」不是「在外面跑」。老记录没记类型，按内嵌算。
+  return job.terminal && job.terminal !== "embedded" ? "external" : "gone";
 }
+
+export const TERMINAL_STATE_LABEL: Record<TerminalState, string> = {
+  busy: "终端在输出",
+  idle: "终端空闲，等指示",
+  gone: "终端已断（Friday 重启过，进程已经不在了，要在任务卡上「重新打开终端」才能继续）",
+  external: "在外部终端里跑，Friday 看不到过程",
+};
 
 export function pendingCount(jobId: string): number {
   return pending.get(jobId)?.length ?? 0;

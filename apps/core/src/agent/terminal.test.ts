@@ -20,11 +20,13 @@ describe("往终端里说话的空闲判定", () => {
     expect(isIdle("term-2")).toBe(true);
   });
 
-  it("终端状态：没开过 PTY 的运行中 job 是外部终端，结束了或 PTY 没了就是 gone", () => {
-    createJob({ id: "term-3", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
-    expect(terminalState("term-3")).toBe("external");
-    finishJob("term-3", 0);
+  it("终端状态：内嵌 job 没有 PTY 就是断了，只有外部终端才算 external，结束了也是 gone", () => {
+    createJob({ id: "term-3", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", terminal: "embedded" });
     expect(terminalState("term-3")).toBe("gone");
+    createJob({ id: "term-4", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", terminal: "ghostty" });
+    expect(terminalState("term-4")).toBe("external");
+    finishJob("term-4", 0);
+    expect(terminalState("term-4")).toBe("gone");
     expect(terminalState("no-such-job")).toBe("gone");
   });
 });

@@ -224,6 +224,8 @@ export interface Job {
   conversationId?: string;
   /** Stop hook 回报的 Claude Code 会话 id，重开终端时用 --resume 接上 */
   claudeSessionId?: string;
+  /** 在哪种终端里跑：内嵌 PTY 随 sidecar 重启就没了，外部终端 Friday 看不见 */
+  terminal?: TerminalApp;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;

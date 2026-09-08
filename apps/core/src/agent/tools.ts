@@ -7,7 +7,7 @@ import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { say } from "./terminal.js";
+import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
@@ -99,7 +99,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       async () =>
         text(
           listJobs(10)
-            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : ""}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
+            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : `，${TERMINAL_STATE_LABEL[terminalState(j.id)]}`}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
             .join("\n") || "还没有任务记录。",
         ),
     ),
@@ -152,7 +152,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         if (!id) return text("没有指定任务，这条会话也没绑定终端任务。");
         const job = getJob(id);
         if (!job) return text("没有这个任务。");
-        return text(`${job.project} · ${job.status}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
+        return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${TERMINAL_STATE_LABEL[terminalState(id)]}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
       },
     ),
   ],

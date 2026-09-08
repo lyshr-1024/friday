@@ -1,5 +1,6 @@
-import type { Job, JobStatus } from "@friday/shared";
+import type { Job, JobStatus, TerminalApp } from "@friday/shared";
 import { db } from "./db.js";
+import { userSettings } from "../settings.js";
 
 interface Row {
   id: string;
@@ -11,6 +12,7 @@ interface Row {
   exit_code: number | null;
   last_message: string | null;
   claude_session_id: string | null;
+  terminal: TerminalApp | null;
   log_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -26,15 +28,16 @@ const toJob = (r: Row): Job => ({
   ...(r.exit_code !== null ? { exitCode: r.exit_code } : {}),
   ...(r.last_message ? { lastMessage: r.last_message } : {}),
   ...(r.claude_session_id ? { claudeSessionId: r.claude_session_id } : {}),
+  ...(r.terminal ? { terminal: r.terminal } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
 
-export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string }): Job {
+export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string; terminal?: TerminalApp }): Job {
   const startedAt = new Date().toISOString();
   db()
-    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)")
-    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt);
+    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)")
+    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal);
   return getJob(input.id)!;
 }
 
