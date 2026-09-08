@@ -98,41 +98,66 @@ export function Chat() {
     }
   }
 
+  const taskRef = useRef<Task | null>(null);
+
+  /** 工作台里展开哪条任务，抽屉就切到哪条任务的会话；没聊过的先空着，第一句话发出去时再建会话并绑定。 */
+  function syncDrawerToTask(t: Task | null) {
+    taskRef.current = t;
+    if (!t) {
+      setConvTask(null);
+      return;
+    }
+    setConvTask({ id: t.id, title: t.title });
+    if (t.source.conversationId && t.source.conversationId !== convRef.current) {
+      void load(t.source.conversationId).catch(() => {});
+    } else if (!t.source.conversationId) {
+      abortRef.current?.abort();
+      setBusy(false);
+      setDraft("");
+      setConvId(null);
+      convRef.current = null;
+      setMessages([]);
+    }
+  }
+
+  async function taskContext(t: Task): Promise<string[]> {
+    const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
+    const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
+    return [
+      `这条任务：${t.title}`,
+      `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
+      t.source.note ? `我交代的原话：${t.source.note}` : "",
+      t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
+      raw ? `Slack 原文：\n${raw}` : "",
+      t.understanding ? `你的理解：${t.understanding}` : "",
+      t.plan ? `你的方案：${t.plan}` : "",
+      t.progress ? `进展：${t.progress}` : "",
+      t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
+      t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
+    ].filter(Boolean);
+  }
+
+  /** 给任务开一段新会话并绑定到任务上。 */
+  async function openTaskConversation(t: Task): Promise<string> {
+    const conv = await newConversation();
+    setConvId(conv.id);
+    convRef.current = conv.id;
+    setMessages([]);
+    void taskBindConversation(t.id, conv.id).then(() => window.dispatchEvent(new Event("friday:tasks-changed"))).catch(() => {});
+    return conv.id;
+  }
+
   function discussTask(t: Task) {
     setDrawer(true);
-    setConvTask({ id: t.id, title: t.title });
+    syncDrawerToTask(t);
     void (async () => {
       if (t.source.conversationId) {
-        // 这条任务已经聊过：接着上次的会话，不再新开
-        try {
-          await load(t.source.conversationId);
-          setTimeout(() => inputRef.current?.focus(), 0);
-          return;
-        } catch {
-          // 会话被删了就重新开一个
-        }
+        setTimeout(() => inputRef.current?.focus(), 0);
+        return;
       }
-      const conv = await newConversation();
-      setConvId(conv.id);
-      convRef.current = conv.id;
-      setMessages([]);
-      void taskBindConversation(t.id, conv.id).then(() => window.dispatchEvent(new Event("friday:tasks-changed"))).catch(() => {});
-      const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
-      const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
-      const lines = [
-        `和我讨论这个任务：${t.title}`,
-        `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
-        t.source.note ? `我交代的原话：${t.source.note}` : "",
-        t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
-        raw ? `Slack 原文：\n${raw}` : "",
-        t.understanding ? `你的理解：${t.understanding}` : "",
-        t.plan ? `你的方案：${t.plan}` : "",
-        t.progress ? `进展：${t.progress}` : "",
-        t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
-        t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
-        "先说你的判断，我有疑问会问。",
-      ].filter(Boolean);
-      void send(lines.join("\n"), conv.id);
+      const id = await openTaskConversation(t);
+      const lines = [...(await taskContext(t)), "先说你的判断，我有疑问会问。"];
+      void send(lines.join("\n"), id);
     })();
   }
 
@@ -215,6 +240,7 @@ export function Chat() {
   async function startNew() {
     setDrawer(true);
     setConvTask(null);
+    taskRef.current = null;
     const conv = await newConversation();
     abortRef.current?.abort();
     setBusy(false);
@@ -242,8 +268,14 @@ export function Chat() {
   }
 
   async function send(text: string, id = convRef.current) {
-    const prompt = text.trim() || (pending.length ? "看看这些附件" : "");
-    if (!prompt || busy || !id || uploading > 0) return;
+    let prompt = text.trim() || (pending.length ? "看看这些附件" : "");
+    if (!prompt || busy || uploading > 0) return;
+    if (!id && taskRef.current) {
+      const t = taskRef.current;
+      id = await openTaskConversation(t);
+      prompt = [...(await taskContext(t)), "", prompt].join("\n");
+    }
+    if (!id) return;
     const attachments = pending;
     setInput("");
     setPending([]);
@@ -407,7 +439,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} newTaskSignal={newTaskSignal} onDiscuss={discussTask} onCounts={setCounts} />
+          <Board view={view} tools={tools} newTaskSignal={newTaskSignal} onDiscuss={discussTask} onCounts={setCounts} onFocusChange={syncDrawerToTask} />
         )}
       </div>
 
@@ -440,8 +472,8 @@ export function Chat() {
             {messages.length === 0 && !draft && !busy && (
               <div className="chat__empty">
                 <div className="chat__mark">F</div>
-                <div className="chat__empty-title">问点什么</div>
-                <div className="chat__empty-hint">或者在任务里点「在会话里讨论」，我会带着那条任务的上下文过来。</div>
+                <div className="chat__empty-title">{convTask ? "关于这条任务，直接问" : "问点什么"}</div>
+                <div className="chat__empty-hint">{convTask ? `我会带着「${convTask.title.slice(0, 30)}」的情境、链接和原文来回答。` : "工作台里展开哪条任务，这里就跟到哪条。"}</div>
               </div>
             )}
             {messages.map((m) =>

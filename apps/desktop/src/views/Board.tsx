@@ -77,12 +77,13 @@ function parseNew(text: string): { title: string; url?: string } {
   return { title, url: m[0] };
 }
 
-export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
+export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocusChange }: {
   view: BoardView;
   tools: React.ReactNode;
   newTaskSignal: number;
   onDiscuss?: (t: Task) => void;
   onCounts?: (c: { decide: number; doing: number }) => void;
+  onFocusChange?: (t: Task | null) => void;
 }) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [name, setName] = useState("");
@@ -172,6 +173,9 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
+  useEffect(() => {
+    onFocusChange?.(focus ?? null);
+  }, [focus?.id]);
   const item = (t: Task, row: React.ReactNode) =>
     t.id === focus?.id ? <Focus key={t.id} t={t} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
 
