@@ -24,17 +24,18 @@
   --font-text: var(--font);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   /* 2026-09-08 设计系统：Radix Slate 深色 12 级按语义用，唯一主按钮近白，青色只标「正在活动」 */
-  --bg-1: #111113;
-  --bg-2: #18191b;
-  --bg-3: #212225;
-  --bg-4: #272a2d;
-  --bg-5: #2e3135;
-  --line-1: #363a3f;
-  --line-2: #43484e;
-  --line-3: #5a6169;
+  --bg-1: #0c0d0f;
+  --bg-2: #141618;
+  --bg-3: #1c1f23;
+  --bg-4: #262a2f;
+  --bg-5: #30353b;
+  --line-1: #2a2e33;
+  --line-2: #3d434a;
+  --line-3: #58606a;
   --fg-1: #edeef0;
   --fg-2: #b0b4ba;
   --fg-3: #696e77;
+  --fg-2-dim: #8f949c;
   --fg-4: #43484e;
   --primary: #edeef0;
   --primary-fg: #111113;
@@ -1661,7 +1662,7 @@ body,
 }
 .q__title h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--fg-1);
@@ -1688,7 +1689,7 @@ body,
 }
 .q__sub {
   margin: 8px 0 0;
-  color: var(--fg-2);
+  color: var(--fg-3);
   font-size: 13px;
 }
 .wb__page {
@@ -1809,9 +1810,10 @@ body,
 
 /* 展开的那一件 */
 .fx {
-  border: 1px solid var(--line-1);
-  border-radius: 10px;
-  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--bg-3);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   padding: 22px 24px 20px;
   margin-bottom: 8px;
   animation: rise-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -1825,15 +1827,16 @@ body,
   gap: 8px;
   margin: -22px -24px 0;
   padding: 14px 24px 8px;
-  border-radius: 10px 10px 0 0;
-  background: var(--bg-2);
+  border-radius: 12px 12px 0 0;
+  background: var(--bg-3);
   color: var(--fg-3);
   font-size: 12px;
 }
 .fx__title {
-  margin: 4px 0 0;
-  font-size: 17px;
-  font-weight: 500;
+  margin: 6px 0 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   line-height: 1.4;
   color: var(--fg-1);
   overflow-wrap: anywhere;
@@ -1854,8 +1857,8 @@ body,
   margin: 8px -24px -20px;
   padding: 12px 24px 16px;
   border-top: 1px solid var(--line-1);
-  border-radius: 0 0 10px 10px;
-  background: var(--bg-2);
+  border-radius: 0 0 12px 12px;
+  background: var(--bg-3);
 }
 .fx__foot .fx__acts {
   margin-top: 0;
@@ -1882,7 +1885,7 @@ body,
   position: relative;
   padding: 12px 16px;
   border-radius: 6px;
-  background: var(--bg-3);
+  background: var(--bg-4);
   color: var(--fg-1);
   font-size: 13px;
   line-height: 1.65;
@@ -2042,6 +2045,11 @@ body,
   padding-top: 14px;
   border-top: 1px solid var(--line-1);
 }
+.fx__term .xterm-host {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line-1);
+}
 .row__tag {
   display: inline-block;
   margin-left: 8px;
@@ -2092,6 +2100,7 @@ body,
 .row__title {
   font-size: 14px;
   line-height: 1.4;
+  color: var(--fg-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2122,7 +2131,17 @@ body,
 }
 .row--compact .row__title {
   font-size: 13px;
-  color: var(--fg-2);
+  color: var(--fg-2-dim);
+}
+.row--compact:hover .row__title {
+  color: var(--fg-1);
+}
+.row--compact .row__right {
+  font-size: 12px;
+}
+.row--compact .dot {
+  width: 6px;
+  height: 6px;
 }
 .row__bar {
   flex: none;
@@ -2166,19 +2185,22 @@ body,
 
 /* 折叠分组 */
 .grp {
-  margin-top: 26px;
+  margin-top: 36px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
 }
 .grp__head {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 0 0 10px;
+  padding: 0 0 8px;
   border: none;
   background: none;
   font: inherit;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--fg-3);
   cursor: default;
 }

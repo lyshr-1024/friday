@@ -215,7 +215,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts }: {
             </form>
           )}
 
-          {view === "ledger" ? (
+          {!board ? null : view === "ledger" ? (
             <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />
           ) : (
             <>
