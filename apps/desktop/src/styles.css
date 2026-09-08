@@ -2166,8 +2166,12 @@ body,
 .row--compact:hover .row__title {
   color: var(--fg-1);
 }
+/* 右侧固定列宽、右对齐：进度条和状态文字才会在同一列，不随文字长短左右漂 */
 .row--compact .row__right {
   font-size: 12px;
+  flex: 0 0 260px;
+  max-width: 260px;
+  text-align: right;
 }
 .row--compact .dot {
   width: 6px;
