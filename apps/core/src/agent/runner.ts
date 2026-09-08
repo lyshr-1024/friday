@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
 import { getSession, spawnSession } from "./pty.js";
 import { getJob } from "../memory/jobs.js";
+import { terminalBridgePrompt } from "./prompt.js";
 
 const execFileP = promisify(execFile);
 
@@ -114,12 +115,8 @@ export function transcriptPath(dir: string, sessionId: string): string {
   return join(homedir(), ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
-export function buildScript(req: LaunchRequest, claudePath: string, port: number, settingsFile?: string): string {
-  const flags = [
-    ...(req.autonomous ? ["-p"] : []),
-    "--dangerously-skip-permissions",
-    ...(settingsFile ? ["--settings", shellQuote(settingsFile)] : []),
-  ].join(" ");
+export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
+  const flags = claudeFlags(files, req.autonomous);
   const claude = `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
   return [
     "#!/bin/zsh",
@@ -139,23 +136,49 @@ export function buildScript(req: LaunchRequest, claudePath: string, port: number
 }
 
 /** 写 Stop hook 脚本与 --settings 文件；每次启动/重开都重写，保证用的是当前版本的 hook。 */
-function writeHookFiles(id: string): string {
+export interface ClaudeFiles {
+  settings: string;
+  mcp: string;
+}
+
+/** 终端 Claude Code 的 MCP 配置：一个 http 服务指回 Friday，按 jobId 绑任务。 */
+export function buildMcpConfig(id: string, port: number): string {
+  return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
+}
+
+function writeHookFiles(id: string): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
   chmodSync(hook, 0o755);
-  const settingsFile = join(runsDir(), `${id}.settings.json`);
-  writeFileSync(settingsFile, buildHookSettings(hook));
-  return settingsFile;
+  const settings = join(runsDir(), `${id}.settings.json`);
+  writeFileSync(settings, buildHookSettings(hook));
+  const mcp = join(runsDir(), `${id}.mcp.json`);
+  writeFileSync(mcp, buildMcpConfig(id, config.port));
+  return { settings, mcp };
+}
+
+/** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
+export function claudeFlags(files: ClaudeFiles, autonomous = false): string {
+  return [
+    ...(autonomous ? ["-p"] : []),
+    "--dangerously-skip-permissions",
+    "--settings",
+    shellQuote(files.settings),
+    "--mcp-config",
+    shellQuote(files.mcp),
+    "--append-system-prompt",
+    shellQuote(terminalBridgePrompt()),
+  ].join(" ");
 }
 
 export async function launchClaude(req: LaunchRequest): Promise<string> {
   const claudePath = await findClaude();
-  const settingsFile = writeHookFiles(req.id);
+  const files = writeHookFiles(req.id);
 
   const ext = req.terminal === "terminal" ? ".command" : ".sh";
   const script = join(runsDir(), `${req.id}${ext}`);
-  writeFileSync(script, buildScript(req, claudePath, config.port, settingsFile));
+  writeFileSync(script, buildScript(req, claudePath, config.port, files));
   chmodSync(script, 0o755);
 
   // 内嵌终端：sidecar 自己用 PTY 跑脚本，前端 xterm 接 /pty/:id/stream；上下文和任务绑在一起，不会串。
@@ -184,8 +207,7 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
   const job = getJob(jobId);
   if (!job) return "no-job";
   const claudePath = await findClaude();
-  const settingsFile = writeHookFiles(jobId);
-  const flags = ["--dangerously-skip-permissions", "--settings", shellQuote(settingsFile)].join(" ");
+  const flags = claudeFlags(writeHookFiles(jobId));
   // 有 id 就先试 --resume（transcript 可能刚建还没落盘，交给 claude 自己判断），失败再新开
   const resumable = Boolean(job.claudeSessionId);
   const hasTranscript = resumable && existsSync(transcriptPath(job.dir, job.claudeSessionId!));

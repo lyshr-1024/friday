@@ -81,6 +81,10 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  if (job.task.report && job.task.status === "review") {
+    record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
+    return job.task;
+  }
   const report = collectReport(jobId);
   const branch = `friday/${jobId.slice(0, 8)}`;
   record({

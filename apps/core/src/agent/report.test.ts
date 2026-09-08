@@ -20,8 +20,13 @@ describe("交付报告", () => {
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");
-    const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788);
+    const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" });
     expect(script).toContain("-p --dangerously-skip-permissions");
     expect(script).toContain("/opt/claude");
+    // 整条 claude 命令被 shellQuote 包了一层，内层引号变成 '\''，所以分开断言
+    expect(script).toContain("--mcp-config");
+    expect(script).toContain("j.mcp.json");
+    expect(script).toContain("--append-system-prompt");
+    expect(script).toContain("friday_done");
   });
 });

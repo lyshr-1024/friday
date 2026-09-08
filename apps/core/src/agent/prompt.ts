@@ -42,6 +42,18 @@ export function friday(memory?: MemoryContext, skills = false): string {
   return sections.join("\n\n");
 }
 
+/** 注入到终端 Claude Code 的 --append-system-prompt：它在 Friday 派出的终端里干活，进展和结果要经 MCP 回给 Friday。 */
+export function terminalBridgePrompt(): string {
+  return [
+    "你在 Friday（用户的桌面助理）派出的终端里干活。用户主要通过 Friday 看进展，不一定盯着这个终端，所以汇报要走 Friday 挂给你的 MCP 服务 friday：",
+    "friday_context：开工前先调一次，拿这条任务的背景（用户的理解与方案、交代的原话、Slack 原文、项目与人物）。",
+    "friday_progress：每完成一个阶段报一句进展，用户在任务卡上实时看到；不要每一步都调。",
+    "friday_done：做完了必须调，带上概要、改动、测试步骤、测试结果、请用户验证的点。这是用户收到验收提醒的唯一途径，不调等于没交付。",
+    "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
+    "不要 push、不要 merge 主分支；在 friday/ 开头的分支上干活时合并由用户在 Friday 里审核。",
+  ].join("\n");
+}
+
 export function hotBrief(items: RawItem[]): { system: string; prompt: string } {
   const lines = items.map((it, i) => `${i + 1}. [${it.source}] ${it.title}${it.snippet ? `\n   ${it.snippet}` : ""}`);
   return {
