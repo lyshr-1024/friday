@@ -136,15 +136,21 @@ export function Terminal({ id }: { id: string }) {
     const toBottom = () => term.scrollToBottom();
     term.textarea?.addEventListener("focus", toBottom);
     el.addEventListener("mousedown", toBottom);
+    // 拖窗口时 ResizeObserver 一秒能触发几十次，每次 resize 都让 Ink 全量重绘，攒一下再发
+    let resizeTimer = 0;
     const ro = new ResizeObserver(() => {
-      fit.fit();
-      void post("resize", { cols: term.cols, rows: term.rows });
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        fit.fit();
+        void post("resize", { cols: term.cols, rows: term.rows });
+      }, 120);
     });
     ro.observe(el);
     return () => {
       term.textarea?.removeEventListener("focus", toBottom);
       el.removeEventListener("mousedown", toBottom);
       onData.dispose();
+      window.clearTimeout(resizeTimer);
       ro.disconnect();
       ctrl.abort();
       term.dispose();

@@ -2017,8 +2017,9 @@ body,
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--line-1);
-  /* 跟着窗口走：终端再高也不把卡片撑出视口，底部按钮始终在 */
-  height: clamp(180px, calc(100vh - 420px), 520px);
+  /* 跟着窗口走，但不少于 24 行（12px × 1.25 行高 = 15px/行）：Claude Code 的 Ink 界面一帧
+     约 20 行，行数不够它就清不掉旧帧，画面会叠花；窄窗口宁可让卡片超出靠页面滚动 */
+  height: clamp(360px, calc(100vh - 420px), 560px);
   /* 单独一层合成，终端重绘不带着卡片投影一起重绘 */
   transform: translateZ(0);
 }
