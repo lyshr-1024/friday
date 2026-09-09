@@ -81,9 +81,9 @@ async function currentBranch(dir: string): Promise<string> {
   return stdout.trim();
 }
 
-export function contextFor(task: Task, job: Job): string {
+export function contextFor(task: Task, job?: Job): string {
   const thread = task.source.threadId ? listThreads("all", 300).find((t) => t.id === task.source.threadId) : undefined;
-  const project = loadProjects().find((p) => p.name === (task.project ?? job.project));
+  const project = loadProjects().find((p) => p.name === (task.project ?? job?.project));
   const person = thread ? personNote(thread.userName) : undefined;
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
@@ -94,7 +94,7 @@ export function contextFor(task: Task, job: Job): string {
     task.source.url ? `用户给的链接：${task.source.url}` : "",
     task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}${task.source.url ? "" : ""}` : "",
     thread ? `Slack 原文（${thread.channelName || "私聊"} · ${thread.userName}）：\n${thread.items.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000)}` : "",
-    project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${project.note ? `，说明：${project.note}` : ""}` : `项目：${job.project}，目录 ${job.dir}`,
+    project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${project.note ? `，说明：${project.note}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
     person ? `人物：${thread!.userName} — ${person}` : "",
     task.pending?.length ? `等用户点头的动作：${task.pending.map((p) => p.label).join("、")}` : "",
   ]

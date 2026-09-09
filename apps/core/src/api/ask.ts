@@ -8,6 +8,10 @@ import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
 import { existsSync } from "node:fs";
 import { transcriptPath } from "../agent/runner.js";
+import { contextFor } from "../agent/bridge.js";
+import { TERMINAL_STATE_LABEL, terminalState } from "../agent/terminal.js";
+import { getJob } from "../memory/jobs.js";
+import { findTaskBySource } from "../memory/tasks.js";
 import { claudeSessionId, conversationExists, createConversation } from "../memory/conversations.js";
 import { userSettings } from "../settings.js";
 
@@ -39,6 +43,21 @@ function streamRun(c: Parameters<typeof streamSSE>[0], conversationId: string) {
   });
 }
 
+/** 会话绑着任务时，把卡片此刻的内容整理成一段给系统提示 */
+export function taskBlock(conversationId: string): string | undefined {
+  const task = findTaskBySource((s) => s.conversationId === conversationId);
+  if (!task) return undefined;
+  const job = task.source.jobId ? getJob(task.source.jobId) : undefined;
+  return [
+    contextFor(task, job),
+    job ? `终端：${job.status === "running" ? TERMINAL_STATE_LABEL[terminalState(job.id)] : `进程已退出（退出码 ${job.exitCode ?? "?"}）`}${job.lastMessage ? `；它最后说：${job.lastMessage.slice(0, 200)}` : ""}` : "",
+    task.attention === "review" ? "终端这一轮已经做完等用户看；任务是否完成由用户说，用户没说别当它完成。" : task.attention === "blocked" ? "终端报告卡住了，需要用户介入。" : "",
+    task.report ? `最近一次交付：${task.report.summary}（测试：${task.report.testResult}）` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export const ask = new Hono()
   .post("/ask", async (c) => {
     const parsed = body.safeParse(await c.req.json().catch(() => null));
@@ -55,7 +74,7 @@ export const ask = new Hono()
       conv,
       prompt,
       {
-        systemPrompt: friday(loadMemoryContext(), prefs.skills),
+        systemPrompt: friday(loadMemoryContext(), prefs.skills, taskBlock(conv)),
         cwd: config.dataDir,
         skills: prefs.skills,
         ...(resume ? { resume } : {}),

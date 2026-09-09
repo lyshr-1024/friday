@@ -17,7 +17,7 @@ const WITH_SKILLS = [
   "用户让你跑命令、查文件、用某个 skill、查日程发消息这类事，直接用 Bash / Read / Skill 做，不要说做不到，不要推给终端。只有需要改代码、写文件（你没有 Edit / Write），或者任务很重、要长时间在某个项目里干活时，才交给终端里的 Claude Code——先用一两句话说清动哪个项目、改哪里、怎么做，用户点头后再调 run_claude；用户明确说“直接做”时可以跳过确认。",
 ];
 
-export function friday(memory?: MemoryContext, skills = false): string {
+export function friday(memory?: MemoryContext, skills = false, task?: string): string {
   const sections = [
     "你是 Friday，用户的私人助理，常驻在他的 Mac 菜单栏里。用户是前端工程师，主力 TypeScript，也读 Go / Rust 后端代码。",
     "用简体中文回答，直接给结论和要点，不要客套和复述问题。全程用简体中文，包括中间的任何说明。",
@@ -32,6 +32,12 @@ export function friday(memory?: MemoryContext, skills = false): string {
     "不确定的事直接说不确定，不要编造。",
     `现在是 ${now()}。`,
   ];
+  if (task) {
+    sections.push(
+      "【当前任务】这条会话绑定着下面这条任务。用户说的话默认都是关于它的：回答、判断、转达、改卡片都以它为第一上下文。下面是卡片此刻的内容（每轮都刷新），以此为准，不要凭上一轮的记忆：",
+      task,
+    );
+  }
   if (memory) {
     const blocks = [
       memory.projects && `【项目注册表】\n${memory.projects}`,

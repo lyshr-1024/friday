@@ -4,7 +4,7 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/sh
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
-import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime } from "./shared";
+import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
 
@@ -307,24 +307,6 @@ function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string;
   );
 }
 
-/** 第一句话带上任务背景：Friday 在会话里就知道在聊哪条、来龙去脉是什么 */
-async function taskContext(t: Task): Promise<string[]> {
-  const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
-  const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
-  return [
-    `这条任务：${t.title}`,
-    `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
-    t.source.note ? `我交代的原话：${t.source.note}` : "",
-    t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
-    raw ? `Slack 原文：\n${raw}` : "",
-    t.understanding ? `你的理解：${t.understanding}` : "",
-    t.plan ? `你的方案：${t.plan}` : "",
-    t.progress ? `进展：${t.progress}` : "",
-    t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
-    t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
-  ].filter(Boolean);
-}
-
 function Focus({ t, onAct, onClose, closable, ref }: {
   t: Task;
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
@@ -509,7 +491,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
             const conv = await newConversation();
             await taskBindConversation(t.id, conv.id).catch(() => {});
             window.dispatchEvent(new Event("friday:tasks-changed"));
-            return { id: conv.id, prompt: [...(await taskContext(t)), "", prompt].join("\n") };
+            return { id: conv.id, prompt };
           }}
           emptyTitle="关于这条任务，直接问"
           emptyHint="Friday 带着它的情境、链接和原文回答；要动代码会先说判断等你点头。终端里 Claude 的交付和卡住也会出现在这里；不放心再展开下面的终端自己看。"
