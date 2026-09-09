@@ -2991,3 +2991,59 @@ body,
 .thread__jump-arrow {
   font-size: 13px;
 }
+
+/* 关注：条目悬停出星，星标的常亮；卡片状态行右侧也能点 */
+.li {
+  position: relative;
+}
+.li__pin {
+  flex: none;
+  align-self: flex-start;
+  margin: -2px -4px 0 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-4);
+  font: inherit;
+  font-size: 13px;
+  line-height: 22px;
+  text-align: center;
+  cursor: default;
+  opacity: 0;
+}
+.li:hover .li__pin,
+.li--pinned .li__pin {
+  opacity: 1;
+}
+.li--pinned .li__pin {
+  color: var(--amber);
+}
+.li__pin:hover {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.li__pin-mark {
+  color: var(--amber);
+  font-size: 12px;
+}
+.fx__pin {
+  margin-left: auto;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: default;
+}
+.fx__pin:hover {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.fx__pin.on {
+  color: var(--amber);
+}

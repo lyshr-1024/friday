@@ -4,7 +4,7 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } f
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
@@ -82,14 +82,16 @@ function meta(t: Task): string {
   return [KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
 }
 
+/** 活跃的排前面：终端在输出 / Friday 在回 > 最近更新 */
+function byActivity(active: (t: Task) => boolean) {
+  return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
+}
+
 function sortDecide(a: Task, b: Task): number {
   const pa = a.pending?.length ? 0 : 1;
   const pb = b.pending?.length ? 0 : 1;
   if (pa !== pb) return pa - pb;
-  const ra = PRIORITY[a.priority] ?? 1;
-  const rb = PRIORITY[b.priority] ?? 1;
-  if (ra !== rb) return ra - rb;
-  return a.updatedAt.localeCompare(b.updatedAt);
+  return b.updatedAt.localeCompare(a.updatedAt);
 }
 
 export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
@@ -190,12 +192,16 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   }
 
   const tasks = (board?.tasks ?? []).map((t) => (t.source.jobId && termStates.has(t.source.jobId) && t.status === "processing" ? { ...t, terminal: termStates.get(t.source.jobId) } : t));
-  const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
-  const doing = tasks.filter((t) => DOING.includes(t.status)).sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)) || b.createdAt.localeCompare(a.createdAt));
-  const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));
-  const done = tasks.filter((t) => t.status === "done").slice(0, 8);
+  const active = (t: Task) => t.terminal === "busy" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
+  // 星标的单独一组放最顶上，其余分组里不再出现
+  const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
+  const rest = tasks.filter((t) => !pinned.includes(t));
+  const decide = rest.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
+  const doing = rest.filter((t) => DOING.includes(t.status)).sort(byActivity(active));
+  const queued = rest.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || b.updatedAt.localeCompare(a.updatedAt));
+  const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
-  const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
+  const focus = view === "all" || view === "ledger" ? explicit : explicit ?? pinned[0] ?? decide[0] ?? null;
   useEffect(() => {
     onFocusChange?.(focus ?? null);
   }, [focus?.id]);
@@ -217,14 +223,15 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
 
   // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
   const item = (t: Task, line: string, dim = false) => (
-    <button key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""}`} onClick={() => setSelectedId(t.id)}>
+    <div key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""} ${t.pinned ? "li--pinned" : ""}`} onClick={() => setSelectedId(t.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(t.id); }}>
       <span className={`dot dot--${t.attention ?? t.status}`} />
       <span className="li__main">
         <span className="li__title">{t.title}</span>
         <span className="li__sub">{runningConvs?.has(t.source.conversationId ?? "") ? `Friday 在回 · ${line}` : line}</span>
         {(t.terminal === "busy" || runningConvs?.has(t.source.conversationId ?? "")) && <span className="li__bar"><i /></span>}
       </span>
-    </button>
+      <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}>{t.pinned ? "★" : "☆"}</button>
+    </div>
   );
   const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean) => (
     <section className="grp grp--side">
@@ -272,7 +279,13 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
               })
             ) : (
               <>
-                <section className="grp grp--side grp--first">
+                {pinned.length > 0 && (
+                  <section className="grp grp--side grp--first">
+                    <div className="grp__head"><span className="li__pin-mark">★</span>关注<span className="mono">{pinned.length}</span></div>
+                    {pinned.map((t) => item(t, t.attention ? doingRight(t) : needs(t) || doingRight(t)))}
+                  </section>
+                )}
+                <section className={`grp grp--side ${pinned.length ? "" : "grp--first"}`}>
                   <div className="grp__head"><span className="dot dot--decide" />待我决定<span className="mono">{decide.length}</span></div>
                   {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
                 </section>
@@ -403,7 +416,8 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
         <span>{STATUS[t.status]}{t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)} · 卡片更新于 {fmtTime(t.updatedAt)}</span>
-        {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
+        <button className={`fx__pin ${t.pinned ? "on" : ""}`} title={t.pinned ? "取消关注" : "关注这条任务"} onClick={() => void onAct(t, () => taskPin(t.id, !t.pinned))}>{t.pinned ? "★ 已关注" : "☆ 关注"}</button>
+        {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
 

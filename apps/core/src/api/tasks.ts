@@ -106,6 +106,13 @@ export const tasks = new Hono()
     const t = setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
     return t ? c.json(t) : c.json({ error: "任务不存在或没有验证点" }, 404);
   })
+  // 星标关注：列表顶上单独一组
+  .post("/tasks/:id/pin", async (c) => {
+    const parsed = z.object({ pinned: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "pinned 必填" }, 400);
+    const t = updateTask(c.req.param("id"), { pinned: parsed.data.pinned });
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addPending, createTask, getTask } from "../memory/tasks.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { executePending } from "./pipeline.js";
+import { app } from "../api/index.js";
 
 describe("会话结论回流任务卡", () => {
   it("改方案、改回复草稿：待审动作的 detail 和 payload.text 一起换，通过时发的就是新文本", () => {
@@ -43,5 +44,14 @@ describe("会话结论回流任务卡", () => {
     expect(after.status).toBe("done");
     expect(after.pending ?? []).toHaveLength(0);
     expect(after.attention).toBeUndefined();
+  });
+
+  it("星标关注往返", async () => {
+    const t = createTask({ title: "p", kind: "code", source: {}, status: "processing" });
+    const on = (await (await app.request(`/tasks/${t.id}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: true }) })).json()) as { pinned?: boolean };
+    expect(on.pinned).toBe(true);
+    expect(getTask(t.id)!.pinned).toBe(true);
+    const off = (await (await app.request(`/tasks/${t.id}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: false }) })).json()) as { pinned?: boolean };
+    expect(off.pinned).toBeUndefined();
   });
 });

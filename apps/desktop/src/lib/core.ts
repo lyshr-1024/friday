@@ -343,6 +343,12 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
   return res.json();
 }
 
+export async function taskPin(id: string, pinned: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) });
+  if (!res.ok) throw new Error(`pin ${res.status}`);
+  return res.json();
+}
+
 export async function taskVerify(id: string, index: number, checked: boolean): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, checked }) });
   if (!res.ok) throw new Error(`verify ${res.status}`);

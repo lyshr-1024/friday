@@ -333,6 +333,8 @@ export interface Task {
   terminal?: TerminalState;
   /** 终端最近一轮的结果；任务是否完成由用户说 */
   attention?: TaskAttention;
+  /** 用户星标关注：列表最顶上单独一组 */
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
