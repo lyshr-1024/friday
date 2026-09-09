@@ -1645,7 +1645,7 @@ body,
 /* 顶栏：留出红绿灯，可拖动 */
 .q__head {
   flex: none;
-  padding: 38px 44px 0 88px;
+  padding: 38px 44px 0 44px;
   max-width: 980px;
   width: 100%;
   margin: 0 auto;
@@ -2397,47 +2397,22 @@ body,
 }
 
 /* 侧栏：默认隐藏，靠左边缘或 ⌘\ 滑出 */
-.edge {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-  z-index: 30;
-}
-.edge::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 48px;
-  margin-top: -24px;
-  border-radius: 0 2px 2px 0;
-  background: var(--line-1);
-  transition: background 150ms;
-}
 .edge:hover::after {
   background: var(--line-3);
 }
+/* 导航固定在最左边，和任务列表、详情一起构成三栏；⌘\ 收起 */
 .rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 220px;
-  z-index: 40;
+  position: relative;
+  flex: none;
+  width: 200px;
   display: flex;
   flex-direction: column;
   padding: 92px 12px 16px;
   background: var(--bg-2);
   border-right: 1px solid var(--line-1);
-  transform: translateX(-100%);
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.rail--open {
-  transform: none;
-  box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
+.rail--hidden {
+  display: none;
 }
 .rail__brand {
   position: absolute;
@@ -2808,8 +2783,15 @@ body,
 .split__list {
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 10px 32px 80px;
+  padding: 4px 10px 32px 40px;
   border-right: 1px solid var(--line-1);
+}
+/* 导航收起时红绿灯压回页面左上角，页头和列表左边让开 */
+.chat--norail .q__head {
+  padding-left: 88px;
+}
+.chat--norail .split__list {
+  padding-left: 80px;
 }
 .split__list .grp__head {
   padding-left: 8px;

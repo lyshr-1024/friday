@@ -37,8 +37,8 @@ type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: stri
 export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [view, setView] = useState<View>("queue");
-  const [railHover, setRailHover] = useState(false);
-  const [railPinned, setRailPinned] = useState(false);
+  // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
+  const [railOpen, setRailOpen] = useState(() => { try { return localStorage.getItem("friday:rail") !== "0"; } catch { return true; } });
   const [counts, setCounts] = useState({ decide: 0, doing: 0 });
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
@@ -49,7 +49,6 @@ export function Chat() {
   const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const threadRef = useRef<ThreadHandle>(null);
   const pendingOpen = useRef<PendingOpen | null>(null);
-  const railTimer = useRef<number | null>(null);
 
   useEffect(() => {
     void refreshList();
@@ -135,7 +134,6 @@ export function Chat() {
       return;
     }
     setView("ask");
-    setRailHover(false);
   }
 
   async function openPayload(p: OpenPayload) {
@@ -192,7 +190,6 @@ export function Chat() {
     setView(v);
     if (v === "history") void refreshList();
     if (v === "hot" && !hotData) void loadHot();
-    setRailHover(false);
   }
 
   useEffect(() => {
@@ -206,7 +203,7 @@ export function Chat() {
         void startNew();
       } else if (e.key === "\\") {
         e.preventDefault();
-        setRailPinned((v) => !v);
+        setRailOpen((v) => { try { localStorage.setItem("friday:rail", v ? "0" : "1"); } catch {} return !v; });
       } else if (e.key === "w") {
         e.preventDefault();
         void getCurrentWindow().close();
@@ -219,17 +216,7 @@ export function Chat() {
     return () => window.removeEventListener("keydown", onGlobalKey);
   }, [view]);
 
-  function railEnter() {
-    if (railTimer.current) window.clearTimeout(railTimer.current);
-    setRailHover(true);
-  }
-  function railLeave() {
-    if (railTimer.current) window.clearTimeout(railTimer.current);
-    railTimer.current = window.setTimeout(() => setRailHover(false), 260);
-  }
-
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
-  const railOpen = railPinned || railHover;
   const askTitle = askConv ? (list.find((c) => c.id === askConv)?.title ?? "当前对话") : "新话题 · 发出后判断";
 
   const tools = <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>;
@@ -247,10 +234,9 @@ export function Chat() {
   );
 
   return (
-    <div className="chat">
+    <div className={`chat ${railOpen ? "" : "chat--norail"}`}>
       <LinkMenuHost />
-      <div className="edge" onMouseEnter={railEnter} />
-      <nav className={`rail ${railOpen ? "rail--open" : ""}`} onMouseEnter={railEnter} onMouseLeave={railLeave}>
+      <nav className={`rail ${railOpen ? "" : "rail--hidden"}`}>
         <div className="rail__brand">Friday</div>
         {NAV.map((n) => (
           <button key={n.key} className={`rail__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)}>
@@ -264,7 +250,7 @@ export function Chat() {
         ))}
         <div className="rail__foot">
           <div className="rail__status">
-            {modelLabel || "跟随 Claude Code"} · ⌘\ 固定
+            {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
           </div>
         </div>
       </nav>
