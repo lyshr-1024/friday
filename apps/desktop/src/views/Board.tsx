@@ -105,7 +105,7 @@ export function Board({ view, tools, onCounts, onFocusChange }: {
   const [doneOpen, setDoneOpen] = useState(false);
   const [err, setErr] = useState("");
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
-  const focusRef = useRef<HTMLElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
 
   const failures = useRef(0);
   const load = async () => {
@@ -181,14 +181,11 @@ export function Board({ view, tools, onCounts, onFocusChange }: {
   useEffect(() => {
     onFocusChange?.(focus ?? null);
   }, [focus?.id]);
-  // 焦点换了人、或者这条任务挪了分组，卡片在页面里的位置就变了，滚回去
+  // 换了任务：详情栏回到顶部，左边列表把选中项滚进视野
   useEffect(() => {
-    if (!focus) return;
-    focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [focus?.id, focus?.status]);
-  const item = (t: Task, row: React.ReactNode) =>
-    t.id === focus?.id ? <Focus key={t.id} ref={focusRef} t={t} onAct={act} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
-
+    detailRef.current?.scrollTo({ top: 0 });
+    document.querySelector(".li--on")?.scrollIntoView({ block: "nearest" });
+  }, [focus?.id]);
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
   const sub =
@@ -200,9 +197,29 @@ export function Board({ view, tools, onCounts, onFocusChange }: {
           ? `没有等你决定的事，Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件。`
           : "一切清爽，没有等你的事。";
 
+  // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
+  const item = (t: Task, line: string, dim = false) => (
+    <button key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""}`} onClick={() => setSelectedId(t.id)}>
+      <span className={`dot dot--${t.attention ?? t.status}`} />
+      <span className="li__main">
+        <span className="li__title">{t.title}</span>
+        <span className="li__sub">{line}</span>
+      </span>
+    </button>
+  );
+  const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean) => (
+    <section className="grp grp--side">
+      <button className="grp__head" onClick={toggle}>
+        {label}<span className="mono">{list.length}</span>
+        <span className="grp__tog">{open ? "收起" : "展开 ›"}</span>
+      </button>
+      {open && (list.length ? list.map((t) => item(t, line(t), dim(t))) : <div className="li li--empty">{empty}</div>)}
+    </section>
+  );
+
   return (
     <>
-      <header className="q__head" data-tauri-drag-region>
+      <header className="q__head q__head--wide" data-tauri-drag-region>
         <div className="q__row" data-tauri-drag-region>
           <div className="q__title" data-tauri-drag-region>
             <h1 data-tauri-drag-region>{title}</h1>
@@ -212,98 +229,53 @@ export function Board({ view, tools, onCounts, onFocusChange }: {
         </div>
         {sub && board && <p className="q__sub" data-tauri-drag-region>{name ? `Hello ${name}！` : ""}{greeting()}，{sub}</p>}
       </header>
-      <div className="wb__scroll">
-        <div className="wb__page">
-          {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
-
-          {!board ? null : view === "ledger" ? (
-            <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />
-          ) : (
-            <>
-              {view === "all" ? (
-                ALL_ORDER.map((st) => {
-                  const list = tasks.filter((t) => t.status === st);
-                  if (!list.length) return null;
-                  return (
-                    <section key={st} className="grp">
-                      <div className="grp__head"><span className={`dot dot--${st}`} />{STATUS[st]}<span className="mono">{list.length}</span></div>
-                      <div className="list">{list.map((t) => item(t, <Row key={t.id} t={t} right={needs(t) || fmtTime(t.updatedAt)} dim={!needs(t)} onClick={() => setSelectedId(t.id)} />))}</div>
-                    </section>
-                  );
-                })
-              ) : (
-                <>
-                  {!decide.length && board && (
-                    <div className="empty">
-                      <strong>没有等你决定的事</strong>
-                      {doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件，需要你拍板的会放到这里。` : "⌘N 问 Friday，要干的活它先说判断再开工；或者等 Slack 和 Meegle 来活。"}
-                    </div>
-                  )}
-                  <div className="list">
-                    {decide.map((t) => item(t, <Row key={t.id} t={t} right={needs(t)} onClick={() => setSelectedId(t.id)} />))}
-                  </div>
-
-                  <section className="grp">
-                    <button className="grp__head" onClick={() => setDoingOpen((v) => !v)}>
-                      Friday 在做<span className="mono">{doing.length}</span>
-                      <span className="grp__tog">{doingOpen ? "收起" : "展开 ›"}</span>
-                    </button>
-                    {doingOpen && (
-                      <div className="list">
-                        {doing.map((t) => item(t, <Row key={t.id} t={t} compact right={doingRight(t)} dim bar={Boolean(t.source.jobId)} onClick={() => setSelectedId(t.id)} />))}
-                        {!doing.length && <div className="row row--compact"><span className="row__meta">现在没有在做的事</span></div>}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="grp">
-                    <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
-                      待办<span className="mono">{queued.length}</span>
-                      <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
-                    </button>
-                    {queuedOpen && (
-                      <div className="list">
-                        {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
-                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有待办</span></div>}
-                      </div>
-                    )}
-                  </section>
-                  <section className="grp">
-                    <button className="grp__head" onClick={() => setDoneOpen((v) => !v)}>
-                      最近完成<span className="mono">{board?.counts.done ?? 0}</span>
-                      <span className="grp__tog">{doneOpen ? "收起" : "展开 ›"}</span>
-                    </button>
-                    {doneOpen && (
-                      <div className="list">
-                        {done.map((t) => item(t, <Row key={t.id} t={t} compact right={fmtTime(t.updatedAt)} dim onClick={() => setSelectedId(t.id)} />))}
-                      </div>
-                    )}
-                  </section>
-                </>
-              )}
-            </>
-          )}
+      {view === "ledger" ? (
+        <div className="wb__scroll">
+          <div className="wb__page">
+            {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
+            {board && <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="split">
+          <aside className="split__list">
+            {err && <div className="err" style={{ margin: "8px 0 12px" }}>{err}</div>}
+            {!board ? null : view === "all" ? (
+              ALL_ORDER.map((st) => {
+                const list = tasks.filter((t) => t.status === st);
+                if (!list.length) return null;
+                return (
+                  <section key={st} className="grp grp--side">
+                    <div className="grp__head"><span className={`dot dot--${st}`} />{STATUS[st]}<span className="mono">{list.length}</span></div>
+                    {list.map((t) => item(t, needs(t) || fmtTime(t.updatedAt), !needs(t)))}
+                  </section>
+                );
+              })
+            ) : (
+              <>
+                <section className="grp grp--side grp--first">
+                  <div className="grp__head"><span className="dot dot--decide" />待我决定<span className="mono">{decide.length}</span></div>
+                  {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
+                </section>
+                {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事", doingRight, () => false)}
+                {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high")}
+                {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的", (t) => fmtTime(t.updatedAt), () => true)}
+              </>
+            )}
+          </aside>
+          <section className="split__detail" ref={detailRef}>
+            {!board ? null : focus ? (
+              <Focus key={focus.id} t={focus} onAct={act} onClose={() => setSelectedId(null)} closable={false} />
+            ) : (
+              <div className="empty">
+                <strong>{view === "all" ? "点左边一条看详情" : "没有等你决定的事"}</strong>
+                {view === "all" ? "" : doing.length + queued.length ? `Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件；左边点一条看它做到哪了。` : "⌘N 问 Friday，要干的活它先说判断再开工；或者等 Slack 和 Meegle 来活。"}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </>
-  );
-}
-
-function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string; dim?: boolean; compact?: boolean; bar?: boolean; onClick: () => void }) {
-  return (
-    <button className={`row ${compact ? "row--compact" : ""}`} onClick={onClick}>
-      <span className={`dot dot--${t.attention ?? t.status}`} />
-      <span className="row__main">
-        <div className="row__title">
-          {t.title}
-          {t.source.jobId && <span className="row__tag">终端</span>}
-          {t.source.conversationId && <span className="row__tag">会话</span>}
-        </div>
-        {!compact && <div className="row__meta">{meta(t)}</div>}
-      </span>
-      {bar && <span className={`row__bar ${t.terminal ? `row__bar--${t.terminal}` : ""}`}><i /></span>}
-      <span className={`row__right ${dim ? "row__right--dim" : ""}`}>{right}</span>
-    </button>
   );
 }
 

@@ -2793,3 +2793,99 @@ body,
   align-items: center;
   gap: 8px;
 }
+
+/* 主从布局：左边任务列表随时可见（在跑 / 做完 / 等你），右边固定显示选中任务的详情 */
+.q__head--wide {
+  max-width: none;
+}
+.split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 34%) minmax(0, 1fr);
+  margin-top: 16px;
+}
+.split__list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 32px 80px;
+  border-right: 1px solid var(--line-1);
+}
+.split__list .grp__head {
+  padding-left: 8px;
+}
+.split__detail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 44px 24px 28px;
+}
+.split__detail .fx {
+  margin-bottom: 24px;
+}
+.split__detail .empty {
+  padding-top: 120px;
+}
+.grp--side {
+  margin-top: 22px;
+  padding-top: 10px;
+}
+.grp--first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.li:hover {
+  background: var(--bg-2);
+}
+.li--on,
+.li--on:hover {
+  background: var(--bg-3);
+}
+.li .dot {
+  flex: none;
+  margin-top: 5px;
+}
+.li__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.li__title {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-1);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.li--dim .li__title {
+  color: var(--fg-2);
+}
+.li__sub {
+  font-size: 11.5px;
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.li--empty {
+  color: var(--fg-3);
+  font-size: 12px;
+}
