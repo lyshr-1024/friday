@@ -2948,3 +2948,46 @@ body,
   color: var(--green);
   font-weight: 500;
 }
+
+/* 会话滚动：消息区外包一层放「回到底部」按钮；有新回复没看到时按钮亮起 */
+.thread__scroll {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.thread__scroll .chat__body {
+  flex: 1;
+  min-height: 0;
+}
+.thread__jump {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--bg-3);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+.thread__jump:hover {
+  color: var(--fg-1);
+  border-color: var(--line-3);
+}
+.thread__jump--unread {
+  border-color: var(--live-dim);
+  color: var(--live);
+  box-shadow: 0 0 0 3px var(--live-glow), 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.thread__jump-arrow {
+  font-size: 13px;
+}

@@ -56,6 +56,29 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const abortRef = useRef<AbortController | null>(null);
   const convRef = useRef<string | null>(null);
   const ime = useImeGuard();
+  // 滚动：本来在底部就跟着新内容走；用户往上翻了就不打扰，改成右下角提示；切会话时强制落底
+  const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
+  const [unread, setUnread] = useState(false);
+  const forceBottomRef = useRef(false);
+  const lastLenRef = useRef(0);
+
+  function scrollToBottom(smooth = false) {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    atBottomRef.current = true;
+    setAtBottom(true);
+    setUnread(false);
+  }
+  function onBodyScroll() {
+    const el = bodyRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    atBottomRef.current = near;
+    setAtBottom(near);
+    if (near) setUnread(false);
+  }
 
   useEffect(() => {
     if (conversationId === convRef.current) return;
@@ -64,7 +87,15 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }, [conversationId]);
 
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
+    const grew = messages.length > lastLenRef.current || Boolean(draft);
+    lastLenRef.current = messages.length;
+    if (forceBottomRef.current || atBottomRef.current) {
+      forceBottomRef.current = false;
+      // 等一帧，让新消息先排完版再量高度
+      requestAnimationFrame(() => scrollToBottom());
+    } else if (grew) {
+      setUnread(true);
+    }
   }, [messages, draft, busy]);
 
   useEffect(() => {
@@ -109,12 +140,15 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     setBusy(false);
     setDraft("");
     const conv = await conversationById(id);
+    forceBottomRef.current = true;
     setConversation(conv.id);
     setMessages(conv.messages);
     if (conv.running) void follow(conv.id, askSubscribe(conv.id, newSubscription()));
   }
 
   function reset() {
+    forceBottomRef.current = true;
+    setUnread(false);
     abortRef.current?.abort();
     setBusy(false);
     setDraft("");
@@ -172,6 +206,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     const attachments = pending;
     setInput("");
     setPending([]);
+    forceBottomRef.current = true;
     push({ role: "user", kind: "ask", content: text.trim() || prompt, ...(attachments.length ? { payload: { attachments } } : {}) });
     await follow(id, ask({ prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) }, newSubscription()));
   }
@@ -216,7 +251,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   return (
     <div className="thread" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files); }}>
       {banner}
-      <div className="chat__body" ref={bodyRef}>
+      <div className="thread__scroll">
+      <div className="chat__body" ref={bodyRef} onScroll={onBodyScroll}>
         {messages.length === 0 && !draft && !busy && !resolving && (
           <div className="chat__empty">
             <div className="chat__mark">F</div>
@@ -258,6 +294,12 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
           </div>
         )}
+      </div>
+      {!atBottom && (
+        <button className={`thread__jump ${unread ? "thread__jump--unread" : ""}`} onClick={() => scrollToBottom(true)} title="回到底部">
+          {unread ? "有新回复" : ""}<span className="thread__jump-arrow">↓</span>
+        </button>
+      )}
       </div>
       <div className="composer">
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
