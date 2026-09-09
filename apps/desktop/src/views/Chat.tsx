@@ -89,6 +89,13 @@ export function Chat() {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, draft, busy]);
 
+  // 「聚焦终端」：任务板在别的视图时先切回去，Board 挂上后自己去选中那条任务
+  useEffect(() => {
+    const onFocusJob = () => setView("queue");
+    window.addEventListener("friday:focus-job", onFocusJob);
+    return () => window.removeEventListener("friday:focus-job", onFocusJob);
+  }, []);
+
   // 窗口常比 sidecar 先起来，第一次拉设置会失败；失败就隔 2 秒再试，否则 Skill / 模型开关会一直是灰的
   async function loadSettings(tries = 20) {
     for (let i = 0; i < tries; i++) {

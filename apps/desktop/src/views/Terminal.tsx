@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
+import { peekFocusJob, takeFocusJob } from "../lib/focusJob";
 
 /** 任务内嵌终端：连 sidecar 的 PTY，输出经 SSE 回放 + 实时推送，按键直接写回去。 */
 export function Terminal({ id }: { id: string }) {
@@ -59,6 +60,8 @@ export function Terminal({ id }: { id: string }) {
     } catch {
     }
     fit.fit();
+    // 延后再取标记：StrictMode 下第一次挂载会立刻被清理，取走标记却没来得及聚焦
+    const focusTimer = peekFocusJob() === id ? window.setTimeout(() => { if (takeFocusJob(id)) term.focus(); }, 80) : 0;
 
     const ctrl = new AbortController();
     let base = "";
@@ -151,6 +154,7 @@ export function Terminal({ id }: { id: string }) {
       el.removeEventListener("mousedown", toBottom);
       onData.dispose();
       window.clearTimeout(resizeTimer);
+      window.clearTimeout(focusTimer);
       ro.disconnect();
       ctrl.abort();
       term.dispose();

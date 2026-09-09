@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
+import { requestFocusJob } from "../lib/focusJob";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -246,7 +247,7 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
         </div>
       )}
       <div className="job__actions">
-        <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
+        <button onClick={() => { requestFocusJob(job.id); void jobFocus(job.id); }}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
       </div>
     </div>

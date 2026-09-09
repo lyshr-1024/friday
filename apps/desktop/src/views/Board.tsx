@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
+import { peekFocusJob } from "../lib/focusJob";
 import { audit as fetchAudit, auditUndo, jobActivity, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
@@ -134,12 +135,23 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
     void settings().then((s) => setName(s.name)).catch(() => {});
     const onChanged = () => void load();
     window.addEventListener("friday:tasks-changed", onChanged);
+    const onFocusJob = () => setFocusSignal((n) => n + 1);
+    window.addEventListener("friday:focus-job", onFocusJob);
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
       window.removeEventListener("friday:tasks-changed", onChanged);
+      window.removeEventListener("friday:focus-job", onFocusJob);
     };
   }, []);
+  // 「聚焦终端」点过来：任务列表到了就选中绑着那个 job 的任务，Terminal 挂上时接管光标
+  const [focusSignal, setFocusSignal] = useState(0);
+  useEffect(() => {
+    const jobId = peekFocusJob();
+    if (!jobId) return;
+    const t = board?.tasks.find((x) => x.source.jobId === jobId);
+    if (t) setSelectedId(t.id);
+  }, [board, focusSignal]);
   useEffect(() => {
     if (view === "doing") setDoingOpen(true);
     if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
