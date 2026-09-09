@@ -9,7 +9,7 @@ import { coreBaseUrl } from "../lib/core";
 import { peekFocusJob, takeFocusJob } from "../lib/focusJob";
 
 /** 任务内嵌终端：连 sidecar 的 PTY，输出经 SSE 回放 + 实时推送，按键直接写回去。 */
-export function Terminal({ id }: { id: string }) {
+export function Terminal({ id, onOutput }: { id: string; onOutput?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const [dead, setDead] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -107,6 +107,7 @@ export function Terminal({ id }: { id: string }) {
         const out = pendingOut;
         pendingOut = "";
         term.write(out);
+        onOutput?.();
       };
       let buf = "";
       for (;;) {

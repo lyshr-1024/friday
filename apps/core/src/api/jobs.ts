@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
-import { markStop } from "../agent/terminal.js";
+import { markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
@@ -47,7 +47,7 @@ export const jobs = new Hono()
   .get("/jobs/:id/activity", (c) => {
     const job = getJob(c.req.param("id"));
     if (!job) return c.json({ error: "任务不存在" }, 404);
-    return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)) });
+    return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)), terminal: job.status === "running" ? terminalState(job.id) : "gone" });
   })
   .post("/jobs/:id/exit", async (c) => {
     const parsed = z.object({ code: z.number().int() }).safeParse(await c.req.json().catch(() => null));

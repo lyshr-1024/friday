@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo, TerminalState } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -169,11 +169,11 @@ export interface Activity {
   ok?: boolean;
 }
 
-/** 终端里 Claude Code 最近的动作（从 transcript 读） */
-export async function jobActivity(id: string, limit = 6): Promise<Activity[]> {
+/** 终端里 Claude Code 最近的动作（从 transcript 读）+ 此刻的终端状态 */
+export async function jobActivity(id: string, limit = 6): Promise<{ items: Activity[]; terminal: TerminalState }> {
   const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/activity?limit=${limit}`);
   if (!res.ok) throw new Error(`activity ${res.status}`);
-  return ((await res.json()) as { items: Activity[] }).items;
+  return res.json();
 }
 
 export async function openTodos(): Promise<Todo[]> {

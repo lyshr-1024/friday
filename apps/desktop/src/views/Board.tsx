@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
+import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
@@ -322,6 +322,16 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
+  // 终端状态三层：xterm 输出流（展开时，3 秒内有输出=忙）> 动作流轮询（5 秒）> 任务板（15 秒）
+  const [actTerminal, setActTerminal] = useState<TerminalState | null>(null);
+  const [liveBusy, setLiveBusy] = useState<boolean | null>(null);
+  const liveTimer = useRef(0);
+  const onTermOutput = () => {
+    setLiveBusy(true);
+    window.clearTimeout(liveTimer.current);
+    liveTimer.current = window.setTimeout(() => setLiveBusy(false), 3000);
+  };
+  useEffect(() => () => window.clearTimeout(liveTimer.current), []);
   // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
   const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
   useEffect(() => {
@@ -335,7 +345,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     setActs([]);
     if (!jobId) return;
     let stop = false;
-    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) setActs(a); }).catch(() => {});
+    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) { setActs(a.items); setActTerminal(a.terminal); } }).catch(() => {});
     pull();
     if (t.status !== "processing") return () => { stop = true; };
     const timer = window.setInterval(pull, 5000);
@@ -514,10 +524,10 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       {t.source.jobId && (
         <div className="fx__term">
           <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)}>
-            <span className="k">终端{TERM_LABEL[t.terminal ?? "unknown"]}</span>
+            <span className="k">终端{TERM_LABEL[termOpen && liveBusy !== null && (actTerminal ?? t.terminal) !== "gone" ? (liveBusy ? "busy" : "idle") : (actTerminal ?? t.terminal ?? "unknown")]}</span>
             <span className="grp__tog">{termOpen ? "收起" : "展开 ›"}</span>
           </button>
-          {termOpen && <Terminal id={t.source.jobId} />}
+          {termOpen && <Terminal id={t.source.jobId} onOutput={onTermOutput} />}
         </div>
       )}
       {events.length > 0 && (
