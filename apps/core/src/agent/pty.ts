@@ -14,6 +14,8 @@ interface Session {
   exited?: number;
   /** 最近一次输出的时间：Claude Code 干活时每 100ms 重绘，安静下来就是在等输入 */
   lastOutputAt?: number;
+  /** resize 会让 Ink 整屏重绘，那不是"在干活"：这段时间内的输出不计 */
+  suppressUntil?: number;
 }
 
 const MAX_BUFFER = 400_000;
@@ -39,7 +41,7 @@ export function spawnSession(id: string, script: string, cwd: string, replay = "
   });
   const s: Session = { id, pty, buffer: replay, listeners: new Set() };
   pty.onData((d) => {
-    s.lastOutputAt = Date.now();
+    if (!s.suppressUntil || Date.now() >= s.suppressUntil) s.lastOutputAt = Date.now();
     s.buffer = (s.buffer + d).slice(-MAX_BUFFER);
     s.listeners.forEach((l) => l(d));
   });
@@ -71,6 +73,7 @@ export function write(id: string, data: string): boolean {
 export function resize(id: string, cols: number, rows: number): boolean {
   const s = sessions.get(id);
   if (!s || s.exited !== undefined) return false;
+  s.suppressUntil = Date.now() + 1500;
   s.pty.resize(Math.max(20, Math.min(400, cols)), Math.max(5, Math.min(200, rows)));
   return true;
 }

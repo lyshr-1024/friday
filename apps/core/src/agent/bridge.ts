@@ -108,6 +108,20 @@ export function clearAttention(jobId: string): void {
   if (t?.attention) updateTask(t.id, { attention: undefined });
 }
 
+/** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */
+export function turnFinished(jobId: string, text: string): void {
+  const job = getJob(jobId);
+  const task = findTaskBySource((s) => s.jobId === jobId);
+  if (!job || !task || task.source.autonomous || task.status !== "processing") return;
+  // 这一轮刚用 friday_done 交付过，别重复说一遍
+  if (task.report?.at && Date.now() - new Date(task.report.at).getTime() < 10_000) return;
+  const t = updateTask(task.id, { attention: "review", progress: `这轮说完了：${text.replace(/\s+/g, " ").slice(0, 140)}` })!;
+  const conv = t.source.conversationId ?? job.conversationId;
+  if (conv && conversationExists(conv)) {
+    addMessage(conv, { role: "assistant", kind: "run", content: `终端里的 Claude 这轮说完了：\n${text.slice(0, 1500)}`, payload: { status: "turn", jobId } });
+  }
+}
+
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };

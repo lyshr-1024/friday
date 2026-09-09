@@ -13,6 +13,8 @@ import type { BoardView } from "./Board";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
 import { applyTheme, onThemeChange } from "../lib/theme";
+import { connectEvents } from "../lib/events";
+import type { FridayEvent } from "../lib/events";
 
 interface OpenPayload {
   conversationId?: string | null;
@@ -59,10 +61,16 @@ export function Chat() {
     // 「聚焦终端」：任务板在别的视图时先切回去，Board 挂上后自己去选中那条任务
     const onFocusJob = () => setView("queue");
     window.addEventListener("friday:focus-job", onFocusJob);
+    const stopEvents = connectEvents();
+    // 会话生成开始 / 结束：左栏青条要立刻变
+    const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
+    window.addEventListener("friday:event", onEvent);
     return () => {
       void unlisten.then((f) => f());
       stopTheme();
+      stopEvents();
       window.removeEventListener("friday:focus-job", onFocusJob);
+      window.removeEventListener("friday:event", onEvent);
     };
   }, []);
 
@@ -104,11 +112,11 @@ export function Chat() {
     }
   }
 
-  // 会话列表常轮询：左栏要知道哪条任务的会话 Friday 正在回；有生成中的就快一点
+  // 变更由 /events 推过来；这里只是兜底
   useEffect(() => {
-    const t = setInterval(() => void refreshList(), list.some((c) => c.running) ? 3000 : 10000);
+    const t = setInterval(() => void refreshList(), 30000);
     return () => clearInterval(t);
-  }, [list.some((c) => c.running)]);
+  }, []);
   const runningConvs = useMemo(() => new Set(list.filter((c) => c.running).map((c) => c.id)), [list]);
 
   // 导航底部「N 个任务在跑」

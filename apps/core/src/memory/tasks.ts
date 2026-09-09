@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DeliveryReport, PendingAction, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
+import { publish } from "../bus.js";
 
 interface Row {
   id: string;
@@ -61,6 +62,7 @@ export function createTask(input: {
       "INSERT INTO tasks (id, title, kind, source, project, status, priority, understanding, plan, due, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(input.source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, t, t);
+  publish({ type: "tasks" });
   return getTask(id)!;
 }
 
@@ -105,6 +107,7 @@ export function updateTask(
       now(),
       id,
     );
+  publish({ type: "tasks" });
   return getTask(id);
 }
 

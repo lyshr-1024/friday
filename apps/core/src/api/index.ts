@@ -9,6 +9,7 @@ import { note } from "./note.js";
 import { pty } from "./pty.js";
 import { route } from "./route.js";
 import { mcp } from "./mcp.js";
+import { events } from "./events.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
@@ -40,4 +41,5 @@ export const app = new Hono()
   .route("/", tasks)
   .route("/", route)
   .route("/", mcp)
+  .route("/", events)
   .route("/", pty);

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { app } from "../api/index.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
+import { subscribe } from "../bus.js";
+import { turnFinished } from "./bridge.js";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>
@@ -58,5 +60,22 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const task = createTask({ title: "demo：自主改", kind: "code", source: { jobId: "job-mcp-4", autonomous: true }, project: "demo", status: "processing", plan: "改" });
     await rpc("job-mcp-4", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } });
     expect(getTask(task.id)!.status).toBe("review");
+  });
+
+  it("终端一轮说完（Stop）：任务标黄、进展换成它说的话、回流到任务会话，并推 tasks 事件", async () => {
+    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
+    createJob({ id: "job-turn", project: "demo", dir: "/tmp", task: "修登录", conversationId: conv.id, logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：修登录", kind: "code", source: { jobId: "job-turn", conversationId: conv.id }, project: "demo", status: "processing" });
+    const seen: string[] = [];
+    const off = subscribe((ev) => seen.push(ev.type));
+    turnFinished("job-turn", "改好了 token 刷新，跑了测试都过，要我提交吗？");
+    off();
+    const after = getTask(task.id)!;
+    expect(after.attention).toBe("review");
+    expect(after.progress).toContain("这轮说完了：改好了 token 刷新");
+    expect(seen).toContain("tasks");
+    const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
+    expect(c.messages.at(-1)!.content).toContain("终端里的 Claude 这轮说完了");
+    expect(c.messages.at(-1)!.content).toContain("要我提交吗");
   });
 });

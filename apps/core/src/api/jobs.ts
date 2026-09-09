@@ -5,6 +5,7 @@ import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
 import { markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
+import { turnFinished } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { state } from "../scheduler/index.js";
@@ -41,6 +42,7 @@ export const jobs = new Hono()
     if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);
     // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
     if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) markStop(id);
+    if ((event === "Stop" || !event) && text) turnFinished(id, text);
     return c.json({ ok: true });
   })
   // 终端脚本回报退出码

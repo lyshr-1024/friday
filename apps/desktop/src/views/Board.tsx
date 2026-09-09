@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
+import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
@@ -132,12 +133,23 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     const loop = async () => {
       await load();
       if (stopped) return;
-      timer = window.setTimeout(loop, failures.current > 0 ? 1500 : 15000);
+      // 变更由 /events 推过来，这里只兜底
+      timer = window.setTimeout(loop, failures.current > 0 ? 1500 : 30000);
     };
     void loop();
     void settings().then((s) => setName(s.name)).catch(() => {});
-    const onChanged = () => void load();
+    // 进展一句一推，攒 200ms 合成一次拉取
+    let coalesce = 0;
+    const onChanged = () => {
+      window.clearTimeout(coalesce);
+      coalesce = window.setTimeout(() => void load(), 200);
+    };
     window.addEventListener("friday:tasks-changed", onChanged);
+    const onEvent = (e: Event) => {
+      const ev = (e as CustomEvent<FridayEvent>).detail;
+      if (ev.type === "terminal") setTermStates((m) => (m.get(ev.jobId) === ev.state ? m : new Map(m).set(ev.jobId, ev.state)));
+    };
+    window.addEventListener("friday:event", onEvent);
     const onFocusJob = () => setFocusSignal((n) => n + 1);
     window.addEventListener("friday:focus-job", onFocusJob);
     return () => {
@@ -145,8 +157,12 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       if (timer) window.clearTimeout(timer);
       window.removeEventListener("friday:tasks-changed", onChanged);
       window.removeEventListener("friday:focus-job", onFocusJob);
+      window.removeEventListener("friday:event", onEvent);
+      window.clearTimeout(coalesce);
     };
   }, []);
+  // 终端忙闲：实时推送的值优先于任务板快照
+  const [termStates, setTermStates] = useState<Map<string, TerminalState>>(new Map());
   // 「聚焦终端」点过来：任务列表到了就选中绑着那个 job 的任务，Terminal 挂上时接管光标
   const [focusSignal, setFocusSignal] = useState(0);
   useEffect(() => {
@@ -173,7 +189,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     }
   }
 
-  const tasks = board?.tasks ?? [];
+  const tasks = (board?.tasks ?? []).map((t) => (t.source.jobId && termStates.has(t.source.jobId) && t.status === "processing" ? { ...t, terminal: termStates.get(t.source.jobId) } : t));
   const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
   const doing = tasks.filter((t) => DOING.includes(t.status)).sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)) || b.createdAt.localeCompare(a.createdAt));
   const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));

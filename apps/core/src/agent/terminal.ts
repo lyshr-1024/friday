@@ -1,6 +1,7 @@
 import type { TerminalState } from "@friday/shared";
 import { getJob } from "../memory/jobs.js";
-import { getSession, write } from "./pty.js";
+import { getSession, listSessions, write } from "./pty.js";
+import { publish } from "../bus.js";
 
 /**
  * Friday 往内嵌终端里说话。终端里的 Claude Code 正在输出时不能插话（会插进它的帧里），
@@ -80,6 +81,18 @@ export function terminalState(jobId: string): TerminalState {
   // 内嵌 PTY 只活在 sidecar 内存里，重启就没了而 job 仍是 running：这是「断了」不是「在外面跑」。老记录没记类型，按内嵌算。
   return job.terminal && job.terminal !== "embedded" ? "external" : "gone";
 }
+
+// 忙闲一变就推给前端，前端不用轮询猜
+const lastPublished = new Map<string, TerminalState>();
+export function pollTerminalStates(): void {
+  for (const s of listSessions()) {
+    const state = terminalState(s.id);
+    if (lastPublished.get(s.id) === state) continue;
+    lastPublished.set(s.id, state);
+    publish({ type: "terminal", jobId: s.id, state });
+  }
+}
+setInterval(pollTerminalStates, 500).unref();
 
 export const TERMINAL_STATE_LABEL: Record<TerminalState, string> = {
   busy: "终端在输出",
