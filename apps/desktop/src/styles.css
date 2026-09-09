@@ -2711,8 +2711,10 @@ body,
   flex-direction: column;
 }
 .fx__talk .thread {
+  /* .thread 自带 flex:1 是给全屏视图的；在卡片里 flex-basis 会盖掉 height，必须 flex:none 才有高度 */
+  flex: none;
   margin-top: 8px;
-  height: clamp(300px, 44vh, 480px);
+  height: clamp(320px, 44vh, 480px);
   border: 1px solid var(--line-1);
   border-radius: 8px;
   background: var(--bg-2);
