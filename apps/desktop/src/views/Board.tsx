@@ -18,6 +18,7 @@ const DOING: TaskStatus[] = ["processing"];
 const QUEUED: TaskStatus[] = ["understood", "collected"];
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
+const TERM_LABEL: Record<string, string> = { busy: " · 在输出", idle: " · 空闲，等指示", gone: " · 已断，展开可重新打开", external: " · 在外部终端里", unknown: "" };
 
 function waited(iso: string): string {
   const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -336,6 +337,13 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
+  // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
+  const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
+  useEffect(() => {
+    const onFocusJob = (e: Event) => { if ((e as CustomEvent<string>).detail === t.source.jobId) setTermOpen(true); };
+    window.addEventListener("friday:focus-job", onFocusJob);
+    return () => window.removeEventListener("friday:focus-job", onFocusJob);
+  }, [t.source.jobId]);
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -398,9 +406,6 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
-
-      <div className="fx__cols">
-      <div className="fx__main">
 
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
@@ -488,6 +493,22 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           </div>
         </details>
       )}
+      <div className="fx__talk">
+        <span className="k">和 Friday 聊这条任务</span>
+        <ChatThread
+          conversationId={t.source.conversationId ?? null}
+          resolve={async (prompt) => {
+            const conv = await newConversation();
+            await taskBindConversation(t.id, conv.id).catch(() => {});
+            window.dispatchEvent(new Event("friday:tasks-changed"));
+            return { id: conv.id, prompt: [...(await taskContext(t)), "", prompt].join("\n") };
+          }}
+          emptyTitle="关于这条任务，直接问"
+          emptyHint="Friday 带着它的情境、链接和原文回答；要动代码会先说判断等你点头。终端里 Claude 的交付和卡住也会出现在这里；不放心再展开下面的终端自己看。"
+          placeholder="跟 Friday 说这条任务…"
+          hint="Enter 发送 · Shift+Enter 换行"
+        />
+      </div>
       {t.source.jobId && acts.length > 0 && (
         <div className="fx__doing">
           <span className="k">终端在做</span>
@@ -502,8 +523,11 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       )}
       {t.source.jobId && (
         <div className="fx__term">
-          <span className="k">终端 · Claude Code 就在这条任务里干活，可以直接打字</span>
-          <Terminal id={t.source.jobId} />
+          <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)}>
+            <span className="k">终端{TERM_LABEL[t.terminal ?? "unknown"]}</span>
+            <span className="grp__tog">{termOpen ? "收起" : "展开 ›"}</span>
+          </button>
+          {termOpen && <Terminal id={t.source.jobId} />}
         </div>
       )}
       {events.length > 0 && (
@@ -514,25 +538,6 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           </div>
         </details>
       )}
-
-      </div>
-      <aside className="fx__chat">
-        <span className="k">和 Friday 聊这条任务</span>
-        <ChatThread
-          conversationId={t.source.conversationId ?? null}
-          resolve={async (prompt) => {
-            const conv = await newConversation();
-            await taskBindConversation(t.id, conv.id).catch(() => {});
-            window.dispatchEvent(new Event("friday:tasks-changed"));
-            return { id: conv.id, prompt: [...(await taskContext(t)), "", prompt].join("\n") };
-          }}
-          emptyTitle="关于这条任务，直接问"
-          emptyHint="Friday 带着它的情境、链接和原文回答；要动代码会先说判断等你点头。终端里 Claude 的交付和卡住也会出现在这里。"
-          placeholder="跟 Friday 说这条任务…"
-          hint="Enter 发送 · Shift+Enter 换行"
-        />
-      </aside>
-      </div>
 
       {open && (
         <div className="fx__foot">

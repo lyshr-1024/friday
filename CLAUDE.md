@@ -107,7 +107,7 @@ apps/core/src/
 
 - 起因：用户"老是对不齐哪个任务对应哪个会话"。根子是任务板、抽屉、终端三个有独立状态、靠两套规则松耦合（抽屉有时跟任务走，⌘N 自由模式又不跟）。换左右边解决不了，所以把抽屉删了，**任务是唯一的锚**。
 - `views/Thread.tsx`：一段会话的消息流 + 输入框 + 附件 + 流式跟随，`forwardRef` 暴露 `load / reset / send / focus`；`conversationId` 为 null 时第一句走 `resolve(prompt)` 决定落到哪。空闲时每 8 秒对一次消息（终端里 Claude 的交付 / 卡住会追加进来）。
-- **任务卡两栏**：Focus 标题下 `.fx__cols` = 左 `.fx__main`（情境 / 报告 / 终端在做 / 终端 / 账）+ 右 `.fx__chat`（sticky，高 clamp(420px, 64vh, 720px)）里挂 `<ChatThread conversationId={task.source.conversationId}>`，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前。「在会话里讨论」按钮删了——讨论一直在卡上。`.wb__page` / `.q__head` 放宽到 1280px。回车 = 主动作在 `.thread` 内不触发。
+- **任务卡单列，从上到下按优先级**：标题 → 情境 / 建议 / 报告 → `.fx__talk`「和 Friday 聊这条任务」（`<ChatThread conversationId={task.source.conversationId}>`，高 clamp(300px, 44vh, 480px)，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前）→ 「终端在做」动作流 → **终端默认收起**（`.fx__term-toggle`，标签带终端状态；点开才挂 xterm；「聚焦终端」点过来自动展开）→ 账 → 按钮。用户的心智是「先看 Friday 怎么说，不放心再展开终端自己看」，左右两栏试过被否。「在会话里讨论」按钮删了——讨论一直在卡上。回车 = 主动作在 `.thread` 内不触发。
 - **「问 Friday」是一个视图**（`view === "ask"`，侧栏第一项，`⌘N`）：全宽 Thread，`resolve` 走 `POST /route`（接旧 / 新开），命中旧会话时 `.route-hint` 显示「接着：… · 理由」+「其实是新话题」；页头右侧 新对话（`⌘⇧N`）/ Skill / 模型。Esc 回工作台。`openAsk(pending)` 把要做的事排队，Thread 挂上后的 effect 执行（视图切换是异步的）。「会话历史」点一段 → 在这个视图打开。`take_pending_chat` / `friday://open-conversation` 也落到这里。
 - 已删：`.drawer*` 全部 CSS、`syncDrawerToTask`、free 模式标志、`Board.onDiscuss`。「聚焦终端」仍是 `friday:focus-job` → 切回队列 → 选中任务 → xterm 聚焦。
 

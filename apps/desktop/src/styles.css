@@ -1637,7 +1637,7 @@ body,
   overflow-x: hidden;
 }
 .wb__page {
-  max-width: 1280px;
+  max-width: 980px;
   margin: 0 auto;
   padding: 0 44px 48px;
 }
@@ -1646,7 +1646,7 @@ body,
 .q__head {
   flex: none;
   padding: 38px 44px 0 88px;
-  max-width: 1280px;
+  max-width: 980px;
   width: 100%;
   margin: 0 auto;
 }
@@ -2701,52 +2701,47 @@ body,
   color: var(--fg-4);
 }
 
-/* 任务卡两栏：左边情境 / 报告 / 终端，右边就是这条任务的会话——会话在哪张卡里就是哪条任务的 */
-.fx__cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
-  gap: 0 28px;
-  align-items: start;
-}
-.fx__main {
-  min-width: 0;
-}
-.fx__chat {
-  min-width: 0;
-  margin-top: 22px;
-  padding-left: 24px;
-  border-left: 1px solid var(--line-1);
+
+/* 和 Friday 聊这条任务：单列，在终端之上；先看 Friday 说的，不放心再展开终端 */
+.fx__talk {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-1);
   display: flex;
   flex-direction: column;
-  height: clamp(420px, 64vh, 720px);
-  position: sticky;
-  top: 44px;
 }
-.fx__chat .thread {
+.fx__talk .thread {
   margin-top: 8px;
+  height: clamp(300px, 44vh, 480px);
+  border: 1px solid var(--line-1);
+  border-radius: 8px;
+  background: var(--bg-2);
 }
-.fx__chat .chat__body {
-  padding: 4px 4px 12px 0;
+.fx__talk .chat__body {
+  padding: 14px 16px 8px;
   gap: 14px;
 }
-.fx__chat .bubble--assistant {
-  max-width: 100%;
-}
-.fx__chat .composer {
-  padding: 8px 0 0;
+.fx__talk .composer {
+  padding: 6px 10px 10px;
   background: transparent;
 }
-.fx__chat .chat__empty {
-  padding: 24px 8px;
+.fx__talk .chat__empty {
+  padding: 20px 8px;
 }
-@media (max-width: 1000px) {
-  .fx__cols {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .fx__chat {
-    border-left: none;
-    padding-left: 0;
-    height: 420px;
-    position: static;
-  }
+.fx__term-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  text-align: left;
+}
+.fx__term-toggle + .xterm-host,
+.fx__term-toggle + .term {
+  margin-top: 10px;
 }
