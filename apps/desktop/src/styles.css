@@ -2514,25 +2514,42 @@ body,
 }
 
 /* 问 Friday 抽屉 */
+/* 会话抽屉在左侧，紧挨着任务板：用户说右边看不出哪个会话对应哪个任务 */
 .drawer {
   flex: none;
+  order: -1;
   width: min(440px, 40%);
   min-width: 320px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--line-1);
+  border-right: 1px solid var(--line-1);
   background: var(--bg-2);
   overflow-x: hidden;
-  animation: slide-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: slide-in-left 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 抽屉顶部现在压在红绿灯下面：左边留出红绿灯，整条可拖动 */
 .drawer__head {
   flex: none;
   height: 48px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 12px 0 78px;
   border-bottom: 1px solid var(--line-1);
+}
+/* 抽屉开着时红绿灯不再压在任务板上，页头左边不用再空 88px */
+.chat--drawer .q__head {
+  padding-left: 44px;
 }
 .drawer__task {
   flex: 1;

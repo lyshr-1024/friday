@@ -458,7 +458,7 @@ export function Chat() {
   );
 
   return (
-    <div className="chat">
+    <div className={`chat ${drawer ? "chat--drawer" : ""}`}>
       <LinkMenuHost />
       <div className="edge" onMouseEnter={railEnter} />
       <nav className={`rail ${railOpen ? "rail--open" : ""}`} onMouseEnter={railEnter} onMouseLeave={railLeave}>
@@ -539,7 +539,7 @@ export function Chat() {
 
       {drawer && (
         <aside className="drawer" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-          <header className="drawer__head">
+          <header className="drawer__head" data-tauri-drag-region>
             {convTask ? (
               <span className="drawer__task" title={convTask.title}><span className="dot dot--processing" />{convTask.title}</span>
             ) : (
