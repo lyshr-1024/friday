@@ -551,7 +551,12 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         <div className="fx__foot">
           <div className="fx__acts">
             {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}<kbd>↵</kbd></button>}
-            {!primary && <button className="b b--ghost" onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>标记完成</button>}
+            {/* 有待审动作时也能直接收工：done 会把没发出去的动作一起作废，不会发消息给别人 */}
+            {(!primary || first) && (
+              <button className="b b--ghost" title={first ? "任务标记完成，待审的动作作废，不会发出去" : undefined} onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>
+                {first ? (isMessage ? "完成，不发" : "完成，不执行") : "标记完成"}
+              </button>
+            )}
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
           </div>

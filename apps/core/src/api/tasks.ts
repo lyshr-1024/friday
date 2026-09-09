@@ -99,11 +99,11 @@ export const tasks = new Hono()
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/done", (c) => {
-    const t = updateTask(c.req.param("id"), { status: "done", pending: [] });
+    const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", (c) => {
-    const t = updateTask(c.req.param("id"), { status: "ignored", pending: [] });
+    const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
