@@ -2747,3 +2747,47 @@ body,
 .fx__term-toggle + .term {
   margin-top: 10px;
 }
+
+/* 发消息前的确认框：要发的原文、可改、⌘↵ 发 */
+.fx__confirm {
+  margin-top: 12px;
+  padding: 12px 14px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fx__confirm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fx__confirm-hint {
+  font-size: 11px;
+  color: var(--fg-4);
+}
+.fx__confirm-text {
+  width: 100%;
+  resize: vertical;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-3);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  outline: none;
+}
+.fx__confirm-text:focus {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.fx__confirm-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

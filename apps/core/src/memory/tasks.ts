@@ -131,6 +131,18 @@ export function addPending(id: string, action: Omit<PendingAction, "id">): Task 
   return updateTask(id, { pending: [...(cur.pending ?? []), { id: randomUUID(), ...action }], status: "review" });
 }
 
+export function updatePending(id: string, actionId: string, patch: Partial<Pick<PendingAction, "detail" | "payload" | "label">>): Task | undefined {
+  const cur = getTask(id);
+  if (!cur?.pending?.some((a) => a.id === actionId)) return undefined;
+  return updateTask(id, { pending: cur.pending.map((a) => (a.id === actionId ? { ...a, ...patch } : a)) });
+}
+
+export function removePending(id: string, actionId: string): Task | undefined {
+  const cur = getTask(id);
+  if (!cur?.pending?.some((a) => a.id === actionId)) return undefined;
+  return updateTask(id, { pending: cur.pending.filter((a) => a.id !== actionId) });
+}
+
 export function takePending(id: string, actionId: string): { task: Task; action: PendingAction } | undefined {
   const cur = getTask(id);
   const action = cur?.pending?.find((a) => a.id === actionId);

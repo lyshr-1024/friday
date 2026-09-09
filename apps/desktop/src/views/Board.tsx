@@ -334,6 +334,9 @@ function Focus({ t, onAct, onClose, closable, ref }: {
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
+  // 给别人发消息前先给用户看要发什么、可以改，确认才发
+  const [confirming, setConfirming] = useState(false);
+  const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
@@ -359,6 +362,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   useEffect(() => {
     setRejecting(false);
     setReason("");
+    setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
   useEffect(() => {
@@ -375,8 +379,11 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
   const first = pending[0];
+  const isMessage = first?.type === "slack_reply";
   const primary: { label: string; run: () => Promise<unknown> } | null = first
-    ? { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
+    ? isMessage
+      ? { label: pending.length > 1 ? `看一眼再发：${first.label}` : "看一眼再发", run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); } }
+      : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
     : t.status === "blocked" && t.project
       ? { label: "重新开工", run: () => taskRetry(t.id) }
       : t.status === "review"
@@ -390,19 +397,20 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       if (e.key !== "Enter" || e.metaKey || e.shiftKey || e.altKey) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (el?.closest(".thread, .xterm")) return;
+      if (el?.closest(".thread, .xterm, .fx__confirm")) return;
+      if (confirming) return;
       e.preventDefault();
       void onAct(t, run);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [t.id, t.updatedAt, primary?.label]);
+  }, [t.id, t.updatedAt, primary?.label, confirming]);
 
   return (
     <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
-        <span>{STATUS[t.status]}{t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)}</span>
+        <span>{STATUS[t.status]}{t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)} · 卡片更新于 {fmtTime(t.updatedAt)}</span>
         {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
@@ -417,7 +425,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           )}
           {advice && (
             <div>
-              <span className="k">{pending[0] ? `Friday 的建议：${pending[0].label}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}</span>
+              <span className="k">{pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}</span>
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
           )}
@@ -468,7 +476,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
 
       {r && (r.changes.length > 0 || r.testSteps.length > 0 || r.screenshots.length > 0) && (
         <details className="fx__more">
-          <summary>交付报告：改动 {r.changes.length} 处 · 测试 {r.testSteps.length} 步 · 截图 {r.screenshots.length} 张</summary>
+          <summary>交付报告：改动 {r.changes.length} 处 · 测试 {r.testSteps.length} 步 · 截图 {r.screenshots.length} 张{r.at ? ` · 交于 ${fmtTime(r.at)}` : ""}</summary>
           <div className="fx__more-body">
             {r.changes.length > 0 && <><span className="k">改动</span><ul>{r.changes.map((c, i) => <li key={i}>{c}</li>)}</ul></>}
             {r.testSteps.length > 0 && <><span className="k">测试过程</span><ol>{r.testSteps.map((c, i) => <li key={i}>{c}</li>)}</ol></>}
@@ -547,6 +555,29 @@ function Focus({ t, onAct, onClose, closable, ref }: {
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
           </div>
+          {confirming && first && (
+            <div className="fx__confirm">
+              <div className="fx__confirm-head">
+                <span className="k">将以你的身份发给 {String(first.payload.userName ?? "对方")}{first.payload.threadTs ? "（在原线程里回）" : "（私聊）"}</span>
+                <span className="fx__confirm-hint mono">⌘↵ 发送 · Esc 取消</span>
+              </div>
+              <textarea
+                className="fx__confirm-text"
+                autoFocus
+                rows={4}
+                value={sendText}
+                onChange={(e) => setSendText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setConfirming(false);
+                  if (e.key === "Enter" && e.metaKey && sendText.trim()) { e.preventDefault(); void onAct(t, () => taskApprove(t.id, first.id, sendText.trim())); }
+                }}
+              />
+              <div className="fx__confirm-acts">
+                <button className="b b--primary" disabled={!sendText.trim()} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发<kbd>⌘↵</kbd></button>
+                <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
+              </div>
+            </div>
+          )}
           {rejecting && (
             <form className="fx__reject" onSubmit={(e) => { e.preventDefault(); void onAct(t, () => taskReject(t.id, reason || undefined)); }}>
               <input autoFocus placeholder="哪里不对？一句话，Friday 会按这个改" value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setRejecting(false); }} />

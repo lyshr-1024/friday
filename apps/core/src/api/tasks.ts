@@ -9,7 +9,7 @@ import { matchProject } from "../agent/meegle.js";
 import { terminalState } from "../agent/terminal.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
-import { createTask, getTask, taskBoard, updateTask } from "../memory/tasks.js";
+import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 
 const newTask = z.object({
   title: z.string().trim().min(1).max(200),
@@ -50,6 +50,13 @@ export const tasks = new Hono()
     return c.json(t, 201);
   })
   .post("/tasks/:id/approve/:actionId", async (c) => {
+    // 用户在确认框里改过要发的文本：先落到待审动作上，发出去和记账的都是改后的
+    const body = (await c.req.json().catch(() => ({}))) as { text?: string };
+    if (typeof body.text === "string" && body.text.trim()) {
+      const t = getTask(c.req.param("id"));
+      const a = t?.pending?.find((p) => p.id === c.req.param("actionId"));
+      if (a) updatePending(t!.id, a.id, { detail: body.text.trim(), payload: { ...a.payload, text: body.text.trim() } });
+    }
     const creds = await loadSlackCreds();
     const call = creds ? slackCaller(creds) : undefined;
     try {

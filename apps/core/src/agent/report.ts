@@ -19,6 +19,7 @@ export function parseReport(md: string, shots: Array<{ name: string; data: Buffe
     testResult: section(md, "测试结果") || "（未写测试结果）",
     screenshots: shots.map((s) => saveAttachment(s.name, "image/png", s.data)),
     verify: bullets(section(md, "请验证")),
+    at: new Date().toISOString(),
   };
 }
 

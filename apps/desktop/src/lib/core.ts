@@ -337,8 +337,8 @@ export async function createTask(input: { title: string; note?: string; url?: st
   return res.json();
 }
 
-export async function taskApprove(id: string, actionId: string): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST" });
+export async function taskApprove(id: string, actionId: string, text?: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(text ? { text } : {}) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }

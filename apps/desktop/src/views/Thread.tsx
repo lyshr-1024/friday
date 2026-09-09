@@ -152,6 +152,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     }
     setDraft("");
     setBusy(false);
+    // Friday 可能在这一轮里用 task_update 改了任务卡，让任务板重新拉
+    window.dispatchEvent(new Event("friday:tasks-changed"));
   }
 
   async function send(text: string, id: string | null = convRef.current) {

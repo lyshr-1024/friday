@@ -133,17 +133,24 @@ export async function executePending(taskId: string, actionId: string, deps: { s
   const taken = takePending(taskId, actionId);
   if (!taken) throw new Error("待审核动作不存在");
   const { action } = taken;
-  if (action.type === "slack_reply") {
-    const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
-    const res = await deps.slackPost(p.channel, p.text, p.threadTs);
-    record({ taskId, action: "slack_reply_sent", why: "你审核通过", how: "chat.postMessage", evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null }, risk: "irreversible", status: "approved" });
-  } else if (action.type === "git_merge") {
-    const p = action.payload as { dir: string; branch: string };
-    const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
-    await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
-    record({ taskId, action: "git_merge", why: "你审核通过", how: `git merge --no-ff ${p.branch} 到 ${base}`, evidence: p, risk: "irreversible", status: "approved" });
-  } else {
-    record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
+  try {
+    if (action.type === "slack_reply") {
+      const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
+      const res = await deps.slackPost(p.channel, p.text, p.threadTs);
+      record({ taskId, action: "slack_reply_sent", why: "你审核通过", how: "chat.postMessage", evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null }, risk: "irreversible", status: "approved" });
+    } else if (action.type === "git_merge") {
+      const p = action.payload as { dir: string; branch: string };
+      const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
+      await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
+      record({ taskId, action: "git_merge", why: "你审核通过", how: `git merge --no-ff ${p.branch} 到 ${base}`, evidence: p, risk: "irreversible", status: "approved" });
+    } else {
+      record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
+    }
+  } catch (e) {
+    // 没发出去的动作要放回去，不然用户改好的草稿随失败一起丢了
+    const cur = getTask(taskId);
+    if (cur) updateTask(taskId, { pending: [...(cur.pending ?? []), action], status: "review" });
+    throw e;
   }
   const t = getTask(taskId)!;
   return t.pending?.length ? t : updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;

@@ -307,6 +307,8 @@ export interface DeliveryReport {
   testResult: string;
   screenshots: Attachment[];
   verify: string[];
+  /** 这份报告是什么时候交的（终端可能交好几轮） */
+  at?: string;
 }
 
 export interface Task {

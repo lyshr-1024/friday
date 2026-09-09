@@ -9,6 +9,7 @@ import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js"
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
+import { updateTaskFromChat } from "./taskUpdate.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
@@ -157,6 +158,26 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${TERMINAL_STATE_LABEL[terminalState(id)]}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
       },
     ),
+    tool(
+      "task_update",
+      "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展，以及待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步）。用户说不用回了就 dropReply。只对这条会话绑定的任务有效。",
+      {
+        understanding: z.string().max(4000).optional().describe("对这件事的最新理解，整段覆盖"),
+        plan: z.string().max(4000).optional().describe("最新方案，整段覆盖"),
+        progress: z.string().max(300).optional().describe("一句话进展"),
+        replyDraft: z.string().max(2000).optional().describe("给对方的回复全文，可直接发的口语中文"),
+        dropReply: z.boolean().optional().describe("撤掉待审的回复动作"),
+        status: z.enum(["processing", "review", "blocked", "done", "ignored"]).optional().describe("用户明确说了才改：做完了=done，不用管了=ignored，先放着/等我看=review，卡住=blocked，继续做=processing"),
+      },
+      async (patch) => {
+        const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
+        if (!t) return text("这条会话没有绑定任务，没有卡片可更新。");
+        if (!decide("reversible").allowed) return text("操作被拒绝");
+        const r = updateTaskFromChat(t.id, patch);
+        if (!r) return text("任务不存在了。");
+        return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "用户点「看一眼再发」时会看到这段草稿、可以再改，确认后才发。" : ""}` : "和卡片上一样，没改。");
+      },
+    ),
   ],
 });
 
@@ -179,4 +200,5 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__run_claude",
   "mcp__friday__terminal_say",
   "mcp__friday__jobs_activity",
+  "mcp__friday__task_update",
 ];

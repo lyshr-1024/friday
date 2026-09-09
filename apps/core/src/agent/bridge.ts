@@ -133,6 +133,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       testResult: String(args.testResult ?? "").trim() || "（没写测试结果）",
       screenshots: [],
       verify: strs(args.verify),
+      at: new Date().toISOString(),
     };
     const branch = await currentBranch(job.dir);
     if (!task.source.autonomous) {
