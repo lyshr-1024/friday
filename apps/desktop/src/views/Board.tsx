@@ -4,7 +4,7 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } f
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
@@ -354,6 +354,14 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   }, [t.source.threadId]);
 
   const r = t.report;
+  // 勾选状态存在任务上；本地先变，后端推送回来再对齐
+  const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
+  useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
+  const checkedCount = checked.filter(Boolean).length;
+  function toggleCheck(i: number, v: boolean) {
+    setChecked((c) => { const n = [...c]; n[i] = v; return n; });
+    void taskVerify(t.id, i, v).catch(() => {});
+  }
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
   const situation = t.understanding || t.source.note || "";
@@ -423,8 +431,20 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         <div className="fx__col">
           {r && r.verify.length > 0 && (
             <div>
-              <span className="k">通过前请确认</span>
-              <ul className="fx__check">{r.verify.map((c, i) => <li key={i}><label><input type="checkbox" />{c}</label></li>)}</ul>
+              <span className="k">
+                通过前请确认 · {checkedCount}/{r.verify.length}
+                {checkedCount === r.verify.length && <span className="fx__check-all">全部确认 ✓{first ? "，点「通过并执行」推进" : t.source.jobId ? "，已让终端继续" : "，可以标记完成"}</span>}
+              </span>
+              <ul className="fx__check">
+                {r.verify.map((c, i) => (
+                  <li key={i} className={checked[i] ? "is-checked" : ""}>
+                    <label>
+                      <input type="checkbox" checked={checked[i] ?? false} onChange={(e) => toggleCheck(i, e.target.checked)} />
+                      {c}
+                    </label>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {r && (

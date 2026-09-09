@@ -2936,3 +2936,15 @@ body,
   background: var(--live-solid);
   animation: bar-run 1.6s ease-in-out infinite;
 }
+
+/* 验证点：勾完的划掉变淡，全部勾完在标题上说下一步是什么 */
+.fx__check li.is-checked label {
+  color: var(--fg-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-3);
+}
+.fx__check-all {
+  margin-left: 8px;
+  color: var(--green);
+  font-weight: 500;
+}

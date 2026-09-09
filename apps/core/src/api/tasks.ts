@@ -7,6 +7,7 @@ import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { terminalState } from "../agent/terminal.js";
+import { setVerified } from "../agent/bridge.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
@@ -97,6 +98,13 @@ export const tasks = new Hono()
     if (!body.conversationId) return c.json({ error: "需要 conversationId" }, 400);
     const t = updateTask(c.req.param("id"), { source: { conversationId: body.conversationId } });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
+  // 「通过前请确认」勾选状态；全部勾完 = 这轮验收通过，Friday 推进下一步
+  .post("/tasks/:id/verify", async (c) => {
+    const parsed = z.object({ index: z.number().int().min(0), checked: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "index / checked 必填" }, 400);
+    const t = setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
+    return t ? c.json(t) : c.json({ error: "任务不存在或没有验证点" }, 404);
   })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });

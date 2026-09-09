@@ -5,10 +5,11 @@ import { record } from "../memory/audit.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "./enrich.js";
+import { say } from "./terminal.js";
 
 const execFileP = promisify(execFile);
 
@@ -120,6 +121,33 @@ export function turnFinished(jobId: string, text: string): void {
   if (conv && conversationExists(conv)) {
     addMessage(conv, { role: "assistant", kind: "run", content: `终端里的 Claude 这轮说完了：\n${text.slice(0, 1500)}`, payload: { status: "turn", jobId } });
   }
+}
+
+/** 用户勾了一项「通过前请确认」。全部勾完 = 这轮验收通过：有终端就让它继续下一步，有待审动作就等用户点通过。 */
+export function setVerified(taskId: string, index: number, checked: boolean): Task | undefined {
+  const task = getTask(taskId);
+  if (!task?.report || index < 0 || index >= task.report.verify.length) return undefined;
+  const list = Array.from({ length: task.report.verify.length }, (_, i) => task.report!.checked?.[i] ?? false);
+  const wasAll = list.every(Boolean);
+  list[index] = checked;
+  const all = list.every(Boolean);
+  let t = updateTask(taskId, { report: { ...task.report, checked: list } })!;
+  if (!all || wasAll) return t;
+
+  record({ taskId, action: "verified_all", why: "用户逐项确认完交付报告的全部验证点", how: `${list.length} 项全部勾选`, evidence: { verify: task.report.verify }, risk: "read" });
+  const jobId = t.source.jobId;
+  // /run 建的任务把会话记在 job 上
+  const conv = t.source.conversationId ?? (jobId ? getJob(jobId)?.conversationId : undefined);
+  const hasPending = (t.pending ?? []).length > 0;
+  if (jobId && !hasPending && t.status === "processing") {
+    const r = say(jobId, `用户已逐项确认你上一轮列的 ${list.length} 条验证点，全部通过。继续下一步（该提交就提交，按项目流程建 draft MR，不要 push 到主分支、不要 merge），做完调 friday_done。`);
+    const note = r === "no-terminal" ? "你已确认全部验证点；终端已断，重开后让它继续" : r === "queued" ? "你已确认全部验证点，终端正忙，说完就转达它继续下一步" : "你已确认全部验证点，已让终端继续下一步";
+    t = updateTask(taskId, { attention: undefined, progress: note })!;
+    if (conv && conversationExists(conv)) addMessage(conv, { role: "assistant", kind: "run", content: `→ ${note}`, payload: { status: "relayed", jobId } });
+  } else if (conv && conversationExists(conv)) {
+    addMessage(conv, { role: "assistant", kind: "ask", content: hasPending ? `全部验证点已确认。下一步是「${t.pending![0]!.label}」，卡片上点通过就行。` : "全部验证点已确认，这条任务可以标记完成了。" });
+  }
+  return t;
 }
 
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {

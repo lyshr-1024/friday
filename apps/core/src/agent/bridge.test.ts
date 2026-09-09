@@ -3,7 +3,7 @@ import { app } from "../api/index.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
-import { turnFinished } from "./bridge.js";
+import { setVerified, turnFinished } from "./bridge.js";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>
@@ -77,5 +77,25 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
     expect(c.messages.at(-1)!.content).toContain("终端里的 Claude 这轮说完了");
     expect(c.messages.at(-1)!.content).toContain("要我提交吗");
+  });
+
+  it("勾选验证点落在任务上；全部勾完记账并在会话里说下一步", async () => {
+    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
+    createJob({ id: "job-v", project: "demo", dir: "/tmp", task: "x", conversationId: conv.id, logPath: "/tmp/x.log" });
+    // 会话只记在 job 上（/run 建的任务就是这样），留痕也要能落到会话里
+    const task = createTask({ title: "demo：x", kind: "code", source: { jobId: "job-v" }, project: "demo", status: "processing" });
+    await rpc("job-v", "tools/call", { name: "friday_done", arguments: { summary: "改完", testResult: "过", verify: ["看 A", "看 B"] } });
+    let t = (await (await app.request(`/tasks/${task.id}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index: 0, checked: true }) })).json()) as { report: { checked: boolean[] }; attention?: string };
+    expect(t.report.checked).toEqual([true, false]);
+    expect(t.attention).toBe("review");
+    t = (await (await app.request(`/tasks/${task.id}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index: 1, checked: true }) })).json()) as typeof t;
+    expect(t.report.checked).toEqual([true, true]);
+    // 没有活着的 PTY：说清楚终端已断，等你看的标记清掉
+    expect(t.attention).toBeUndefined();
+    const audit = (await (await app.request(`/audit?taskId=${task.id}`)).json()) as Array<{ action: string }>;
+    expect(audit.some((e) => e.action === "verified_all")).toBe(true);
+    const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
+    expect(c.messages.at(-1)!.content).toContain("确认全部验证点");
+    expect(setVerified("nope", 0, true)).toBeUndefined();
   });
 });

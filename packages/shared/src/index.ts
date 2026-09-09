@@ -310,6 +310,8 @@ export interface DeliveryReport {
   verify: string[];
   /** 这份报告是什么时候交的（终端可能交好几轮） */
   at?: string;
+  /** 用户逐项确认的勾选状态，和 verify 对齐；全部勾完 = 这轮验收通过 */
+  checked?: boolean[];
 }
 
 export interface Task {

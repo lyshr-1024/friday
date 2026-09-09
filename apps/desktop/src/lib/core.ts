@@ -343,6 +343,12 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
   return res.json();
 }
 
+export async function taskVerify(id: string, index: number, checked: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, checked }) });
+  if (!res.ok) throw new Error(`verify ${res.status}`);
+  return res.json();
+}
+
 export async function taskReject(id: string, reason?: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
   if (!res.ok) throw new Error(`reject ${res.status}`);

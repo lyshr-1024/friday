@@ -52,7 +52,7 @@ export function taskBlock(conversationId: string): string | undefined {
     contextFor(task, job),
     job ? `终端：${job.status === "running" ? TERMINAL_STATE_LABEL[terminalState(job.id)] : `进程已退出（退出码 ${job.exitCode ?? "?"}）`}${job.lastMessage ? `；它最后说：${job.lastMessage.slice(0, 200)}` : ""}` : "",
     task.attention === "review" ? "终端这一轮已经做完等用户看；任务是否完成由用户说，用户没说别当它完成。" : task.attention === "blocked" ? "终端报告卡住了，需要用户介入。" : "",
-    task.report ? `最近一次交付：${task.report.summary}（测试：${task.report.testResult}）` : "",
+    task.report ? `最近一次交付：${task.report.summary}（测试：${task.report.testResult}）${task.report.verify.length ? `；验证点用户已确认 ${(task.report.checked ?? []).filter(Boolean).length}/${task.report.verify.length}${(task.report.checked ?? []).filter(Boolean).length === task.report.verify.length ? "，全部通过" : ""}` : ""}` : "",
   ]
     .filter(Boolean)
     .join("\n");
