@@ -38,6 +38,7 @@ function greeting(): string {
 }
 
 function needs(t: Task): string {
+  if (t.attention === "question") return `马上回：${(t.progress ?? "终端在问你").replace(/^终端在问：/, "")}`;
   const first = t.pending?.[0];
   if (first) return `需要你：${first.label}`;
   if (t.report) return "需要你：看交付报告";
@@ -64,6 +65,7 @@ function queuedRight(t: Task): string {
 /** 「Friday 在做」右侧：先说终端的真实状态，再带一句进展 */
 function doingRight(t: Task): string {
   const p = t.progress?.slice(0, 40);
+  if (t.attention === "question") return `马上回：${(t.progress ?? "").replace(/^终端在问：/, "")}`;
   if (t.attention === "review") return `这轮做完了 · 等你看${t.report ? `：${t.report.summary.slice(0, 30)}` : ""}`;
   if (t.attention === "blocked") return p ?? "卡住了，需要你";
   switch (t.terminal) {
@@ -120,7 +122,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       setErr("");
       failures.current = 0;
       // 侧栏「Friday 在做」的数字要和页面上那个分组一致：只算 processing，待办另有分组
-      onCounts?.({ decide: b.counts.review + b.counts.blocked, doing: b.counts.processing });
+      onCounts?.({ decide: b.counts.review + b.counts.blocked + b.tasks.filter((t) => t.attention === "question" && t.status === "processing").length, doing: b.counts.processing });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       failures.current++;
@@ -196,8 +198,10 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   // 星标的单独一组放最顶上，其余分组里不再出现
   const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
-  const decide = rest.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
-  const doing = rest.filter((t) => DOING.includes(t.status)).sort(byActivity(active));
+  const asking = (t: Task) => t.attention === "question";
+  // 终端在问你 = 阻塞，不管状态都进「待我决定」并排最前
+  const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
+  const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
   const queued = rest.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || b.updatedAt.localeCompare(a.updatedAt));
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
@@ -415,7 +419,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
-        <span>{STATUS[t.status]}{t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)} · 卡片更新于 {fmtTime(t.updatedAt)}</span>
+        <span>{STATUS[t.status]}{t.attention === "question" ? " · 终端在问你，回答前它不会继续" : t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)} · 卡片更新于 {fmtTime(t.updatedAt)}</span>
         <button className={`fx__pin ${t.pinned ? "on" : ""}`} title={t.pinned ? "取消关注" : "关注这条任务"} onClick={() => void onAct(t, () => taskPin(t.id, !t.pinned))}>{t.pinned ? "★ 已关注" : "☆ 关注"}</button>
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>

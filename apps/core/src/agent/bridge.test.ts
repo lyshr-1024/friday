@@ -3,7 +3,7 @@ import { app } from "../api/index.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
-import { setVerified, turnFinished } from "./bridge.js";
+import { describeQuestion, setVerified, turnFinished } from "./bridge.js";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>
@@ -97,5 +97,28 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
     expect(c.messages.at(-1)!.content).toContain("确认全部验证点");
     expect(setVerified("nope", 0, true)).toBeUndefined();
+  });
+
+  it("终端弹选项题（PreToolUse AskUserQuestion）：任务标 question、通知、会话留问题；PostToolUse 解除", async () => {
+    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
+    createJob({ id: "job-q", project: "demo", dir: "/tmp", task: "x", conversationId: conv.id, logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：q", kind: "code", source: { jobId: "job-q", conversationId: conv.id }, project: "demo", status: "processing" });
+    const input = JSON.stringify({ questions: [{ question: "用哪个方案？", header: "方案", options: [{ label: "A 改前端" }, { label: "B 改后端" }] }] });
+    expect(describeQuestion("AskUserQuestion", input)).toBe("用哪个方案？（选项：1. A 改前端 / 2. B 改后端）");
+    expect(describeQuestion("ExitPlanMode", JSON.stringify({ plan: "先改 a 再改 b" }))).toContain("要不要按这个计划执行");
+    const r = await app.request("/jobs/job-q/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "PreToolUse", toolName: "AskUserQuestion", toolInput: input }) });
+    expect(r.status).toBe(200);
+    const after = getTask(task.id)!;
+    expect(after.attention).toBe("question");
+    expect(after.progress).toContain("用哪个方案");
+    const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string }>;
+    expect(notices.some((n) => n.title.includes("终端在等你回答"))).toBe(true);
+    const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
+    expect(c.messages.at(-1)!.content).toContain("终端在问你");
+    // 紧跟着来的泛化 Notification 不能把具体问题盖掉
+    await app.request("/jobs/job-q/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "Notification", notificationType: "permission_prompt", message: "Claude needs your permission" }) });
+    expect(getTask(task.id)!.progress).toContain("用哪个方案");
+    await app.request("/jobs/job-q/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "PostToolUse", toolName: "AskUserQuestion", toolInput: input }) });
+    expect(getTask(task.id)!.attention).toBeUndefined();
   });
 });

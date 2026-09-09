@@ -5,7 +5,7 @@ import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
 import { markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
-import { turnFinished } from "../agent/bridge.js";
+import { describeQuestion, terminalAnswered, terminalAsking, turnFinished } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { state } from "../scheduler/index.js";
@@ -33,10 +33,26 @@ export const jobs = new Hono()
   })
   // Stop hook 回报：终端里 Claude 刚完成一轮的最后一段话
   .post("/jobs/:id/message", async (c) => {
-    const parsed = z.object({ text: z.string().max(20_000).optional(), sessionId: z.string().max(200).optional(), event: z.string().max(40).optional(), source: z.string().max(40).optional() }).safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId)) return c.json({ error: "text 或 sessionId 至少一个" }, 400);
+    const parsed = z
+      .object({
+        text: z.string().max(20_000).optional(),
+        sessionId: z.string().max(200).optional(),
+        event: z.string().max(40).optional(),
+        source: z.string().max(40).optional(),
+        toolName: z.string().max(80).optional(),
+        toolInput: z.string().max(4000).optional(),
+        message: z.string().max(1000).optional(),
+        notificationType: z.string().max(40).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId && !parsed.data.toolName && !parsed.data.message)) return c.json({ error: "text / sessionId / toolName / message 至少一个" }, 400);
     const id = c.req.param("id");
-    const { text, sessionId, event, source } = parsed.data;
+    const { text, sessionId, event, source, toolName, toolInput, message, notificationType } = parsed.data;
+    if (!getJob(id)) return c.json({ error: "任务不存在" }, 404);
+    // 交互式提问：PreToolUse 进来就是阻塞，PostToolUse 说明答了
+    if (event === "PreToolUse" && toolName && /^(AskUserQuestion|ExitPlanMode)$/.test(toolName)) terminalAsking(id, describeQuestion(toolName, toolInput));
+    if (event === "PostToolUse" && toolName && /^(AskUserQuestion|ExitPlanMode)$/.test(toolName)) terminalAnswered(id);
+    if (event === "Notification" && notificationType === "permission_prompt") terminalAsking(id, message ?? "终端在等你确认一个操作", true);
     const okText = text ? setJobMessage(id, text) : true;
     const okSid = sessionId ? setJobSession(id, sessionId) : true;
     if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);

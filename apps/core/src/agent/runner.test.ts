@@ -16,8 +16,9 @@ describe("终端环境与会话恢复", () => {
   });
 
   it("hook 在 SessionStart 就回传 session id，Stop 再回传每轮回答", () => {
-    const settings = JSON.parse(buildHookSettings("/runs/x.hook.sh")) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
-    expect(Object.keys(settings.hooks).sort()).toEqual(["SessionStart", "Stop"]);
+    const settings = JSON.parse(buildHookSettings("/runs/x.hook.sh")) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>> };
+    expect(Object.keys(settings.hooks).sort()).toEqual(["Notification", "PostToolUse", "PreToolUse", "SessionStart", "Stop"]);
+    expect(settings.hooks.PreToolUse![0]!.matcher).toBe("AskUserQuestion|ExitPlanMode");
     expect(settings.hooks.SessionStart![0]!.hooks[0]!.command).toContain("x.hook.sh");
   });
 });

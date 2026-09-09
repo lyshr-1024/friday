@@ -150,6 +150,47 @@ export function setVerified(taskId: string, index: number, checked: boolean): Ta
   return t;
 }
 
+/** 把 AskUserQuestion / ExitPlanMode 的输入整理成一句人能看的问题 */
+export function describeQuestion(toolName: string, toolInput: string | undefined): string {
+  let input: Record<string, unknown> = {};
+  try {
+    input = toolInput ? (JSON.parse(toolInput) as Record<string, unknown>) : {};
+  } catch {
+  }
+  if (toolName === "ExitPlanMode") {
+    const plan = String(input.plan ?? "").replace(/\s+/g, " ").trim();
+    return `要不要按这个计划执行？${plan ? `计划：${plan.slice(0, 200)}` : ""}`;
+  }
+  const qs = Array.isArray(input.questions) ? (input.questions as Array<{ question?: string; options?: Array<{ label?: string }> }>) : [];
+  if (!qs.length) return "终端在等你回答一个问题";
+  return qs
+    .map((q) => `${String(q.question ?? "").trim()}${q.options?.length ? `（选项：${q.options.map((o, i) => `${i + 1}. ${o.label ?? ""}`).join(" / ")}）` : ""}`)
+    .join("；")
+    .slice(0, 600);
+}
+
+/** 终端里的 Claude 弹了交互式提问：阻塞，用户得马上回。进「待我决定」顶上、红点、系统通知、会话里留问题原文。 */
+export function terminalAsking(jobId: string, question: string, weak = false): void {
+  const job = getJob(jobId);
+  const task = findTaskBySource((s) => s.jobId === jobId);
+  if (!job || !task || task.status === "done" || task.status === "ignored") return;
+  // Notification 的文案是泛的（"Claude needs your permission"），已经有具体问题时不要盖掉
+  if (weak && task.attention === "question") return;
+  const t = updateTask(task.id, { attention: "question", progress: `终端在问：${question.slice(0, 200)}` })!;
+  record({ taskId: t.id, action: "terminal_question", why: "终端里的 Claude Code 弹了交互式提问，等用户回答", how: question.slice(0, 300), evidence: { jobId }, risk: "read" });
+  const conv = t.source.conversationId ?? job.conversationId;
+  if (conv && conversationExists(conv)) {
+    addMessage(conv, { role: "assistant", kind: "run", content: `终端在问你（它停下了，回答前不会继续）：\n${question}\n\n直接告诉我选哪个或怎么回，我敲进去；或者点「聚焦终端」自己答。`, payload: { status: "question", jobId } });
+  }
+  state.notices.push({ title: `终端在等你回答 · ${job.project}`, body: question.slice(0, 200) });
+}
+
+/** 问题答了（PostToolUse），或终端继续干活了：解除阻塞 */
+export function terminalAnswered(jobId: string): void {
+  const task = findTaskBySource((s) => s.jobId === jobId);
+  if (task?.attention === "question") updateTask(task.id, { attention: undefined, progress: "已回答，终端继续" });
+}
+
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };

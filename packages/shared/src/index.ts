@@ -298,7 +298,8 @@ export interface TaskSource {
 }
 
 /** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */
-export type TaskAttention = "review" | "blocked";
+/** question = 终端里的 Claude 弹了交互式提问，阻塞中，需要用户马上回 */
+export type TaskAttention = "review" | "blocked" | "question";
 
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */
 export interface DeliveryReport {

@@ -76,7 +76,7 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message, session_id, hook_event_name, source } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
     if (!text && transcript_path && fs.existsSync(transcript_path)) {
@@ -90,8 +90,8 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
         } catch {}
       }
     }
-    if (!text && !session_id) { console.error("no assistant text"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}) }) })
+    if (!text && !session_id && !tool_name && !message) { console.error("nothing to post"); return; }
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }
@@ -103,7 +103,9 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
 /** SessionStart 一开始就把 session id 回传，不然 Claude 第一轮没说完 Friday 就重启，这条任务就再也接不上了；Stop 每轮回传最后一段回答。 */
 export function buildHookSettings(hookScript: string): string {
   const hook = [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }];
-  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook } }, null, 2);
+  // 交互式提问（选项题 / plan 确认）不会发 Stop，PTY 也安静，不接这两个 hook 就感知不到它在等人
+  const asking = [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: hook[0]!.hooks }];
+  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook, PreToolUse: asking, PostToolUse: asking, Notification: hook } }, null, 2);
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。

@@ -3047,3 +3047,10 @@ body,
 .fx__pin.on {
   color: var(--amber);
 }
+
+/* 终端在问你：红点呼吸，比"卡住"更急 */
+.dot--question {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(255, 149, 146, 0.18);
+  animation: pulse 1.2s ease-in-out infinite;
+}
