@@ -3,8 +3,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
-import { audit as fetchAudit, auditUndo, jobActivity, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
-import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
+import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime } from "./shared";
+import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
@@ -89,10 +90,9 @@ function sortDecide(a: Task, b: Task): number {
   return a.updatedAt.localeCompare(b.updatedAt);
 }
 
-export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
+export function Board({ view, tools, onCounts, onFocusChange }: {
   view: BoardView;
   tools: React.ReactNode;
-  onDiscuss?: (t: Task) => void;
   onCounts?: (c: { decide: number; doing: number }) => void;
   onFocusChange?: (t: Task | null) => void;
 }) {
@@ -186,7 +186,7 @@ export function Board({ view, tools, onDiscuss, onCounts, onFocusChange }: {
     focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [focus?.id, focus?.status]);
   const item = (t: Task, row: React.ReactNode) =>
-    t.id === focus?.id ? <Focus key={t.id} ref={focusRef} t={t} onAct={act} onDiscuss={onDiscuss} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
+    t.id === focus?.id ? <Focus key={t.id} ref={focusRef} t={t} onAct={act} onClose={() => setSelectedId(null)} closable={Boolean(explicit)} /> : row;
 
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
@@ -306,10 +306,27 @@ function Row({ t, right, dim, compact, bar, onClick }: { t: Task; right: string;
   );
 }
 
-function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
+/** 第一句话带上任务背景：Friday 在会话里就知道在聊哪条、来龙去脉是什么 */
+async function taskContext(t: Task): Promise<string[]> {
+  const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
+  const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
+  return [
+    `这条任务：${t.title}`,
+    `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
+    t.source.note ? `我交代的原话：${t.source.note}` : "",
+    t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
+    raw ? `Slack 原文：\n${raw}` : "",
+    t.understanding ? `你的理解：${t.understanding}` : "",
+    t.plan ? `你的方案：${t.plan}` : "",
+    t.progress ? `进展：${t.progress}` : "",
+    t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
+    t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
+  ].filter(Boolean);
+}
+
+function Focus({ t, onAct, onClose, closable, ref }: {
   t: Task;
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
-  onDiscuss?: (t: Task) => void;
   onClose: () => void;
   closable: boolean;
   ref?: React.Ref<HTMLElement>;
@@ -365,7 +382,7 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
       if (e.key !== "Enter" || e.metaKey || e.shiftKey || e.altKey) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (el?.closest(".drawer, .xterm")) return;
+      if (el?.closest(".thread, .xterm")) return;
       e.preventDefault();
       void onAct(t, run);
     }
@@ -381,6 +398,9 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
         {closable && <button className="b b--text" style={{ marginLeft: "auto", height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
+
+      <div className="fx__cols">
+      <div className="fx__main">
 
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
@@ -495,6 +515,25 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
         </details>
       )}
 
+      </div>
+      <aside className="fx__chat">
+        <span className="k">和 Friday 聊这条任务</span>
+        <ChatThread
+          conversationId={t.source.conversationId ?? null}
+          resolve={async (prompt) => {
+            const conv = await newConversation();
+            await taskBindConversation(t.id, conv.id).catch(() => {});
+            window.dispatchEvent(new Event("friday:tasks-changed"));
+            return { id: conv.id, prompt: [...(await taskContext(t)), "", prompt].join("\n") };
+          }}
+          emptyTitle="关于这条任务，直接问"
+          emptyHint="Friday 带着它的情境、链接和原文回答；要动代码会先说判断等你点头。终端里 Claude 的交付和卡住也会出现在这里。"
+          placeholder="跟 Friday 说这条任务…"
+          hint="Enter 发送 · Shift+Enter 换行"
+        />
+      </aside>
+      </div>
+
       {open && (
         <div className="fx__foot">
           <div className="fx__acts">
@@ -502,8 +541,6 @@ function Focus({ t, onAct, onDiscuss, onClose, closable, ref }: {
             {!primary && <button className="b b--ghost" onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>标记完成</button>}
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
-            <span className="fx__spacer" />
-            {onDiscuss && <button className="b b--text" onClick={() => onDiscuss(t)}>{t.source.conversationId ? "继续会话" : "在会话里讨论"}</button>}
           </div>
           {rejecting && (
             <form className="fx__reject" onSubmit={(e) => { e.preventDefault(); void onAct(t, () => taskReject(t.id, reason || undefined)); }}>

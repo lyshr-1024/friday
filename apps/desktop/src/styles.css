@@ -1637,7 +1637,7 @@ body,
   overflow-x: hidden;
 }
 .wb__page {
-  max-width: 980px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 0 44px 48px;
 }
@@ -1646,7 +1646,7 @@ body,
 .q__head {
   flex: none;
   padding: 38px 44px 0 88px;
-  max-width: 980px;
+  max-width: 1280px;
   width: 100%;
   margin: 0 auto;
 }
@@ -2514,112 +2514,6 @@ body,
 }
 
 /* 问 Friday 抽屉 */
-/* 会话抽屉在左侧，紧挨着任务板：用户说右边看不出哪个会话对应哪个任务 */
-.drawer {
-  flex: none;
-  order: -1;
-  width: min(440px, 40%);
-  min-width: 320px;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--line-1);
-  background: var(--bg-2);
-  overflow-x: hidden;
-  animation: slide-in-left 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@keyframes slide-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-/* 抽屉顶部现在压在红绿灯下面：左边留出红绿灯，整条可拖动 */
-.drawer__head {
-  flex: none;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px 0 78px;
-  border-bottom: 1px solid var(--line-1);
-}
-/* 抽屉开着时红绿灯不再压在任务板上，页头左边不用再空 88px */
-.chat--drawer .q__head {
-  padding-left: 44px;
-}
-.drawer__task {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--fg-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.drawer__task .dot {
-  box-shadow: none;
-}
-.row--on {
-  background: var(--bg-3);
-}
-.drawer__route {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line-1);
-  background: var(--bg-2);
-  font-size: 12px;
-  color: var(--fg-3);
-}
-.drawer__route-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.drawer__route .b {
-  height: 22px;
-  padding: 0 6px;
-  font-size: 12px;
-}
-.drawer__routing {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
-  font-size: 12px;
-  color: var(--fg-3);
-}
-.drawer__close {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--fg-3);
-  font-size: 16px;
-  cursor: default;
-}
-.drawer__close:hover {
-  color: var(--fg-1);
-}
-.drawer .chat__body {
-  padding: 16px 16px 8px;
-}
-.drawer .bubble--assistant {
-  max-width: 100%;
-}
-.drawer .composer {
-  padding: 8px 12px 10px;
-}
 .job__log {
   white-space: pre-wrap;
   word-break: break-all;
@@ -2734,4 +2628,125 @@ body,
 }
 .seg__swatch--navy {
   background: linear-gradient(135deg, #191d26 50%, #5cc9ea 50%);
+}
+
+/* 一段会话（Thread）：任务卡右栏和「问 Friday」视图共用 */
+.thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.thread__resolving {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.route-hint {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-2);
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.route-hint__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-hint .b {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+/* 「问 Friday」视图：全宽的一段自由对话 */
+.ask {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ask .chat__body,
+.ask .composer,
+.ask .route-hint {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.ask .composer {
+  background: transparent;
+  padding-bottom: 20px;
+}
+.q__count--ellipsis {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
+.rail__kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-4);
+}
+
+/* 任务卡两栏：左边情境 / 报告 / 终端，右边就是这条任务的会话——会话在哪张卡里就是哪条任务的 */
+.fx__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 0 28px;
+  align-items: start;
+}
+.fx__main {
+  min-width: 0;
+}
+.fx__chat {
+  min-width: 0;
+  margin-top: 22px;
+  padding-left: 24px;
+  border-left: 1px solid var(--line-1);
+  display: flex;
+  flex-direction: column;
+  height: clamp(420px, 64vh, 720px);
+  position: sticky;
+  top: 44px;
+}
+.fx__chat .thread {
+  margin-top: 8px;
+}
+.fx__chat .chat__body {
+  padding: 4px 4px 12px 0;
+  gap: 14px;
+}
+.fx__chat .bubble--assistant {
+  max-width: 100%;
+}
+.fx__chat .composer {
+  padding: 8px 0 0;
+  background: transparent;
+}
+.fx__chat .chat__empty {
+  padding: 24px 8px;
+}
+@media (max-width: 1000px) {
+  .fx__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fx__chat {
+    border-left: none;
+    padding-left: 0;
+    height: 420px;
+    position: static;
+  }
 }

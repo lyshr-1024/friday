@@ -103,6 +103,14 @@ apps/core/src/
 - 首屏问候用 `settings.name` + 本地时段，不再调 `/desk`（前端 `DeskView` 已删）。
 - 验收方式：core `FRIDAY_PORT=7791 FRIDAY_DATA_DIR=<临时目录> FRIDAY_NO_SCHEDULER=1` + `VITE_FRIDAY_PORT=7791 vite --port 1421`，浏览器直开 vite 页面（`coreBaseUrl` 无 Tauri 时回退到本机端口；CORS 放行所有本机 origin），用 agent-browser 截图。
 
+## 会话归任务（2026-09-09）：没有独立的会话抽屉
+
+- 起因：用户"老是对不齐哪个任务对应哪个会话"。根子是任务板、抽屉、终端三个有独立状态、靠两套规则松耦合（抽屉有时跟任务走，⌘N 自由模式又不跟）。换左右边解决不了，所以把抽屉删了，**任务是唯一的锚**。
+- `views/Thread.tsx`：一段会话的消息流 + 输入框 + 附件 + 流式跟随，`forwardRef` 暴露 `load / reset / send / focus`；`conversationId` 为 null 时第一句走 `resolve(prompt)` 决定落到哪。空闲时每 8 秒对一次消息（终端里 Claude 的交付 / 卡住会追加进来）。
+- **任务卡两栏**：Focus 标题下 `.fx__cols` = 左 `.fx__main`（情境 / 报告 / 终端在做 / 终端 / 账）+ 右 `.fx__chat`（sticky，高 clamp(420px, 64vh, 720px)）里挂 `<ChatThread conversationId={task.source.conversationId}>`，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前。「在会话里讨论」按钮删了——讨论一直在卡上。`.wb__page` / `.q__head` 放宽到 1280px。回车 = 主动作在 `.thread` 内不触发。
+- **「问 Friday」是一个视图**（`view === "ask"`，侧栏第一项，`⌘N`）：全宽 Thread，`resolve` 走 `POST /route`（接旧 / 新开），命中旧会话时 `.route-hint` 显示「接着：… · 理由」+「其实是新话题」；页头右侧 新对话（`⌘⇧N`）/ Skill / 模型。Esc 回工作台。`openAsk(pending)` 把要做的事排队，Thread 挂上后的 effect 执行（视图切换是异步的）。「会话历史」点一段 → 在这个视图打开。`take_pending_chat` / `friday://open-conversation` 也落到这里。
+- 已删：`.drawer*` 全部 CSS、`syncDrawerToTask`、free 模式标志、`Board.onDiscuss`。「聚焦终端」仍是 `friday:focus-job` → 切回队列 → 选中任务 → xterm 聚焦。
+
 ## 窗口形态（2026-09-07 晚重排）：只有工作台
 
 - 启动器（Raycast 式浮窗）已删除。热键 `⌘⇧Space`、托盘左键、启动台再点、Reopen 都指向唯一的**工作台窗口**（label `chat`，普通 macOS 窗口，Overlay 标题栏，1180×760）；工作台开着且聚焦时按热键隐藏。应用启动即打开工作台。
