@@ -3,7 +3,6 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { getSession, kill, listSessions, resize, subscribe, write } from "../agent/pty.js";
 import { reopenClaude } from "../agent/runner.js";
-import { markInput } from "../agent/terminal.js";
 import { clearAttention } from "../agent/bridge.js";
 
 export const pty = new Hono()
@@ -30,12 +29,8 @@ export const pty = new Hono()
     const parsed = z.object({ data: z.string().max(65536) }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "data 必填" }, 400);
     if (!write(c.req.param("id"), parsed.data.data)) return c.json({ error: "终端不存在或已退出" }, 404);
-    // 只有带回车的才算"用户给了新指示"：xterm 会自动应答 Ink 的光标位置 / 键盘协议查询，那些也从这里进来，
-    // 不能算输入，否则每次重绘后终端都被判成"忙"，Friday 的转达永远排队
-    if (parsed.data.data.includes("\r")) {
-      markInput(c.req.param("id"));
-      clearAttention(c.req.param("id"));
-    }
+    // 用户在终端里敲了回车 = 给它新指示，上一轮"等你看"的标记清掉
+    if (parsed.data.data.includes("\r")) clearAttention(c.req.param("id"));
     return c.json({ ok: true });
   })
   .post("/pty/:id/resize", async (c) => {

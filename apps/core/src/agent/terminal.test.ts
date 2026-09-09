@@ -1,23 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { createJob } from "../memory/jobs.js";
-import { finishJob } from "../memory/jobs.js";
-import { isIdle, markInput, markStop, resetTerminalState, terminalState } from "./terminal.js";
+import { createJob, finishJob } from "../memory/jobs.js";
+import { isIdle, quietFor, terminalState } from "./terminal.js";
 
-describe("往终端里说话的空闲判定", () => {
-  it("带任务的会话一起来在干活，Stop 之后才空闲，有输入又变忙", () => {
-    createJob({ id: "term-1", project: "demo", dir: "/tmp", task: "修 bug", logPath: "/tmp/x.log" });
-    resetTerminalState("term-1");
-    expect(isIdle("term-1")).toBe(false);
-    markStop("term-1");
-    expect(isIdle("term-1")).toBe(true);
-    markInput("term-1");
-    expect(isIdle("term-1")).toBe(false);
+describe("终端忙不忙：看 PTY 最近有没有输出", () => {
+  it("3 秒内有输出算忙，安静 3 秒算空闲，从没输出过算空闲", () => {
+    const now = 100_000;
+    expect(quietFor(now - 500, now)).toBe(false);
+    expect(quietFor(now - 2999, now)).toBe(false);
+    expect(quietFor(now - 3000, now)).toBe(true);
+    expect(quietFor(undefined, now)).toBe(true);
   });
 
-  it("没带任务的交互式会话一起来就等着输入，算空闲", () => {
-    createJob({ id: "term-2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
-    resetTerminalState("term-2");
-    expect(isIdle("term-2")).toBe(true);
+  it("没有活着的 PTY 就不算空闲（没法往里敲）", () => {
+    createJob({ id: "term-1", project: "demo", dir: "/tmp", task: "修 bug", logPath: "/tmp/x.log" });
+    expect(isIdle("term-1")).toBe(false);
   });
 
   it("终端状态：内嵌 job 没有 PTY 就是断了，只有外部终端才算 external，结束了也是 gone", () => {

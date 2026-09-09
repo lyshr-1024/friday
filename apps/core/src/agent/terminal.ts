@@ -4,27 +4,24 @@ import { getSession, write } from "./pty.js";
 
 /**
  * Friday 往内嵌终端里说话。终端里的 Claude Code 正在输出时不能插话（会插进它的帧里），
- * 所以只在它空闲时敲：上一次 Stop 之后没有新输入 = 空闲；忙就先攒着，下一次 Stop 到了再送。
+ * 所以只在它空闲时敲。忙不忙直接看 PTY 有没有在输出：Claude Code 干活时 spinner 每 100ms
+ * 重绘一帧，空闲时画面完全静止——比 Stop hook + 输入时序可靠（那两个方向都漏过）。
+ * 忙就先攒着，安静下来再送。
  */
-const lastStop = new Map<string, number>();
-const lastInput = new Map<string, number>();
+// 模型思考时偶尔有 2 秒左右的静默间隙，3 秒才算真安静
+export const QUIET_MS = 3000;
 const pending = new Map<string, string[]>();
+const pollers = new Map<string, ReturnType<typeof setInterval>>();
 
-export function markStop(jobId: string): void {
-  lastStop.set(jobId, Date.now());
-  flush(jobId);
-}
-
-export function markInput(jobId: string): void {
-  lastInput.set(jobId, Date.now());
+/** 最近 quietMs 内没有输出 = 空闲 */
+export function quietFor(lastOutputAt: number | undefined, now = Date.now(), quietMs = QUIET_MS): boolean {
+  return now - (lastOutputAt ?? 0) >= quietMs;
 }
 
 export function isIdle(jobId: string): boolean {
-  const stop = lastStop.get(jobId);
-  const input = lastInput.get(jobId);
-  if (stop !== undefined) return (input ?? 0) < stop;
-  // 还没有过 Stop：带任务开场白的会话一起来就在干活，不算空闲；没带任务的交互式会话一起来就等着输入
-  return input === undefined && !getJob(jobId)?.task;
+  const live = getSession(jobId);
+  if (!live || live.exited !== undefined) return false;
+  return quietFor(live.lastOutputAt);
 }
 
 // 文本和回车分两次写：连着发 Claude Code 会把整串当成粘贴，尾随的回车变成换行留在输入框里不提交
@@ -33,16 +30,34 @@ const ENTER_DELAY_MS = 200;
 function send(jobId: string, text: string): boolean {
   const ok = write(jobId, text);
   if (!ok) return false;
-  markInput(jobId);
   setTimeout(() => write(jobId, "\r"), ENTER_DELAY_MS);
   return true;
 }
 
 function flush(jobId: string): void {
   const queue = pending.get(jobId);
-  const next = queue?.shift();
-  if (next === undefined) return;
-  if (!send(jobId, next)) pending.delete(jobId);
+  if (!queue?.length) {
+    stopPoller(jobId);
+    return;
+  }
+  if (!isIdle(jobId)) return;
+  const next = queue.shift()!;
+  if (!send(jobId, next)) {
+    pending.delete(jobId);
+    stopPoller(jobId);
+  }
+  if (!queue.length) stopPoller(jobId);
+}
+
+function stopPoller(jobId: string): void {
+  const t = pollers.get(jobId);
+  if (t) clearInterval(t);
+  pollers.delete(jobId);
+}
+
+/** Stop hook 到了也试着送一次；主要靠轮询等它安静 */
+export function markStop(jobId: string): void {
+  flush(jobId);
 }
 
 export type SayResult = "sent" | "queued" | "no-terminal";
@@ -52,6 +67,7 @@ export function say(jobId: string, text: string): SayResult {
   if (!live || live.exited !== undefined) return "no-terminal";
   if (isIdle(jobId)) return send(jobId, text) ? "sent" : "no-terminal";
   pending.set(jobId, [...(pending.get(jobId) ?? []), text]);
+  if (!pollers.has(jobId)) pollers.set(jobId, setInterval(() => flush(jobId), 1000));
   return "queued";
 }
 
@@ -78,7 +94,6 @@ export function pendingCount(jobId: string): number {
 
 /** 测试用：清掉某个 job 的状态 */
 export function resetTerminalState(jobId: string): void {
-  lastStop.delete(jobId);
-  lastInput.delete(jobId);
   pending.delete(jobId);
+  stopPoller(jobId);
 }

@@ -12,6 +12,8 @@ interface Session {
   buffer: string;
   listeners: Set<Listener>;
   exited?: number;
+  /** 最近一次输出的时间：Claude Code 干活时每 100ms 重绘，安静下来就是在等输入 */
+  lastOutputAt?: number;
 }
 
 const MAX_BUFFER = 400_000;
@@ -37,6 +39,7 @@ export function spawnSession(id: string, script: string, cwd: string, replay = "
   });
   const s: Session = { id, pty, buffer: replay, listeners: new Set() };
   pty.onData((d) => {
+    s.lastOutputAt = Date.now();
     s.buffer = (s.buffer + d).slice(-MAX_BUFFER);
     s.listeners.forEach((l) => l(d));
   });
