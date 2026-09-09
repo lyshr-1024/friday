@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, hot, newConversation, routeAsk, settings, updateSettings } from "../lib/core";
+import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { HotList, LinkMenuHost, fmtTime } from "./shared";
@@ -104,11 +104,21 @@ export function Chat() {
     }
   }
 
+  // 会话列表常轮询：左栏要知道哪条任务的会话 Friday 正在回；有生成中的就快一点
   useEffect(() => {
-    if (!list.some((c) => c.running)) return;
-    const t = setInterval(() => void refreshList(), 5000);
+    const t = setInterval(() => void refreshList(), list.some((c) => c.running) ? 3000 : 10000);
     return () => clearInterval(t);
-  }, [list]);
+  }, [list.some((c) => c.running)]);
+  const runningConvs = useMemo(() => new Set(list.filter((c) => c.running).map((c) => c.id)), [list]);
+
+  // 导航底部「N 个任务在跑」
+  const [runningJobs, setRunningJobs] = useState(0);
+  useEffect(() => {
+    const pull = () => void fetchJobs().then((js) => setRunningJobs(js.filter((j) => j.status === "running").length)).catch(() => {});
+    pull();
+    const t = setInterval(pull, 10000);
+    return () => clearInterval(t);
+  }, []);
 
   async function refreshList() {
     try {
@@ -250,6 +260,7 @@ export function Chat() {
         ))}
         <div className="rail__foot">
           <div className="rail__status">
+            {runningJobs > 0 && <><span className="side__spin" />{runningJobs} 个终端在跑 · </>}
             {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
           </div>
         </div>
@@ -334,7 +345,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} onCounts={setCounts} />
+          <Board view={view} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
         )}
       </div>
     </div>

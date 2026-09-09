@@ -67,7 +67,7 @@ export function Settings() {
       <section>
         <h2>外观</h2>
         <div className="group">
-          <Row label="主题" hint={THEME_OPTIONS.find((t) => t.id === prefs?.theme)?.hint ?? "三套深色预设，切换即生效"}>
+          <Row label="主题" hint={THEME_OPTIONS.find((t) => t.id === prefs?.theme)?.hint ?? "三套深色 + 一套浅色，切换即生效"}>
             <div className="seg">
               {THEME_OPTIONS.map((t) => (
                 <button

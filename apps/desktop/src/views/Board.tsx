@@ -91,9 +91,11 @@ function sortDecide(a: Task, b: Task): number {
   return a.updatedAt.localeCompare(b.updatedAt);
 }
 
-export function Board({ view, tools, onCounts, onFocusChange }: {
+export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   view: BoardView;
   tools: React.ReactNode;
+  /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
+  runningConvs?: Set<string>;
   onCounts?: (c: { decide: number; doing: number }) => void;
   onFocusChange?: (t: Task | null) => void;
 }) {
@@ -203,7 +205,8 @@ export function Board({ view, tools, onCounts, onFocusChange }: {
       <span className={`dot dot--${t.attention ?? t.status}`} />
       <span className="li__main">
         <span className="li__title">{t.title}</span>
-        <span className="li__sub">{line}</span>
+        <span className="li__sub">{runningConvs?.has(t.source.conversationId ?? "") ? `Friday 在回 · ${line}` : line}</span>
+        {(t.terminal === "busy" || runningConvs?.has(t.source.conversationId ?? "")) && <span className="li__bar"><i /></span>}
       </span>
     </button>
   );
@@ -371,6 +374,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   }, [t.id, t.updatedAt, primary?.label, confirming]);
 
   return (
+    <>
     <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
@@ -511,6 +515,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         </details>
       )}
 
+    </article>
       {open && (
         <div className="fx__foot">
           <div className="fx__acts">
@@ -555,7 +560,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           )}
         </div>
       )}
-    </article>
+    </>
   );
 }
 

@@ -98,6 +98,7 @@ export const THEME_OPTIONS = [
   { id: "graphite", label: "石墨", hint: "中性冷灰，默认" },
   { id: "warm", label: "暖灰", hint: "偏暖的褐灰，文字米白" },
   { id: "navy", label: "深蓝", hint: "蓝黑底，青色更融合" },
+  { id: "light", label: "浅色", hint: "亮底深字，白天用" },
 ] as const;
 export type ThemeId = (typeof THEME_OPTIONS)[number]["id"];
 
