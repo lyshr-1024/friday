@@ -4,7 +4,7 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } f
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, inbox as fetchInbox, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
@@ -181,6 +181,24 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   }, [view]);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [slackSyncing, setSlackSyncing] = useState(false);
+  const [slackNote, setSlackNote] = useState<string | null>(null);
+  async function doSlackSync() {
+    setSlackSyncing(true);
+    setSlackNote(null);
+    try {
+      const r = (await fetchInbox(true)) as Awaited<ReturnType<typeof fetchInbox>> & { added?: number };
+      if (!r.configured) setErr("Slack 没接入：跑一下 scripts/slack-auth.sh");
+      else if (r.lastError) setErr(`Slack 同步失败：${r.lastError}`);
+      else setSlackNote(r.added ? `+${r.added} 条` : "没有新消息");
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSlackSyncing(false);
+      window.setTimeout(() => setSlackNote(null), 4000);
+    }
+  }
   async function doSync() {
     setSyncing(true);
     setSyncNote(null);
@@ -311,7 +329,12 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                   </section>
                 )}
                 <section className={`grp grp--side ${pinned.length ? "" : "grp--first"}`}>
-                  <div className="grp__head"><span className="dot dot--decide" />待我决定<span className="mono">{decide.length}</span></div>
+                  <div className="grp__head grp__head--row">
+                    <div className="grp__head grp__head--inner"><span className="dot dot--decide" />待我决定<span className="mono">{decide.length}</span></div>
+                    <button className="grp__act" title="立刻拉一次 Slack（白天每 3 分钟自动）" disabled={slackSyncing} onClick={() => void doSlackSync()}>
+                      {slackSyncing ? <span className="side__spin" /> : "↻"} {slackNote ?? "Slack"}
+                    </button>
+                  </div>
                   {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
                 </section>
                 {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事", doingRight, () => false)}

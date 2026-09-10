@@ -11,6 +11,7 @@ import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { meegleState, syncMeegleOnce } from "./meegle.js";
+import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
@@ -169,6 +170,16 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
+      "slack_sync",
+      "立刻拉一次 Slack（@我 和私聊里的新消息，预处理成线程和任务）。用户说“刷一下 Slack”“看看有没有新消息”时用。平时白天每 3 分钟、其余 15 分钟自动拉。",
+      {},
+      async () => {
+        const added = await syncSlackOnce();
+        if (!slackState.configured) return text("Slack 没接入（钥匙串里没有 friday-slack 凭证），跑一下 scripts/slack-auth.sh。");
+        return text(slackState.lastError ? `同步出错：${slackState.lastError}` : `同步完成：新收到 ${added} 条${slackState.lastSyncAt ? `（${slackState.lastSyncAt.slice(11, 16)}）` : ""}。有需要回的会进「待我决定」。`);
+      },
+    ),
+    tool(
       "task_update",
       "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展，以及待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步）。用户说不用回了就 dropReply。只对这条会话绑定的任务有效。",
       {
@@ -212,4 +223,5 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__jobs_activity",
   "mcp__friday__task_update",
   "mcp__friday__meegle_sync",
+  "mcp__friday__slack_sync",
 ];
