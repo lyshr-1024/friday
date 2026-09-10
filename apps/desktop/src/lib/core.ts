@@ -344,7 +344,7 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
 }
 
 /** 立刻同步一次 Meegle 工单 */
-export async function syncMeegle(): Promise<{ added: number; closed: number; error?: string }> {
+export async function syncMeegle(): Promise<{ added: number; closed: number; reopened: number; error?: string }> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/sync-meegle`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `sync ${res.status}`);
   return res.json();

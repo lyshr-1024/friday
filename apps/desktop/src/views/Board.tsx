@@ -187,7 +187,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     try {
       const r = await syncMeegle();
       if (r.error) setErr(`Meegle 同步失败：${r.error}`);
-      else setSyncNote(r.added || r.closed ? `+${r.added} / 完成 ${r.closed}` : "没有变化");
+      else setSyncNote(r.added || r.closed || r.reopened ? [r.added ? `+${r.added}` : "", r.reopened ? `重开 ${r.reopened}` : "", r.closed ? `完成 ${r.closed}` : ""].filter(Boolean).join(" / ") : "没有变化");
       void load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

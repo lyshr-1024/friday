@@ -165,7 +165,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       {},
       async () => {
         const r = await syncMeegleOnce();
-        return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
+        return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条${r.reopened ? `，Reopen 拉回 ${r.reopened} 条` : ""}，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
       },
     ),
     tool(
