@@ -343,6 +343,13 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
   return res.json();
 }
 
+/** 立刻同步一次 Meegle 工单 */
+export async function syncMeegle(): Promise<{ added: number; closed: number; error?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/sync-meegle`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `sync ${res.status}`);
+  return res.json();
+}
+
 export async function taskPin(id: string, pinned: boolean): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) });
   if (!res.ok) throw new Error(`pin ${res.status}`);

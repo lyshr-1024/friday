@@ -4,7 +4,7 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } f
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
@@ -179,6 +179,24 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     if (view === "doing") setDoingOpen(true);
     if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
   }, [view]);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  async function doSync() {
+    setSyncing(true);
+    setSyncNote(null);
+    try {
+      const r = await syncMeegle();
+      if (r.error) setErr(`Meegle 同步失败：${r.error}`);
+      else setSyncNote(r.added || r.closed ? `+${r.added} / 完成 ${r.closed}` : "没有变化");
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(false);
+      window.setTimeout(() => setSyncNote(null), 4000);
+    }
+  }
+
   async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
     try {
@@ -237,12 +255,15 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}>{t.pinned ? "★" : "☆"}</button>
     </div>
   );
-  const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean) => (
+  const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean, extra?: React.ReactNode) => (
     <section className="grp grp--side">
-      <button className="grp__head" onClick={toggle}>
-        {label}<span className="mono">{list.length}</span>
-        <span className="grp__tog">{open ? "收起" : "展开 ›"}</span>
-      </button>
+      <div className="grp__head grp__head--row">
+        <button className="grp__head grp__head--inner" onClick={toggle}>
+          {label}<span className="mono">{list.length}</span>
+          <span className="grp__tog">{open ? "收起" : "展开 ›"}</span>
+        </button>
+        {extra}
+      </div>
       {open && (list.length ? list.map((t) => item(t, line(t), dim(t))) : <div className="li li--empty">{empty}</div>)}
     </section>
   );
@@ -294,7 +315,10 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                   {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
                 </section>
                 {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事", doingRight, () => false)}
-                {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high")}
+                {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high",
+                  <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
+                    {syncing ? <span className="side__spin" /> : "↻"} {syncNote ?? "Meegle"}
+                  </button>)}
                 {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的", (t) => fmtTime(t.updatedAt), () => true)}
               </>
             )}

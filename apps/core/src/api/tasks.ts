@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { syncMeegleOnce } from "../agent/meegle.js";
+import { meegleState, syncMeegleOnce } from "../agent/meegle.js";
 import { z } from "zod";
 import type { Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
@@ -21,7 +21,7 @@ const newTask = z.object({
 });
 
 export const tasks = new Hono()
-  .post("/tasks/sync-meegle", async (c) => c.json(await syncMeegleOnce()))
+  .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", (c) => {
     const board = taskBoard();
     return c.json({ ...board, tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)) });

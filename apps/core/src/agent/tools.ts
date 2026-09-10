@@ -10,6 +10,7 @@ import { addMessage, conversationExists } from "../memory/conversations.js";
 import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
+import { meegleState, syncMeegleOnce } from "./meegle.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
@@ -159,6 +160,15 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
+      "meegle_sync",
+      "立刻同步一次 Meegle 分派给用户的工单到任务板（新工单建待办、已有的更新、不再分派的自动完成）。用户说“刷一下 Meegle”“拉一下工单”“看看有没有新需求”时用。平时每 15 分钟自动同步一次。",
+      {},
+      async () => {
+        const r = await syncMeegleOnce();
+        return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
+      },
+    ),
+    tool(
       "task_update",
       "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展，以及待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步）。用户说不用回了就 dropReply。只对这条会话绑定的任务有效。",
       {
@@ -201,4 +211,5 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__terminal_say",
   "mcp__friday__jobs_activity",
   "mcp__friday__task_update",
+  "mcp__friday__meegle_sync",
 ];

@@ -3054,3 +3054,37 @@ body,
   box-shadow: 0 0 0 3px rgba(255, 149, 146, 0.18);
   animation: pulse 1.2s ease-in-out infinite;
 }
+
+/* 分组头右侧的动作（待办 → 刷新 Meegle） */
+.grp__head--row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+.grp__head--row .grp__head--inner {
+  flex: 1;
+  padding: 0;
+}
+.grp__act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 11px;
+  cursor: default;
+}
+.grp__act:hover {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.grp__act:disabled {
+  color: var(--fg-4);
+}
