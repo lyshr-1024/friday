@@ -81,7 +81,14 @@ export function resize(id: string, cols: number, rows: number): boolean {
 export function kill(id: string): boolean {
   const s = sessions.get(id);
   if (!s) return false;
-  if (s.exited === undefined) s.pty.kill();
+  if (s.exited === undefined) {
+    // 先给整个进程组 SIGTERM（zsh → script → claude 一串），再挂断 PTY；只 kill PTY 的话 claude 会变孤儿继续跑
+    try {
+      process.kill(-s.pty.pid, "SIGTERM");
+    } catch {
+    }
+    s.pty.kill();
+  }
   sessions.delete(id);
   return true;
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { closeTaskTerminal } from "./terminal.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -153,5 +154,8 @@ export async function executePending(taskId: string, actionId: string, deps: { s
     throw e;
   }
   const t = getTask(taskId)!;
-  return t.pending?.length ? t : updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  if (t.pending?.length) return t;
+  const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  closeTaskTerminal(done, "待审动作全部执行完，任务完成");
+  return done;
 }

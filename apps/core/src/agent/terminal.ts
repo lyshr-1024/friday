@@ -1,6 +1,8 @@
 import type { TerminalState } from "@friday/shared";
-import { getJob } from "../memory/jobs.js";
-import { getSession, listSessions, write } from "./pty.js";
+import type { Task } from "@friday/shared";
+import { finishJob, getJob } from "../memory/jobs.js";
+import { record } from "../memory/audit.js";
+import { getSession, kill, listSessions, write } from "./pty.js";
 import { publish } from "../bus.js";
 
 /**
@@ -93,6 +95,21 @@ export function pollTerminalStates(): void {
   }
 }
 setInterval(pollTerminalStates, 500).unref();
+
+/** 任务标完成 / 忽略：把它的内嵌终端和里面跑的脚本一起关掉，job 收尾，别留孤儿进程和「运行中」 */
+export function closeTaskTerminal(task: Pick<Task, "id" | "source">, why: string): boolean {
+  const jobId = task.source.jobId;
+  if (!jobId) return false;
+  const job = getJob(jobId);
+  const live = getSession(jobId);
+  const wasLive = Boolean(live && live.exited === undefined);
+  if (wasLive) kill(jobId);
+  if (job?.status === "running") finishJob(jobId, 0);
+  if (wasLive || job?.status === "running") {
+    record({ taskId: task.id, action: "terminal_closed", why, how: wasLive ? "关掉内嵌终端及其进程组，job 收尾" : "job 收尾（终端已不在）", evidence: { jobId }, risk: "reversible" });
+  }
+  return wasLive;
+}
 
 export const TERMINAL_STATE_LABEL: Record<TerminalState, string> = {
   busy: "终端在输出",

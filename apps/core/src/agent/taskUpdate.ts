@@ -2,6 +2,7 @@ import type { Task, TaskStatus } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
+import { closeTaskTerminal } from "./terminal.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -65,6 +66,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     const closing = patch.status === "done" || patch.status === "ignored";
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
+    if (closing) closeTaskTerminal(task, "用户在会话里说这条任务收工了");
   }
 
   if (changed.length) {

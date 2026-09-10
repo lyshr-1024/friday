@@ -6,7 +6,7 @@ import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
-import { terminalState } from "../agent/terminal.js";
+import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
@@ -115,10 +115,12 @@ export const tasks = new Hono()
   })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
+    if (t) closeTaskTerminal(t, "你把任务标记完成");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", (c) => {
     const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
+    if (t) closeTaskTerminal(t, "你忽略了这条任务");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
