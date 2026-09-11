@@ -300,7 +300,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
 
   // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
   const item = (t: Task, line: string, dim = false) => (
-    <div key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""} ${t.pinned ? "li--pinned" : ""}`} onClick={() => setSelectedId(t.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(t.id); }}>
+    <div key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""} ${t.pinned ? "li--pinned" : ""} ${t.attention ? `li--${t.attention}` : t.status === "review" || t.status === "blocked" ? "li--review" : ""}`} onClick={() => setSelectedId(t.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(t.id); }}>
       <span className={`dot dot--${t.attention ?? t.status}`} />
       <span className="li__main">
         <span className="li__title">{t.title}</span>

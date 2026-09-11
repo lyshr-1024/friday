@@ -24,14 +24,18 @@
   --font-text: var(--font);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   /* 2026-09-08 设计系统：Radix Slate 深色 12 级按语义用，唯一主按钮近白，青色只标「正在活动」 */
-  --bg-1: #0c0d0f;
-  --bg-2: #141618;
-  --bg-3: #1c1f23;
-  --bg-4: #262a2f;
-  --bg-5: #30353b;
-  --line-1: #2a2e33;
-  --line-2: #3d434a;
-  --line-3: #58606a;
+  /* 表面五级，相邻只差 3-5 点 L*：底 4.6 / 侧栏 8.7 / 卡片 14.5 / 浮层 19.7 / tooltip 25.1。
+     底色不用纯黑（Linear 的规矩），否则卡片浮不出来。 */
+  --bg-1: #0e1013;
+  --bg-2: #17191d;
+  --bg-3: #21252a;
+  --bg-4: #2b3037;
+  --bg-5: #363c44;
+  /* 边框四级：分隔线比边框暗（line-0 只画内部分隔，line-1 画外框，line-2 是 hover/focus） */
+  --line-0: #1e2126;
+  --line-1: #252a30;
+  --line-2: #333941;
+  --line-3: #4d5561;
   --fg-1: #edeef0;
   --fg-2: #b0b4ba;
   --fg-3: #696e77;
@@ -62,7 +66,11 @@
   --green: #3dd68c;
   --ok: var(--green);
   --bad: var(--red);
-  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* 整圈 inset hairline + 顶边更亮的高光 = 卡片有厚度（Vercel/Geist 的做法）。
+     深色下阴影几乎看不见，层次主要靠这圈 ring 和表面色差撑。 */
+  --ring-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+  --ring-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.36), var(--ring-hairline), var(--ring-top);
 
   /* 2026-09-11 精致化：字号、间距、圆角、过渡全部收进标尺，同级元素取同一个值。
      字号四档 —— 标题 / 正文 / 辅助 / 微标签；间距全是 4 的倍数。 */
@@ -1811,7 +1819,7 @@ body,
 
 /* 展开的那一件 */
 .fx {
-  border: 1px solid var(--line-2);
+  border: 1px solid var(--line-1);
   border-radius: var(--r-lg);
   background: var(--bg-3);
   box-shadow: var(--shadow-card);
@@ -1846,7 +1854,7 @@ body,
   margin: var(--s-1) 0 0;
   font-size: var(--t-title);
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   line-height: var(--lh-title);
   color: var(--fg-1);
   overflow-wrap: anywhere;
@@ -1877,7 +1885,7 @@ body,
   flex: none;
   margin-top: var(--s-3);
   padding: var(--s-3) var(--s-5);
-  border: 1px solid var(--line-2);
+  border: 1px solid var(--line-1);
   border-radius: var(--r-md);
   background: var(--bg-2);
   box-shadow: var(--shadow-card);
@@ -1949,7 +1957,7 @@ body,
 }
 .fx__more {
   margin-top: var(--s-5);
-  border-top: 1px solid var(--line-1);
+  border-top: 1px solid var(--line-0);
 }
 .fx__more summary {
   list-style: none;
@@ -2072,7 +2080,7 @@ body,
 .fx__doing {
   margin-top: var(--s-5);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
+  border-top: 1px solid var(--line-0);
 }
 .fx__activity {
   list-style: none;
@@ -2122,7 +2130,7 @@ body,
 .fx__term {
   margin-top: var(--s-5);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
+  border-top: 1px solid var(--line-0);
 }
 .fx__term .xterm-host {
   border-radius: var(--r-md);
@@ -2304,9 +2312,9 @@ body,
 .grp__head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--s-3);
   width: 100%;
-  padding: 0 0 8px;
+  padding: 0 0 var(--s-2);
   border: none;
   background: none;
   font: inherit;
@@ -2577,6 +2585,7 @@ body,
   --bg-3: #1f1c18;
   --bg-4: #29251f;
   --bg-5: #332e27;
+  --line-0: #251f19;
   --line-1: #2e2a24;
   --line-2: #423c34;
   --line-3: #5c554b;
@@ -2602,6 +2611,7 @@ body,
   --bg-3: #191d26;
   --bg-4: #222735;
   --bg-5: #2b3141;
+  --line-0: #1d222c;
   --line-1: #262c39;
   --line-2: #384051;
   --line-3: #4f596d;
@@ -2628,6 +2638,7 @@ body,
   --bg-3: #f7f8fa;
   --bg-4: #e9ecf0;
   --bg-5: #dde1e6;
+  --line-0: #eef0f3;
   --line-1: #e4e7eb;
   --line-2: #cfd4db;
   --line-3: #aab2bd;
@@ -2647,7 +2658,9 @@ body,
   --amber: #d98b06;
   --red: #d64545;
   --green: #1f9d5a;
-  --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.02);
+  --ring-hairline: inset 0 0 0 1px rgba(15, 23, 42, 0.07);
+  --ring-top: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.07), var(--ring-hairline), var(--ring-top);
   color-scheme: light;
 }
 
@@ -2776,7 +2789,7 @@ body,
 .fx__talk {
   margin-top: var(--s-5);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
+  border-top: 1px solid var(--line-0);
   display: flex;
   flex-direction: column;
 }
@@ -2825,7 +2838,7 @@ body,
 .fx__confirm {
   margin-top: var(--s-3);
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line-2);
+  border: 1px solid var(--line-1);
   border-radius: var(--r-md);
   background: var(--bg-2);
   display: flex;
@@ -2930,7 +2943,7 @@ body,
   align-items: flex-start;
   gap: var(--s-3);
   width: 100%;
-  padding: var(--s-2);
+  padding: 6px var(--s-3);
   border: none;
   border-radius: var(--r-sm);
   background: none;
@@ -2938,7 +2951,7 @@ body,
   font: inherit;
   text-align: left;
   cursor: default;
-  transition: background var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 .li:hover {
   background: var(--bg-2);
@@ -2947,9 +2960,17 @@ body,
 .li--on:hover {
   background: var(--bg-4);
 }
+/* 选中的那条要看全标题，其余保持单行以维持扫描密度 */
+.li--on .li__title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
 .li .dot {
   flex: none;
-  margin-top: 5px;
+  margin-top: 4px;
 }
 .li__main {
   min-width: 0;
@@ -2959,19 +2980,19 @@ body,
 }
 .li__title {
   font-size: var(--t-body);
-  line-height: var(--lh-title);
+  line-height: 1.25;
+  letter-spacing: -0.003em;
   color: var(--fg-1);
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .li--dim .li__title {
   color: var(--fg-2);
 }
 .li__sub {
   font-size: var(--t-micro);
+  line-height: 1.3;
   color: var(--fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3208,4 +3229,51 @@ body,
   align-items: center;
   gap: var(--s-1);
   margin-left: var(--s-2);
+}
+
+/* 「等你决定」和「正在做」靠形态区分，不靠第二种颜色（Linear 的规矩）：
+   等你审 = 左侧静态竖条（有重量、不动），正在做 = 行底整宽跑条（有时间维度）。
+   竖条用 inset box-shadow 画，不占布局、不影响行高。 */
+.li--review,
+.li--question,
+.li--blocked {
+  box-shadow: inset 2px 0 0 var(--amber);
+}
+.li--blocked,
+.li--question {
+  box-shadow: inset 2px 0 0 var(--red);
+}
+.li--on.li--review,
+.li--on.li--question,
+.li--on.li--blocked {
+  /* 选中时竖条更实，压住背景色变化 */
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.li--on.li--blocked,
+.li--on.li--question {
+  box-shadow: inset 3px 0 0 var(--red);
+}
+
+/* 正在做：跑条贴行底通宽，比原来 120px 的小段更像「进度」 */
+.li__bar {
+  position: absolute;
+  left: var(--s-3);
+  right: var(--s-3);
+  bottom: 2px;
+  width: auto;
+  height: 2px;
+  margin-top: 0;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--live-solid) 18%, transparent);
+}
+.li__bar i {
+  width: 32%;
+  border-radius: 1px;
+}
+
+/* 微标签旁的图标要更细，否则 11px 字号下描边显得比文字重 */
+.grp__act .icon path,
+.fx__pin .icon path,
+.k .icon path {
+  stroke-width: 1.25;
 }
