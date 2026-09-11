@@ -6,6 +6,7 @@ import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, inbox as fetchInbox, learnNow, syncMeegle, taskResearch, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
+import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
 
@@ -92,6 +93,12 @@ function doingRight(t: Task): string {
       return p ?? STATUS[t.status];
   }
 }
+
+const ATTENTION_NOTE: Record<string, string> = {
+  question: " · 终端在问你，回答前它不会继续",
+  review: " · 这轮做完了，等你看",
+  blocked: " · 卡住了，需要你",
+};
 
 function meta(t: Task): string {
   return [KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
@@ -300,7 +307,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
         <span className="li__sub">{runningConvs?.has(t.source.conversationId ?? "") ? `Friday 在回 · ${line}` : line}</span>
         {(t.terminal === "busy" || runningConvs?.has(t.source.conversationId ?? "")) && <span className="li__bar"><i /></span>}
       </span>
-      <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}>{t.pinned ? "★" : "☆"}</button>
+      <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}><Icon name="star" filled={t.pinned} /></button>
     </div>
   );
   const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean, extra?: React.ReactNode) => (
@@ -308,7 +315,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       <div className="grp__head grp__head--row">
         <button className="grp__head grp__head--inner" onClick={toggle}>
           {label}<span className="mono">{list.length}</span>
-          <span className="grp__tog">{open ? "收起" : "展开 ›"}</span>
+          <span className="grp__tog">{open ? "收起" : "展开"}<Icon name={open ? "chevronDown" : "chevronRight"} /></span>
         </button>
         {extra}
       </div>
@@ -354,7 +361,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
               <>
                 {pinned.length > 0 && (
                   <section className="grp grp--side grp--first">
-                    <div className="grp__head"><span className="li__pin-mark">★</span>关注<span className="mono">{pinned.length}</span></div>
+                    <div className="grp__head"><span className="li__pin-mark"><Icon name="star" filled /></span>关注<span className="mono">{pinned.length}</span></div>
                     {pinned.map((t) => item(t, t.attention ? doingRight(t) : needs(t) || doingRight(t)))}
                   </section>
                 )}
@@ -362,7 +369,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                   <div className="grp__head grp__head--row">
                     <div className="grp__head grp__head--inner"><span className="dot dot--decide" />待我决定<span className="mono">{decide.length}</span></div>
                     <button className="grp__act" title="立刻拉一次 Slack（白天每 3 分钟自动）" disabled={slackSyncing} onClick={() => void doSlackSync()}>
-                      {slackSyncing ? <span className="side__spin" /> : "↻"} {slackNote ?? "Slack"}
+                      {slackSyncing ? <span className="side__spin" /> : <Icon name="refresh" />} {slackNote ?? "Slack"}
                     </button>
                   </div>
                   {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
@@ -371,10 +378,10 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                 {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high",
                   <>
                     <button className="grp__act" title="让 Friday 现在自学一题：挑一个手头项目的具体问题，研究社区做法给建议（要一两分钟；平时每天早上自动）" disabled={learning} onClick={() => void doLearn()}>
-                      {learning ? <span className="side__spin" /> : "✦"} {learnNote ?? "学一题"}
+                      {learning ? <span className="side__spin" /> : <Icon name="sparkle" />} {learnNote ?? "学一题"}
                     </button>
                     <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
-                      {syncing ? <span className="side__spin" /> : "↻"} {syncNote ?? "Meegle"}
+                      {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
                     </button>
                   </>)}
                 {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的", (t) => fmtTime(t.updatedAt), () => true)}
@@ -501,8 +508,11 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
-        <span>{STATUS[t.status]}{t.attention === "question" ? " · 终端在问你，回答前它不会继续" : t.attention === "review" ? " · 这轮做完了，等你看" : t.attention === "blocked" ? " · 卡住了，需要你" : ""} · {meta(t)} · 卡片更新于 {fmtTime(t.updatedAt)}</span>
-        <button className={`fx__pin ${t.pinned ? "on" : ""}`} title={t.pinned ? "取消关注" : "关注这条任务"} onClick={() => void onAct(t, () => taskPin(t.id, !t.pinned))}>{t.pinned ? "★ 已关注" : "☆ 关注"}</button>
+        <span className="fx__state">{STATUS[t.status]}{ATTENTION_NOTE[t.attention ?? ""] ?? ""}</span>
+        <span className="fx__meta-dim">{meta(t)} · 更新于 {fmtTime(t.updatedAt)}</span>
+        <button className={`fx__pin ${t.pinned ? "on" : ""}`} title={t.pinned ? "取消关注" : "关注这条任务"} onClick={() => void onAct(t, () => taskPin(t.id, !t.pinned))}>
+          <Icon name="star" filled={t.pinned} />{t.pinned ? "已关注" : "关注"}
+        </button>
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
@@ -533,7 +543,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
             <div>
               <span className="k">
                 通过前请确认 · {checkedCount}/{r.verify.length}
-                {checkedCount === r.verify.length && <span className="fx__check-all">全部确认 ✓{first ? "，点「通过并执行」推进" : t.source.jobId ? "，已让终端继续" : "，可以标记完成"}</span>}
+                {checkedCount === r.verify.length && <span className="fx__check-all"><Icon name="check" />全部确认{first ? "，点「通过并执行」推进" : t.source.jobId ? "，已让终端继续" : "，可以标记完成"}</span>}
               </span>
               <ul className="fx__check">
                 {r.verify.map((c, i) => (
@@ -616,8 +626,9 @@ function Focus({ t, onAct, onClose, closable, ref }: {
             window.dispatchEvent(new Event("friday:tasks-changed"));
             return { id: conv.id, prompt };
           }}
+          compact
           emptyTitle="关于这条任务，直接问"
-          emptyHint="Friday 带着它的情境、链接和原文回答；要动代码会先说判断等你点头。终端里 Claude 的交付和卡住也会出现在这里；不放心再展开下面的终端自己看。"
+          emptyHint="Friday 带着情境和原文回答；要动代码会先说判断等你点头。"
           placeholder="跟 Friday 说这条任务…"
           hint="Enter 发送 · Shift+Enter 换行"
         />
@@ -638,7 +649,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         <div className="fx__term">
           <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)}>
             <span className="k">终端{TERM_LABEL[termOpen && liveBusy !== null && (actTerminal ?? t.terminal) !== "gone" ? (liveBusy ? "busy" : "idle") : (actTerminal ?? t.terminal ?? "unknown")]}</span>
-            <span className="grp__tog">{termOpen ? "收起" : "展开 ›"}</span>
+            <span className="grp__tog">{termOpen ? "收起" : "展开"}<Icon name={termOpen ? "chevronDown" : "chevronRight"} /></span>
           </button>
           {termOpen && <Terminal id={t.source.jobId} onOutput={onTermOutput} />}
         </div>

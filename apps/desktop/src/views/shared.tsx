@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
@@ -144,7 +145,7 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
           ) : (
             <span className="attach__file mono">{a.name}</span>
           )}
-          {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除">×</button>}
+          {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除"><Icon name="cross" /></button>}
         </div>
       ))}
     </div>

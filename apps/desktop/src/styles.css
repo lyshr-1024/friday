@@ -63,6 +63,29 @@
   --ok: var(--green);
   --bad: var(--red);
   --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* 2026-09-11 精致化：字号、间距、圆角、过渡全部收进标尺，同级元素取同一个值。
+     字号四档 —— 标题 / 正文 / 辅助 / 微标签；间距全是 4 的倍数。 */
+  --t-title: 19px;
+  --t-body: 13.5px;
+  --t-aux: 12.5px;
+  --t-micro: 11px;
+  --lh-title: 1.35;
+  --lh-body: 1.65;
+  --lh-aux: 1.55;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 150ms;
+  --dur-slow: 220ms;
   color-scheme: dark;
 }
 
@@ -356,7 +379,7 @@ kbd {
   background: var(--fill-2);
   position: relative;
   cursor: pointer;
-  transition: background 160ms;
+  transition: background var(--dur) var(--ease);
   padding: 0;
 }
 .switch::after {
@@ -369,7 +392,7 @@ kbd {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform var(--dur) var(--ease);
 }
 .switch--on {
   background: var(--green);
@@ -1427,6 +1450,7 @@ kbd {
   text-decoration: underline;
   text-decoration-color: var(--label-3);
   text-underline-offset: 2px;
+  transition: text-decoration-color var(--dur) var(--ease);
 }
 .link:hover {
   text-decoration-color: var(--live);
@@ -1473,8 +1497,10 @@ kbd {
   border-radius: 50%;
   background: var(--label);
   color: var(--page);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: default;
 }
 .composer__attach {
@@ -1648,7 +1674,7 @@ body,
 /* 顶栏：留出红绿灯，可拖动 */
 .q__head {
   flex: none;
-  padding: 38px 44px 0 44px;
+  padding: var(--s-8) var(--s-8) 0;
   max-width: 980px;
   width: 100%;
   margin: 0 auto;
@@ -1704,18 +1730,19 @@ body,
 /* 通用按钮：主 / 次 / 文字 */
 .b {
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 0 14px;
+  border-radius: var(--r-md);
+  padding: 0 var(--s-4);
   height: 32px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-body);
   color: var(--fg-1);
   background: none;
   cursor: default;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-2);
   white-space: nowrap;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 .b:disabled {
   opacity: 0.45;
@@ -1726,7 +1753,8 @@ body,
   font-weight: 500;
 }
 .b--primary:hover {
-  background: #fff;
+  background: var(--fg-1);
+  filter: brightness(1.08);
 }
 .b--primary kbd {
   color: var(--primary-fg);
@@ -1755,14 +1783,16 @@ body,
 }
 
 /* 新建：一行输入 */
-/* 状态点 */
+/* 状态点。旧定义（L111）带 margin-right:6px，会和父级 gap 叠加，这里清掉 */
 .dot {
   display: inline-block;
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  margin-right: 0;
   background: var(--fg-4);
   flex: none;
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 .dot--review,
 .dot--decide {
@@ -1782,12 +1812,12 @@ body,
 /* 展开的那一件 */
 .fx {
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--bg-3);
   box-shadow: var(--shadow-card);
-  padding: 22px 24px 20px;
-  margin-bottom: 8px;
-  animation: rise-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  padding: var(--s-6) var(--s-6) var(--s-5);
+  margin-bottom: var(--s-2);
+  animation: rise-in var(--dur-slow) var(--ease) both;
 }
 .fx__meta {
   position: sticky;
@@ -1795,20 +1825,29 @@ body,
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: -22px -24px 0;
-  padding: 14px 24px 8px;
-  border-radius: 12px 12px 0 0;
+  gap: var(--s-2);
+  margin: calc(var(--s-6) * -1) calc(var(--s-6) * -1) 0;
+  padding: var(--s-4) var(--s-6) var(--s-2);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
   background: var(--bg-3);
   color: var(--fg-3);
-  font-size: 12px;
+  font-size: var(--t-micro);
+  letter-spacing: 0.01em;
+}
+/* 状态是这一行唯一该被读到的东西，其余压成更弱的一层 */
+.fx__state {
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.fx__meta-dim {
+  color: var(--fg-4);
 }
 .fx__title {
-  margin: 6px 0 0;
-  font-size: 19px;
+  margin: var(--s-1) 0 0;
+  font-size: var(--t-title);
   font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.4;
+  letter-spacing: -0.015em;
+  line-height: var(--lh-title);
   color: var(--fg-1);
   overflow-wrap: anywhere;
 }
@@ -1827,8 +1866,8 @@ body,
 .fx__grid {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 20px 32px;
-  margin-top: 22px;
+  gap: var(--s-5) var(--s-8);
+  margin-top: var(--s-6);
 }
 .fx__grid--single {
   grid-template-columns: minmax(0, 1fr);
@@ -1836,10 +1875,10 @@ body,
 /* 操作栏：独立的一条，和正文分开，一眼能认出这是动手的地方 */
 .fx__foot {
   flex: none;
-  margin-top: 10px;
-  padding: 12px 18px 12px;
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-5);
   border: 1px solid var(--line-2);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: var(--bg-2);
   box-shadow: var(--shadow-card);
 }
@@ -1850,28 +1889,31 @@ body,
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--s-5);
 }
+/* 小标签：小字号 + 字距 + 稍重字重，和正文靠形态区分而不只靠灰度 */
 .k {
   display: block;
-  color: var(--fg-3);
-  font-size: 12px;
-  margin-bottom: 6px;
+  color: var(--fg-2-dim);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--s-2);
 }
 .fx__text {
   color: var(--fg-2);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 .fx__quote {
   position: relative;
-  padding: 12px 16px;
-  border-radius: 6px;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
   background: var(--bg-4);
   color: var(--fg-1);
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 .fx__quote::before {
@@ -1890,30 +1932,32 @@ body,
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--s-3);
 }
 .fx__check label {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--s-2);
   color: var(--fg-2);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--t-body);
+  line-height: var(--lh-aux);
+  transition: color var(--dur) var(--ease);
 }
 .fx__check input {
   margin: 3px 0 0;
   accent-color: var(--fg-1);
 }
 .fx__more {
-  margin-top: 18px;
+  margin-top: var(--s-5);
   border-top: 1px solid var(--line-1);
 }
 .fx__more summary {
   list-style: none;
-  padding: 10px 0;
+  padding: var(--s-3) 0;
   color: var(--fg-3);
-  font-size: 12px;
+  font-size: var(--t-aux);
   cursor: default;
+  transition: color var(--dur) var(--ease);
 }
 .fx__more summary::-webkit-details-marker {
   display: none;
@@ -1925,10 +1969,10 @@ body,
   color: var(--fg-2);
 }
 .fx__more-body {
-  padding: 0 0 14px;
+  padding: 0 0 var(--s-4);
   color: var(--fg-2);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
 }
 .fx__more-body ul,
 .fx__more-body ol {
@@ -1944,8 +1988,8 @@ body,
 .fx__acts {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 24px;
+  gap: var(--s-3);
+  margin-top: var(--s-6);
 }
 .fx__acts .b--primary {
   height: 34px;
@@ -1963,9 +2007,10 @@ body,
   flex: 1;
   min-width: 0;
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--s-3);
   border: 1px solid var(--line-2);
-  border-radius: 7px;
+  border-radius: var(--r-sm);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
   background: var(--bg-1);
   color: var(--fg-1);
   font: inherit;
@@ -2002,10 +2047,10 @@ body,
   gap: 12px;
 }
 .fx__raw li {
-  padding: 10px 12px;
-  border-radius: 6px;
+  padding: var(--s-3);
+  border-radius: var(--r-sm);
   background: var(--bg-3);
-  line-height: 1.6;
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 .fx__raw-who {
@@ -2025,8 +2070,8 @@ body,
 
 /* 终端在做：从 transcript 读出来的动作流，一行一步 */
 .fx__doing {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
   border-top: 1px solid var(--line-1);
 }
 .fx__activity {
@@ -2075,12 +2120,12 @@ body,
 }
 
 .fx__term {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
   border-top: 1px solid var(--line-1);
 }
 .fx__term .xterm-host {
-  border-radius: 8px;
+  border-radius: var(--r-md);
   overflow: hidden;
   border: 1px solid var(--line-1);
   /* 跟着窗口走，但不少于 24 行（12px × 1.25 行高 = 15px/行）：Claude Code 的 Ink 界面一帧
@@ -2265,11 +2310,12 @@ body,
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--t-micro);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--fg-3);
   cursor: default;
+  transition: color var(--dur) var(--ease);
 }
 .grp__head:hover {
   color: var(--fg-2);
@@ -2279,20 +2325,28 @@ body,
 }
 .grp__head .grp__tog {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
   font-weight: 400;
+  letter-spacing: 0;
+}
+.grp__head .grp__tog .icon {
+  color: var(--fg-4);
 }
 .empty {
-  padding: 48px 0;
+  padding: var(--s-8) 0;
   text-align: center;
   color: var(--fg-3);
-  font-size: 13px;
+  font-size: var(--t-aux);
+  line-height: var(--lh-aux);
 }
 .empty strong {
   display: block;
   color: var(--fg-2);
   font-weight: 500;
   font-size: 15px;
-  margin-bottom: 6px;
+  margin-bottom: var(--s-2);
 }
 
 /* 操作记录 */
@@ -2420,9 +2474,10 @@ body,
 .rail__brand {
   position: absolute;
   top: 52px;
-  left: 20px;
-  font-size: 15px;
+  left: var(--s-5);
+  font-size: var(--t-body);
   font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--fg-1);
 }
 .rail__item {
@@ -2430,15 +2485,16 @@ body,
   align-items: center;
   gap: 10px;
   height: 34px;
-  padding: 0 12px;
+  padding: 0 var(--s-3);
   border: none;
-  border-radius: 7px;
+  border-radius: var(--r-md);
   background: none;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--t-body);
   color: var(--fg-2);
   cursor: default;
   text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .rail__item:hover {
   background: var(--bg-3);
@@ -2470,9 +2526,9 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 var(--s-2);
   color: var(--fg-2);
-  font-size: 13px;
+  font-size: var(--t-aux);
 }
 .rail__row kbd {
   font-family: var(--mono);
@@ -2483,9 +2539,10 @@ body,
   padding: 0;
 }
 .rail__status {
-  padding: 4px 8px 0;
+  padding: var(--s-1) var(--s-2) 0;
   color: var(--fg-3);
-  font-size: 11px;
+  font-size: var(--t-micro);
+  line-height: var(--lh-aux);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2597,8 +2654,8 @@ body,
 /* 设置页：分段选择 */
 .seg {
   display: inline-flex;
-  padding: 3px;
-  border-radius: 8px;
+  padding: var(--s-1);
+  border-radius: var(--r-md);
   background: var(--bg-3);
   border: 1px solid var(--line-1);
   gap: 2px;
@@ -2606,15 +2663,16 @@ body,
 .seg__item {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 10px;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--t-aux);
   color: var(--fg-2);
   cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .seg__item.on {
   background: var(--bg-5);
@@ -2716,8 +2774,8 @@ body,
 
 /* 和 Friday 聊这条任务：单列，在终端之上；先看 Friday 说的，不放心再展开终端 */
 .fx__talk {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
   border-top: 1px solid var(--line-1);
   display: flex;
   flex-direction: column;
@@ -2725,10 +2783,13 @@ body,
 .fx__talk .thread {
   /* .thread 自带 flex:1 是给全屏视图的；在卡片里 flex-basis 会盖掉 height，必须 flex:none 才有高度 */
   flex: none;
-  margin-top: 8px;
-  height: clamp(320px, 44vh, 480px);
+  margin-top: var(--s-2);
+  /* 空态只占两行的高度，真有对话了再撑到 44vh；避免空白比内容还高 */
+  height: auto;
+  min-height: 0;
+  max-height: clamp(320px, 44vh, 480px);
   border: 1px solid var(--line-1);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--bg-2);
 }
 .fx__talk .chat__body {
@@ -2762,10 +2823,10 @@ body,
 
 /* 发消息前的确认框：要发的原文、可改、⌘↵ 发 */
 .fx__confirm {
-  margin-top: 12px;
-  padding: 12px 14px 12px;
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-4);
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--bg-2);
   display: flex;
   flex-direction: column;
@@ -2785,14 +2846,15 @@ body,
   width: 100%;
   resize: vertical;
   min-height: 84px;
-  padding: 10px 12px;
+  padding: var(--s-3);
   border: 1px solid var(--line-3);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
+  transition: box-shadow var(--dur) var(--ease);
   background: var(--bg-1);
   color: var(--fg-1);
   font: inherit;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
   outline: none;
 }
 .fx__confirm-text:focus {
@@ -2852,11 +2914,11 @@ body,
   padding-top: 16px;
 }
 .split__detail .empty {
-  padding-top: 120px;
+  padding-top: 96px;
 }
 .grp--side {
-  margin-top: 22px;
-  padding-top: 10px;
+  margin-top: var(--s-6);
+  padding-top: var(--s-3);
 }
 .grp--first {
   margin-top: 0;
@@ -2866,16 +2928,17 @@ body,
 .li {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--s-3);
   width: 100%;
-  padding: 8px 8px;
+  padding: var(--s-2);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: default;
+  transition: background var(--dur) var(--ease);
 }
 .li:hover {
   background: var(--bg-2);
@@ -2895,8 +2958,8 @@ body,
   gap: 2px;
 }
 .li__title {
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: var(--t-body);
+  line-height: var(--lh-title);
   color: var(--fg-1);
   overflow: hidden;
   display: -webkit-box;
@@ -2908,7 +2971,7 @@ body,
   color: var(--fg-2);
 }
 .li__sub {
-  font-size: 11.5px;
+  font-size: var(--t-micro);
   color: var(--fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2916,7 +2979,7 @@ body,
 }
 .li--empty {
   color: var(--fg-3);
-  font-size: 12px;
+  font-size: var(--t-aux);
 }
 
 /* 列表条目里的活动条：终端在输出、或 Friday 正在这条任务的会话里回话 */
@@ -3002,16 +3065,18 @@ body,
   margin: -2px -4px 0 0;
   width: 22px;
   height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--fg-4);
   font: inherit;
-  font-size: 13px;
-  line-height: 22px;
-  text-align: center;
+  font-size: var(--t-body);
   cursor: default;
   opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .li:hover .li__pin,
 .li--pinned .li__pin {
@@ -3030,15 +3095,19 @@ body,
 }
 .fx__pin {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
   height: 22px;
-  padding: 0 8px;
+  padding: 0 var(--s-2);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--fg-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--t-micro);
   cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .fx__pin:hover {
   background: var(--bg-4);
@@ -3070,16 +3139,17 @@ body,
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--s-1);
   height: 20px;
-  padding: 0 6px;
+  padding: 0 var(--s-2);
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--fg-3);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--t-micro);
   cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .grp__act:hover {
   background: var(--bg-4);
@@ -3096,5 +3166,46 @@ body,
   word-break: break-word;
   font: inherit;
   color: var(--fg-2);
-  line-height: 1.7;
+  line-height: var(--lh-body);
+}
+
+
+/* 线性图标：跟着字号缩放，和文字基线对齐 */
+.icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.13em;
+}
+
+/* 聊过的会话固定高度，滚动位置才稳 */
+.fx__talk .thread:has(.turn) {
+  height: clamp(320px, 44vh, 480px);
+}
+
+/* 任务卡里的会话空态：两行就够，不和真实内容抢高度 */
+.chat__empty--compact {
+  max-width: none;
+  margin: var(--s-5) auto;
+  padding: 0 var(--s-4);
+}
+.chat__empty--compact .chat__empty-title {
+  font-size: var(--t-body);
+  margin-bottom: var(--s-1);
+}
+.chat__empty--compact .chat__empty-hint {
+  font-size: var(--t-aux);
+  line-height: var(--lh-aux);
+}
+
+/* 返回箭头是右尖括号镜像过来的，省一个图标 */
+.icon--flip {
+  transform: scaleX(-1);
+}
+/* 全部确认：图标和文字同色同基线（保留原来的左外边距） */
+.fx__check-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-left: var(--s-2);
 }
