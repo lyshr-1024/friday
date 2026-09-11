@@ -63,7 +63,9 @@ apps/core/src/
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
 - **内嵌终端**（已做）：`settings.terminal` 新增并默认 `embedded`：`launchClaude` 不再 `open` 外部终端，而是 `agent/pty.ts` 用 node-pty 在 PTY 里跑同一份任务脚本（锁 / script 录日志 / Stop hook / 退出回报都不变），输出留 400KB 回放缓冲。接口 `GET /pty/:id/stream`（SSE，先回放再实时）、`POST /pty/:id/{input,resize,kill}`。前端 `views/Terminal.tsx` 用 @xterm/xterm + fit + web-links 渲染在任务详情里（任务 `source.jobId`），可直接打字与 Claude Code 对话。node-pty 的 `spawn-helper` 复制后会丢可执行位，`bundle-core.sh` 里 chmod；esbuild 不打包原生模块，用 `createRequire` 运行时加载。Ghostty / Terminal 仍可在设置里选回。
-- **第三块修正**：不是给用户推荐学什么，而是 Friday 自己学——根据用户近期业务主动研究社区的好做法、交互、产品设计（WebSearch/WebFetch），产出针对手头项目的具体建议并沉淀进记忆库（待做）。
+- **Friday 自学一题（2026-09-11，`agent/learn.ts`）**：不是给用户推荐学什么，而是 Friday 自己学。素材只取近 7 天真在忙的事（tasks 的标题与理解、projects.md 里各项目 `git log --since=7.days`、有情境卡的 Slack 线程），一条素材都没有就跳过不硬凑。三步：①挑题（Sonnet，给素材 + 项目注册表 + 「已研究过 / 用户忽略过的题」让它绕开，输出 `{topic, project, why}`，没值得研究的就 `{skip}`）；②研究（`askStream` 的新选项 `builtin: ["WebSearch","WebFetch"]`——只放行这两个内置工具、不挂 Friday 自己的 MCP 工具，`maxTurns: 20`，要求至少 3 个一手来源、固定 Markdown 结构：为什么现在研究 / 社区做法（每条带链接和年份）/ 对手头项目的建议 / 不建议做的）；③沉淀（全文写记忆库 `research/<上海日期>-<题>.md`，建一条 `kind: "learn"` 任务：`understood` 进「待办」不占「待我决定」、priority low、understanding = 为什么、plan = 建议正文、`source.researchFile` 记相对路径；记账 `learned`、发系统通知）。
+- 触发：调度器起来 1 分钟后开始、每 30 分钟看一眼，上海时间 8 点（`LEARN_HOUR`）后当天 `research/` 里还没有以今天日期开头的笔记就学一题；`settings.learn`（默认开，设置页「每天自学一题」开关）关掉后自动的那条不跑，手动仍可跑。一题约 $0.7（挑题 + 研究两次 Sonnet 调用），两分钟左右。
+- 入口：`POST /tasks/learn` 手动、左栏「待办」分组头「✦ 学一题」按钮、会话工具 `learn_now`；`GET /tasks/:id/research` 读笔记全文，任务卡上折叠「完整研究笔记」（展开才拉，链接可点）。`bridge.contextFor` 给 learn 任务带上笔记全文，所以在卡片里直接「和 Friday 聊这条」就能追问、让它改建议、或者说「按第 1 条做」走 run_claude。用户说「不感兴趣」就忽略，题目会进下次选题的绕开列表。
 
 ## 工作台：线程、功课、首屏
 
