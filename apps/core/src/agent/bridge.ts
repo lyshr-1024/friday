@@ -9,6 +9,7 @@ import { addPending, createTask, findTaskBySource, getTask, updateTask } from ".
 import { listThreads } from "../memory/threads.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "./enrich.js";
+import { readResearchNote } from "./learn.js";
 import { say } from "./terminal.js";
 
 const execFileP = promisify(execFile);
@@ -93,7 +94,8 @@ export function contextFor(task: Task, job?: Job): string {
     task.progress ? `目前进展：${task.progress}` : "",
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",
-    task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}${task.source.url ? "" : ""}` : "",
+    task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}` : "",
+    task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）"}` : "",
     thread ? `Slack 原文（${thread.channelName || "私聊"} · ${thread.userName}）：\n${thread.items.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000)}` : "",
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${project.note ? `，说明：${project.note}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
     person ? `人物：${thread!.userName} — ${person}` : "",

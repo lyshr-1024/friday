@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { learnOnce, readResearchNote } from "../agent/learn.js";
 import { meegleState, syncMeegleOnce } from "../agent/meegle.js";
 import { z } from "zod";
 import type { Task } from "@friday/shared";
@@ -21,6 +22,12 @@ const newTask = z.object({
 });
 
 export const tasks = new Hono()
+  .get("/tasks/:id/research", (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
+    return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
+  })
+  .post("/tasks/learn", async (c) => c.json(await learnOnce(true)))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", (c) => {
     const board = taskBoard();

@@ -108,6 +108,7 @@ export interface SettingsResponse {
   skills: boolean;
   name: string;
   theme: ThemeId;
+  learn: boolean;
   dataDir: string;
   projects: string[];
 }
@@ -118,6 +119,7 @@ export interface SettingsUpdate {
   skills?: boolean;
   name?: string;
   theme?: ThemeId;
+  learn?: boolean;
 }
 
 /** 工作台首屏：Friday 自动拉好的“现在该做什么” */
@@ -281,7 +283,7 @@ export interface ThreadsResponse {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "other";
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
@@ -295,6 +297,8 @@ export interface TaskSource {
   conversationId?: string;
   /** Friday 自主派出的 -p 任务：用户只审交付报告，friday_done 直接进 review */
   autonomous?: boolean;
+  /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
+  researchFile?: string;
 }
 
 /** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */

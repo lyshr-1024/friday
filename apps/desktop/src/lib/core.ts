@@ -350,6 +350,20 @@ export async function syncMeegle(): Promise<{ added: number; closed: number; reo
   return res.json();
 }
 
+/** 读一条自学任务的研究笔记全文 */
+export async function taskResearch(id: string): Promise<{ file: string; content: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/research`);
+  if (!res.ok) throw new Error(`research ${res.status}`);
+  return res.json();
+}
+
+/** 让 Friday 现在自学一题（挑题 + 上网研究，要一两分钟） */
+export async function learnNow(): Promise<{ skipped: string } | { taskId: string; title: string; file: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/learn`, { method: "POST" });
+  if (!res.ok) throw new Error(`learn ${res.status}`);
+  return res.json();
+}
+
 export async function taskPin(id: string, pinned: boolean): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) });
   if (!res.ok) throw new Error(`pin ${res.status}`);

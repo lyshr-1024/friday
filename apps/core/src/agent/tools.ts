@@ -1,3 +1,4 @@
+import { learnOnce } from "./learn.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
@@ -170,6 +171,15 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
+      "learn_now",
+      "让 Friday 现在就自学一题：从用户最近 7 天的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，笔记写进记忆库 research/，建议挂成一条待办任务。用户说“学点东西”“去研究一下”“今天学了什么”时用。平时每天早上自动学一题（设置里可关）。要花一两分钟。",
+      {},
+      async () => {
+        const r = await learnOnce(true);
+        return text("skipped" in r ? `这次没学：${r.skipped}` : `学完了：「${r.title}」，笔记在记忆库 ${r.file}，建议已挂到待办（任务 ${r.taskId.slice(0, 8)}），用户可以在卡片上看、聊或忽略。`);
+      },
+    ),
+    tool(
       "slack_sync",
       "立刻拉一次 Slack（@我 和私聊里的新消息，预处理成线程和任务）。用户说“刷一下 Slack”“看看有没有新消息”时用。平时白天每 3 分钟、其余 15 分钟自动拉。",
       {},
@@ -224,4 +234,5 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__task_update",
   "mcp__friday__meegle_sync",
   "mcp__friday__slack_sync",
+  "mcp__friday__learn_now",
 ];

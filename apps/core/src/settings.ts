@@ -11,9 +11,11 @@ export interface UserSettings {
   skills: boolean;
   name: string;
   theme: ThemeId;
+  /** 每天自学一题：研究社区做法，给手头项目提建议 */
+  learn: boolean;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite" };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -36,6 +38,7 @@ export function userSettings(): UserSettings {
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
+    learn: typeof raw.learn === "boolean" ? raw.learn : DEFAULTS.learn,
   };
 }
 
@@ -46,6 +49,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.skills !== undefined) raw.skills = patch.skills;
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
+  if (patch.learn !== undefined) raw.learn = patch.learn;
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();

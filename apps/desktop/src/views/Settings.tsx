@@ -122,6 +122,15 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
+        <Row label="每天自学一题" hint="早上 8 点后从你最近的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，建议挂到待办；笔记在记忆库 research/">
+          <button
+            className={`switch ${prefs?.learn ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.learn}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ learn: !prefs.learn }).then(setPrefs)}
+          />
+        </Row>
         <Row label="跑 Claude 用的终端" hint="内嵌：在任务详情里直接看和聊；Ghostty / Terminal：弹外部窗口">
           <select className="model-select" value={prefs?.terminal ?? "embedded"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "embedded" | "ghostty" | "terminal" }).then(setPrefs)}>
             <option value="embedded">内嵌终端</option>
