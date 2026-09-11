@@ -127,10 +127,10 @@ export function startScheduler(): void {
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };
   setTimeout(meegleTick, 8_000).unref();
-  // 每半小时看一眼：过了 LEARN_HOUR 且今天还没有研究笔记就学一题（学不学由 learn 设置决定）
+  // 每半小时看一眼该不该学（learnDue 判断：今天学过没 / 离上次几天 / 到点没）；开机 20 秒就首检，怕开机就关漏掉
   const learnTick = async () => {
     if (learnDue(researchFiles())) await learnOnce();
     setTimeout(learnTick, LEARN_CHECK_MS).unref();
   };
-  setTimeout(learnTick, 60_000).unref();
+  setTimeout(learnTick, 20_000).unref();
 }

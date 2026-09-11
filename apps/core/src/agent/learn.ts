@@ -51,11 +51,18 @@ export function shanghaiHour(d = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).format(d)) % 24;
 }
 
-/** 到点了且今天还没有研究笔记才学；文件名以日期开头，靠它判断“今天学过没”。 */
+/** 该学了没。文件名以上海日期开头，最新那个就是上次学的日子。
+    机器常关着，所以不看「是不是 8 点这一刻」，只看「离上次学过了多久」：
+    今天学过就不再学；隔一天等到 LEARN_HOUR；隔两天以上说明中间关过机，开机就补。
+    只补当天一题，不追补积压的多天。 */
 export function learnDue(files: string[], now = new Date()): boolean {
-  if (shanghaiHour(now) < LEARN_HOUR) return false;
   const today = shanghaiDate(now);
-  return !files.some((f) => f.startsWith(today));
+  const last = files.map((f) => f.slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop();
+  if (last === today) return false;
+  if (!last) return shanghaiHour(now) >= LEARN_HOUR;
+  const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${last}T00:00:00Z`)) / 86_400_000);
+  // 隔了两天以上说明中间关过机，不必等到 LEARN_HOUR，开机就补一题
+  return days >= 2 || shanghaiHour(now) >= LEARN_HOUR;
 }
 
 export function researchFiles(): string[] {

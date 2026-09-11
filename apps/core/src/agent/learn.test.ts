@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { learnDue, parsePick, parseResearch, pickPrompt, researchFileName, researchPrompt, type Material } from "./learn.js";
 
-const at = (hourShanghai: number) => new Date(Date.UTC(2026, 8, 10, (hourShanghai - 8 + 24) % 24, 5));
+// 上海时间 2026-09-10 的某个钟点。上海比 UTC 早 8 小时，所以 8 点前的钟点落在前一天 UTC。
+const at = (hourShanghai: number) => {
+  const utcHour = hourShanghai - 8;
+  return utcHour >= 0 ? new Date(Date.UTC(2026, 8, 10, utcHour, 5)) : new Date(Date.UTC(2026, 8, 9, utcHour + 24, 5));
+};
 
 const material: Material = {
   tasks: ["- [meegle · whale-console] 多语言字段编辑：表单里要能切语言"],
@@ -12,11 +16,22 @@ const material: Material = {
 };
 
 describe("Friday 自学", () => {
-  it("过了 8 点且今天没有笔记才到点", () => {
+  it("今天学过就不再学，隔一天等到点，隔两天以上开机就补", () => {
+    // 从没学过：等到 LEARN_HOUR
     expect(learnDue([], at(7))).toBe(false);
     expect(learnDue([], at(8))).toBe(true);
+    // 今天已经学过
     expect(learnDue(["2026-09-10-多语言字段.md"], at(9))).toBe(false);
+    expect(learnDue(["2026-09-10-多语言字段.md"], at(23))).toBe(false);
+    // 昨天学的：到点才学
+    expect(learnDue(["2026-09-09-昨天的题.md"], at(7))).toBe(false);
     expect(learnDue(["2026-09-09-昨天的题.md"], at(9))).toBe(true);
+    // 隔了好几天（中间关机）：几点开机都补
+    expect(learnDue(["2026-09-05-上周的题.md"], at(2))).toBe(true);
+    expect(learnDue(["2026-09-08-前天的题.md"], at(6))).toBe(true);
+    // 多个笔记取最新那个判断
+    expect(learnDue(["2026-09-01-旧.md", "2026-09-10-今天.md"], at(20))).toBe(false);
+    expect(learnDue(["2026-09-01-旧.md", "2026-09-09-昨天.md"], at(20))).toBe(true);
   });
 
   it("选题提示带素材、项目和已研究过的题", () => {
