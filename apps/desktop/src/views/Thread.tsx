@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { Attachment, Job, Message } from "@friday/shared";
 import { ask, askSubscribe, cancelAsk, conversationById, jobs as fetchJobs, uploadAttachment } from "../lib/core";
@@ -30,6 +31,8 @@ interface Props {
   banner?: ReactNode;
   onEscape?: () => void;
   autoFocus?: boolean;
+  /** 嵌在任务卡里：空态压成两行，不要整屏那个大头像 */
+  compact?: boolean;
 }
 
 let localId = 0;
@@ -37,7 +40,7 @@ const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `l
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -254,8 +257,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       <div className="thread__scroll">
       <div className="chat__body" ref={bodyRef} onScroll={onBodyScroll}>
         {messages.length === 0 && !draft && !busy && !resolving && (
-          <div className="chat__empty">
-            <div className="chat__mark">F</div>
+          <div className={`chat__empty${compact ? " chat__empty--compact" : ""}`}>
+            {!compact && <div className="chat__mark">F</div>}
             <div className="chat__empty-title">{emptyTitle}</div>
             <div className="chat__empty-hint">{emptyHint}</div>
           </div>
@@ -297,7 +300,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       </div>
       {!atBottom && (
         <button className={`thread__jump ${unread ? "thread__jump--unread" : ""}`} onClick={() => scrollToBottom(true)} title="回到底部">
-          {unread ? "有新回复" : ""}<span className="thread__jump-arrow">↓</span>
+          {unread ? "有新回复" : ""}<span className="thread__jump-arrow"><Icon name="arrowDown" /></span>
         </button>
       )}
       </div>
