@@ -5,6 +5,7 @@ import { buildBrief } from "../agent/brief.js";
 import { enrichThread } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
+import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, getThread, setThreadBrief } from "../memory/threads.js";
 import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
@@ -15,6 +16,7 @@ export const ACTIVE_HOURS: [number, number] = [10, 20];
 const ACTIVE_MS = 3 * 60_000;
 const QUIET_MS = 15 * 60_000;
 const MEEGLE_MS = 15 * 60_000;
+const LEARN_CHECK_MS = 30 * 60_000;
 
 export function hourInShanghai(d = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).format(d)) % 24;
@@ -125,4 +127,10 @@ export function startScheduler(): void {
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };
   setTimeout(meegleTick, 8_000).unref();
+  // 每半小时看一眼：过了 LEARN_HOUR 且今天还没有研究笔记就学一题（学不学由 learn 设置决定）
+  const learnTick = async () => {
+    if (learnDue(researchFiles())) await learnOnce();
+    setTimeout(learnTick, LEARN_CHECK_MS).unref();
+  };
+  setTimeout(learnTick, 60_000).unref();
 }

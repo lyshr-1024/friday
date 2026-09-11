@@ -14,6 +14,12 @@ async function git(dir: string, args: string[]): Promise<string> {
   }
 }
 
+/** 最近 N 天的提交，给 Friday 自学挑题用；不是 git 仓库或没有提交就返回空数组。 */
+export async function recentCommits(dir: string, days: number, limit = 20): Promise<string[]> {
+  const out = await git(dir, ["log", `--since=${days}.days`, "-n", String(limit), "--date=short", "--format=%ad %s"]);
+  return out && !out.startsWith("（") ? out.split("\n") : [];
+}
+
 async function defaultBranch(dir: string): Promise<string> {
   const ref = await git(dir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   if (ref.startsWith("origin/")) return ref;

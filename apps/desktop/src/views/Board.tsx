@@ -4,14 +4,14 @@ import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } f
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, inbox as fetchInbox, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, inbox as fetchInbox, learnNow, syncMeegle, taskResearch, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Thread as ChatThread } from "./Thread";
 import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
 
-const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
+const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const DECIDE: TaskStatus[] = ["review", "blocked"];
@@ -20,6 +20,19 @@ const QUEUED: TaskStatus[] = ["understood", "collected"];
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 const TERM_LABEL: Record<string, string> = { busy: " · 在输出", idle: " · 空闲，等指示", gone: " · 已断，展开可重新打开", external: " · 在外部终端里", unknown: "" };
+
+/** 自学任务的完整研究笔记：展开才拉，社区做法和链接都在里面 */
+function ResearchNote({ id, file }: { id: string; file: string }) {
+  const [note, setNote] = useState<string | null>(null);
+  return (
+    <details className="fx__more" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open && note === null) void taskResearch(id).then((r) => setNote(r.content)).catch(() => setNote("")); }}>
+      <summary>完整研究笔记 · {file.replace(/^research\//, "")}</summary>
+      <div className="fx__more-body">
+        {note === null ? <span className="muted">读取中…</span> : note ? <pre className="fx__note"><Linkified text={note} /></pre> : <span className="muted">笔记文件已不在</span>}
+      </div>
+    </details>
+  );
+}
 
 function waited(iso: string): string {
   const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -199,6 +212,23 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       window.setTimeout(() => setSlackNote(null), 4000);
     }
   }
+  const [learning, setLearning] = useState(false);
+  const [learnNote, setLearnNote] = useState<string | null>(null);
+  async function doLearn() {
+    setLearning(true);
+    setLearnNote(null);
+    try {
+      const r = await learnNow();
+      if ("skipped" in r) setLearnNote(r.skipped.startsWith("出错") ? "出错了" : "这次没学"), setErr(r.skipped);
+      else setLearnNote(`学了：${r.title}`);
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLearning(false);
+      window.setTimeout(() => setLearnNote(null), 6000);
+    }
+  }
   async function doSync() {
     setSyncing(true);
     setSyncNote(null);
@@ -339,9 +369,14 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                 </section>
                 {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事", doingRight, () => false)}
                 {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high",
-                  <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
-                    {syncing ? <span className="side__spin" /> : "↻"} {syncNote ?? "Meegle"}
-                  </button>)}
+                  <>
+                    <button className="grp__act" title="让 Friday 现在自学一题：挑一个手头项目的具体问题，研究社区做法给建议（要一两分钟；平时每天早上自动）" disabled={learning} onClick={() => void doLearn()}>
+                      {learning ? <span className="side__spin" /> : "✦"} {learnNote ?? "学一题"}
+                    </button>
+                    <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
+                      {syncing ? <span className="side__spin" /> : "↻"} {syncNote ?? "Meegle"}
+                    </button>
+                  </>)}
                 {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的", (t) => fmtTime(t.updatedAt), () => true)}
               </>
             )}
@@ -543,6 +578,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         </div>
       </div>
 
+      {t.source.researchFile && <ResearchNote id={t.id} file={t.source.researchFile} />}
       {r && (r.changes.length > 0 || r.testSteps.length > 0 || r.screenshots.length > 0) && (
         <details className="fx__more">
           <summary>交付报告：改动 {r.changes.length} 处 · 测试 {r.testSteps.length} 步 · 截图 {r.screenshots.length} 张{r.at ? ` · 交于 ${fmtTime(r.at)}` : ""}</summary>
