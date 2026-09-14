@@ -2,7 +2,8 @@ import type { InboxItem } from "@friday/shared";
 import { askStream } from "./claude.js";
 import { config } from "../config.js";
 
-export const CONTINUATION_MODEL = "claude-sonnet-5";
+// 只答一个 same true/false，Haiku 够用；判不准时提示词要求答 false，偏保守那一侧
+export const CONTINUATION_MODEL = "claude-haiku-4-5";
 
 /** 超过这个跨度就不再算同一件事的催办，无论内容多像。 */
 export const CONTINUATION_MAX_MS = 24 * 3600 * 1000;

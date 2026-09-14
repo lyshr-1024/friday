@@ -11,7 +11,8 @@ export interface Route {
   why: string;
 }
 
-export const ROUTE_MODEL = "claude-sonnet-5";
+// 只是从二十来个标题里选一个序号，Haiku 够用；接错了用户还有「其实是新话题」可点
+export const ROUTE_MODEL = "claude-haiku-4-5";
 const CANDIDATES = 20;
 
 function ago(iso: string): string {

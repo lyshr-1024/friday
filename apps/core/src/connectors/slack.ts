@@ -1,5 +1,6 @@
 import type { InboxItem } from "@friday/shared";
 import type { NewInboxItem } from "../memory/inbox.js";
+import { classifyNoise } from "./noise.js";
 import { keychainGet } from "./keychain.js";
 
 export interface SlackCreds {
@@ -138,10 +139,17 @@ export async function fetchSlack(
   let maxMention = mentionsSince;
   for (const m of search.messages?.matches ?? []) {
     if (!m.channel || !m.ts || Number(m.ts) <= Number(mentionsSince) || m.user === me) continue;
-    // 游标要跟着最新一条走，机器人那条也算，否则每次同步都会重新扫到它。
+    // 游标要照常推进：机器人和挡掉的消息也算「看过了」，否则下次同步还会重新捞一遍
     if (Number(m.ts) > Number(maxMention)) maxMention = m.ts;
     // 和私聊一样，机器人（Meegle 工单通知、日历提醒等）@ 我的不进收件箱。
     if (m.user && (await isBot(m.user))) continue;
+    // 先把 Block Kit 的正文取出来再判噪音：text 为空不等于没内容，否则真事会被当空消息挡掉。
+    const text = m.text?.trim() || blocksText(m.blocks);
+    const verdict = classifyNoise(text);
+    if (verdict.noise) {
+      console.log(`[slack] 跳过：${verdict.why}（${m.channel.name ?? m.channel.id}）`);
+      continue;
+    }
     out.push({
       id: `${m.channel.id}:${m.ts}`,
       kind: "mention",
@@ -149,7 +157,7 @@ export async function fetchSlack(
       channelName: m.channel.name ? `#${m.channel.name}` : "私聊",
       userId: m.user ?? "",
       userName: m.username || (await userName(m.user ?? "")),
-      text: m.text?.trim() || blocksText(m.blocks),
+      text,
       permalink: m.permalink ?? permalinkFor(teamUrl, m.channel.id, m.ts),
       // thread 里的回复：根 ts 留着，做功课时按它去拉整个 thread 的前文
       ...(m.thread_ts && m.thread_ts !== m.ts ? { threadTs: m.thread_ts } : {}),
@@ -173,6 +181,13 @@ export async function fetchSlack(
       if (msg.subtype || msg.bot_id || !msg.user || msg.user === me || Number(msg.ts) <= Number(imSince)) continue;
       if (await isBot(msg.user)) continue;
       if (Number(msg.ts) > Number(max)) max = msg.ts;
+      // 同上：先取 blocks 正文再判噪音
+      const text = msg.text?.trim() || blocksText(msg.blocks);
+      const verdict = classifyNoise(text);
+      if (verdict.noise) {
+        console.log(`[slack] 跳过私聊：${verdict.why}`);
+        continue;
+      }
       const name = await userName(msg.user);
       const link = (await call("chat.getPermalink", { channel: im.id, message_ts: msg.ts }).catch(() => ({}))) as { permalink?: string };
       out.push({
@@ -182,7 +197,7 @@ export async function fetchSlack(
         channelName: `与 ${name} 的私聊`,
         userId: msg.user,
         userName: name,
-        text: msg.text?.trim() || blocksText(msg.blocks),
+        text,
         permalink: link.permalink ?? permalinkFor(teamUrl, im.id, msg.ts),
         ...(msg.thread_ts && msg.thread_ts !== msg.ts ? { threadTs: msg.thread_ts } : {}),
         ts: msg.ts,

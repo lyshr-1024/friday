@@ -2896,22 +2896,54 @@ body,
 .fx__talk .chat__empty {
   padding: 20px 8px;
 }
+/* 一条明确可点的开合条：有底色和边框，看得出是控件而不是标题 */
 .fx__term-toggle {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
   border: none;
-  background: none;
+  border-radius: var(--r-sm);
+  background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--line-1);
   color: inherit;
   font: inherit;
   cursor: default;
   text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.fx__term-toggle:hover {
+  background: var(--bg-4);
+}
+.fx__term-toggle:active {
+  transform: scale(0.985);
+}
+.fx__term-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* 动作词比标签更显眼：这一条上真正要读的是「展开还是收起」 */
+.fx__term-act {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--fg-2);
+  font-size: var(--t-aux);
+  letter-spacing: var(--tr-aux);
+}
+.fx__term-act .icon {
+  color: var(--fg-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx__term-toggle:active {
+    transform: none;
+  }
 }
 .fx__term-toggle + .xterm-host,
 .fx__term-toggle + .term {
-  margin-top: 10px;
+  margin-top: var(--s-3);
 }
 
 /* 发消息前的确认框：要发的原文、可改、⌘↵ 发 */

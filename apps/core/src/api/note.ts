@@ -3,7 +3,8 @@ import { z } from "zod";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import type { TodoSource, TodosSyncResponse } from "@friday/shared";
 import { connectors } from "../connectors/index.js";
-import { addLocalTodo, listOpenTodos, syncSourceTodos } from "../memory/todos.js";
+import { addNoteTask } from "../memory/noteTask.js";
+import { listOpenTodos, syncSourceTodos } from "../memory/todos.js";
 
 const body = z.object({
   text: z.string().trim().min(1).max(2000),
@@ -16,12 +17,12 @@ export const note = new Hono()
     const parsed = body.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "text 不能为空，due 需为 YYYY-MM-DD" }, 400);
     const { conversationId, ...input } = parsed.data;
-    const todo = addLocalTodo(input);
+    const task = addNoteTask({ ...input, ...(conversationId ? { source: { conversationId } } : {}) });
     if (conversationId && conversationExists(conversationId)) {
-      addMessage(conversationId, { role: "user", kind: "note", content: `记 ${todo.text}` });
-      addMessage(conversationId, { role: "assistant", kind: "note", content: `已记录：${todo.text}`, payload: todo });
+      addMessage(conversationId, { role: "user", kind: "note", content: `记 ${task.title}` });
+      addMessage(conversationId, { role: "assistant", kind: "note", content: `已记到待办：${task.title}`, payload: task });
     }
-    return c.json(todo, 201);
+    return c.json(task, 201);
   })
   .get("/todos", async (c) => {
     if (c.req.query("sync") !== "1") return c.json(listOpenTodos());

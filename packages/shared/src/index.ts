@@ -305,6 +305,8 @@ export interface TaskSource {
   autonomous?: boolean;
   /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
   researchFile?: string;
+  /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
+  fromTaskId?: string;
 }
 
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
