@@ -66,11 +66,11 @@ function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "
   }
   // Friday 说「内容没显示出来」，但其实有别的消息带文字
   if (/没显示出来|内容为空|没有内容|看不到内容/.test(draft) && withText.length > 0) {
-    const last = withText[withText.length - 1].text.trim().replace(/\s+/g, " ").slice(0, 40);
+    const last = (withText[withText.length - 1]?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
     return { tone: "mismatch", text: `这个线程里有带文字的消息：「${last}」。草稿说内容没显示出来，和原文对不上。` };
   }
   // 只有一条短消息，信息量不足以判断
-  if (withText.length === 1 && withText[0].text.trim().length <= 30) {
+  if (withText.length === 1 && (withText[0]?.text ?? "").trim().length <= 30) {
     return { tone: "thin", text: empty > 0 ? `全部原文就这一句，另有 ${empty} 条没有文字。` : "全部原文就这一句，信息不多。" };
   }
   return null;
@@ -731,7 +731,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         <div className="fx__foot">
           {first && consequence(first, thread) && (
             <div className="fx__consequence">
-              <Icon name="alert" thin />
+              <Icon name="alert" />
               <span>{consequence(first, thread)}</span>
             </div>
           )}
