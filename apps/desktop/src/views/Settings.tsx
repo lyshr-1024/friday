@@ -113,7 +113,7 @@ export function Settings() {
         <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
           <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>
-        <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write">
+        <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write。开着时每轮都要读 skill 文档、最多跑 30 轮，一次提问可能到 $1；不常用 skill 就关掉">
           <button
             className={`switch ${prefs?.skills ? "switch--on" : ""}`}
             role="switch"

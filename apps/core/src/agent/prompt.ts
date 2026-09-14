@@ -42,10 +42,13 @@ export function friday(memory?: MemoryContext, skills = false, task?: string): s
     const blocks = [
       memory.projects && `【项目注册表】\n${memory.projects}`,
       memory.todos && `【未完成待办】\n${memory.todos}`,
-      memory.decisions && `【决策记录】\n${memory.decisions}`,
-      memory.people && `【人物】\n${memory.people}`,
     ].filter(Boolean);
-    if (blocks.length) sections.push("以下是用户的记忆库，回答涉及项目、待办、人物时以此为准：", ...blocks);
+    if (blocks.length) sections.push("以下是用户的记忆库，回答涉及项目、待办时以此为准：", ...blocks);
+    // people 和 decisions 太大又不常用，不每轮塞进来；需要时它自己去读
+    const onDemand = [memory.hasPeople && "people（人物：谁负责什么、怎么称呼、过往备注）", memory.hasDecisions && "decisions（决策记录）"].filter(Boolean);
+    if (onDemand.length) {
+      sections.push(`记忆库里还有 ${onDemand.join(" 和 ")}，上面没有列出内容。问到某个人是谁、负责什么，或者某件事之前怎么定的，先用 memory_read 读出来再答，不要凭印象编。`);
+    }
   }
   return sections.join("\n\n");
 }
