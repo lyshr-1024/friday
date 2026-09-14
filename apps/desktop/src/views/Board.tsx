@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AuditEvent, Task, TaskBoard, TaskStatus, TerminalState, Thread } from "@friday/shared";
+import type { AuditEvent, PendingAction, Task, TaskBoard, TaskStatus, TerminalState, Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
@@ -33,6 +33,47 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
       </div>
     </details>
   );
+}
+
+
+/** 原文够不够支撑判断。够不着就得明说，不能让用户自己去折叠里发现。
+    只做能确定的检查，拿不准就不报——误报比不报更伤信任。 */
+
+/** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
+function consequence(a: PendingAction, thread: Thread | null): string | null {
+  if (a.type === "slack_reply") {
+    const who = String(a.payload.userName ?? "对方");
+    const where = a.payload.threadTs
+      ? `回在 ${who} 那条下面${thread?.channelName ? `（${thread.channelName}）` : ""}`
+      : `发到与 ${who} 的私聊`;
+    return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
+  }
+  if (a.type === "git_merge") {
+    return "把这个分支合进主干。合完可以在操作记录里撤销。";
+  }
+  return null;
+}
+
+function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "mismatch"; text: string } | null {
+  const items = thread?.items ?? [];
+  if (!items.length) return null;
+  const withText = items.filter((i) => i.text.trim());
+  const empty = items.length - withText.length;
+
+  // 一条带文字的都没有——Friday 是在对着空消息写草稿
+  if (withText.length === 0) {
+    return { tone: "thin", text: items.length === 1 ? "唯一这条消息没有文字（图片或表情）。Friday 没有可依据的内容，这条草稿是猜的。" : `${items.length} 条消息都没有文字（图片或表情）。Friday 没有可依据的内容，这条草稿是猜的。` };
+  }
+  // Friday 说「内容没显示出来」，但其实有别的消息带文字
+  if (/没显示出来|内容为空|没有内容|看不到内容/.test(draft) && withText.length > 0) {
+    const last = withText[withText.length - 1].text.trim().replace(/\s+/g, " ").slice(0, 40);
+    return { tone: "mismatch", text: `这个线程里有带文字的消息：「${last}」。草稿说内容没显示出来，和原文对不上。` };
+  }
+  // 只有一条短消息，信息量不足以判断
+  if (withText.length === 1 && withText[0].text.trim().length <= 30) {
+    return { tone: "thin", text: empty > 0 ? `全部原文就这一句，另有 ${empty} 条没有文字。` : "全部原文就这一句，信息不多。" };
+  }
+  return null;
 }
 
 function waited(iso: string): string {
@@ -477,9 +518,14 @@ function Focus({ t, onAct, onClose, closable, ref }: {
 
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
+  const evidence = isMessage ? evidenceCheck(thread, String(first.payload.text ?? first.detail ?? "")) : null;
   const primary: { label: string; run: () => Promise<unknown> } | null = first
     ? isMessage
-      ? { label: pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…", run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); } }
+      ? {
+          // 原文和草稿对不上时，默认动作应该是「改」而不是「发」
+          label: evidence?.tone === "mismatch" ? "改一下再发…" : pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
+          run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); },
+        }
       : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
     : t.status === "blocked" && t.project
       ? { label: "重新开工", run: () => taskRetry(t.id) }
@@ -519,6 +565,37 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title">{t.title}</h2>
+
+      {thread && thread.items.length > 0 && (
+        <div className="fx__source">
+          <div className="fx__source-head">
+            <span className="k">对方原话</span>
+            <span className="fx__source-where">{thread.channelName || `与 ${thread.userName} 的私聊`}</span>
+          </div>
+          <ul className="fx__source-list">
+            {thread.items.map((i) => (
+              <li key={i.id}>
+                <span className="fx__source-who">{i.userName}</span>
+                {i.text.trim()
+                  ? <span className="fx__source-text"><Linkified text={i.text} /></span>
+                  : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
+                <a
+                  href={i.permalink}
+                  className="link fx__source-open"
+                  title="在 Slack 里打开这条"
+                  onClick={(e) => { e.preventDefault(); void openUrl(i.appLink ?? i.permalink); }}
+                >在 Slack 打开</a>
+              </li>
+            ))}
+          </ul>
+          {evidence && (
+            <div className={`fx__evidence fx__evidence--${evidence.tone}`}>
+              <Icon name="alert" />
+              <span>{evidence.text}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
@@ -602,23 +679,6 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           </div>
         </details>
       )}
-      {thread && thread.items.length > 0 && (
-        <details className="fx__more">
-          <summary>Slack 原文 · {thread.items.length} 条 · {thread.channelName || thread.userName}</summary>
-          <div className="fx__more-body">
-            <ul className="fx__raw">
-              {thread.items.map((i) => (
-                <li key={i.id}>
-                  <span className="fx__raw-who">{i.userName}</span>
-                  <span className="mono fx__raw-ts">{fmtTime(i.receivedAt)}</span>
-                  <a href={i.permalink} className="link fx__raw-open" onClick={(e) => { e.preventDefault(); void openUrl(i.appLink ?? i.permalink); }}>在 Slack 打开</a>
-                  <div><Linkified text={i.text} /></div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </details>
-      )}
       <div className="fx__talk">
         <span className="k">和 Friday 聊这条任务</span>
         <ChatThread
@@ -669,6 +729,12 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     </article>
       {open && (
         <div className="fx__foot">
+          {first && consequence(first, thread) && (
+            <div className="fx__consequence">
+              <Icon name="alert" thin />
+              <span>{consequence(first, thread)}</span>
+            </div>
+          )}
           <div className="fx__acts">
             {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}<kbd>↵</kbd></button>}
             {/* 有待审动作时也能直接收工：done 会把没发出去的动作一起作废，不会发消息给别人 */}

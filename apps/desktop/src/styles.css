@@ -3378,3 +3378,128 @@ body,
 .mono,
 .li--empty,
 .fx__meta { letter-spacing: var(--tr-micro); }
+
+/* ── 对方原话：证据在摘要之前。用户要对产出负责，判断依据不能藏在折叠里。
+   基础面保持平（GPUI：Elevation 只解释叠放，不表达重要程度）。 */
+.fx__source {
+  margin-top: var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--bg-4);
+  box-shadow: var(--shadow-card);
+}
+.fx__source-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.fx__source-head .k {
+  margin-bottom: 0;
+}
+.fx__source-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+}
+.fx__source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.fx__source-list li {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+  min-width: 0;
+}
+.fx__source-who {
+  flex: none;
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+}
+.fx__source-text {
+  min-width: 0;
+  color: var(--fg-1);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+/* 空消息也要显示——Friday 可能正是因为读到空消息才判断错的 */
+.fx__source-empty {
+  color: var(--fg-4);
+  font-size: var(--t-aux);
+  font-style: italic;
+}
+
+/* 「在 Slack 打开」：hover 才显形，不和原文抢注意力，
+   但键盘 Tab 到时必须可见（GPUI：focus 始终可见） */
+.fx__source-open {
+  flex: none;
+  margin-left: auto;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.fx__source-list li:hover .fx__source-open,
+.fx__source-open:focus-visible {
+  opacity: 1;
+}
+.fx__source-open:hover {
+  color: var(--fg-2);
+}
+
+/* 证据不足 / 和草稿对不上：明说，不藏 */
+.fx__evidence {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-1);
+  color: var(--fg-2);
+  font-size: var(--t-aux);
+  letter-spacing: var(--tr-aux);
+  line-height: var(--lh-aux);
+}
+.fx__evidence .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.fx__evidence--thin .icon {
+  color: var(--amber);
+}
+.fx__evidence--mismatch .icon {
+  color: var(--red);
+}
+
+/* 后果预览：不可逆的动作点下去会发生什么，就在按钮上方说清楚 */
+.fx__consequence {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--fg-2);
+  font-size: var(--t-aux);
+  letter-spacing: var(--tr-aux);
+  line-height: var(--lh-aux);
+}
+.fx__consequence .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber);
+}
