@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS inbox (
   text TEXT NOT NULL,
   permalink TEXT NOT NULL,
   ts TEXT NOT NULL,
+  thread_ts TEXT,
   received_at TEXT NOT NULL,
   triage TEXT,
   done INTEGER NOT NULL DEFAULT 0

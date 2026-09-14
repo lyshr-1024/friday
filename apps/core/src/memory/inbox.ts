@@ -11,6 +11,7 @@ interface Row {
   text: string;
   permalink: string;
   ts: string;
+  thread_ts: string | null;
   received_at: string;
   triage: string | null;
   done: number;
@@ -37,6 +38,7 @@ const toItem = (r: Row): InboxItem => ({
   text: r.text,
   permalink: r.permalink,
   ...(appLink(r) ? { appLink: appLink(r)! } : {}),
+  ...(r.thread_ts ? { threadTs: r.thread_ts } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
   ...(r.triage ? { triage: JSON.parse(r.triage) as Triage } : {}),
@@ -49,12 +51,12 @@ export type NewInboxItem = Omit<InboxItem, "receivedAt" | "triage" | "done">;
 export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
   const d = db();
   const insert = d.prepare(
-    "INSERT OR IGNORE INTO inbox (id, kind, channel_id, channel_name, user_id, user_name, text, permalink, ts, received_at, done) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+    "INSERT OR IGNORE INTO inbox (id, kind, channel_id, channel_name, user_id, user_name, text, permalink, ts, thread_ts, received_at, done) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
   );
   const added: InboxItem[] = [];
   const now = new Date().toISOString();
   for (const it of items) {
-    const res = insert.run(it.id, it.kind, it.channelId, it.channelName, it.userId, it.userName, it.text, it.permalink, it.ts, now);
+    const res = insert.run(it.id, it.kind, it.channelId, it.channelName, it.userId, it.userName, it.text, it.permalink, it.ts, it.threadTs ?? null, now);
     if (res.changes > 0) added.push({ ...it, receivedAt: now, done: false });
   }
   return added;

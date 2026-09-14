@@ -2,7 +2,7 @@ import type { Notice } from "@friday/shared";
 import { applyReversibleWrites } from "../agent/autowrite.js";
 import { threadToTask } from "../agent/pipeline.js";
 import { buildBrief } from "../agent/brief.js";
-import { enrichThread } from "../agent/enrich.js";
+import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
@@ -80,9 +80,15 @@ export async function syncSlackOnce(): Promise<number> {
       for (const [i, it] of added.entries()) {
         const t = result.get(i + 1);
         const item = { ...it, ...(t ? { triage: t } : {}) };
-        // 隔了两小时以上的，先问一句是不是在催同一件事，是就接回原线程而不是新起一条
+        // 隔了两小时以上的，先问一句是不是在催同一件事，是就接回原线程而不是新起一条。
+        // 两条消息常常都是指代句，所以把线程已有的情境和频道前文一起交给它判断。
         const candidate = graceCandidate(item, CONTINUATION_MAX_MS);
-        const same = candidate ? await isContinuation(candidate.items, item) : false;
+        const same = candidate
+          ? await isContinuation(candidate.items, item, {
+              ...(candidate.brief?.situation ? { situation: candidate.brief.situation } : {}),
+              context: (await slackContext(item)).map((c) => `${c.userName}：${c.text}`),
+            })
+          : false;
         touched.add(attachToThread(item, Date.now(), { graceMs: CONTINUATION_MAX_MS, sameTopic: () => same }));
       }
       const needReply: string[] = [];
@@ -95,7 +101,7 @@ export async function syncSlackOnce(): Promise<number> {
           if (!brief) return;
           const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name);
           const writes = applyReversibleWrites(thread, brief, task.id);
-          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
+          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
           if (brief.needsReply) needReply.push(`${thread.userName}：${brief.situation}`);
         } catch (e) {
           console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);

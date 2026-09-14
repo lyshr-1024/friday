@@ -3394,6 +3394,55 @@ body,
   font-size: var(--t-micro);
   letter-spacing: var(--tr-micro);
 }
+/* 前文：默认收起（它是背景不是主体），但要能一眼看到有多少条可核对 */
+.fx__prior {
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line-1);
+}
+.fx__prior > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: default;
+  list-style: none;
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  transition: color var(--dur) var(--ease);
+}
+.fx__prior > summary::-webkit-details-marker {
+  display: none;
+}
+/* 原生三角被抹掉了，得给替代指示（GPUI：折叠必须有展开指示） */
+.fx__prior > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform var(--dur) var(--ease);
+}
+.fx__prior[open] > summary::after {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+.fx__prior > summary:hover {
+  color: var(--fg-2);
+}
+.fx__prior > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.fx__prior-count {
+  color: var(--fg-4);
+  font-variant-numeric: tabular-nums;
+}
+.fx__prior-list {
+  margin-top: var(--s-3);
+  opacity: 0.82;
+}
 .fx__source-list {
   list-style: none;
   margin: 0;

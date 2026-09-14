@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchSlack, permalinkFor } from "./slack.js";
+import { fetchContext, fetchSlack, permalinkFor } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -48,6 +48,80 @@ describe("冷启动", () => {
     expect(res.items).toHaveLength(0);
     const recent = await fetchSlack(call, "U1", {}, 1757000700_000);
     expect(recent.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("补拉对话上下文", () => {
+  const item = { channelId: "C1", ts: "1757000300.000100" };
+  const nameOf = async (id: string) => (id === "U2" ? "灵雨" : id);
+
+  it("不在 thread 里就拉频道前文，只留这条之前的、去掉空消息", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const c = async (method: string, params: Record<string, string>) => {
+      seen.push({ method, ...params });
+      return {
+        messages: [
+          { ts: "1757000100.000100", text: "多级标题在 iOS 上错位了", user: "U2" },
+          { ts: "1757000150.000100", text: "<@U9> has joined the channel", user: "U9", subtype: "channel_join" },
+          { ts: "1757000200.000100", text: "   ", user: "U2" },
+          { ts: "1757000300.000100", text: "你看看志华遗留的这个问题", user: "U2" },
+          { ts: "1757000400.000100", text: "这条在它之后", user: "U2" },
+        ],
+      } as Record<string, unknown>;
+    };
+    const ctx = await fetchContext(c, item, nameOf);
+    expect(ctx.map((l) => l.text)).toEqual(["多级标题在 iOS 上错位了"]);
+    expect(ctx[0]!.userName).toBe("灵雨");
+    expect(seen[0]!.method).toBe("conversations.history");
+    expect(seen[0]!.latest).toBe(item.ts);
+  });
+
+  it("在 thread 里就拉整个 thread", async () => {
+    const seen: string[] = [];
+    const c = async (method: string) => {
+      seen.push(method);
+      return { messages: [{ ts: "1757000050.000100", text: "这个需求怎么排", user: "U2" }] } as Record<string, unknown>;
+    };
+    const ctx = await fetchContext(c, { ...item, threadTs: "1757000050.000100" }, nameOf);
+    expect(seen).toEqual(["conversations.replies"]);
+    expect(ctx.map((l) => l.text)).toEqual(["这个需求怎么排"]);
+  });
+
+  it("拉不到就当没有前文，不让整条消息处理失败", async () => {
+    const c = async () => {
+      throw new Error("Slack conversations.history 失败：not_in_channel");
+    };
+    await expect(fetchContext(c, item, nameOf)).resolves.toEqual([]);
+  });
+
+  it("最多留 limit 条，取离它最近的", async () => {
+    const c = async () =>
+      ({ messages: Array.from({ length: 20 }, (_, i) => ({ ts: `17570000${String(i).padStart(2, "0")}.000100`, text: `第${i}条`, user: "U2" })) }) as Record<string, unknown>;
+    const ctx = await fetchContext(c, { channelId: "C1", ts: "1757000099.000000" }, nameOf, 3);
+    expect(ctx.map((l) => l.text)).toEqual(["第17条", "第18条", "第19条"]);
+  });
+});
+
+describe("thread_ts 留存", () => {
+  it("thread 里的回复记下根 ts，非 thread 消息不记", async () => {
+    const withThread: Record<string, unknown> = {
+      ...responses,
+      "search.messages": {
+        messages: {
+          matches: [
+            { ts: "1757000300.000100", text: "在 thread 里", user: "U2", username: "灵雨", channel: { id: "C1", name: "fe-dev" }, thread_ts: "1757000050.000100" },
+            { ts: "1757000310.000100", text: "不在 thread 里", user: "U2", username: "灵雨", channel: { id: "C1", name: "fe-dev" }, thread_ts: "1757000310.000100" },
+          ],
+        },
+      },
+    };
+    const c = async (method: string) => withThread[method] as Record<string, unknown>;
+    const res = await fetchSlack(c, "U1", { "slack:mentions": "1757000200.000000" }, 1757000700_000);
+    const inThread = res.items.find((i) => i.text === "在 thread 里")!;
+    const notInThread = res.items.find((i) => i.text === "不在 thread 里")!;
+    expect(inThread.threadTs).toBe("1757000050.000100");
+    // thread_ts 等于自己的 ts 说明它是根消息，不算回复
+    expect(notInThread.threadTs).toBeUndefined();
   });
 });
 

@@ -197,6 +197,8 @@ export interface InboxItem {
   permalink: string;
   /** slack:// 深链，有 Slack 桌面端时优先用它 */
   appLink?: string;
+  /** 这条消息所在 thread 的根 ts。有值说明它是某个 thread 里的回复，前文要去 conversations.replies 取。 */
+  threadTs?: string;
   ts: string;
   receivedAt: string;
   triage?: Triage;
@@ -253,6 +255,8 @@ export interface ThreadBrief {
   reply?: string;
   actions: ThreadAction[];
   context: string[];
+  /** 这条消息之前、频道或 thread 里已经聊过的原话。判断的依据，要能被核对。 */
+  priorMessages?: Array<{ ts: string; userName: string; text: string }>;
   todo?: { text: string; due?: string };
   person?: string;
 }

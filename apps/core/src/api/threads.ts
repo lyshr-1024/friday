@@ -25,7 +25,7 @@ export const threads = new Hono()
     if (!brief) return c.json({ error: "情境卡生成失败" }, 502);
     const task = await threadToTask(t, brief, enrichment.project?.name);
     const writes = applyReversibleWrites(t, brief, task.id);
-    setThreadBrief(t.id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
+    setThreadBrief(t.id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
     return c.json(getThread(t.id));
   })
   .post("/threads/:id/done", (c) => (setThreadStatus(c.req.param("id"), "done") ? c.json({ ok: true }) : c.json({ error: "线程不存在" }, 404)))

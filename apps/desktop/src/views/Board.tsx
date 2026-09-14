@@ -516,6 +516,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const open = t.status !== "done" && t.status !== "ignored";
   const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
+  const prior = thread?.brief?.priorMessages ?? [];
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
   const evidence = isMessage ? evidenceCheck(thread, String(first.payload.text ?? first.detail ?? "")) : null;
@@ -572,6 +573,23 @@ function Focus({ t, onAct, onClose, closable, ref }: {
             <span className="k">对方原话</span>
             <span className="fx__source-where">{thread.channelName || `与 ${thread.userName} 的私聊`}</span>
           </div>
+          {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
+          {prior.length > 0 && (
+            <details className="fx__prior">
+              <summary>
+                <span>这之前聊的是什么</span>
+                <span className="fx__prior-count">{prior.length} 条</span>
+              </summary>
+              <ul className="fx__source-list fx__prior-list">
+                {prior.map((p) => (
+                  <li key={p.ts}>
+                    <span className="fx__source-who">{p.userName}</span>
+                    <span className="fx__source-text"><Linkified text={p.text} /></span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           <ul className="fx__source-list">
             {thread.items.map((i) => (
               <li key={i.id}>
