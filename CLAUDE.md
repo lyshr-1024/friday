@@ -72,6 +72,12 @@ apps/core/src/
 ## 工作台：线程、功课、首屏
 
 - Slack 消息逐条分类后按人聚合成**线程**（`memory/threads.ts`）：私聊按人、频道 @ 按频道+人，同键 2 小时内接续（`THREAD_GAP_MS`）。`inbox.thread_id` 增量列。
+- **灰区语义归并（2026-09-14，`agent/continuation.ts`）**：起因是拂晓 02:11 说「养牛活动产品验收问题先改一波」、05:47 又说「抽空验收问题改一改」，同一件事的催办隔了 3.6 小时超过 `THREAD_GAP_MS`，被拆成两个线程两个任务，第二个还自己开了终端建了分支。纯调大时间窗不行（同一个人一天里说的几件不同的事会被粘成一条），改成两段：2 小时内直接接续；2 到 `CONTINUATION_MAX_MS`（24 小时）的灰区用 Sonnet 判一句「是不是在催同一件事」，是才接回原线程。提示词明确要求拿不准答 false——错误合并让两件事只剩一条待办，比拆开更糟；解析失败、调用异常一律当作不是。`attachToThread` 加可选的 `{ graceMs, sameTopic }`，不传就是原来的纯时间行为；调用方先用 `graceCandidate` 拿灰区候选、异步判完再传回去。
+  **`threads.anchor_ts` 增量列是必须的**：语义合并如果推进接续锚点，线程时间窗就被往后拖，下一条无关消息会因为「离得近」被顺势吸进来，等于从侧门把「调大时间窗」那个毛病放回来（测试就是这么抓到的）。所以正常接续推进锚点、语义合并不动锚点；老库该列为空时 `gapFrom` 回落到 `last_ts`，行为与改动前一致。
+- **补拉对话上下文（2026-09-14，`connectors/slack.ts` `fetchContext`）**：收件箱里存的是「@ 到我的那一条」，而 `search.messages` 只返回这一条——**真正说明是什么事的前文以前从来没被拉过**。库里的实证：「你看看志华遗留的这个问题」27 字、「晚一点吧，准备发UAT」26 字、「你搜这个关键词：in_quick_entry」37 字，全是指代句。`brief.ts` 里那句「不要写你自己的能力限制（比如无权限读 thread）」正是在盖这个洞——模型本来一直在抱怨读不到 thread，被提示词按住了。
+  做法：消息在 thread 里（`inbox.thread_ts` 增量列，从 `search.messages` / `conversations.history` 的 `thread_ts` 取，等于自身 ts 的是根消息不算回复）就 `conversations.replies` 拉整个 thread；否则 `conversations.history` 带 `latest` + `inclusive` 拉它前面 `CONTEXT_LIMIT`（10）条。**按 `subtype` 过滤系统消息**——真实 API 跑出来第一版混进了 `has joined the channel`，4 条前文里 2 条是噪音，挤掉了真正有用的内容。拉不到就返回空数组，不让整条消息的处理失败。
+  同一份上下文喂给三处：①情境卡（`Enrichment.context` → `briefPrompt` 的「这之前，#频道 里聊的是」，系统提示加了「找用户的消息常常是指代句，先读前文再判断」）；②灰区归并判断（`isContinuation` 多收 `situation` 和 `context`——之前拿两条指代句互相比对，判不准是必然的）；③界面（`ThreadBrief.priorMessages` 落库，任务卡「对方原话」上方一个默认收起的 `.fx__prior`「这之前聊的是什么 N 条」，判断依据要能核对）。
+  **边界**：`thread_ts` 是这次才加的列，**老消息补不回来**，只有新进来的消息吃得到这个能力。
 - 每个被新消息触及的线程做功课（`agent/enrich.ts`，只读）：同一人历史线程的情境、`people.md` 里的条目、消息里 Meegle 链接用 `meegle` CLI 拉标题/状态/优先级/负责人、关联项目的 git 状态；然后 `agent/brief.ts` 用 Sonnet 出**情境卡**（situation / needs / needsReply / urgency / reply / actions / context / todo / person），最多 3 个线程并行。
 - 可逆自动写（`agent/autowrite.ts`，permission.ts 的 reversible 级）：情境卡给了 todo 就记待办，给了 person 就往 `people.md` 该人条目追加一行「备注（日期，Friday 自动）」；每个线程每类只做一次（`threads.auto_done`），结果写进 context 留痕。
 - 通知按线程发「N 个人等你回」。`GET /threads`、`POST /threads/:id/{refresh,done,ignore}`；`slack_inbox` 工具输出线程视角。启动器「Slack 找我的人」是线程卡片（情境、需要你、建议回复、背景、原文折叠、复制回复 / 在会话里处理 / 已处理 / 忽略）。
@@ -115,7 +121,7 @@ apps/core/src/
   **无障碍与九态**：全站原来 0 处 `:focus-visible`、0 处 `:active`，补上统一焦点环（`--ring` 从 16% 提到 40% 才算「高对比」）和按下态（scale .985，`prefers-reduced-motion` 下不缩放）；补 `prefers-reduced-motion`（保留透明度与颜色过渡，只砍位移，靠动画表达「正在进行」的改成静态可辨）；三个设置开关对屏幕阅读器只读出「switch, checked」——`Row` 组件改成用 `useId` + `aria-labelledby` 自动关联标签与控件；任务条目 `role="button"` 补空格键；图标按钮补 `aria-label`（`title` 只给鼠标）。
   **最危险的一处**：全局 Enter 监听会在焦点停在「打回」「忽略」等按钮上时抢过去执行主操作——而主操作可能是发 Slack 或合并分支这类不可逆动作。加了「焦点已在可聚焦控件上就不抢」的判断。
   **对齐轴**：三栏原来五个 content inset（页头 32 / 列表 40 / 详情 28/44 / 页面 44），标题和它标注的列表差 8px，收起导航后还是差 8px（把缺陷复制了一遍）。统一到 `--s-8`，实测三者左边缘都落在 232px。分组头与列表项的 8px 原来靠三条规则打架凑出来，改成一处声明。`.li__bar`（活动条）原来参与流式布局，终端一忙整条列表跳 9px，改成绝对定位贴行底。
-  **状态不只依赖颜色**：七种状态原来全是同尺寸同形状的 7px 圆点只换颜色。「进行中」改空心圈、「完成」改小一号实心；选中态除了灰度差再加一条左侧竖线（只有当前选中那条有，不会连成栅栏——上一轮给每条都加竖条被否过）。
+  **状态不只依赖颜色**：七种状态原来全是同尺寸同形状的 7px 圆点只换颜色。「进行中」改空心圈、「完成」改小一号实心；选中态除了灰度差再加一条左侧竖线（只有当前选中那条有，不会连成栅栏——上一轮给每条都加竖条被否过）。**这条竖线 2026-09-14 已按用户要求去掉**（`.li--on::before` 整段删除）：选中 `--bg-4` 与 hover `--bg-2` 的底色差已经够区分，竖线是多余装饰。
   **Elevation**：`.fx` 和 `.fx__foot` 是同级却各背一层 45% 不透明的 dialog 级阴影。改成基础面平（`--shadow-card` 只剩顶部高光），真正浮起的（右键菜单、回到底部）用新的 `--shadow-pop`，四套阴影配方统一成两套。
   **字号 token**：原来 108 处硬编码对 25 处 token，`11px`/`12.5px`/`13.5px` 各有一份字面量和 token 重复，`12px`（31 次）和 `13px`（22 次）根本没有 token。补 `--t-page/--t-sm/--t-xs`，88 处字面量换成 token；按 Apple tracking 表加 `--tr-*` 字距（字号越小越正、越大越负）。
   **其他**：等宽数字 `tabular-nums`（原来 0 处，计数和耗时会抖）；`.switch` 的 `cursor: pointer` 改箭头（桌面约定只有链接用手形）；打开弹层的命令加省略号（「看一眼再发…」「打回…」「编辑…」）；`disabled` 四种透明度统一成 `--o-disabled`；折叠块补展开指示（原来 `list-style: none` 抹掉三角又没给替代）；同步按钮留 `min-width` 防文案切换时推动同行；「待回复」Badge 从语义青改中性（它不是 success/warning/danger）；空状态补「下一步是什么」。
