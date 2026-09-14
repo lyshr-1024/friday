@@ -20,7 +20,6 @@ const DOING: TaskStatus[] = ["processing"];
 const QUEUED: TaskStatus[] = ["understood", "collected"];
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
-const TERM_LABEL: Record<string, string> = { busy: " · 在输出", idle: " · 空闲，等指示", gone: " · 已断，展开可重新打开", external: " · 在外部终端里", unknown: "" };
 
 /** 自学任务的完整研究笔记：展开才拉，社区做法和链接都在里面 */
 function ResearchNote({ id, file }: { id: string; file: string }) {
@@ -460,16 +459,6 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
-  // 终端状态三层：xterm 输出流（展开时，3 秒内有输出=忙）> 动作流轮询（5 秒）> 任务板（15 秒）
-  const [actTerminal, setActTerminal] = useState<TerminalState | null>(null);
-  const [liveBusy, setLiveBusy] = useState<boolean | null>(null);
-  const liveTimer = useRef(0);
-  const onTermOutput = () => {
-    setLiveBusy(true);
-    window.clearTimeout(liveTimer.current);
-    liveTimer.current = window.setTimeout(() => setLiveBusy(false), 3000);
-  };
-  useEffect(() => () => window.clearTimeout(liveTimer.current), []);
   // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
   const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
   useEffect(() => {
@@ -483,7 +472,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     setActs([]);
     if (!jobId) return;
     let stop = false;
-    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) { setActs(a.items); setActTerminal(a.terminal); } }).catch(() => {});
+    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) setActs(a.items); }).catch(() => {});
     pull();
     if (t.status !== "processing") return () => { stop = true; };
     const timer = window.setInterval(pull, 5000);
@@ -728,11 +717,12 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       )}
       {t.source.jobId && (
         <div className="fx__term">
-          <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)}>
-            <span className="k">终端{TERM_LABEL[termOpen && liveBusy !== null && (actTerminal ?? t.terminal) !== "gone" ? (liveBusy ? "busy" : "idle") : (actTerminal ?? t.terminal ?? "unknown")]}</span>
-            <span className="grp__tog">{termOpen ? "收起" : "展开"}<Icon name={termOpen ? "chevronDown" : "chevronRight"} /></span>
+          {/* 状态交给左栏那条说，这里只做开合——原来两处都报「已断」，措辞还更吓人 */}
+          <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)} aria-expanded={termOpen}>
+            <span className="k">终端</span>
+            <span className="fx__term-act">{termOpen ? "收起" : "展开"}<Icon name={termOpen ? "chevronDown" : "chevronRight"} /></span>
           </button>
-          {termOpen && <Terminal id={t.source.jobId} onOutput={onTermOutput} />}
+          {termOpen && <Terminal id={t.source.jobId} />}
         </div>
       )}
       {events.length > 0 && (
