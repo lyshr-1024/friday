@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS threads (
   status TEXT NOT NULL CHECK (status IN ('open', 'done', 'ignored')),
   first_ts TEXT NOT NULL,
   last_ts TEXT NOT NULL,
+  -- 接续判断的锚点。正常接续时跟着走，语义合并进来的消息不更新它，
+  -- 否则一次合并会把线程的时间窗往后拖，把后面无关的消息也吸进来。
+  anchor_ts TEXT,
   updated_at TEXT NOT NULL,
   brief TEXT,
   auto_done TEXT

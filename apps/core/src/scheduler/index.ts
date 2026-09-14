@@ -7,7 +7,8 @@ import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
-import { attachToThread, getThread, setThreadBrief } from "../memory/threads.js";
+import { attachToThread, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
+import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
 import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "../memory/inbox.js";
 
@@ -75,7 +76,15 @@ export async function syncSlackOnce(): Promise<number> {
         if (t) setTriage(it.id, t);
       });
       // 逐条分类之后按人聚合成线程，对每个被触及的线程做功课、出情境卡、做可逆自动写。
-      const touched = new Set(added.map((it) => attachToThread({ ...it, ...(result.get(added.indexOf(it) + 1) ? { triage: result.get(added.indexOf(it) + 1)! } : {}) })));
+      const touched = new Set<string>();
+      for (const [i, it] of added.entries()) {
+        const t = result.get(i + 1);
+        const item = { ...it, ...(t ? { triage: t } : {}) };
+        // 隔了两小时以上的，先问一句是不是在催同一件事，是就接回原线程而不是新起一条
+        const candidate = graceCandidate(item, CONTINUATION_MAX_MS);
+        const same = candidate ? await isContinuation(candidate.items, item) : false;
+        touched.add(attachToThread(item, Date.now(), { graceMs: CONTINUATION_MAX_MS, sameTopic: () => same }));
+      }
       const needReply: string[] = [];
       await mapLimit([...touched], 3, async (id) => {
         const thread = getThread(id);
