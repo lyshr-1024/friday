@@ -285,11 +285,26 @@ export type Risk = "read" | "reversible" | "irreversible";
 export interface TaskSource {
   threadId?: string;
   meegleId?: string;
+  /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
+  meegleType?: string;
   url?: string;
   note?: string;
   jobId?: string;
   /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
   conversationId?: string;
+}
+
+/** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
+export type TaskCategory = "story" | "defect" | "other";
+
+export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { story: "需求", defect: "缺陷", other: "其他" };
+
+/** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
+export function taskCategory(source: TaskSource): TaskCategory {
+  const t = source.meegleType;
+  if (t === "story") return "story";
+  if (t === "issue" || t === "defect" || t === "bug") return "defect";
+  return "other";
 }
 
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */

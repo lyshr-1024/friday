@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TASK_CATEGORY_LABEL, taskCategory } from "@friday/shared";
 import { toWorkItem } from "../connectors/meegle.js";
 import { matchProject, priorityOf, workItemToTask } from "./meegle.js";
 
@@ -28,6 +29,7 @@ describe("Meegle 工单进任务中枢", () => {
       id: "24184714",
       name: "【消息】消息记录内容查看权限申请与展示",
       typeName: "Requirement",
+      typeKey: "story",
       status: "Pending Release",
       priority: "P0",
       node: "FE Release",
@@ -53,7 +55,7 @@ describe("Meegle 工单进任务中枢", () => {
   });
 
   it("工单一律先排队；理解里写清节点与状态", () => {
-    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", status: "Open", projectName: "p", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", url: "u", createdAt: "2026-09-01T00:00:00Z" };
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
     expect(hot.status).toBe("understood");
     expect(hot.priority).toBe("high");
@@ -63,5 +65,15 @@ describe("Meegle 工单进任务中枢", () => {
     expect(cold.status).toBe("understood");
     expect(cold.due).toBe("2026-09-10T00:00:00Z");
     expect(cold.understanding).toContain("截止 2026-09-10");
+  });
+});
+
+describe("需求与缺陷分组", () => {
+  it("story 归需求，issue 归缺陷，自定义类型和没有类型的归其他", () => {
+    expect(taskCategory({ meegleType: "story" })).toBe("story");
+    expect(taskCategory({ meegleType: "issue" })).toBe("defect");
+    expect(taskCategory({ meegleType: "6a0d931f3129fdef6aba3188" })).toBe("other");
+    expect(taskCategory({})).toBe("other");
+    expect(TASK_CATEGORY_LABEL[taskCategory({ meegleType: "story" })]).toBe("需求");
   });
 });

@@ -20,6 +20,8 @@ export interface MeegleWorkItem {
   id: string;
   name: string;
   typeName: string;
+  /** 工单类型键：story / issue / 自定义类型的 hash */
+  typeKey: string;
   status: string;
   priority?: string;
   node?: string;
@@ -68,6 +70,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem): Meegle
     id: a.work_item_id,
     name: a.work_item_name.trim(),
     typeName: a.work_item_type.name,
+    typeKey: a.work_item_type.key,
     status: a.work_item_status.name,
     ...(priority ? { priority } : {}),
     ...(todo.node_info?.node_name ? { node: todo.node_info.node_name } : {}),

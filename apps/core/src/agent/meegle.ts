@@ -47,12 +47,13 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id, true);
       if (!existing) {
-        const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url } });
+        const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, meegleType: item.typeKey } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
         added++;
       } else if (OPEN.includes(existing.status)) {
         const { status: _s, ...patch } = input;
-        updateTask(existing.id, patch);
+        // source 会与旧值合并，顺带把早先同步下来、还没有类型的工单补上 meegleType。
+        updateTask(existing.id, { ...patch, source: { meegleType: item.typeKey } });
       }
     }
     const live = new Set(items.map((it) => it.id));

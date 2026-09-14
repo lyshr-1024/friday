@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AuditEvent, Task, TaskBoard, TaskStatus, Thread } from "@friday/shared";
+import { TASK_CATEGORY_LABEL, type AuditEvent, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type Thread, taskCategory } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, createTask, settings, taskApprove, taskBoard, taskReject, taskRetry, taskSet, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Terminal } from "./Terminal";
@@ -89,7 +89,7 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [doingOpen, setDoingOpen] = useState(true);
-  const [queuedOpen, setQueuedOpen] = useState(true);
+  const [queuedOpen, setQueuedOpen] = useState<Record<TaskCategory, boolean>>({ story: true, defect: true, other: true });
   const [doneOpen, setDoneOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
@@ -170,6 +170,9 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
   const decide = tasks.filter((t) => DECIDE.includes(t.status)).sort(sortDecide);
   const doing = tasks.filter((t) => DOING.includes(t.status));
   const queued = tasks.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || a.createdAt.localeCompare(b.createdAt));
+  // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/文档等没有类型的归「其他」。
+  const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
+  const QUEUE_GROUPS: TaskCategory[] = ["story", "defect", "other"];
   const done = tasks.filter((t) => t.status === "done").slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? decide[0] ?? null;
@@ -259,18 +262,25 @@ export function Board({ view, tools, newTaskSignal, onDiscuss, onCounts, onFocus
                     )}
                   </section>
 
-                  <section className="grp">
-                    <button className="grp__head" onClick={() => setQueuedOpen((v) => !v)}>
-                      待办<span className="mono">{queued.length}</span>
-                      <span className="grp__tog">{queuedOpen ? "收起" : "展开 ›"}</span>
-                    </button>
-                    {queuedOpen && (
-                      <div className="list">
-                        {queued.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
-                        {!queued.length && <div className="row row--compact"><span className="row__meta">没有待办</span></div>}
-                      </div>
-                    )}
-                  </section>
+                  {QUEUE_GROUPS.map((cat) => {
+                    const list = queuedBy(cat);
+                    // 「其他」只有真的有东西时才占位，需求/缺陷两组常驻，空了也让人看得见。
+                    if (!list.length && cat === "other") return null;
+                    return (
+                      <section className="grp" key={cat}>
+                        <button className="grp__head" onClick={() => setQueuedOpen((v) => ({ ...v, [cat]: !v[cat] }))}>
+                          {TASK_CATEGORY_LABEL[cat]}<span className="mono">{list.length}</span>
+                          <span className="grp__tog">{queuedOpen[cat] ? "收起" : "展开 ›"}</span>
+                        </button>
+                        {queuedOpen[cat] && (
+                          <div className="list">
+                            {list.map((t) => item(t, <Row key={t.id} t={t} compact right={queuedRight(t)} dim={!t.due && t.priority !== "high"} onClick={() => setSelectedId(t.id)} />))}
+                            {!list.length && <div className="row row--compact"><span className="row__meta">没有{TASK_CATEGORY_LABEL[cat]}</span></div>}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
                   <section className="grp">
                     <button className="grp__head" onClick={() => setDoneOpen((v) => !v)}>
                       最近完成<span className="mono">{board?.counts.done ?? 0}</span>
