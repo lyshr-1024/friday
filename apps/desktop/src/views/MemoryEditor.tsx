@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import type { MemoryFile } from "@friday/shared";
 import { readMemory, writeMemory } from "../lib/core";
@@ -53,7 +54,7 @@ export function MemoryEditor({ name, onBack }: { name: MemoryFile; onBack: () =>
   return (
     <div className="editor" onKeyDown={onKeyDown}>
       <header className="editor__head">
-        <button className="editor__back" onClick={onBack}>‹ 设置</button>
+        <button className="editor__back" onClick={onBack}><Icon name="chevronRight" className="icon--flip" />设置</button>
         <span className="editor__title">{meta.label}</span>
         <span className="editor__status mono">
           {status === "saving" && "保存中…"}

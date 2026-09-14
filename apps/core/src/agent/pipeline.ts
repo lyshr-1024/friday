@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { closeTaskTerminal } from "./terminal.js";
+import { currentBranchSync } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -70,19 +72,28 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     taskId: task.id,
     action: "claude_code_start",
     why: "任务需要改代码，按策略自动在分支上完成再交审核",
-    how: `Ghostty 里 claude -p，分支 friday/${id.slice(0, 8)}，完成后写交付报告`,
+    how: "Ghostty 里 claude -p，在按项目规范命名的新分支上改，完成后写交付报告",
     evidence: { jobId: id, project, dir },
     risk: "reversible",
   });
-  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 的分支 friday/${id.slice(0, 8)} 上处理`, source: { ...task.source, jobId: id } })!;
+  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 上处理`, source: { ...task.source, jobId: id, autonomous: true } })!;
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  if (job.task.report && job.task.status === "review") {
+    record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
+    return job.task;
+  }
+  if (!job.task.source.autonomous) {
+    record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
+    return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}` })!;
+  }
   const report = collectReport(jobId);
-  const branch = `friday/${jobId.slice(0, 8)}`;
+  // 分支名由终端里的 Claude 按项目规范起，这里读实际值（读不到就不挂合并动作）
+  const branch = currentBranchSync(job.dir);
   record({
     taskId: job.task.id,
     action: "claude_code_finish",
@@ -104,7 +115,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
         : `终端任务结束（退出码 ${exitCode}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
     ...(report ? { report } : {}),
   })!;
-  if (report && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
+  // 读不到分支名（不是 git 仓库、或它没建分支）就不挂合并动作，免得挂个假的
+  if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: job.dir, branch } })!;
   }
   return task;
@@ -125,18 +137,28 @@ export async function executePending(taskId: string, actionId: string, deps: { s
   const taken = takePending(taskId, actionId);
   if (!taken) throw new Error("待审核动作不存在");
   const { action } = taken;
-  if (action.type === "slack_reply") {
-    const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
-    const res = await deps.slackPost(p.channel, p.text, p.threadTs);
-    record({ taskId, action: "slack_reply_sent", why: "你审核通过", how: "chat.postMessage", evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null }, risk: "irreversible", status: "approved" });
-  } else if (action.type === "git_merge") {
-    const p = action.payload as { dir: string; branch: string };
-    const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
-    await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
-    record({ taskId, action: "git_merge", why: "你审核通过", how: `git merge --no-ff ${p.branch} 到 ${base}`, evidence: p, risk: "irreversible", status: "approved" });
-  } else {
-    record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
+  try {
+    if (action.type === "slack_reply") {
+      const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
+      const res = await deps.slackPost(p.channel, p.text, p.threadTs);
+      record({ taskId, action: "slack_reply_sent", why: "你审核通过", how: "chat.postMessage", evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null }, risk: "irreversible", status: "approved" });
+    } else if (action.type === "git_merge") {
+      const p = action.payload as { dir: string; branch: string };
+      const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
+      await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
+      record({ taskId, action: "git_merge", why: "你审核通过", how: `git merge --no-ff ${p.branch} 到 ${base}`, evidence: p, risk: "irreversible", status: "approved" });
+    } else {
+      record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
+    }
+  } catch (e) {
+    // 没发出去的动作要放回去，不然用户改好的草稿随失败一起丢了
+    const cur = getTask(taskId);
+    if (cur) updateTask(taskId, { pending: [...(cur.pending ?? []), action], status: "review" });
+    throw e;
   }
   const t = getTask(taskId)!;
-  return t.pending?.length ? t : updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  if (t.pending?.length) return t;
+  const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  closeTaskTerminal(done, "待审动作全部执行完，任务完成");
+  return done;
 }

@@ -20,6 +20,8 @@ export interface AskOptions {
   skills?: boolean;
   /** 当前会话 id，工具里用来把终端挂到正在讨论的任务上 */
   conversationId?: string;
+  /** 只放行这几个内置工具（如 WebSearch / WebFetch），不挂 Friday 的 MCP 工具；给研究类后台任务用 */
+  builtin?: string[];
 }
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
@@ -38,10 +40,10 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
     options: {
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,
-      tools: opts.skills ? SKILL_TOOLS : [],
-      mcpServers: { friday: fridayTools(opts.conversationId) },
-      allowedTools: opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES,
-      maxTurns: opts.skills ? 30 : 8,
+      tools: opts.builtin ?? (opts.skills ? SKILL_TOOLS : []),
+      ...(opts.builtin ? {} : { mcpServers: { friday: fridayTools(opts.conversationId) } }),
+      allowedTools: opts.builtin ?? (opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES),
+      maxTurns: opts.builtin ? 20 : opts.skills ? 30 : 8,
       includePartialMessages: true,
       persistSession: true,
       settingSources: opts.skills ? ["user"] : [],

@@ -16,11 +16,21 @@ describe("情境卡", () => {
   it("提示词带上人物、历史、链接与项目 git 背景", () => {
     const { prompt } = briefPrompt(
       { id: "t", kind: "dm", userId: "U", userName: "灵雨", channelId: "D", channelName: "私聊", status: "open", firstTs: "1", lastTs: "1", updatedAt: "", items: [{ id: "a", kind: "dm", channelId: "D", channelName: "私聊", userId: "U", userName: "灵雨", text: "看下这个", permalink: "", ts: "1760000000", receivedAt: "", done: false }] },
-      { history: ["上次问过登录报错"], person: "灵雨：QA", links: ["Meegle 缺陷 #1「登录报错」状态 Open"], project: { name: "whale-console", dir: "/w", git: "分支：main；工作区干净" } },
+      { history: ["上次问过登录报错"], person: "灵雨：QA", links: ["Meegle 缺陷 #1「登录报错」状态 Open"], project: { name: "whale-console", dir: "/w", git: "分支：main；工作区干净" }, context: [] },
     );
     expect(prompt).toContain("上次问过登录报错");
     expect(prompt).toContain("Meegle 缺陷 #1");
     expect(prompt).toContain("whale-console");
+  });
+
+  it("指代句要带上频道前文，否则判断不出说的是哪件事", () => {
+    const { system, prompt } = briefPrompt(
+      { id: "t", kind: "mention", userId: "U", userName: "jiacheng.zhou", channelId: "C", channelName: "#银河", status: "open", firstTs: "1", lastTs: "1", updatedAt: "", items: [{ id: "a", kind: "mention", channelId: "C", channelName: "#银河", userId: "U", userName: "jiacheng.zhou", text: "你看看志华遗留的这个问题", permalink: "", ts: "1760000000", receivedAt: "", done: false }] },
+      { history: [], links: [], context: [{ ts: "1759999000", userName: "fen.cai", text: "多级标题在 iOS 上错位了" }] },
+    );
+    expect(prompt).toContain("多级标题在 iOS 上错位了");
+    expect(prompt).toContain("这之前");
+    expect(system).toContain("指代句");
   });
 });
 

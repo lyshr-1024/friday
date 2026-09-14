@@ -1,7 +1,9 @@
+import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
+import { requestFocusJob } from "../lib/focusJob";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -143,7 +145,7 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
           ) : (
             <span className="attach__file mono">{a.name}</span>
           )}
-          {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除">×</button>}
+          {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除"><Icon name="cross" /></button>}
         </div>
       ))}
     </div>
@@ -189,7 +191,7 @@ export function InboxList({
   /** 在会话窗里带着这条消息开新对话 */
   onOpen?: (item: InboxItem) => void;
 }) {
-  if (!items.length) return <div className="muted">没有待处理的 Slack 消息</div>;
+  if (!items.length) return <div className="empty">没有待处理的 Slack 消息，有人找你时会出现在这里</div>;
   return (
     <ul className="inbox">
       {items.map((it) => (
@@ -246,7 +248,7 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
         </div>
       )}
       <div className="job__actions">
-        <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
+        <button onClick={() => { requestFocusJob(job.id); void jobFocus(job.id); }}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
       </div>
     </div>

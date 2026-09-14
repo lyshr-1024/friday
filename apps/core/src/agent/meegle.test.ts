@@ -1,3 +1,6 @@
+import { syncMeegleOnce as syncOnce } from "./meegle.js";
+import { createTask as mkTask, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
+import { state as schedState } from "../scheduler/index.js";
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory } from "@friday/shared";
 import { toWorkItem } from "../connectors/meegle.js";
@@ -65,6 +68,27 @@ describe("Meegle 工单进任务中枢", () => {
     expect(cold.status).toBe("understood");
     expect(cold.due).toBe("2026-09-10T00:00:00Z");
     expect(cold.understanding).toContain("截止 2026-09-10");
+  });
+});
+
+describe("Meegle 同步：Reopen 的工单拉回待办", () => {
+  const item = (id: string, status: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", status, projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" });
+  const fake = (items: ReturnType<typeof item>[]) => ({ fetchWorkItems: async () => items }) as never;
+
+  it("Friday 里已完成、Meegle 里 Reopened 且又在分派列表 → 回到待办、记账、通知", async () => {
+    const t = mkTask({ title: "缺陷 r1", kind: "meegle", source: { meegleId: "r1", url: "https://x/r1" }, status: "done" });
+    const r = await syncOnce(fake([item("r1", "Reopened")]));
+    expect(r.reopened).toBe(1);
+    expect(readTask(t.id)!.status).toBe("understood");
+    expect(schedState.notices.some((n) => n.title.includes("Reopen"))).toBe(true);
+  });
+
+  it("Friday 里主动标完成、Meegle 状态不是 Reopen → 不动，免得每 15 分钟翻回来", async () => {
+    const t = mkTask({ title: "缺陷 r2", kind: "meegle", source: { meegleId: "r2", url: "https://x/r2" }, status: "done" });
+    setTask(t.id, { status: "done" });
+    const r = await syncOnce(fake([item("r2", "In Progress")]));
+    expect(r.reopened).toBe(0);
+    expect(readTask(t.id)!.status).toBe("done");
   });
 });
 

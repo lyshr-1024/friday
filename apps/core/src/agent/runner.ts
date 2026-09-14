@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
 import { getSession, spawnSession } from "./pty.js";
 import { getJob } from "../memory/jobs.js";
+import { terminalBridgePrompt } from "./prompt.js";
 
 const execFileP = promisify(execFile);
 
@@ -29,7 +30,11 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     `任务：${task}`,
     "",
     "规则：",
-    `1. 先 git status 确认工作区；新建分支 friday/${id.slice(0, 8)} 再改，不要动 main / master，不要 push，不要 merge。`,
+    "1. 先 git status 确认工作区，然后新建分支再改，不要动 main / master，不要 push，不要 merge。",
+    "   分支名按项目规范起，用英文小写加连字符，要能看出在做什么：",
+    "   新功能用 feat/<topic>，修缺陷用 fix/<bug>，杂活或样式用 chore/<topic> 或 style/<topic>。",
+    "   例如 feat/export-center、fix/withdrawal-rule-tabs、style/task-card-spacing。",
+    "   起好后第一时间调 friday_progress 把分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -75,7 +80,7 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message, session_id } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
     if (!text && transcript_path && fs.existsSync(transcript_path)) {
@@ -89,8 +94,8 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
         } catch {}
       }
     }
-    if (!text && !session_id) { console.error("no assistant text"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}) }) })
+    if (!text && !session_id && !tool_name && !message) { console.error("nothing to post"); return; }
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }
@@ -99,25 +104,25 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
   ].join("\n");
 }
 
+/** SessionStart 一开始就把 session id 回传，不然 Claude 第一轮没说完 Friday 就重启，这条任务就再也接不上了；Stop 每轮回传最后一段回答。 */
 export function buildHookSettings(hookScript: string): string {
-  return JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }] } }, null, 2);
+  const hook = [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }];
+  // 交互式提问（选项题 / plan 确认）不会发 Stop，PTY 也安静，不接这两个 hook 就感知不到它在等人
+  const asking = [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: hook[0]!.hooks }];
+  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook, PreToolUse: asking, PostToolUse: asking, Notification: hook } }, null, 2);
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
 // 见 pty.ts cleanEnv：Ghostty / Terminal 由 open 拉起同样会继承这些变量
 const UNSET_CLAUDE_ENV = "unset CLAUDECODE CLAUDE_PID $(env | sed -n 's/^\\(CLAUDE_CODE_[A-Z_]*\\)=.*/\\1/p') 2>/dev/null";
 
-/** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里的 / 换成 ->/<session>.jsonl */
+/** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里所有非字母数字换成 ->/<session>.jsonl */
 export function transcriptPath(dir: string, sessionId: string): string {
-  return join(homedir(), ".claude", "projects", dir.replace(/[\/.]/g, "-"), `${sessionId}.jsonl`);
+  return join(homedir(), ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
-export function buildScript(req: LaunchRequest, claudePath: string, port: number, settingsFile?: string): string {
-  const flags = [
-    ...(req.autonomous ? ["-p"] : []),
-    "--dangerously-skip-permissions",
-    ...(settingsFile ? ["--settings", shellQuote(settingsFile)] : []),
-  ].join(" ");
+export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
+  const flags = claudeFlags(files, req.autonomous);
   const claude = `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
   return [
     "#!/bin/zsh",
@@ -137,23 +142,49 @@ export function buildScript(req: LaunchRequest, claudePath: string, port: number
 }
 
 /** 写 Stop hook 脚本与 --settings 文件；每次启动/重开都重写，保证用的是当前版本的 hook。 */
-function writeHookFiles(id: string): string {
+export interface ClaudeFiles {
+  settings: string;
+  mcp: string;
+}
+
+/** 终端 Claude Code 的 MCP 配置：一个 http 服务指回 Friday，按 jobId 绑任务。 */
+export function buildMcpConfig(id: string, port: number): string {
+  return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
+}
+
+function writeHookFiles(id: string): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
   chmodSync(hook, 0o755);
-  const settingsFile = join(runsDir(), `${id}.settings.json`);
-  writeFileSync(settingsFile, buildHookSettings(hook));
-  return settingsFile;
+  const settings = join(runsDir(), `${id}.settings.json`);
+  writeFileSync(settings, buildHookSettings(hook));
+  const mcp = join(runsDir(), `${id}.mcp.json`);
+  writeFileSync(mcp, buildMcpConfig(id, config.port));
+  return { settings, mcp };
+}
+
+/** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
+export function claudeFlags(files: ClaudeFiles, autonomous = false): string {
+  return [
+    ...(autonomous ? ["-p"] : []),
+    "--dangerously-skip-permissions",
+    "--settings",
+    shellQuote(files.settings),
+    "--mcp-config",
+    shellQuote(files.mcp),
+    "--append-system-prompt",
+    shellQuote(terminalBridgePrompt()),
+  ].join(" ");
 }
 
 export async function launchClaude(req: LaunchRequest): Promise<string> {
   const claudePath = await findClaude();
-  const settingsFile = writeHookFiles(req.id);
+  const files = writeHookFiles(req.id);
 
   const ext = req.terminal === "terminal" ? ".command" : ".sh";
   const script = join(runsDir(), `${req.id}${ext}`);
-  writeFileSync(script, buildScript(req, claudePath, config.port, settingsFile));
+  writeFileSync(script, buildScript(req, claudePath, config.port, files));
   chmodSync(script, 0o755);
 
   // 内嵌终端：sidecar 自己用 PTY 跑脚本，前端 xterm 接 /pty/:id/stream；上下文和任务绑在一起，不会串。
@@ -182,10 +213,12 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
   const job = getJob(jobId);
   if (!job) return "no-job";
   const claudePath = await findClaude();
-  const settingsFile = writeHookFiles(jobId);
-  const flags = ["--dangerously-skip-permissions", "--settings", shellQuote(settingsFile)].join(" ");
-  const resumable = Boolean(job.claudeSessionId && existsSync(transcriptPath(job.dir, job.claudeSessionId)));
+  const flags = claudeFlags(writeHookFiles(jobId));
+  // 有 id 就先试 --resume（transcript 可能刚建还没落盘，交给 claude 自己判断），失败再新开
+  const resumable = Boolean(job.claudeSessionId);
+  const hasTranscript = resumable && existsSync(transcriptPath(job.dir, job.claudeSessionId!));
   const script = join(runsDir(), `${jobId}.reopen.sh`);
+  const fresh = `这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`;
   writeFileSync(
     script,
     [
@@ -194,11 +227,11 @@ export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" 
       UNSET_CLAUDE_ENV,
       `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
       resumable
-        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话]\\033[0m\\n'`
-        : `printf '\\033[2m[Friday 重启过，${job.claudeSessionId ? "这条任务的会话记录没有保存下来（上次 Claude 被当成子会话运行）" : "这条任务没有记录到会话 id"}，开一个新会话]\\033[0m\\n'`,
+        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话${hasTranscript ? "" : "（记录可能还没落盘，接不上就新开）"}]\\033[0m\\n'`
+        : `printf '\\033[2m[Friday 重启过，这条任务没有记录到会话 id，开一个新会话]\\033[0m\\n'`,
       resumable
-        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags}`
-        : `${shellQuote(claudePath)} ${flags} ${shellQuote(`这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`)}`,
+        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`
+        : `${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`,
       "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
       "exec /bin/zsh -il",
       "",

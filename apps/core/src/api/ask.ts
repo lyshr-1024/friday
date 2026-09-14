@@ -6,6 +6,12 @@ import { friday } from "../agent/prompt.js";
 import { cancelRun, isRunning, startRun, subscribe } from "../agent/runs.js";
 import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
+import { existsSync } from "node:fs";
+import { transcriptPath } from "../agent/runner.js";
+import { contextFor } from "../agent/bridge.js";
+import { TERMINAL_STATE_LABEL, terminalState } from "../agent/terminal.js";
+import { getJob } from "../memory/jobs.js";
+import { findTaskBySource } from "../memory/tasks.js";
 import { claudeSessionId, conversationExists, createConversation } from "../memory/conversations.js";
 import { userSettings } from "../settings.js";
 
@@ -37,6 +43,21 @@ function streamRun(c: Parameters<typeof streamSSE>[0], conversationId: string) {
   });
 }
 
+/** 会话绑着任务时，把卡片此刻的内容整理成一段给系统提示 */
+export function taskBlock(conversationId: string): string | undefined {
+  const task = findTaskBySource((s) => s.conversationId === conversationId);
+  if (!task) return undefined;
+  const job = task.source.jobId ? getJob(task.source.jobId) : undefined;
+  return [
+    contextFor(task, job),
+    job ? `终端：${job.status === "running" ? TERMINAL_STATE_LABEL[terminalState(job.id)] : `进程已退出（退出码 ${job.exitCode ?? "?"}）`}${job.lastMessage ? `；它最后说：${job.lastMessage.slice(0, 200)}` : ""}` : "",
+    task.attention === "review" ? "终端这一轮已经做完等用户看；任务是否完成由用户说，用户没说别当它完成。" : task.attention === "blocked" ? "终端报告卡住了，需要用户介入。" : task.attention === "question" ? `终端正停在一个交互式提问上等用户回答（${task.progress ?? ""}）。用户说选哪个 / 怎么回，就用 terminal_say 把选项编号或文字敲进去，不要自己替用户选。` : "",
+    task.report ? `最近一次交付：${task.report.summary}（测试：${task.report.testResult}）${task.report.verify.length ? `；验证点用户已确认 ${(task.report.checked ?? []).filter(Boolean).length}/${task.report.verify.length}${(task.report.checked ?? []).filter(Boolean).length === task.report.verify.length ? "，全部通过" : ""}` : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export const ask = new Hono()
   .post("/ask", async (c) => {
     const parsed = body.safeParse(await c.req.json().catch(() => null));
@@ -46,14 +67,17 @@ export const ask = new Hono()
     if (isRunning(conv)) return c.json({ error: "这个会话正在生成，先等它结束或按 Esc 中断" }, 409);
 
     const prefs = userSettings();
+    // 路由到很久前的会话时 transcript 可能已被清掉，这时不带 resume 新开 Claude 会话，Friday 自己的消息记录还在
+    const session = claudeSessionId(conv);
+    const resume = session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
     startRun(
       conv,
       prompt,
       {
-        systemPrompt: friday(loadMemoryContext(), prefs.skills),
+        systemPrompt: friday(loadMemoryContext(), prefs.skills, taskBlock(conv)),
         cwd: config.dataDir,
         skills: prefs.skills,
-        ...(claudeSessionId(conv) ? { resume: claudeSessionId(conv) } : {}),
+        ...(resume ? { resume } : {}),
         ...(prefs.model ? { model: prefs.model } : {}),
       },
       parsed.data.attachments ?? [],

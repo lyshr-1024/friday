@@ -4,6 +4,7 @@ import { record } from "../memory/audit.js";
 import { loadProjects, type Project } from "../memory/projects.js";
 import { createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
+import { state } from "../scheduler/index.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
@@ -35,14 +36,15 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
 const OPEN: TaskStatus[] = ["collected", "understood", "review"];
 
 /** 拉一次分派给我的 Meegle 工单：新工单建任务，已有的更新，不再分派给我的自动完成。 */
-export async function syncMeegleOnce(connector = new MeegleConnector()): Promise<{ added: number; closed: number }> {
-  if (meegleState.running) return { added: 0, closed: 0 };
+export async function syncMeegleOnce(connector = new MeegleConnector()): Promise<{ added: number; closed: number; reopened: number }> {
+  if (meegleState.running) return { added: 0, closed: 0, reopened: 0 };
   meegleState.running = true;
   try {
     const items = await connector.fetchWorkItems();
     syncSourceTodos("meegle", items.map(toTodoLike));
     const projects = loadProjects();
     let added = 0;
+    let reopened = 0;
     for (const item of items) {
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id, true);
@@ -54,6 +56,14 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const { status: _s, ...patch } = input;
         // source 会与旧值合并，顺带把早先同步下来、还没有类型的工单补上 meegleType。
         updateTask(existing.id, { ...patch, source: { meegleType: item.typeKey } });
+      } else if ((existing.status === "done" || existing.status === "ignored") && /reopen/i.test(item.status)) {
+        // Friday 里已经收工，Meegle 里却被 Reopen 又分派回来：拉回待办并提醒。
+        // 只认 Reopen 状态——用户在 Friday 里主动标完成而 Meegle 还挂着的，不能每 15 分钟翻回来。
+        const { status: _s, ...patch } = input;
+        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: { meegleType: item.typeKey } });
+        record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
+        state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120) });
+        reopened++;
       }
     }
     const live = new Set(items.map((it) => it.id));
@@ -66,11 +76,11 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     }
     meegleState.lastSyncAt = new Date().toISOString();
     meegleState.lastError = null;
-    return { added, closed };
+    return { added, closed, reopened };
   } catch (e) {
     meegleState.lastError = e instanceof Error ? e.message : String(e);
     console.error(`[meegle] ${meegleState.lastError}`);
-    return { added: 0, closed: 0 };
+    return { added: 0, closed: 0, reopened: 0 };
   } finally {
     meegleState.running = false;
   }

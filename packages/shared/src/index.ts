@@ -98,6 +98,7 @@ export const THEME_OPTIONS = [
   { id: "graphite", label: "石墨", hint: "中性冷灰，默认" },
   { id: "warm", label: "暖灰", hint: "偏暖的褐灰，文字米白" },
   { id: "navy", label: "深蓝", hint: "蓝黑底，青色更融合" },
+  { id: "light", label: "浅色", hint: "亮底深字，白天用" },
 ] as const;
 export type ThemeId = (typeof THEME_OPTIONS)[number]["id"];
 
@@ -107,6 +108,7 @@ export interface SettingsResponse {
   skills: boolean;
   name: string;
   theme: ThemeId;
+  learn: boolean;
   dataDir: string;
   projects: string[];
 }
@@ -117,6 +119,7 @@ export interface SettingsUpdate {
   skills?: boolean;
   name?: string;
   theme?: ThemeId;
+  learn?: boolean;
 }
 
 /** 工作台首屏：Friday 自动拉好的“现在该做什么” */
@@ -194,6 +197,8 @@ export interface InboxItem {
   permalink: string;
   /** slack:// 深链，有 Slack 桌面端时优先用它 */
   appLink?: string;
+  /** 这条消息所在 thread 的根 ts。有值说明它是某个 thread 里的回复，前文要去 conversations.replies 取。 */
+  threadTs?: string;
   ts: string;
   receivedAt: string;
   triage?: Triage;
@@ -224,6 +229,8 @@ export interface Job {
   conversationId?: string;
   /** Stop hook 回报的 Claude Code 会话 id，重开终端时用 --resume 接上 */
   claudeSessionId?: string;
+  /** 在哪种终端里跑：内嵌 PTY 随 sidecar 重启就没了，外部终端 Friday 看不见 */
+  terminal?: TerminalApp;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;
@@ -248,6 +255,8 @@ export interface ThreadBrief {
   reply?: string;
   actions: ThreadAction[];
   context: string[];
+  /** 这条消息之前、频道或 thread 里已经聊过的原话。判断的依据，要能被核对。 */
+  priorMessages?: Array<{ ts: string; userName: string; text: string }>;
   todo?: { text: string; due?: string };
   person?: string;
 }
@@ -278,7 +287,7 @@ export interface ThreadsResponse {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "other";
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
@@ -292,6 +301,10 @@ export interface TaskSource {
   jobId?: string;
   /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
   conversationId?: string;
+  /** Friday 自主派出的 -p 任务：用户只审交付报告，friday_done 直接进 review */
+  autonomous?: boolean;
+  /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
+  researchFile?: string;
 }
 
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
@@ -307,6 +320,10 @@ export function taskCategory(source: TaskSource): TaskCategory {
   return "other";
 }
 
+/** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */
+/** question = 终端里的 Claude 弹了交互式提问，阻塞中，需要用户马上回 */
+export type TaskAttention = "review" | "blocked" | "question";
+
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */
 export interface DeliveryReport {
   summary: string;
@@ -315,6 +332,10 @@ export interface DeliveryReport {
   testResult: string;
   screenshots: Attachment[];
   verify: string[];
+  /** 这份报告是什么时候交的（终端可能交好几轮） */
+  at?: string;
+  /** 用户逐项确认的勾选状态，和 verify 对齐；全部勾完 = 这轮验收通过 */
+  checked?: boolean[];
 }
 
 export interface Task {
@@ -332,9 +353,18 @@ export interface Task {
   /** 等用户点头的不可逆动作 */
   pending?: PendingAction[];
   due?: string;
+  /** 只在 GET /tasks 里有：这条任务终端的真实状态 */
+  terminal?: TerminalState;
+  /** 终端最近一轮的结果；任务是否完成由用户说 */
+  attention?: TaskAttention;
+  /** 用户星标关注：列表最顶上单独一组 */
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+/** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
+export type TerminalState = "busy" | "idle" | "gone" | "external";
 
 export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "custom";
 

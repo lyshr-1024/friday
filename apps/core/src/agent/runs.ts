@@ -3,6 +3,7 @@ import { askStream, type AskEvent, type AskOptions } from "./claude.js";
 import { buildUserContent } from "./content.js";
 import { addMessage, setClaudeSessionId } from "../memory/conversations.js";
 import { finishSession, startSession } from "../memory/sessions.js";
+import { publish } from "../bus.js";
 
 type Listener = (ev: AskEvent) => void;
 
@@ -34,6 +35,7 @@ export function startRun(conversationId: string, prompt: string, opts: Omit<AskO
   if (existing) return existing;
   const run: Run = { conversationId, answer: "", done: false, controller: new AbortController(), listeners: new Set() };
   runs.set(conversationId, run);
+  publish({ type: "conversation", id: conversationId, running: true });
   const { content, attached } = buildUserContent(prompt, attachmentIds);
   addMessage(conversationId, { role: "user", kind: "ask", content: prompt, ...(attached.length ? { payload: { attachments: attached satisfies Attachment[] } } : {}) });
   // 延后一拍启动，让发起请求的那次 SSE 先订阅上，避免开头几个事件被合并回放。
@@ -65,6 +67,7 @@ async function execute(run: Run, prompt: Parameters<typeof askStream>[0], opts: 
     if (run.controller.signal.aborted && !run.answer) addMessage(run.conversationId, { role: "assistant", kind: "error", content: "已中断" });
     run.done = true;
     runs.delete(run.conversationId);
+    publish({ type: "conversation", id: run.conversationId, running: false });
     emit({ type: "done" });
     run.listeners.clear();
   }

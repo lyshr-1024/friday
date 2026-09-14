@@ -17,6 +17,7 @@ interface Row {
   status: ThreadStatus;
   first_ts: string;
   last_ts: string;
+  anchor_ts: string | null;
   updated_at: string;
   brief: string | null;
   auto_done: string | null;
@@ -43,29 +44,62 @@ export function threadKey(item: Pick<InboxItem, "kind" | "userId" | "channelId">
   return { kind: item.kind, userId: item.userId, channelId: item.kind === "dm" ? "" : item.channelId };
 }
 
-/** 把一条消息挂到线程上（接续 2 小时内同键的 open 线程，否则新建），返回线程 id。 */
-export function attachToThread(item: InboxItem, now = Date.now()): string {
-  const d = db();
+function openCandidate(item: InboxItem): Row | undefined {
   const key = threadKey(item);
-  const ts = Number(item.ts) * 1000;
-  const candidate = d
+  return db()
     .prepare("SELECT * FROM threads WHERE status = 'open' AND kind = ? AND user_id = ? AND (kind = 'dm' OR channel_id = ?) ORDER BY last_ts DESC LIMIT 1")
     .get(key.kind, key.userId, item.channelId) as unknown as Row | undefined;
+}
+
+/** 距接续锚点多久。锚点缺省回落到 last_ts（老库迁移前写的行）。 */
+const gapFrom = (row: Row, item: InboxItem) => Number(item.ts) * 1000 - Number(row.anchor_ts ?? row.last_ts) * 1000;
+
+/**
+ * 把一条消息挂到线程上，返回线程 id。
+ * 2 小时内同键的 open 线程直接接续；超出但还在 `graceMs` 内的交给 `sameTopic` 判断
+ * （同一件事隔几小时再催一次很常见，纯按时间切会拆成两条待办）。
+ */
+export function attachToThread(
+  item: InboxItem,
+  now = Date.now(),
+  opts: { graceMs?: number; sameTopic?: (candidateId: string) => boolean } = {},
+): string {
+  const d = db();
+  const candidate = openCandidate(item);
   const nowIso = new Date(now).toISOString();
+  const gap = candidate ? gapFrom(candidate, item) : Infinity;
+  const withinGap = Math.abs(gap) <= THREAD_GAP_MS;
+  // 只对「新消息晚于线程」的情况做语义判断：补历史消息不该反过来把旧线程拉长
+  const inGrace = gap > THREAD_GAP_MS && gap <= (opts.graceMs ?? 0);
+  const merged = Boolean(candidate) && !withinGap && inGrace && Boolean(opts.sameTopic?.(candidate!.id));
   let id: string;
-  if (candidate && ts - Number(candidate.last_ts) * 1000 <= THREAD_GAP_MS && ts - Number(candidate.last_ts) * 1000 >= -THREAD_GAP_MS) {
+  if (candidate && (withinGap || merged)) {
     id = candidate.id;
     const first = Math.min(Number(candidate.first_ts), Number(item.ts));
     const last = Math.max(Number(candidate.last_ts), Number(item.ts));
-    d.prepare("UPDATE threads SET first_ts = ?, last_ts = ?, updated_at = ? WHERE id = ?").run(String(first), String(last), nowIso, id);
+    // 语义合并不推进锚点，否则下一条无关消息会因为「离得近」被顺势吸进来
+    const anchor = merged ? (candidate.anchor_ts ?? candidate.last_ts) : String(last);
+    d.prepare("UPDATE threads SET first_ts = ?, last_ts = ?, anchor_ts = ?, updated_at = ? WHERE id = ?").run(String(first), String(last), anchor, nowIso, id);
   } else {
     id = randomUUID();
     d.prepare(
-      "INSERT INTO threads (id, kind, user_id, user_name, channel_id, channel_name, status, first_ts, last_ts, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
-    ).run(id, item.kind, item.userId, item.userName, item.kind === "dm" ? item.channelId : item.channelId, item.channelName, item.ts, item.ts, nowIso);
+      "INSERT INTO threads (id, kind, user_id, user_name, channel_id, channel_name, status, first_ts, last_ts, anchor_ts, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+    ).run(id, item.kind, item.userId, item.userName, item.channelId, item.channelName, item.ts, item.ts, item.ts, nowIso);
   }
   d.prepare("UPDATE inbox SET thread_id = ? WHERE id = ?").run(id, item.id);
   return id;
+}
+
+/**
+ * 这条消息落在「超出 2 小时但还在宽限期内」的灰区时，返回那个候选线程。
+ * 调用方拿它去做语义判断，再把结果交回 attachToThread。不在灰区就返回 undefined。
+ */
+export function graceCandidate(item: InboxItem, graceMs: number): Thread | undefined {
+  const row = openCandidate(item);
+  if (!row) return undefined;
+  const gap = gapFrom(row, item);
+  if (gap <= THREAD_GAP_MS || gap > graceMs) return undefined;
+  return toThread(row, threadItems(row.id));
 }
 
 export function threadItems(threadId: string): InboxItem[] {

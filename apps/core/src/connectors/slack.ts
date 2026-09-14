@@ -1,3 +1,4 @@
+import type { InboxItem } from "@friday/shared";
 import type { NewInboxItem } from "../memory/inbox.js";
 import { keychainGet } from "./keychain.js";
 
@@ -38,6 +39,7 @@ interface SearchMatch {
   username?: string;
   permalink?: string;
   blocks?: Block[];
+  thread_ts?: string;
   channel?: { id: string; name?: string; is_im?: boolean; is_mpim?: boolean };
 }
 
@@ -149,6 +151,8 @@ export async function fetchSlack(
       userName: m.username || (await userName(m.user ?? "")),
       text: m.text?.trim() || blocksText(m.blocks),
       permalink: m.permalink ?? permalinkFor(teamUrl, m.channel.id, m.ts),
+      // thread 里的回复：根 ts 留着，做功课时按它去拉整个 thread 的前文
+      ...(m.thread_ts && m.thread_ts !== m.ts ? { threadTs: m.thread_ts } : {}),
       ts: m.ts,
     });
   }
@@ -161,7 +165,7 @@ export async function fetchSlack(
     const imSince = since(key);
     if (im.latest && Number(im.latest) <= Number(imSince)) continue;
     const hist = (await call("conversations.history", { channel: im.id, oldest: imSince, limit: "20" })) as {
-      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string; bot_id?: string; blocks?: Block[] }>;
+      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string; bot_id?: string; blocks?: Block[]; thread_ts?: string }>;
     };
     let max = imSince;
     for (const msg of hist.messages ?? []) {
@@ -180,6 +184,7 @@ export async function fetchSlack(
         userName: name,
         text: msg.text?.trim() || blocksText(msg.blocks),
         permalink: link.permalink ?? permalinkFor(teamUrl, im.id, msg.ts),
+        ...(msg.thread_ts && msg.thread_ts !== msg.ts ? { threadTs: msg.thread_ts } : {}),
         ts: msg.ts,
       });
     }
@@ -188,6 +193,60 @@ export async function fetchSlack(
 
   out.sort((a, b) => Number(a.ts) - Number(b.ts));
   return { items: out, cursors: next };
+}
+
+/** 一条消息落在收件箱之前，它前面已经聊过的内容。 */
+export interface SlackContextLine {
+  ts: string;
+  userName: string;
+  text: string;
+}
+
+export const CONTEXT_LIMIT = 10;
+
+/**
+ * 取一条消息的对话上下文。
+ * 收件箱里存的是「@ 到我的那一条」，往往是「你看看志华遗留的这个问题」这种指代句，
+ * 光凭它判断不出要干什么——前文从来没被拉过，这里补上。
+ * 在 thread 里就拉整个 thread，否则拉频道/私聊里它前面的若干条。
+ */
+export async function fetchContext(
+  call: Call,
+  item: Pick<InboxItem, "channelId" | "ts" | "threadTs">,
+  resolveName: (id: string) => Promise<string>,
+  limit = CONTEXT_LIMIT,
+): Promise<SlackContextLine[]> {
+  const raw: Array<{ ts: string; text?: string; user?: string; username?: string; bot_id?: string; subtype?: string }> = [];
+  try {
+    if (item.threadTs) {
+      const res = (await call("conversations.replies", { channel: item.channelId, ts: item.threadTs, limit: String(limit + 1) })) as {
+        messages?: typeof raw;
+      };
+      raw.push(...(res.messages ?? []));
+    } else {
+      // latest 是闭区间的上界，带上 inclusive 才包含这条消息本身，去掉后就是它前面的内容
+      const res = (await call("conversations.history", { channel: item.channelId, latest: item.ts, limit: String(limit + 1), inclusive: "true" })) as {
+        messages?: typeof raw;
+      };
+      raw.push(...(res.messages ?? []));
+    }
+  } catch {
+    // 拉不到上下文不该让整条消息的处理失败，当作没有前文
+    return [];
+  }
+
+  const lines: SlackContextLine[] = [];
+  for (const m of raw) {
+    if (!m.ts || m.ts === item.ts) continue;
+    if (Number(m.ts) > Number(item.ts)) continue; // 只要它之前的
+    // 入群退群、置顶这类系统消息不是对话，混进来会挤掉真正有用的前文
+    if (m.subtype) continue;
+    const text = (m.text ?? "").trim();
+    if (!text) continue;
+    lines.push({ ts: m.ts, userName: m.username ?? (m.user ? await resolveName(m.user) : m.bot_id ? "机器人" : "未知"), text });
+  }
+  lines.sort((a, b) => Number(a.ts) - Number(b.ts));
+  return lines.slice(-limit);
 }
 
 /** 审核通过后才会调用：往频道或私聊发一条消息；@ 我的消息回在原 thread 里。 */

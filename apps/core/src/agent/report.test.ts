@@ -14,14 +14,22 @@ describe("交付报告", () => {
     expect(r.screenshots[0]!.name).toBe("login-before.png");
   });
 
-  it("自主模式脚本用 claude -p，提示词带分支、报告路径与截图目录", () => {
+  it("自主模式脚本用 claude -p，提示词带分支命名规范、报告路径与截图目录", () => {
     const prompt = autonomousPrompt("abcdef12-0000", "修登录报错", "whale-console");
-    expect(prompt).toContain("friday/abcdef12");
+    // 分支名由终端里的 Claude 按项目规范自己起，提示词只给规则不给固定名字
+    expect(prompt).toContain("feat/<topic>");
+    expect(prompt).toContain("fix/<bug>");
+    expect(prompt).not.toContain("friday/abcdef12");
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");
-    const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788);
+    const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" });
     expect(script).toContain("-p --dangerously-skip-permissions");
     expect(script).toContain("/opt/claude");
+    // 整条 claude 命令被 shellQuote 包了一层，内层引号变成 '\''，所以分开断言
+    expect(script).toContain("--mcp-config");
+    expect(script).toContain("j.mcp.json");
+    expect(script).toContain("--append-system-prompt");
+    expect(script).toContain("friday_done");
   });
 });

@@ -1,71 +1,57 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Attachment, ConversationSummary, HotResponse, Job, Message, ModelId, Task } from "@friday/shared";
+import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, conversations, hot, jobs as fetchJobs, newConversation, settings, taskBindConversation, threadById, updateSettings, uploadAttachment } from "../lib/core";
-import type { AskEvent } from "../lib/core";
+import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
+import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { AssistantBody, AttachmentStrip, HotList, LinkMenuHost, Linkified, decodeSlack, fmtTime } from "./shared";
+import { HotList, LinkMenuHost, fmtTime } from "./shared";
 import { Board } from "./Board";
 import type { BoardView } from "./Board";
-import { useImeGuard } from "../lib/ime";
+import { Icon } from "./Icon";
+import { Thread } from "./Thread";
+import type { ThreadHandle } from "./Thread";
 import { applyTheme, onThemeChange } from "../lib/theme";
+import { connectEvents } from "../lib/events";
+import type { FridayEvent } from "../lib/events";
 
 interface OpenPayload {
   conversationId?: string | null;
   initialPrompt?: string | null;
 }
 
-type View = BoardView | "hot";
+type View = BoardView | "hot" | "history" | "ask";
 
-const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", other: "其他" };
-
-const NAV: Array<{ key: View; label: string }> = [
+const NAV: Array<{ key: View; label: string; kbd?: string }> = [
+  { key: "ask", label: "问 Friday", kbd: "⌘N" },
   { key: "queue", label: "待我决定" },
   { key: "doing", label: "Friday 在做" },
+  { key: "history", label: "会话历史" },
   { key: "all", label: "全部任务" },
   { key: "ledger", label: "操作记录" },
   { key: "hot", label: "AI 热点" },
 ];
 
-let localId = 0;
-const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `local-${++localId}`, createdAt: new Date().toISOString() });
+/** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
+type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: string };
 
 export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
-  const [convId, setConvId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const [jobList, setJobList] = useState<Job[]>([]);
-
-  const [pending, setPending] = useState<Attachment[]>([]);
-
-  const [drawer, setDrawer] = useState(false);
-  const [convTask, setConvTask] = useState<{ id: string; title: string } | null>(null);
   const [view, setView] = useState<View>("queue");
-  const [railHover, setRailHover] = useState(false);
-  const [railPinned, setRailPinned] = useState(false);
+  // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
+  const [railOpen, setRailOpen] = useState(() => { try { return localStorage.getItem("friday:rail") !== "0"; } catch { return true; } });
   const [counts, setCounts] = useState({ decide: 0, doing: 0 });
-  const [newTaskSignal, setNewTaskSignal] = useState(0);
-  const [uploading, setUploading] = useState(0);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
-
   const [skills, setSkills] = useState<boolean | null>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const convRef = useRef<string | null>(null);
-  const railTimer = useRef<number | null>(null);
-  const ime = useImeGuard();
-  convRef.current = convId;
+  // 「问 Friday」视图：当前会话、路由提示
+  const [askConv, setAskConv] = useState<string | null>(null);
+  const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
+  const threadRef = useRef<ThreadHandle>(null);
+  const pendingOpen = useRef<PendingOpen | null>(null);
 
   useEffect(() => {
     void refreshList();
@@ -73,15 +59,44 @@ export function Chat() {
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     const stopTheme = onThemeChange(applyTheme);
+    // 「聚焦终端」：任务板在别的视图时先切回去，Board 挂上后自己去选中那条任务
+    const onFocusJob = () => setView("queue");
+    window.addEventListener("friday:focus-job", onFocusJob);
+    const stopEvents = connectEvents();
+    // 会话生成开始 / 结束：左栏青条要立刻变
+    const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
+    window.addEventListener("friday:event", onEvent);
     return () => {
       void unlisten.then((f) => f());
       stopTheme();
+      stopEvents();
+      window.removeEventListener("friday:focus-job", onFocusJob);
+      window.removeEventListener("friday:event", onEvent);
     };
   }, []);
 
+  // Thread 只在「问 Friday」视图里挂着；切过去之后再执行排队的动作
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages, draft, busy]);
+    if (view !== "ask") return;
+    const p = pendingOpen.current;
+    pendingOpen.current = null;
+    const t = threadRef.current;
+    if (!t) return;
+    if (!p) {
+      t.focus();
+      return;
+    }
+    if (p.kind === "reset") {
+      t.reset();
+      setRouteHint(null);
+      t.focus();
+      return;
+    }
+    void t.load(p.id).then(() => {
+      if (p.prompt) void t.send(p.prompt, p.id);
+      else t.focus();
+    });
+  }, [view]);
 
   // 窗口常比 sidecar 先起来，第一次拉设置会失败；失败就隔 2 秒再试，否则 Skill / 模型开关会一直是灰的
   async function loadSettings(tries = 20) {
@@ -98,81 +113,33 @@ export function Chat() {
     }
   }
 
-  const taskRef = useRef<Task | null>(null);
-
-  /** 工作台里展开哪条任务，抽屉就切到哪条任务的会话；没聊过的先空着，第一句话发出去时再建会话并绑定。 */
-  function syncDrawerToTask(t: Task | null) {
-    taskRef.current = t;
-    if (!t) {
-      setConvTask(null);
-      return;
-    }
-    setConvTask({ id: t.id, title: t.title });
-    if (t.source.conversationId && t.source.conversationId !== convRef.current) {
-      void load(t.source.conversationId).catch(() => {});
-    } else if (!t.source.conversationId) {
-      abortRef.current?.abort();
-      setBusy(false);
-      setDraft("");
-      setConvId(null);
-      convRef.current = null;
-      setMessages([]);
-    }
-  }
-
-  async function taskContext(t: Task): Promise<string[]> {
-    const thread = t.source.threadId ? await threadById(t.source.threadId).catch(() => null) : null;
-    const raw = thread?.items.map((i) => `${i.userName}：${decodeSlack(i.text)}（${i.permalink}）`).join("\n").slice(0, 1500);
-    return [
-      `这条任务：${t.title}`,
-      `来源：${KIND[t.kind] ?? t.kind}${t.project ? ` · 项目 ${t.project}` : ""}${t.source.meegleId ? ` · Meegle #${t.source.meegleId}` : ""}`,
-      t.source.note ? `我交代的原话：${t.source.note}` : "",
-      t.source.url ? `我给的链接：${t.source.url}（需要的话直接读它）` : "",
-      raw ? `Slack 原文：\n${raw}` : "",
-      t.understanding ? `你的理解：${t.understanding}` : "",
-      t.plan ? `你的方案：${t.plan}` : "",
-      t.progress ? `进展：${t.progress}` : "",
-      t.report ? `交付报告概要：${t.report.summary}；测试结果：${t.report.testResult}` : "",
-      t.pending?.length ? `等我点头的动作：${t.pending.map((p) => p.label).join("、")}` : "",
-    ].filter(Boolean);
-  }
-
-  /** 给任务开一段新会话并绑定到任务上。 */
-  async function openTaskConversation(t: Task): Promise<string> {
-    const conv = await newConversation();
-    setConvId(conv.id);
-    convRef.current = conv.id;
-    setMessages([]);
-    void taskBindConversation(t.id, conv.id).then(() => window.dispatchEvent(new Event("friday:tasks-changed"))).catch(() => {});
-    return conv.id;
-  }
-
-  function discussTask(t: Task) {
-    setDrawer(true);
-    syncDrawerToTask(t);
-    void (async () => {
-      if (t.source.conversationId) {
-        setTimeout(() => inputRef.current?.focus(), 0);
-        return;
-      }
-      const id = await openTaskConversation(t);
-      const lines = [...(await taskContext(t)), "先说你的判断，我有疑问会问。"];
-      void send(lines.join("\n"), id);
-    })();
-  }
-
+  // 变更由 /events 推过来；这里只是兜底
   useEffect(() => {
-    const load = () => void fetchJobs().then(setJobList).catch(() => {});
-    load();
-    const t = setInterval(load, jobList.some((j) => j.status === "running") ? 5000 : 30000);
+    const t = setInterval(() => void refreshList(), 30000);
     return () => clearInterval(t);
-  }, [jobList.some((j) => j.status === "running")]);
+  }, []);
+  const runningConvs = useMemo(() => new Set(list.filter((c) => c.running).map((c) => c.id)), [list]);
 
+  // 导航底部「N 个任务在跑」
+  const [runningJobs, setRunningJobs] = useState(0);
+  const [closingJobs, setClosingJobs] = useState(false);
+
+  async function doCloseJobs() {
+    setClosingJobs(false);
+    try {
+      const r = await closeAllJobs();
+      setRunningJobs((n) => Math.max(0, n - r.closed));
+      window.dispatchEvent(new Event("friday:tasks-changed"));
+    } catch {
+      /* 关不掉就让下一轮轮询纠正计数 */
+    }
+  }
   useEffect(() => {
-    if (!list.some((c) => c.running)) return;
-    const t = setInterval(() => void refreshList(), 5000);
+    const pull = () => void fetchJobs().then((js) => setRunningJobs(js.filter((j) => j.status === "running").length)).catch(() => {});
+    pull();
+    const t = setInterval(pull, 10000);
     return () => clearInterval(t);
-  }, [list]);
+  }, []);
 
   async function refreshList() {
     try {
@@ -181,139 +148,60 @@ export function Chat() {
     }
   }
 
-  async function openPayload(p: OpenPayload) {
-    setDrawer(true);
-    const id = p.conversationId ?? (await newConversation()).id;
-    await load(id);
-    if (p.initialPrompt) void send(p.initialPrompt, id);
-    else inputRef.current?.focus();
-  }
-
-  async function load(id: string) {
-    abortRef.current?.abort();
-    setBusy(false);
-    setDraft("");
-    const conv = await conversationById(id);
-    setConvId(conv.id);
-    convRef.current = conv.id;
-    setMessages(conv.messages);
-    if (conv.running) void follow(conv.id, askSubscribe(conv.id, newSubscription()));
-  }
-
-  function newSubscription(): AbortSignal {
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    return ctrl.signal;
-  }
-
-  async function follow(id: string, events: AsyncGenerator<AskEvent>) {
-    setBusy(true);
-    let answer = "";
-    try {
-      for await (const ev of events) {
-        if (convRef.current !== id) return;
-        if (ev.type === "delta") {
-          answer += ev.text;
-          setDraft(answer);
-        }
-        if (ev.type === "reset") {
-          answer = "";
-          setDraft("");
-        }
-        if (ev.type === "error") push({ role: "assistant", kind: "error", content: ev.message });
+  function openAsk(p: PendingOpen) {
+    pendingOpen.current = p;
+    if (view === "ask") {
+      // 已经在这个视图，effect 不会再跑，直接做
+      const t = threadRef.current;
+      pendingOpen.current = null;
+      if (!t) return;
+      if (p.kind === "reset") {
+        t.reset();
+        setRouteHint(null);
+        t.focus();
+      } else {
+        void t.load(p.id).then(() => (p.prompt ? t.send(p.prompt, p.id) : t.focus()));
       }
-    } catch {
       return;
     }
-    if (convRef.current !== id) return;
-    try {
-      const conv = await conversationById(id);
-      setMessages(conv.messages);
-    } catch {
-      if (answer) push({ role: "assistant", kind: "ask", content: answer });
-    }
-    setDraft("");
-    setBusy(false);
-    void refreshList();
+    setView("ask");
   }
 
+  async function openPayload(p: OpenPayload) {
+    const id = p.conversationId ?? (await newConversation()).id;
+    openAsk({ kind: "load", id, ...(p.initialPrompt ? { prompt: p.initialPrompt } : {}) });
+  }
+
+  /** ⌘N：进「问 Friday」，先不建会话，第一句发出时由 Friday 决定接旧还是开新 */
+  function openFree() {
+    openAsk({ kind: "reset" });
+  }
+
+  /** ⌘⇧N：明确要一段新会话 */
   async function startNew() {
-    setDrawer(true);
-    setConvTask(null);
-    taskRef.current = null;
     const conv = await newConversation();
-    abortRef.current?.abort();
-    setBusy(false);
-    setDraft("");
-    setConvId(conv.id);
-    convRef.current = conv.id;
-    setMessages([]);
-    setInput("");
-    inputRef.current?.focus();
+    setRouteHint(null);
+    openAsk({ kind: "load", id: conv.id });
   }
 
-  async function openDrawer() {
-    setDrawer(true);
-    if (!convRef.current) {
-      const conv = await newConversation();
-      setConvId(conv.id);
-      convRef.current = conv.id;
-      setMessages([]);
-    }
-    setTimeout(() => inputRef.current?.focus(), 0);
+  /** 自由对话的第一句：问 Friday 这是接着哪段说的，还是新话题 */
+  async function resolveFree(prompt: string) {
+    const r = await routeAsk(prompt).catch((): RouteResult => ({ why: "路由失败，新开一段" }));
+    const id = r.conversationId ?? (await newConversation()).id;
+    setRouteHint(r.conversationId ? { ...r, prompt } : null);
+    return { id, prompt };
   }
 
-  function push(m: Omit<Message, "id" | "createdAt">) {
-    setMessages((ms) => [...ms, local(m)]);
-  }
-
-  async function send(text: string, id = convRef.current) {
-    let prompt = text.trim() || (pending.length ? "看看这些附件" : "");
-    if (!prompt || busy || uploading > 0) return;
-    if (!id && taskRef.current) {
-      const t = taskRef.current;
-      id = await openTaskConversation(t);
-      prompt = [...(await taskContext(t)), "", prompt].join("\n");
-    }
-    if (!id) return;
-    const attachments = pending;
-    setInput("");
-    setPending([]);
-    push({ role: "user", kind: "ask", content: prompt, ...(attachments.length ? { payload: { attachments } } : {}) });
-    void refreshList();
-    await follow(id, ask({ prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) }, newSubscription()));
-  }
-
-  async function addFiles(files: Iterable<File>) {
-    const list = [...files].filter((f) => f.size > 0).slice(0, 10 - pending.length);
-    if (!list.length) return;
-    setUploading((n) => n + list.length);
-    for (const f of list) {
-      try {
-        const a = await uploadAttachment(f);
-        setPending((p) => [...p, a]);
-      } catch (e) {
-        push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
-      } finally {
-        setUploading((n) => n - 1);
-      }
-    }
-  }
-
-  function onPaste(e: React.ClipboardEvent) {
-    const files = [...e.clipboardData.items].filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter((f): f is File => Boolean(f));
-    if (!files.length) return;
-    e.preventDefault();
-    void addFiles(files);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
-  }
-
-  function interrupt() {
-    if (convRef.current) void cancelAsk(convRef.current);
+  /** 路由判断错了：换一段新会话，把刚才那句重新发过去 */
+  async function redoAsNew() {
+    const hint = routeHint;
+    const t = threadRef.current;
+    if (!hint || !t) return;
+    if (askConv) void cancelAsk(askConv);
+    setRouteHint(null);
+    const conv = await newConversation();
+    await t.load(conv.id);
+    void t.send(hint.prompt, conv.id);
   }
 
   async function loadHot(refresh = false) {
@@ -325,24 +213,14 @@ export function Chat() {
     }
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      if (ime.isImeEnter(e)) return;
-      e.preventDefault();
-      void send(input);
-    }
-    if (e.key === "Escape" && busy) interrupt();
-  }
-
-  function newTask() {
-    setView("queue");
-    setNewTaskSignal((n) => n + 1);
-  }
-
   function go(v: View) {
+    if (v === "ask") {
+      openAsk(askConv ? { kind: "load", id: askConv } : { kind: "reset" });
+      return;
+    }
     setView(v);
+    if (v === "history") void refreshList();
     if (v === "hot" && !hotData) void loadHot();
-    setRailHover(false);
   }
 
   useEffect(() => {
@@ -350,17 +228,13 @@ export function Chat() {
       if (!e.metaKey) return;
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        newTask();
+        openFree();
       } else if ((e.key === "N" || e.key === "n") && e.shiftKey) {
         e.preventDefault();
         void startNew();
-      } else if (e.key === "j") {
-        e.preventDefault();
-        if (drawer) setDrawer(false);
-        else void openDrawer();
       } else if (e.key === "\\") {
         e.preventDefault();
-        setRailPinned((v) => !v);
+        setRailOpen((v) => { try { localStorage.setItem("friday:rail", v ? "0" : "1"); } catch {} return !v; });
       } else if (e.key === "w") {
         e.preventDefault();
         void getCurrentWindow().close();
@@ -371,33 +245,29 @@ export function Chat() {
     }
     window.addEventListener("keydown", onGlobalKey);
     return () => window.removeEventListener("keydown", onGlobalKey);
-  }, [drawer]);
+  }, [view]);
 
-  function railEnter() {
-    if (railTimer.current) window.clearTimeout(railTimer.current);
-    setRailHover(true);
-  }
-  function railLeave() {
-    if (railTimer.current) window.clearTimeout(railTimer.current);
-    railTimer.current = window.setTimeout(() => setRailHover(false), 260);
-  }
-
-  const running = jobList.filter((j) => j.status === "running").length;
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
-  const railOpen = railPinned || railHover;
+  const askTitle = askConv ? (list.find((c) => c.id === askConv)?.title ?? "当前对话") : "新话题 · 发出后判断";
 
-  const tools = (
-    <>
-      <button className="b b--text" onClick={() => (drawer ? setDrawer(false) : void openDrawer())}>问 Friday<kbd>⌘J</kbd></button>
-      <button className="b b--ghost" onClick={newTask}>＋ 交代一件事<kbd>⌘N</kbd></button>
-    </>
+  const tools = <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>;
+
+  const head = (title: string, count: React.ReactNode, right: React.ReactNode) => (
+    <header className="q__head" data-tauri-drag-region>
+      <div className="q__row" data-tauri-drag-region>
+        <div className="q__title" data-tauri-drag-region>
+          <h1 data-tauri-drag-region>{title}</h1>
+          {count}
+        </div>
+        <div className="q__tools">{right}</div>
+      </div>
+    </header>
   );
 
   return (
-    <div className="chat">
+    <div className={`chat ${railOpen ? "" : "chat--norail"}`}>
       <LinkMenuHost />
-      <div className="edge" onMouseEnter={railEnter} />
-      <nav className={`rail ${railOpen ? "rail--open" : ""}`} onMouseEnter={railEnter} onMouseLeave={railLeave}>
+      <nav className={`rail ${railOpen ? "" : "rail--hidden"}`}>
         <div className="rail__brand">Friday</div>
         {NAV.map((n) => (
           <button key={n.key} className={`rail__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)}>
@@ -406,32 +276,106 @@ export function Chat() {
             {n.label}
             {n.key === "queue" && counts.decide > 0 && <span className="mono amber">{counts.decide}</span>}
             {n.key === "doing" && counts.doing > 0 && <span className="mono">{counts.doing}</span>}
+            {n.kbd && <span className="mono rail__kbd">{n.kbd}</span>}
           </button>
         ))}
         <div className="rail__foot">
-          <button className="b b--ghost" onClick={newTask}>交代一件事<kbd>⌘N</kbd></button>
-          <button className="rail__row b b--text" style={{ padding: "0 8px" }} onClick={() => void openDrawer()}>问 Friday<kbd>⌘J</kbd></button>
+          {runningJobs > 0 && (
+            closingJobs ? (
+              <div className="rail__confirm">
+                <div className="rail__confirm-q">关掉这 {runningJobs} 个终端？</div>
+                <div className="rail__confirm-hint">里面跑着的 Claude Code 会一起停掉，任务本身不动。</div>
+                <div className="rail__confirm-acts">
+                  <button className="b b--primary" onClick={() => void doCloseJobs()}>全部关掉</button>
+                  <button className="b b--text" onClick={() => setClosingJobs(false)}>取消</button>
+                </div>
+              </div>
+            ) : (
+              <button className="rail__jobs" onClick={() => setClosingJobs(true)} title="关掉所有在跑的终端">
+                <span className="side__spin" />
+                <span className="num">{runningJobs}</span> 个终端在跑
+                <span className="rail__jobs-x"><Icon name="cross" /></span>
+              </button>
+            )
+          )}
           <div className="rail__status">
-            {running > 0 && <><span className="side__spin" />{running} 个任务在跑 · </>}
-            {modelLabel || "跟随 Claude Code"} · ⌘\ 固定
+            {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
           </div>
         </div>
       </nav>
 
       <div className="wb">
-        {view === "hot" ? (
+        {view === "ask" ? (
           <>
-            <header className="q__head" data-tauri-drag-region>
-              <div className="q__row" data-tauri-drag-region>
-                <div className="q__title" data-tauri-drag-region>
-                  <h1 data-tauri-drag-region>AI 热点</h1>
-                  {hotData && <span className="q__count">更新于 {fmtTime(hotData.generatedAt)}</span>}
-                </div>
-                <div className="q__tools">
-                  <button className="b b--ghost" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>
-                </div>
+            {head(
+              "问 Friday",
+              <span className="q__count q__count--ellipsis" title={askTitle}>{askTitle}</span>,
+              <>
+                <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话<kbd>⌘⇧N</kbd></button>
+                <button
+                  className={`pill ${skills ? "pill--on" : ""}`}
+                  disabled={skills === null}
+                  title="Skill 模式：会话里直接调用本机 skill"
+                  onClick={() => { const next = !skills; setSkills(next); void updateSettings({ skills: next }); }}
+                >
+                  Skill
+                </button>
+                <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
+              </>,
+            )}
+            <div className="ask">
+              <Thread
+                ref={threadRef}
+                conversationId={null}
+                resolve={resolveFree}
+                resolvingText="正在看这是不是接着之前聊的…"
+                onConversation={(id) => { setAskConv(id); void refreshList(); }}
+                emptyTitle="说吧"
+                emptyHint="问题直接答；要干的活我先说判断，你点头我再开工。接着之前的话题说也行，我会认出来。关于某条任务的事，去任务卡里说。"
+                hint="Enter 发送 · Shift+Enter 换行 · Esc 回工作台 · ⌘⇧N 直接开新对话"
+                onEscape={() => go("queue")}
+                autoFocus
+                banner={
+                  routeHint?.conversationId ? (
+                    <div className="route-hint">
+                      <span className="route-hint__text" title={routeHint.why}>接着：{routeHint.title?.slice(0, 24)} · {routeHint.why}</span>
+                      <button className="b b--text" onClick={() => void redoAsNew()}>其实是新话题</button>
+                    </div>
+                  ) : null
+                }
+              />
+            </div>
+          </>
+        ) : view === "history" ? (
+          <>
+            {head("会话历史", <span className="q__count">{list.length} 段</span>, tools)}
+            <div className="wb__scroll">
+              <div className="wb__page">
+                {list.length === 0 ? (
+                  <div className="empty"><strong>还没有会话</strong>⌘N 问 Friday 一句就有了。</div>
+                ) : (
+                  <div className="list">
+                    {list.map((c) => (
+                      <button key={c.id} className={`row row--compact ${c.id === askConv ? "row--on" : ""}`} onClick={() => openAsk({ kind: "load", id: c.id })}>
+                        <span className={`dot ${c.running ? "dot--processing" : ""}`} />
+                        <span className="row__main">
+                          <div className="row__title">{c.title}</div>
+                        </span>
+                        <span className="row__right row__right--dim">{c.running ? "生成中 · " : ""}{c.messageCount} 条 · {fmtTime(c.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </header>
+            </div>
+          </>
+        ) : view === "hot" ? (
+          <>
+            {head(
+              "AI 热点",
+              hotData && <span className="q__count">更新于 {fmtTime(hotData.generatedAt)}</span>,
+              <button className="b b--ghost" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>,
+            )}
             <div className="wb__scroll">
               <div className="wb__page hot__page">
                 {hotData ? <HotList items={hotData.items} /> : <div className="empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>}
@@ -439,104 +383,9 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} newTaskSignal={newTaskSignal} onDiscuss={discussTask} onCounts={setCounts} onFocusChange={syncDrawerToTask} />
+          <Board view={view} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
         )}
       </div>
-
-      {drawer && (
-        <aside className="drawer" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-          <header className="drawer__head">
-            {convTask ? (
-              <span className="drawer__task" title={convTask.title}><span className="dot dot--processing" />{convTask.title}</span>
-            ) : (
-            <select className="model-select model-select--compact drawer__conv" value={convId ?? ""} onChange={(e) => { setConvTask(null); void load(e.target.value); }} title="最近的对话">
-              {convId && !list.some((c) => c.id === convId) && <option value={convId}>当前对话</option>}
-              {list.slice(0, 12).map((c) => (
-                <option key={c.id} value={c.id}>{c.running ? "● " : ""}{c.title.slice(0, 28)}</option>
-              ))}
-            </select>
-            )}
-            {!convTask && <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话</button>}
-            <button
-              className={`pill ${skills ? "pill--on" : ""}`}
-              disabled={skills === null}
-              title="Skill 模式：会话里直接调用本机 skill"
-              onClick={() => { const next = !skills; setSkills(next); void updateSettings({ skills: next }); }}
-            >
-              Skill
-            </button>
-            <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
-            <button className="drawer__close" onClick={() => setDrawer(false)} aria-label="收起">×</button>
-          </header>
-          <div className="chat__body" ref={bodyRef}>
-            {messages.length === 0 && !draft && !busy && (
-              <div className="chat__empty">
-                <div className="chat__mark">F</div>
-                <div className="chat__empty-title">{convTask ? "关于这条任务，直接问" : "问点什么"}</div>
-                <div className="chat__empty-hint">{convTask ? `我会带着「${convTask.title.slice(0, 30)}」的情境、链接和原文来回答。` : "工作台里展开哪条任务，这里就跟到哪条。"}</div>
-              </div>
-            )}
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <div key={m.id} className="turn turn--user">
-                  <div className="bubble bubble--user">
-                    {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
-                      <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
-                    )}
-                    <Linkified text={m.content} />
-                  </div>
-                </div>
-              ) : (
-                <div key={m.id} className="turn turn--assistant">
-                  <div className="avatar">F</div>
-                  <div className="bubble bubble--assistant">
-                    <AssistantBody m={m} jobs={jobList} />
-                  </div>
-                </div>
-              ),
-            )}
-            {busy && !draft && (
-              <div className="turn turn--assistant">
-                <div className="avatar avatar--live">F</div>
-                <div className="bubble bubble--assistant thinking" aria-label="思考中">
-                  <span /><span /><span />
-                </div>
-              </div>
-            )}
-            {draft && (
-              <div className="turn turn--assistant">
-                <div className="avatar avatar--live">F</div>
-                <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
-              </div>
-            )}
-          </div>
-          <div className="composer">
-            {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
-            <div className="composer__box">
-              <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" onClick={() => fileRef.current?.click()}>
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
-              </button>
-              <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-              <textarea
-                ref={inputRef}
-                className="composer__input"
-                rows={1}
-                placeholder={busy ? "生成中，Esc 中断" : uploading ? "上传中…" : "问 Friday，可粘贴图片或拖入文件"}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                onPaste={onPaste}
-                {...ime.handlers}
-                autoFocus
-              />
-              <button className="composer__send" disabled={busy || uploading > 0 || (!input.trim() && !pending.length)} onClick={() => void send(input)} aria-label="发送">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
-              </button>
-            </div>
-            <div className="composer__hint">Enter 发送 · Shift+Enter 换行 · ⌘J 收起 · ⌘⇧N 新对话</div>
-          </div>
-        </aside>
-      )}
     </div>
   );
 }

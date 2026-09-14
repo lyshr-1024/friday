@@ -2,11 +2,13 @@ import type { Notice } from "@friday/shared";
 import { applyReversibleWrites } from "../agent/autowrite.js";
 import { threadToTask } from "../agent/pipeline.js";
 import { buildBrief } from "../agent/brief.js";
-import { enrichThread } from "../agent/enrich.js";
+import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
+import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
-import { attachToThread, getThread, setThreadBrief } from "../memory/threads.js";
+import { attachToThread, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
+import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
 import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "../memory/inbox.js";
 
@@ -15,6 +17,7 @@ export const ACTIVE_HOURS: [number, number] = [10, 20];
 const ACTIVE_MS = 3 * 60_000;
 const QUIET_MS = 15 * 60_000;
 const MEEGLE_MS = 15 * 60_000;
+const LEARN_CHECK_MS = 30 * 60_000;
 
 export function hourInShanghai(d = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Shanghai" }).format(d)) % 24;
@@ -73,7 +76,21 @@ export async function syncSlackOnce(): Promise<number> {
         if (t) setTriage(it.id, t);
       });
       // 逐条分类之后按人聚合成线程，对每个被触及的线程做功课、出情境卡、做可逆自动写。
-      const touched = new Set(added.map((it) => attachToThread({ ...it, ...(result.get(added.indexOf(it) + 1) ? { triage: result.get(added.indexOf(it) + 1)! } : {}) })));
+      const touched = new Set<string>();
+      for (const [i, it] of added.entries()) {
+        const t = result.get(i + 1);
+        const item = { ...it, ...(t ? { triage: t } : {}) };
+        // 隔了两小时以上的，先问一句是不是在催同一件事，是就接回原线程而不是新起一条。
+        // 两条消息常常都是指代句，所以把线程已有的情境和频道前文一起交给它判断。
+        const candidate = graceCandidate(item, CONTINUATION_MAX_MS);
+        const same = candidate
+          ? await isContinuation(candidate.items, item, {
+              ...(candidate.brief?.situation ? { situation: candidate.brief.situation } : {}),
+              context: (await slackContext(item)).map((c) => `${c.userName}：${c.text}`),
+            })
+          : false;
+        touched.add(attachToThread(item, Date.now(), { graceMs: CONTINUATION_MAX_MS, sameTopic: () => same }));
+      }
       const needReply: string[] = [];
       await mapLimit([...touched], 3, async (id) => {
         const thread = getThread(id);
@@ -84,7 +101,7 @@ export async function syncSlackOnce(): Promise<number> {
           if (!brief) return;
           const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name);
           const writes = applyReversibleWrites(thread, brief, task.id);
-          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes] }, enrichment.project?.name);
+          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
           if (brief.needsReply) needReply.push(`${thread.userName}：${brief.situation}`);
         } catch (e) {
           console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
@@ -125,4 +142,10 @@ export function startScheduler(): void {
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };
   setTimeout(meegleTick, 8_000).unref();
+  // 每半小时看一眼该不该学（learnDue 判断：今天学过没 / 离上次几天 / 到点没）；开机 20 秒就首检，怕开机就关漏掉
+  const learnTick = async () => {
+    if (learnDue(researchFiles())) await learnOnce();
+    setTimeout(learnTick, LEARN_CHECK_MS).unref();
+  };
+  setTimeout(learnTick, 20_000).unref();
 }

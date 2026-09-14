@@ -28,6 +28,30 @@ describe("线程聚合", () => {
     expect(open.find((t) => t.id === t1)!.items.map((i) => i.id)).toEqual(["D9:1", "D9:2"]);
   });
 
+  it("超出 2 小时的灰区：判定同一件事才接续，不判就照旧新开", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const DAY = 24 * 3600 * 1000;
+    const g = { ...base, kind: "mention" as const, channelId: "C7", channelName: "#一起养牛", userId: "U7", userName: "拂晓" };
+    const [first, chase, other, late] = addInboxItems([
+      { ...g, id: "C7:1", ts: String(T0), text: "验收问题先改一波" },
+      { ...g, id: "C7:2", ts: String(T0 + 4 * 3600), text: "抽空验收问题改一改" },
+      { ...g, id: "C7:3", ts: String(T0 + 5 * 3600), text: "另外下周的排期也发我下" },
+      { ...g, id: "C7:4", ts: String(T0 + 30 * 3600), text: "验收问题改完了吗" },
+    ]);
+    const t1 = attachToThread(first!, (T0 + 1) * 1000);
+    // 隔 4 小时但在说同一件事 → 接回原线程
+    expect(attachToThread(chase!, (T0 + 4 * 3600) * 1000, { graceMs: DAY, sameTopic: () => true })).toBe(t1);
+    // 同样在灰区，但不是同一件事 → 新开
+    expect(attachToThread(other!, (T0 + 5 * 3600) * 1000, { graceMs: DAY, sameTopic: () => false })).not.toBe(t1);
+    // 超过宽限期，判断都不该被调用
+    let asked = false;
+    attachToThread(late!, (T0 + 30 * 3600) * 1000, { graceMs: DAY, sameTopic: () => ((asked = true), true) });
+    expect(asked).toBe(false);
+    // 不传 opts 时保持原来的纯时间行为
+    const [plain] = addInboxItems([{ ...g, id: "C7:5", ts: String(T0 + 31 * 3600), text: "再问一次" }]);
+    expect(attachToThread(plain!, (T0 + 31 * 3600) * 1000)).not.toBe(t1);
+  });
+
   it("情境卡、历史情境、状态流转、自动写只做一次", () => {
     const [t1, t2] = listThreads("open").filter((t) => t.kind === "dm").map((t) => t.id).sort();
     setThreadBrief(t1!, { situation: "灵雨追问登录报错", needs: "看下报错", needsReply: true, urgency: "high", actions: [], context: [] }, "whale-console");

@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { getSession, kill, listSessions, resize, subscribe, write } from "../agent/pty.js";
 import { reopenClaude } from "../agent/runner.js";
+import { clearAttention } from "../agent/bridge.js";
 
 export const pty = new Hono()
   .get("/pty", (c) => c.json(listSessions()))
@@ -27,7 +28,10 @@ export const pty = new Hono()
   .post("/pty/:id/input", async (c) => {
     const parsed = z.object({ data: z.string().max(65536) }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "data 必填" }, 400);
-    return write(c.req.param("id"), parsed.data.data) ? c.json({ ok: true }) : c.json({ error: "终端不存在或已退出" }, 404);
+    if (!write(c.req.param("id"), parsed.data.data)) return c.json({ error: "终端不存在或已退出" }, 404);
+    // 用户在终端里敲了回车 = 给它新指示，上一轮"等你看"的标记清掉
+    if (parsed.data.data.includes("\r")) clearAttention(c.req.param("id"));
+    return c.json({ ok: true });
   })
   .post("/pty/:id/resize", async (c) => {
     const parsed = z.object({ cols: z.number().int(), rows: z.number().int() }).safeParse(await c.req.json().catch(() => null));

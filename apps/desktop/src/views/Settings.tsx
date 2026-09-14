@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { THEME_OPTIONS, type MemoryFile, type SettingsResponse } from "@friday/shared";
@@ -58,7 +58,7 @@ export function Settings() {
         <div className="group">
           {MEMORY_FILES.map((f) => (
             <Row key={f.name} label={f.label} hint={f.name === "projects" ? `${prefs?.projects.length ?? "…"} 个项目，别名在这里改` : f.hint}>
-              <button className="btn" onClick={() => setEditing(f.name)}>编辑</button>
+              <button className="btn" onClick={() => setEditing(f.name)}>编辑…</button>
             </Row>
           ))}
         </div>
@@ -67,7 +67,7 @@ export function Settings() {
       <section>
         <h2>外观</h2>
         <div className="group">
-          <Row label="主题" hint={THEME_OPTIONS.find((t) => t.id === prefs?.theme)?.hint ?? "三套深色预设，切换即生效"}>
+          <Row label="主题" hint={THEME_OPTIONS.find((t) => t.id === prefs?.theme)?.hint ?? "三套深色 + 一套浅色，切换即生效"}>
             <div className="seg">
               {THEME_OPTIONS.map((t) => (
                 <button
@@ -122,6 +122,15 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
+        <Row label="每天自学一题" hint="早上 8 点后从你最近的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，建议挂到待办；笔记在记忆库 research/">
+          <button
+            className={`switch ${prefs?.learn ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.learn}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ learn: !prefs.learn }).then(setPrefs)}
+          />
+        </Row>
         <Row label="跑 Claude 用的终端" hint="内嵌：在任务详情里直接看和聊；Ghostty / Terminal：弹外部窗口">
           <select className="model-select" value={prefs?.terminal ?? "embedded"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "embedded" | "ghostty" | "terminal" }).then(setPrefs)}>
             <option value="embedded">内嵌终端</option>
@@ -165,14 +174,24 @@ export function Settings() {
   );
 }
 
+/** 设置项一行。label 与控件用 aria-labelledby 程序关联——视觉靠近不等于
+    可访问性关联，屏幕阅读器读空按钮只会说「switch, checked」。 */
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div className="row">
       <div className="row__text">
-        <div className="row__label">{label}</div>
-        {hint && <div className="row__hint">{hint}</div>}
+        <div className="row__label" id={`${id}-label`}>{label}</div>
+        {hint && <div className="row__hint" id={`${id}-hint`}>{hint}</div>}
       </div>
-      <div className="row__ctl">{children}</div>
+      <div className="row__ctl">
+        {isValidElement(children)
+          ? cloneElement(children as ReactElement<{ "aria-labelledby"?: string; "aria-describedby"?: string }>, {
+              "aria-labelledby": `${id}-label`,
+              ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
+            })
+          : children}
+      </div>
     </div>
   );
 }

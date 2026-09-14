@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { taskBlock } from "./ask.js";
+import { createTask } from "../memory/tasks.js";
 
 vi.mock("../agent/claude.js", () => ({
   askStream: async function* () {
@@ -108,5 +110,14 @@ describe("重命名会话", () => {
     await app.request(`/conversation/${conv.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "  " }) });
     const again = (await (await app.request("/conversations")).json()) as Array<{ id: string; title: string }>;
     expect(again.find((c) => c.id === conv.id)?.title).toBe("hello");
+  });
+
+  it("taskBlock：会话绑着任务才有，带理解 / 方案 / 待审 / 等你看", async () => {
+    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
+    expect(taskBlock(conv.id)).toBeUndefined();
+    createTask({ title: "知许：改 segment", kind: "slack", source: { conversationId: conv.id }, status: "processing", understanding: "过期饲料罐提交逻辑要改", plan: "variant_mode 改 exclusive" });
+    const block = taskBlock(conv.id)!;
+    expect(block).toContain("知许：改 segment");
+    expect(block).toContain("variant_mode 改 exclusive");
   });
 });

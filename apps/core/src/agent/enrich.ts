@@ -1,4 +1,5 @@
-import type { Thread } from "@friday/shared";
+import type { InboxItem, Thread } from "@friday/shared";
+import { fetchContext, loadSlackCreds, slackCaller, type SlackContextLine } from "../connectors/slack.js";
 import { runJson } from "../connectors/exec.js";
 import { gitInspect } from "./git.js";
 import { readMemoryFile } from "../memory/files.js";
@@ -10,6 +11,8 @@ export interface Enrichment {
   person?: string;
   links: string[];
   project?: { name: string; dir: string; git: string };
+  /** 线程第一条消息之前，那个频道/私聊里已经聊过的内容。 */
+  context: SlackContextLine[];
 }
 
 const MEEGLE_URL = /https?:\/\/(?:project\.larksuite\.com|project\.feishu\.cn|[a-z0-9-]+\.meegle\.com)\/([a-z0-9_-]+)\/(story|issue|task|[a-z_]+)\/detail\/(\d+)/gi;
@@ -69,9 +72,14 @@ export function personNote(userName: string, people = readMemoryFile("people")):
   return undefined;
 }
 
-export async function enrichThread(thread: Thread, projectGuess?: string): Promise<Enrichment> {
+export async function enrichThread(thread: Thread, projectGuess?: string, loadContext = slackContext): Promise<Enrichment> {
   const text = thread.items.map((i) => i.text).join("\n");
-  const [links, history] = await Promise.all([meegleLookups(text), Promise.resolve(previousBriefs(thread.userId, thread.id))]);
+  const first = thread.items[0];
+  const [links, history, context] = await Promise.all([
+    meegleLookups(text),
+    Promise.resolve(previousBriefs(thread.userId, thread.id)),
+    first ? loadContext(first) : Promise.resolve([]),
+  ]);
   const person = personNote(thread.userName);
   let project: Enrichment["project"];
   const guess = projectGuess ?? thread.project ?? thread.items.map((i) => i.triage?.project).find(Boolean);
@@ -82,5 +90,26 @@ export async function enrichThread(thread: Thread, projectGuess?: string): Promi
       project = { name: r.project.name, dir: r.project.dir, git: git.split("\n").slice(0, 4).join("；") };
     }
   }
-  return { history, ...(person ? { person } : {}), links, ...(project ? { project } : {}) };
+  return { history, ...(person ? { person } : {}), links, ...(project ? { project } : {}), context };
+}
+
+/** 默认的上下文来源：带着钥匙串里的登录态去 Slack 拉。没配登录态就当没有前文。 */
+export async function slackContext(item: InboxItem): Promise<SlackContextLine[]> {
+  const creds = await loadSlackCreds();
+  if (!creds) return [];
+  const call = slackCaller(creds);
+  const names = new Map<string, string>();
+  const resolveName = async (id: string): Promise<string> => {
+    const hit = names.get(id);
+    if (hit) return hit;
+    try {
+      const res = (await call("users.info", { user: id })) as { user?: { real_name?: string; name?: string } };
+      const n = res.user?.real_name || res.user?.name || id;
+      names.set(id, n);
+      return n;
+    } catch {
+      return id;
+    }
+  };
+  return fetchContext(call, item, resolveName);
 }

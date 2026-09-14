@@ -1,13 +1,17 @@
 import { Hono } from "hono";
-import { syncMeegleOnce } from "../agent/meegle.js";
+import { learnOnce, readResearchNote } from "../agent/learn.js";
+import { meegleState, syncMeegleOnce } from "../agent/meegle.js";
 import { z } from "zod";
 import type { Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
-import { resolveProject } from "../memory/projects.js";
+import { loadProjects, resolveProject } from "../memory/projects.js";
+import { matchProject } from "../agent/meegle.js";
+import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
+import { setVerified } from "../agent/bridge.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
-import { createTask, getTask, taskBoard, updateTask } from "../memory/tasks.js";
+import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 
 const newTask = z.object({
   title: z.string().trim().min(1).max(200),
@@ -18,22 +22,49 @@ const newTask = z.object({
 });
 
 export const tasks = new Hono()
-  .post("/tasks/sync-meegle", async (c) => c.json(await syncMeegleOnce()))
-  .get("/tasks", (c) => c.json(taskBoard()))
+  .get("/tasks/:id/research", (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
+    return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
+  })
+  .post("/tasks/learn", async (c) => c.json(await learnOnce(true)))
+  .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
+  .get("/tasks", (c) => {
+    const board = taskBoard();
+    return c.json({ ...board, tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)) });
+  })
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
-  // 口头 / 文档：用户直接交代的事
+  // 口头 / 文档：程序化建任务（UI 入口已并入对话，开工由会话里确认后 run_claude）
   .post("/tasks", async (c) => {
     const parsed = newTask.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "title 不能为空" }, 400);
     const { title, note, url, project, due } = parsed.data;
-    const t = createTask({ title, kind: url ? "doc" : "verbal", source: { ...(note ? { note } : {}), ...(url ? { url } : {}) }, ...(project ? { project } : {}), ...(due ? { due } : {}) });
-    record({ taskId: t.id, action: "task_create", why: "你交代的", how: url ? "带文档链接建任务" : "建任务", evidence: { title, note: note ?? null, url: url ?? null }, risk: "read" });
+    const projects = loadProjects();
+    const named = project ? resolveProject(project, projects) : undefined;
+    const target = named?.kind === "match" ? named.project : projects.find((p) => p.name === matchProject(title, projects));
+    const projectName = target?.name ?? project;
+    const t = createTask({
+      title,
+      kind: url ? "doc" : "verbal",
+      source: { ...(note ? { note } : {}), ...(url ? { url } : {}) },
+      ...(projectName ? { project: projectName } : {}),
+      ...(due ? { due } : {}),
+      status: "processing",
+    });
+    record({ taskId: t.id, action: "task_create", why: "你交代的", how: url ? "带文档链接建任务" : "建任务", evidence: { title, note: note ?? null, url: url ?? null, project: projectName ?? null }, risk: "read" });
     return c.json(t, 201);
   })
   .post("/tasks/:id/approve/:actionId", async (c) => {
+    // 用户在确认框里改过要发的文本：先落到待审动作上，发出去和记账的都是改后的
+    const body = (await c.req.json().catch(() => ({}))) as { text?: string };
+    if (typeof body.text === "string" && body.text.trim()) {
+      const t = getTask(c.req.param("id"));
+      const a = t?.pending?.find((p) => p.id === c.req.param("actionId"));
+      if (a) updatePending(t!.id, a.id, { detail: body.text.trim(), payload: { ...a.payload, text: body.text.trim() } });
+    }
     const creds = await loadSlackCreds();
     const call = creds ? slackCaller(creds) : undefined;
     try {
@@ -75,12 +106,28 @@ export const tasks = new Hono()
     const t = updateTask(c.req.param("id"), { source: { conversationId: body.conversationId } });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  // 「通过前请确认」勾选状态；全部勾完 = 这轮验收通过，Friday 推进下一步
+  .post("/tasks/:id/verify", async (c) => {
+    const parsed = z.object({ index: z.number().int().min(0), checked: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "index / checked 必填" }, 400);
+    const t = setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
+    return t ? c.json(t) : c.json({ error: "任务不存在或没有验证点" }, 404);
+  })
+  // 星标关注：列表顶上单独一组
+  .post("/tasks/:id/pin", async (c) => {
+    const parsed = z.object({ pinned: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "pinned 必填" }, 400);
+    const t = updateTask(c.req.param("id"), { pinned: parsed.data.pinned });
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
   .post("/tasks/:id/done", (c) => {
-    const t = updateTask(c.req.param("id"), { status: "done", pending: [] });
+    const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
+    if (t) closeTaskTerminal(t, "你把任务标记完成");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", (c) => {
-    const t = updateTask(c.req.param("id"), { status: "ignored", pending: [] });
+    const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
+    if (t) closeTaskTerminal(t, "你忽略了这条任务");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))

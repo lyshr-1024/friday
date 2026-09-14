@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo } from "@friday/shared";
+import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo, TerminalState } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -146,6 +146,33 @@ export async function conversation(): Promise<Conversation> {
 export async function newConversation(): Promise<Conversation> {
   const res = await fetch(`${await coreBaseUrl()}/conversation/new`, { method: "POST" });
   if (!res.ok) throw new Error(`conversation ${res.status}`);
+  return res.json();
+}
+
+export interface RouteResult {
+  conversationId?: string;
+  title?: string;
+  why: string;
+}
+
+/** 自由对话的第一句：让 Friday 判断接着哪段旧会话还是新话题。 */
+export async function routeAsk(prompt: string): Promise<RouteResult> {
+  const res = await fetch(`${await coreBaseUrl()}/route`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) });
+  if (!res.ok) throw new Error(`route ${res.status}`);
+  return res.json();
+}
+
+export interface Activity {
+  ts: string;
+  kind: "say" | "tool" | "user";
+  text: string;
+  ok?: boolean;
+}
+
+/** 终端里 Claude Code 最近的动作（从 transcript 读）+ 此刻的终端状态 */
+export async function jobActivity(id: string, limit = 6): Promise<{ items: Activity[]; terminal: TerminalState }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/activity?limit=${limit}`);
+  if (!res.ok) throw new Error(`activity ${res.status}`);
   return res.json();
 }
 
@@ -310,9 +337,60 @@ export async function createTask(input: { title: string; note?: string; url?: st
   return res.json();
 }
 
-export async function taskApprove(id: string, actionId: string): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST" });
+export async function taskApprove(id: string, actionId: string, text?: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(text ? { text } : {}) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+/** 立刻同步一次 Meegle 工单 */
+export async function syncMeegle(): Promise<{ added: number; closed: number; reopened: number; error?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/sync-meegle`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `sync ${res.status}`);
+  return res.json();
+}
+
+/** 读一条自学任务的研究笔记全文 */
+export async function taskResearch(id: string): Promise<{ file: string; content: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/research`);
+  if (!res.ok) throw new Error(`research ${res.status}`);
+  return res.json();
+}
+
+/** 让 Friday 现在自学一题（挑题 + 上网研究，要一两分钟） */
+export async function learnNow(): Promise<{ skipped: string } | { taskId: string; title: string; file: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/learn`, { method: "POST" });
+  if (!res.ok) throw new Error(`learn ${res.status}`);
+  return res.json();
+}
+
+/** 关掉一个终端。任务不动，用户可能还想接着做。 */
+export async function closeJob(id: string): Promise<{ closed: boolean }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
+  if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+/** 批量关终端。onlyFinished 只关任务已完成或忽略的。 */
+export async function closeAllJobs(onlyFinished = false): Promise<{ closed: number; scanned: number }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/close-all`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ onlyFinished }),
+  });
+  if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskPin(id: string, pinned: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) });
+  if (!res.ok) throw new Error(`pin ${res.status}`);
+  return res.json();
+}
+
+export async function taskVerify(id: string, index: number, checked: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, checked }) });
+  if (!res.ok) throw new Error(`verify ${res.status}`);
   return res.json();
 }
 

@@ -1,3 +1,4 @@
+import { learnOnce } from "./learn.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
@@ -5,7 +6,14 @@ import { randomUUID } from "node:crypto";
 import { gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
-import { createJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
+import { TERMINAL_STATE_LABEL, closeJobTerminal, say, terminalState } from "./terminal.js";
+import { clearAttention } from "./bridge.js";
+import { updateTaskFromChat } from "./taskUpdate.js";
+import { meegleState, syncMeegleOnce } from "./meegle.js";
+import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
+import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -96,7 +104,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       async () =>
         text(
           listJobs(10)
-            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : ""}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
+            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : `，${TERMINAL_STATE_LABEL[terminalState(j.id)]}`}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
             .join("\n") || "还没有任务记录。",
         ),
     ),
@@ -124,8 +132,116 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },
     ),
+    tool(
+      "terminal_say",
+      "往当前会话绑定的任务的内嵌终端里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。它正忙时会排队，等它这轮说完再送进去。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
+      { text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理") },
+      async ({ text: msg }) => {
+        const bound = boundJob(conversationId);
+        if (!bound) return text("这条会话没有绑定带终端的任务，转达不了。让用户从任务的「在会话里讨论」进来，或先用 run_claude 开一个。");
+        const r = say(bound.jobId, msg);
+        if (r !== "no-terminal") clearAttention(bound.jobId);
+        if (r === "no-terminal") return text("这条任务的终端不在了（不是内嵌终端，或已经关掉）。可以让用户在任务卡上点「重新打开终端」。");
+        if (conversationId && conversationExists(conversationId)) {
+          addMessage(conversationId, { role: "assistant", kind: "run", content: `${r === "sent" ? "→ 已转达给终端" : "→ 终端正忙，等它这轮说完转达"}：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
+        }
+        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: r === "sent" ? "直接敲进 PTY" : "排队等它这轮结束", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
+        return text(r === "sent" ? "已敲进终端。它回话后会回报到任务卡，不用你复述。" : "终端里的 Claude 正在输出，已排队，它这轮说完就送进去。");
+      },
+    ),
+    tool(
+      "jobs_activity",
+      "看某个终端任务里 Claude Code 最近在做什么：读了/改了哪些文件、跑了什么命令、成败、说了什么。不给 jobId 就看当前会话绑定的任务。用户问“它做到哪了”“在干什么”时用。",
+      { jobId: z.string().optional(), limit: z.number().int().min(1).max(40).optional() },
+      async ({ jobId, limit }) => {
+        const id = jobId ?? boundJob(conversationId)?.jobId;
+        if (!id) return text("没有指定任务，这条会话也没绑定终端任务。");
+        const job = getJob(id);
+        if (!job) return text("没有这个任务。");
+        return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${TERMINAL_STATE_LABEL[terminalState(id)]}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
+      },
+    ),
+    tool(
+      "meegle_sync",
+      "立刻同步一次 Meegle 分派给用户的工单到任务板（新工单建待办、已有的更新、不再分派的自动完成）。用户说“刷一下 Meegle”“拉一下工单”“看看有没有新需求”时用。平时每 15 分钟自动同步一次。",
+      {},
+      async () => {
+        const r = await syncMeegleOnce();
+        return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条${r.reopened ? `，Reopen 拉回 ${r.reopened} 条` : ""}，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
+      },
+    ),
+    tool(
+      "close_terminals",
+      "关掉在跑的终端。scope 为 finished 时只关任务已完成或已忽略的（清理遗留），为 all 时关掉全部。用户说「关掉终端」「终端太多了」「清理一下」时用。终端里跑着的 Claude Code 会一起停掉，任务本身不动。",
+      { scope: z.enum(["finished", "all"]).optional().describe("finished 只关已收工任务的（默认），all 关全部") },
+      async ({ scope }) => {
+        const onlyFinished = scope !== "all";
+        const running = listJobs().filter((j) => j.status === "running");
+        const targets = onlyFinished
+          ? running.filter((j) => {
+              const t = findTaskBySource((src) => src.jobId === j.id, true);
+              return !t || t.status === "done" || t.status === "ignored";
+            })
+          : running;
+        if (!targets.length) return text(running.length ? `在跑的 ${running.length} 个终端都还挂着未完成的任务，没关。要全关就说「全部关掉」。` : "现在没有在跑的终端。");
+        let closed = 0;
+        for (const j of targets) {
+          closeJobTerminal(j.id, onlyFinished ? "会话里要求清理已收工的终端" : "会话里要求关掉全部终端");
+          if (getJob(j.id)?.status !== "running") closed++;
+        }
+        return text(`关掉了 ${closed} 个终端${running.length > closed ? `，还剩 ${running.length - closed} 个在跑` : ""}。`);
+      },
+    ),
+    tool(
+      "learn_now",
+      "让 Friday 现在就自学一题：从用户最近 7 天的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，笔记写进记忆库 research/，建议挂成一条待办任务。用户说“学点东西”“去研究一下”“今天学了什么”时用。平时每天早上自动学一题（设置里可关）。要花一两分钟。",
+      {},
+      async () => {
+        const r = await learnOnce(true);
+        return text("skipped" in r ? `这次没学：${r.skipped}` : `学完了：「${r.title}」，笔记在记忆库 ${r.file}，建议已挂到待办（任务 ${r.taskId.slice(0, 8)}），用户可以在卡片上看、聊或忽略。`);
+      },
+    ),
+    tool(
+      "slack_sync",
+      "立刻拉一次 Slack（@我 和私聊里的新消息，预处理成线程和任务）。用户说“刷一下 Slack”“看看有没有新消息”时用。平时白天每 3 分钟、其余 15 分钟自动拉。",
+      {},
+      async () => {
+        const added = await syncSlackOnce();
+        if (!slackState.configured) return text("Slack 没接入（钥匙串里没有 friday-slack 凭证），跑一下 scripts/slack-auth.sh。");
+        return text(slackState.lastError ? `同步出错：${slackState.lastError}` : `同步完成：新收到 ${added} 条${slackState.lastSyncAt ? `（${slackState.lastSyncAt.slice(11, 16)}）` : ""}。有需要回的会进「待我决定」。`);
+      },
+    ),
+    tool(
+      "task_update",
+      "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展，以及待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步）。用户说不用回了就 dropReply。只对这条会话绑定的任务有效。",
+      {
+        understanding: z.string().max(4000).optional().describe("对这件事的最新理解，整段覆盖"),
+        plan: z.string().max(4000).optional().describe("最新方案，整段覆盖"),
+        progress: z.string().max(300).optional().describe("一句话进展"),
+        replyDraft: z.string().max(2000).optional().describe("给对方的回复全文，可直接发的口语中文"),
+        dropReply: z.boolean().optional().describe("撤掉待审的回复动作"),
+        status: z.enum(["processing", "review", "blocked", "done", "ignored"]).optional().describe("用户明确说了才改：做完了=done，不用管了=ignored，先放着/等我看=review，卡住=blocked，继续做=processing"),
+      },
+      async (patch) => {
+        const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
+        if (!t) return text("这条会话没有绑定任务，没有卡片可更新。");
+        if (!decide("reversible").allowed) return text("操作被拒绝");
+        const r = updateTaskFromChat(t.id, patch);
+        if (!r) return text("任务不存在了。");
+        return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "用户点「看一眼再发」时会看到这段草稿、可以再改，确认后才发。" : ""}` : "和卡片上一样，没改。");
+      },
+    ),
   ],
 });
+
+/** 这条会话正在讨论的任务的终端：先看任务绑定，再看 run_claude 从这条会话开的 job */
+function boundJob(conversationId?: string): { jobId: string; taskId?: string } | undefined {
+  if (!conversationId) return undefined;
+  const t = findTaskBySource((s) => s.conversationId === conversationId);
+  if (t?.source.jobId) return { jobId: t.source.jobId, taskId: t.id };
+  const j = listJobs().find((x) => x.conversationId === conversationId && x.status === "running");
+  return j ? { jobId: j.id } : undefined;
+}
 
 export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__memory_read",
@@ -135,4 +251,11 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__slack_inbox",
   "mcp__friday__jobs_list",
   "mcp__friday__run_claude",
+  "mcp__friday__terminal_say",
+  "mcp__friday__jobs_activity",
+  "mcp__friday__task_update",
+  "mcp__friday__meegle_sync",
+  "mcp__friday__slack_sync",
+  "mcp__friday__learn_now",
+  "mcp__friday__close_terminals",
 ];

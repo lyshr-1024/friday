@@ -18,11 +18,26 @@ apps/desktop/src-tauri/resources/
 *.cer
 *.pem
 
+# 记忆库与运行时产物：真实路径在 ~/Library/Application Support/Friday，
+# 这里挡一道防手滑拷进仓库
+attachments/
+runs/
+research/
+memory/*.md
+!memory-schema/
+
+# 日志与缓存
+*.log
+.cache/
+.vite/
+*.local
+
 # 系统与编辑器
 .DS_Store
 .idea/
 .vscode/*
 !.vscode/extensions.json
-*.log
+*.swp
+Thumbs.db
 
 .claude/
