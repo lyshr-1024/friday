@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchSlack, permalinkFor } from "./slack.js";
+import { blocksText, fetchSlack, permalinkFor } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -61,5 +61,52 @@ describe("permalink 兜底", () => {
     const dm = res.items.find((i) => i.kind === "dm")!;
     expect(dm.permalink).toBe("https://acme.slack.com/archives/D1/p1757000500000100");
     expect(permalinkFor(undefined, "D1", "1.2")).toBe("");
+  });
+});
+
+describe("机器人与 Block Kit", () => {
+  const botResponses: Record<string, unknown> = {
+    "search.messages": {
+      messages: {
+        matches: [
+          {
+            ts: "1757000800.000100",
+            text: "",
+            user: "UBOT",
+            username: "",
+            channel: { id: "D9", name: "UBOT", is_im: true },
+            blocks: [
+              { type: "header", text: { type: "plain_text", text: "Defect Creation Notification" } },
+              { type: "section", fields: [{ text: "*Priority:* P0" }] },
+            ],
+          },
+          { ts: "1757000700.000100", text: "", user: "U2", channel: { id: "C1", name: "fe-dev" }, blocks: [{ text: { text: "看下这个" } }] },
+        ],
+      },
+    },
+    "client.counts": { ims: [] },
+    "users.info": {},
+    "chat.getPermalink": {},
+  };
+  const botCall = async (method: string, params: Record<string, string>) => {
+    if (method === "users.info") return { user: { is_bot: params.user === "UBOT", real_name: params.user === "UBOT" ? "Meegle" : "灵雨" } };
+    return botResponses[method] as Record<string, unknown>;
+  };
+
+  it("机器人 @ 我的不进收件箱，但游标照常前进", async () => {
+    const res = await fetchSlack(botCall, "U1", { "slack:mentions": "1757000600.000000" }, 1757000900_000);
+    expect(res.items.map((i) => i.userId)).toEqual(["U2"]);
+    expect(res.cursors["slack:mentions"]).toBe("1757000800.000100");
+  });
+
+  it("text 为空时从 blocks 取正文，username 为空串时回落到 users.info", async () => {
+    const res = await fetchSlack(botCall, "U1", { "slack:mentions": "1757000600.000000" }, 1757000900_000);
+    expect(res.items[0]!.text).toBe("看下这个");
+    expect(res.items[0]!.userName).toBe("灵雨");
+  });
+
+  it("blocksText 递归展开 elements 与 fields", async () => {
+    expect(blocksText(undefined)).toBe("");
+    expect(blocksText([{ elements: [{ text: { text: "a" } }, { fields: [{ text: "b" }] }] }])).toBe("a\nb");
   });
 });

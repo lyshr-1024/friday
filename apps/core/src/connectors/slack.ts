@@ -37,7 +37,29 @@ interface SearchMatch {
   user?: string;
   username?: string;
   permalink?: string;
+  blocks?: Block[];
   channel?: { id: string; name?: string; is_im?: boolean; is_mpim?: boolean };
+}
+
+interface Block {
+  text?: { text?: string };
+  fields?: Array<{ text?: string }>;
+  elements?: Block[];
+}
+
+/** Block Kit 消息（机器人通知、工作流卡片）的正文在 blocks 里，text 是空的。 */
+export function blocksText(blocks: Block[] | undefined): string {
+  if (!blocks?.length) return "";
+  const out: string[] = [];
+  const walk = (bs: Block[]) => {
+    for (const b of bs) {
+      if (b.text?.text) out.push(b.text.text);
+      for (const f of b.fields ?? []) if (f.text) out.push(f.text);
+      if (b.elements) walk(b.elements);
+    }
+  };
+  walk(blocks);
+  return out.join("\n").trim();
 }
 
 interface CountsIm {
@@ -114,15 +136,18 @@ export async function fetchSlack(
   let maxMention = mentionsSince;
   for (const m of search.messages?.matches ?? []) {
     if (!m.channel || !m.ts || Number(m.ts) <= Number(mentionsSince) || m.user === me) continue;
+    // 游标要跟着最新一条走，机器人那条也算，否则每次同步都会重新扫到它。
     if (Number(m.ts) > Number(maxMention)) maxMention = m.ts;
+    // 和私聊一样，机器人（Meegle 工单通知、日历提醒等）@ 我的不进收件箱。
+    if (m.user && (await isBot(m.user))) continue;
     out.push({
       id: `${m.channel.id}:${m.ts}`,
       kind: "mention",
       channelId: m.channel.id,
       channelName: m.channel.name ? `#${m.channel.name}` : "私聊",
       userId: m.user ?? "",
-      userName: m.username ?? (await userName(m.user ?? "")),
-      text: m.text,
+      userName: m.username || (await userName(m.user ?? "")),
+      text: m.text?.trim() || blocksText(m.blocks),
       permalink: m.permalink ?? permalinkFor(teamUrl, m.channel.id, m.ts),
       ts: m.ts,
     });
@@ -136,7 +161,7 @@ export async function fetchSlack(
     const imSince = since(key);
     if (im.latest && Number(im.latest) <= Number(imSince)) continue;
     const hist = (await call("conversations.history", { channel: im.id, oldest: imSince, limit: "20" })) as {
-      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string; bot_id?: string }>;
+      messages?: Array<{ ts: string; text?: string; user?: string; subtype?: string; bot_id?: string; blocks?: Block[] }>;
     };
     let max = imSince;
     for (const msg of hist.messages ?? []) {
@@ -153,7 +178,7 @@ export async function fetchSlack(
         channelName: `与 ${name} 的私聊`,
         userId: msg.user,
         userName: name,
-        text: msg.text ?? "",
+        text: msg.text?.trim() || blocksText(msg.blocks),
         permalink: link.permalink ?? permalinkFor(teamUrl, im.id, msg.ts),
         ts: msg.ts,
       });
