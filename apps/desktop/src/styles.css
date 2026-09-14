@@ -3571,3 +3571,44 @@ body,
   padding: 0 var(--s-3);
   font-size: var(--t-micro);
 }
+
+/* ── 发送按钮的四种状态要能看出区别（GPUI：状态必须可见，不能只有一个灰按钮）。
+   Friday 在回时它变成「中断」，点了就停。 */
+.composer__send--busy {
+  opacity: 1;
+  background: var(--bg-4);
+  color: var(--fg-2);
+}
+.composer__send--busy:hover {
+  background: var(--bg-5);
+  color: var(--fg-1);
+}
+.composer__thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.composer__thinking i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: think-dot 1.2s ease-in-out infinite;
+}
+.composer__thinking i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.composer__thinking i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes think-dot {
+  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+/* 停掉动画后三点要还看得出是「在忙」，靠静态的实心表达 */
+@media (prefers-reduced-motion: reduce) {
+  .composer__thinking i {
+    animation: none;
+    opacity: 0.75;
+  }
+}

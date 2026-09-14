@@ -246,7 +246,10 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       void send(input);
     }
     if (e.key === "Escape") {
+      // 必须 preventDefault：不然事件冒到浏览器会退出全屏
+      e.preventDefault();
       if (busy && convRef.current) void cancelAsk(convRef.current);
+      else if (resolving) setResolving(false);
       else onEscape?.();
     }
   }
@@ -323,9 +326,27 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             {...ime.handlers}
             autoFocus={autoFocus}
           />
-          <button className="composer__send" disabled={busy || uploading > 0 || resolving || (!input.trim() && !pending.length)} onClick={() => void send(input)} aria-label="发送">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
-          </button>
+          {/* 四种不能发的原因要能看出来，不然只是个灰按钮。
+              Friday 在回时按钮变成「中断」，点了就停——和 Esc 一个效果。 */}
+          {busy ? (
+            <button className="composer__send composer__send--busy" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断（Esc 也行）" aria-label="中断">
+              <span className="composer__thinking"><i /><i /><i /></span>
+            </button>
+          ) : (
+            <button
+              className="composer__send"
+              disabled={uploading > 0 || resolving || (!input.trim() && !pending.length)}
+              onClick={() => void send(input)}
+              title={uploading > 0 ? `还有 ${uploading} 个附件在上传` : resolving ? "正在判断这句话接哪段对话" : !input.trim() && !pending.length ? "写点什么再发" : "发送（Enter）"}
+              aria-label="发送"
+            >
+              {uploading > 0 || resolving ? (
+                <span className="side__spin" />
+              ) : (
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
+              )}
+            </button>
+          )}
         </div>
         {hint && <div className="composer__hint">{hint}</div>}
       </div>
