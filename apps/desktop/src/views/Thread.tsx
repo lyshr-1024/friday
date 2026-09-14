@@ -299,7 +299,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         )}
       </div>
       {!atBottom && (
-        <button className={`thread__jump ${unread ? "thread__jump--unread" : ""}`} onClick={() => scrollToBottom(true)} title="回到底部">
+        <button className={`thread__jump ${unread ? "thread__jump--unread" : ""}`} onClick={() => scrollToBottom(true)} title="回到底部" aria-label="回到底部">
           {unread ? "有新回复" : ""}<span className="thread__jump-arrow"><Icon name="arrowDown" /></span>
         </button>
       )}
@@ -307,7 +307,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       <div className="composer">
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
         <div className="composer__box">
-          <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" onClick={() => fileRef.current?.click()}>
+          <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" aria-label="添加附件" onClick={() => fileRef.current?.click()}>
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
           </button>
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
