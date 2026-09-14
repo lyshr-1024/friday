@@ -14,9 +14,12 @@ describe("交付报告", () => {
     expect(r.screenshots[0]!.name).toBe("login-before.png");
   });
 
-  it("自主模式脚本用 claude -p，提示词带分支、报告路径与截图目录", () => {
+  it("自主模式脚本用 claude -p，提示词带分支命名规范、报告路径与截图目录", () => {
     const prompt = autonomousPrompt("abcdef12-0000", "修登录报错", "whale-console");
-    expect(prompt).toContain("friday/abcdef12");
+    // 分支名由终端里的 Claude 按项目规范自己起，提示词只给规则不给固定名字
+    expect(prompt).toContain("feat/<topic>");
+    expect(prompt).toContain("fix/<bug>");
+    expect(prompt).not.toContain("friday/abcdef12");
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
@@ -15,6 +15,16 @@ async function git(dir: string, args: string[]): Promise<string> {
 }
 
 /** 最近 N 天的提交，给 Friday 自学挑题用；不是 git 仓库或没有提交就返回空数组。 */
+/** 同步读当前分支名。onJobExit 是同步的，用不了上面那个异步 git()。
+    读不到就返回空串——调用方要能接受「不知道分支」。 */
+export function currentBranchSync(dir: string): string {
+  try {
+    return execFileSync("git", ["-C", dir, "branch", "--show-current"], { encoding: "utf8", timeout: 3000 }).trim();
+  } catch {
+    return "";
+  }
+}
+
 export async function recentCommits(dir: string, days: number, limit = 20): Promise<string[]> {
   const out = await git(dir, ["log", `--since=${days}.days`, "-n", String(limit), "--date=short", "--format=%ad %s"]);
   return out && !out.startsWith("（") ? out.split("\n") : [];
