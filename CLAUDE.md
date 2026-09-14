@@ -59,6 +59,8 @@ apps/core/src/
 - 三级权限落地：只读直接做；可逆直接做并记账、可撤销（记待办、更新 people.md）；不可逆挂成任务的 `pending` 动作等用户点「通过并执行」（发 Slack 回复 `slack_reply`、合并分支 `git_merge`）。用户已同意审核通过后由 Friday 发 Slack。
 - **账本** `audit` 表：Friday 每个动作一条（action / why / how / evidence / risk / reversible / status / undo）。`GET /audit`，`POST /audit/:id/undo`。账本视图在会话窗「工作台 → 账本」。
 - **自主改代码**（`agent/pipeline.ts`）：情境卡建议 run_claude 且能定位项目 → `startAutonomousJob`：Ghostty 里 `claude -p`（`autonomousPrompt`：新分支 friday/<id8>、跑类型检查与测试、界面改动用 agent-browser 截图到 `<runs>/<id>.shots/`、交付报告写到 `<runs>/<id>.report.md`，禁止 push/merge/提问）。任务退出 → `onJobExit` 用 `agent/report.ts` 解析报告与截图（存附件）→ 任务进 review，附 `git_merge` 待审核动作。
+- **分支名按项目规范起（2026-09-14）**：原来自主任务写死 `friday/<jobId 前 8 位>`，用户指出这不对——项目有自己的分支命名规范（`~/.claude/skills/harua-dev`：新功能 `feat/<topic>`、修缺陷 `fix/<bug>`、杂活 `chore/<topic>` 或 `style/<topic>`）。改成**让终端里的 Claude 自己起名**：它有完整上下文（任务标题多是中文，Friday 这边做 slug 会变成乱码，而且它才知道这次算 feat 还是 fix）。`autonomousPrompt` 给规则和例子（`feat/export-center`、`fix/withdrawal-rule-tabs`），并要求起好后第一时间用 `friday_progress` 把分支名回报。
+  配套改了三处判据：`onJobExit` 不再拼分支名，改用 `git.currentBranchSync(dir)` 读实际值，读不到或在 main/master 上就不挂 `git_merge` 待审动作（免得挂个假的）；`bridge.friday_done` 里「是不是 `friday/` 开头」的判断换成「不是主干就算功能分支」；`prompt.ts` 的系统提示同步。
 - **交付报告**（`DeliveryReport`）是验收的唯一依据：概要、改动、测试过程、测试结果、截图、请你验证。用户明确要求：功能长什么样 + 测试过程，用截图和文本，不要视频。这条对 Friday 派出的任务和改 Friday 本身都适用。
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。

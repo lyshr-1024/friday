@@ -58,7 +58,7 @@ export function terminalBridgePrompt(): string {
     "friday_progress：每完成一个阶段报一句进展，用户在任务卡上实时看到；不要每一步都调。",
     "friday_done：这一轮的活做完了就调，带上概要、改动、测试步骤、测试结果、请用户验证的点。这是用户收到提醒的唯一途径，不调等于没交付。调完任务不算结束——任务完不完成由用户说，你停下等下一步指示。",
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
-    "不要 push、不要 merge 主分支；在 friday/ 开头的分支上干活时合并由用户在 Friday 里审核。",
+    "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。分支名按项目规范起：新功能 feat/<topic>、修缺陷 fix/<bug>、杂活 chore/<topic>。",
   ].join("\n");
 }
 
