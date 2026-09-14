@@ -3,10 +3,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
-import { markStop, terminalState } from "../agent/terminal.js";
+import { closeJobTerminal, markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
+import { findTaskBySource } from "../memory/tasks.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
@@ -15,6 +16,31 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g;
 
 export const jobs = new Hono()
   .get("/jobs", (c) => c.json(listJobs()))
+  /** 关掉一个终端：杀进程组 + job 收尾。任务不动，用户可能还想接着做。 */
+  .post("/jobs/:id/close", (c) => {
+    const id = c.req.param("id");
+    const job = getJob(id);
+    if (!job) return c.json({ error: "没有这个终端" }, 404);
+    closeJobTerminal(id, "用户手动关闭");
+    return c.json({ closed: getJob(id)?.status !== "running", id });
+  })
+  /** 关掉所有在跑的终端。任务已经完成或忽略的优先，全关则不挑。 */
+  .post("/jobs/close-all", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { onlyFinished?: boolean };
+    const running = listJobs().filter((j) => j.status === "running");
+    const targets = body.onlyFinished
+      ? running.filter((j) => {
+          const t = findTaskBySource((src) => src.jobId === j.id, true);
+          return !t || t.status === "done" || t.status === "ignored";
+        })
+      : running;
+    let closed = 0;
+    for (const j of targets) {
+      closeJobTerminal(j.id, body.onlyFinished ? "任务已收工，清理遗留终端" : "用户一键关闭全部终端");
+      if (getJob(j.id)?.status !== "running") closed++;
+    }
+    return c.json({ closed, scanned: running.length });
+  })
   .get("/jobs/:id", (c) => {
     const job = getJob(c.req.param("id"));
     return job ? c.json(job) : c.json({ error: "任务不存在" }, 404);

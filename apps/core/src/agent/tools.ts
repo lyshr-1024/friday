@@ -8,7 +8,7 @@ import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { TERMINAL_STATE_LABEL, say, terminalState } from "./terminal.js";
+import { TERMINAL_STATE_LABEL, closeJobTerminal, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { meegleState, syncMeegleOnce } from "./meegle.js";
@@ -171,6 +171,28 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
+      "close_terminals",
+      "关掉在跑的终端。scope 为 finished 时只关任务已完成或已忽略的（清理遗留），为 all 时关掉全部。用户说「关掉终端」「终端太多了」「清理一下」时用。终端里跑着的 Claude Code 会一起停掉，任务本身不动。",
+      { scope: z.enum(["finished", "all"]).optional().describe("finished 只关已收工任务的（默认），all 关全部") },
+      async ({ scope }) => {
+        const onlyFinished = scope !== "all";
+        const running = listJobs().filter((j) => j.status === "running");
+        const targets = onlyFinished
+          ? running.filter((j) => {
+              const t = findTaskBySource((src) => src.jobId === j.id, true);
+              return !t || t.status === "done" || t.status === "ignored";
+            })
+          : running;
+        if (!targets.length) return text(running.length ? `在跑的 ${running.length} 个终端都还挂着未完成的任务，没关。要全关就说「全部关掉」。` : "现在没有在跑的终端。");
+        let closed = 0;
+        for (const j of targets) {
+          closeJobTerminal(j.id, onlyFinished ? "会话里要求清理已收工的终端" : "会话里要求关掉全部终端");
+          if (getJob(j.id)?.status !== "running") closed++;
+        }
+        return text(`关掉了 ${closed} 个终端${running.length > closed ? `，还剩 ${running.length - closed} 个在跑` : ""}。`);
+      },
+    ),
+    tool(
       "learn_now",
       "让 Friday 现在就自学一题：从用户最近 7 天的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，笔记写进记忆库 research/，建议挂成一条待办任务。用户说“学点东西”“去研究一下”“今天学了什么”时用。平时每天早上自动学一题（设置里可关）。要花一两分钟。",
       {},
@@ -235,4 +257,5 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__meegle_sync",
   "mcp__friday__slack_sync",
   "mcp__friday__learn_now",
+  "mcp__friday__close_terminals",
 ];

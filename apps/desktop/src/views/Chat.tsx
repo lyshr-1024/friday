@@ -4,12 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings } from "../lib/core";
+import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { HotList, LinkMenuHost, fmtTime } from "./shared";
 import { Board } from "./Board";
 import type { BoardView } from "./Board";
+import { Icon } from "./Icon";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
 import { applyTheme, onThemeChange } from "../lib/theme";
@@ -121,6 +122,18 @@ export function Chat() {
 
   // 导航底部「N 个任务在跑」
   const [runningJobs, setRunningJobs] = useState(0);
+  const [closingJobs, setClosingJobs] = useState(false);
+
+  async function doCloseJobs() {
+    setClosingJobs(false);
+    try {
+      const r = await closeAllJobs();
+      setRunningJobs((n) => Math.max(0, n - r.closed));
+      window.dispatchEvent(new Event("friday:tasks-changed"));
+    } catch {
+      /* 关不掉就让下一轮轮询纠正计数 */
+    }
+  }
   useEffect(() => {
     const pull = () => void fetchJobs().then((js) => setRunningJobs(js.filter((j) => j.status === "running").length)).catch(() => {});
     pull();
@@ -267,8 +280,25 @@ export function Chat() {
           </button>
         ))}
         <div className="rail__foot">
+          {runningJobs > 0 && (
+            closingJobs ? (
+              <div className="rail__confirm">
+                <div className="rail__confirm-q">关掉这 {runningJobs} 个终端？</div>
+                <div className="rail__confirm-hint">里面跑着的 Claude Code 会一起停掉，任务本身不动。</div>
+                <div className="rail__confirm-acts">
+                  <button className="b b--primary" onClick={() => void doCloseJobs()}>全部关掉</button>
+                  <button className="b b--text" onClick={() => setClosingJobs(false)}>取消</button>
+                </div>
+              </div>
+            ) : (
+              <button className="rail__jobs" onClick={() => setClosingJobs(true)} title="关掉所有在跑的终端">
+                <span className="side__spin" />
+                <span className="num">{runningJobs}</span> 个终端在跑
+                <span className="rail__jobs-x"><Icon name="cross" /></span>
+              </button>
+            )
+          )}
           <div className="rail__status">
-            {runningJobs > 0 && <><span className="side__spin" />{runningJobs} 个终端在跑 · </>}
             {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
           </div>
         </div>

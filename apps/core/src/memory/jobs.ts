@@ -76,6 +76,17 @@ export function finishJob(id: string, exitCode: number): Job | undefined {
   return getJob(id);
 }
 
+/** 启动时收尸：PTY 只活在 sidecar 内存里，进程重启后还标着 running 的
+    必然已经死了，留着会让「N 个终端在跑」越攒越多。 */
+export function reapStaleJobs(): number {
+  const rows = db().prepare("SELECT id FROM jobs WHERE status = 'running'").all() as unknown as { id: string }[];
+  if (!rows.length) return 0;
+  db()
+    .prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE status = 'running'")
+    .run(new Date().toISOString());
+  return rows.length;
+}
+
 /** 10 秒内同目录同任务的运行中记录，用来挡住重复启动。 */
 export function recentDuplicate(dir: string, task: string | undefined, windowMs = 10_000): Job | undefined {
   const since = new Date(Date.now() - windowMs).toISOString();

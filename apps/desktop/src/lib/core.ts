@@ -364,6 +364,24 @@ export async function learnNow(): Promise<{ skipped: string } | { taskId: string
   return res.json();
 }
 
+/** 关掉一个终端。任务不动，用户可能还想接着做。 */
+export async function closeJob(id: string): Promise<{ closed: boolean }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
+  if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+/** 批量关终端。onlyFinished 只关任务已完成或忽略的。 */
+export async function closeAllJobs(onlyFinished = false): Promise<{ closed: number; scanned: number }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/close-all`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ onlyFinished }),
+  });
+  if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function taskPin(id: string, pinned: boolean): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) });
   if (!res.ok) throw new Error(`pin ${res.status}`);

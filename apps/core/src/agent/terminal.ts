@@ -97,18 +97,32 @@ export function pollTerminalStates(): void {
 setInterval(pollTerminalStates, 500).unref();
 
 /** 任务标完成 / 忽略：把它的内嵌终端和里面跑的脚本一起关掉，job 收尾，别留孤儿进程和「运行中」 */
-export function closeTaskTerminal(task: Pick<Task, "id" | "source">, why: string): boolean {
-  const jobId = task.source.jobId;
-  if (!jobId) return false;
+/** 关掉一个终端：杀 PTY 整个进程组（zsh → script → claude，只 kill PTY 会留孤儿），
+    job 收尾并记账。taskId 可选——手动关终端时任务不一定还在。 */
+export function closeJobTerminal(jobId: string, why: string, taskId?: string): boolean {
   const job = getJob(jobId);
   const live = getSession(jobId);
   const wasLive = Boolean(live && live.exited === undefined);
   if (wasLive) kill(jobId);
   if (job?.status === "running") finishJob(jobId, 0);
   if (wasLive || job?.status === "running") {
-    record({ taskId: task.id, action: "terminal_closed", why, how: wasLive ? "关掉内嵌终端及其进程组，job 收尾" : "job 收尾（终端已不在）", evidence: { jobId }, risk: "reversible" });
+    record({
+      ...(taskId ? { taskId } : {}),
+      action: "terminal_closed",
+      why,
+      how: wasLive ? "关掉内嵌终端及其进程组，job 收尾" : "job 收尾（终端已不在）",
+      evidence: { jobId, project: job?.project ?? null },
+      risk: "reversible",
+    });
   }
+  // 返回值表示「有没有真的杀掉一个活着的进程」——job 收尾不算
   return wasLive;
+}
+
+export function closeTaskTerminal(task: Pick<Task, "id" | "source">, why: string): boolean {
+  const jobId = task.source.jobId;
+  if (!jobId) return false;
+  return closeJobTerminal(jobId, why, task.id);
 }
 
 export const TERMINAL_STATE_LABEL: Record<TerminalState, string> = {
