@@ -51,6 +51,29 @@ describe("冷启动", () => {
   });
 });
 
+describe("噪音不入库", () => {
+  it("空消息和纯应答被挡掉，游标照常推进", async () => {
+    const noisy: Record<string, unknown> = {
+      ...responses,
+      "search.messages": {
+        messages: {
+          matches: [
+            { ts: "1757000300.000100", text: "<@U1>", user: "U2", username: "灵雨", channel: { id: "C1", name: "fe-dev" } },
+            { ts: "1757000320.000100", text: "好的", user: "U2", username: "灵雨", channel: { id: "C1", name: "fe-dev" } },
+            { ts: "1757000340.000100", text: "<@U1> 帮看下登录报错", user: "U2", username: "灵雨", channel: { id: "C1", name: "fe-dev" } },
+          ],
+        },
+      },
+      "client.counts": { ims: [] },
+    };
+    const c = async (method: string) => noisy[method] as Record<string, unknown>;
+    const res = await fetchSlack(c, "U1", { "slack:mentions": "1757000200.000000" }, 1757000700_000);
+    expect(res.items.map((i) => i.text)).toEqual(["<@U1> 帮看下登录报错"]);
+    // 挡掉的两条也算看过了，否则下次同步又会重新捞一遍
+    expect(res.cursors["slack:mentions"]).toBe("1757000340.000100");
+  });
+});
+
 describe("补拉对话上下文", () => {
   const item = { channelId: "C1", ts: "1757000300.000100" };
   const nameOf = async (id: string) => (id === "U2" ? "灵雨" : id);

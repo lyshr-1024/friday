@@ -1,5 +1,6 @@
 import type { InboxItem } from "@friday/shared";
 import type { NewInboxItem } from "../memory/inbox.js";
+import { classifyNoise } from "./noise.js";
 import { keychainGet } from "./keychain.js";
 
 export interface SlackCreds {
@@ -116,7 +117,13 @@ export async function fetchSlack(
   let maxMention = mentionsSince;
   for (const m of search.messages?.matches ?? []) {
     if (!m.channel || !m.ts || Number(m.ts) <= Number(mentionsSince) || m.user === me) continue;
+    // 游标要照常推进：挡掉的消息也算「看过了」，否则下次同步还会重新捞一遍
     if (Number(m.ts) > Number(maxMention)) maxMention = m.ts;
+    const verdict = classifyNoise(m.text ?? "");
+    if (verdict.noise) {
+      console.log(`[slack] 跳过：${verdict.why}（${m.channel.name ?? m.channel.id}）`);
+      continue;
+    }
     out.push({
       id: `${m.channel.id}:${m.ts}`,
       kind: "mention",
@@ -148,6 +155,11 @@ export async function fetchSlack(
       if (msg.subtype || msg.bot_id || !msg.user || msg.user === me || Number(msg.ts) <= Number(imSince)) continue;
       if (await isBot(msg.user)) continue;
       if (Number(msg.ts) > Number(max)) max = msg.ts;
+      const verdict = classifyNoise(msg.text ?? "");
+      if (verdict.noise) {
+        console.log(`[slack] 跳过私聊：${verdict.why}`);
+        continue;
+      }
       const name = await userName(msg.user);
       const link = (await call("chat.getPermalink", { channel: im.id, message_ts: msg.ts }).catch(() => ({}))) as { permalink?: string };
       out.push({
