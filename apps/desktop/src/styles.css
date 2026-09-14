@@ -3043,18 +3043,6 @@ body,
 .li--on:hover {
   background: var(--bg-4);
 }
-/* 选中与悬停必须明确区分（GPUI 九态）。只差一级灰度不够，
-   加一条左侧竖线——只有「当前选中的那一条」有，不会连成栅栏。 */
-.li--on::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  border-radius: 0 1px 1px 0;
-  background: var(--fg-3);
-}
 .li .dot {
   flex: none;
   margin-top: 5px;
