@@ -300,14 +300,14 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
 
   // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
   const item = (t: Task, line: string, dim = false) => (
-    <div key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""} ${t.pinned ? "li--pinned" : ""}`} onClick={() => setSelectedId(t.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(t.id); }}>
+    <div key={t.id} className={`li ${t.id === focus?.id ? "li--on" : ""} ${dim ? "li--dim" : ""} ${t.pinned ? "li--pinned" : ""}`} onClick={() => setSelectedId(t.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(t.id); } }}>
       <span className={`dot dot--${t.attention ?? t.status}`} />
       <span className="li__main">
         <span className="li__title">{t.title}</span>
         <span className="li__sub">{runningConvs?.has(t.source.conversationId ?? "") ? `Friday 在回 · ${line}` : line}</span>
         {(t.terminal === "busy" || runningConvs?.has(t.source.conversationId ?? "")) && <span className="li__bar"><i /></span>}
       </span>
-      <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}><Icon name="star" filled={t.pinned} /></button>
+      <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} aria-label={t.pinned ? "取消关注" : "关注"} aria-pressed={!!t.pinned} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}><Icon name="star" filled={t.pinned} /></button>
     </div>
   );
   const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean, extra?: React.ReactNode) => (
@@ -372,10 +372,10 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                       {slackSyncing ? <span className="side__spin" /> : <Icon name="refresh" />} {slackNote ?? "Slack"}
                     </button>
                   </div>
-                  {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事</div>}
+                  {decide.length ? decide.map((t) => item(t, needs(t))) : <div className="li li--empty">没有等你决定的事，Friday 有事会推到这里</div>}
                 </section>
-                {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事", doingRight, () => false)}
-                {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办", queuedRight, (t) => !t.due && t.priority !== "high",
+                {group("Friday 在做", doing, doingOpen, () => setDoingOpen((v) => !v), "现在没有在做的事，交代一件就会出现在这里", doingRight, () => false)}
+                {group("待办", queued, queuedOpen, () => setQueuedOpen((v) => !v), "没有待办，Meegle 工单和 Slack 里要你做的事会汇到这里", queuedRight, (t) => !t.due && t.priority !== "high",
                   <>
                     <button className="grp__act" title="让 Friday 现在自学一题：挑一个手头项目的具体问题，研究社区做法给建议（要一两分钟；平时每天早上自动）" disabled={learning} onClick={() => void doLearn()}>
                       {learning ? <span className="side__spin" /> : <Icon name="sparkle" />} {learnNote ?? "学一题"}
@@ -384,7 +384,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                       {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
                     </button>
                   </>)}
-                {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的", (t) => fmtTime(t.updatedAt), () => true)}
+                {group("最近完成", done, doneOpen, () => setDoneOpen((v) => !v), "还没有完成的，处理完的事会留在这里七天", (t) => fmtTime(t.updatedAt), () => true)}
               </>
             )}
           </aside>
@@ -479,7 +479,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const isMessage = first?.type === "slack_reply";
   const primary: { label: string; run: () => Promise<unknown> } | null = first
     ? isMessage
-      ? { label: pending.length > 1 ? `看一眼再发：${first.label}` : "看一眼再发", run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); } }
+      ? { label: pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…", run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); } }
       : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
     : t.status === "blocked" && t.project
       ? { label: "重新开工", run: () => taskRetry(t.id) }
@@ -495,6 +495,9 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       if (el?.closest(".thread, .xterm, .fx__confirm")) return;
+      // 焦点已经在某个按钮或可聚焦控件上时，Enter 应该触发那个控件，
+      // 而不是抢过来执行主操作——主操作可能是不可逆的（发消息、合并分支）。
+      if (el && el !== document.body && (el.tagName === "BUTTON" || el.tagName === "A" || el.hasAttribute("tabindex"))) return;
       if (confirming) return;
       e.preventDefault();
       void onAct(t, run);
@@ -674,7 +677,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
                 {first ? (isMessage ? "完成，不发" : "完成，不执行") : "标记完成"}
               </button>
             )}
-            <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回</button>
+            <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回…</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
           </div>
           {confirming && first && (

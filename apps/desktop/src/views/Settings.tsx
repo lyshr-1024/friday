@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { THEME_OPTIONS, type MemoryFile, type SettingsResponse } from "@friday/shared";
@@ -58,7 +58,7 @@ export function Settings() {
         <div className="group">
           {MEMORY_FILES.map((f) => (
             <Row key={f.name} label={f.label} hint={f.name === "projects" ? `${prefs?.projects.length ?? "…"} 个项目，别名在这里改` : f.hint}>
-              <button className="btn" onClick={() => setEditing(f.name)}>编辑</button>
+              <button className="btn" onClick={() => setEditing(f.name)}>编辑…</button>
             </Row>
           ))}
         </div>
@@ -174,14 +174,24 @@ export function Settings() {
   );
 }
 
+/** 设置项一行。label 与控件用 aria-labelledby 程序关联——视觉靠近不等于
+    可访问性关联，屏幕阅读器读空按钮只会说「switch, checked」。 */
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <div className="row">
       <div className="row__text">
-        <div className="row__label">{label}</div>
-        {hint && <div className="row__hint">{hint}</div>}
+        <div className="row__label" id={`${id}-label`}>{label}</div>
+        {hint && <div className="row__hint" id={`${id}-hint`}>{hint}</div>}
       </div>
-      <div className="row__ctl">{children}</div>
+      <div className="row__ctl">
+        {isValidElement(children)
+          ? cloneElement(children as ReactElement<{ "aria-labelledby"?: string; "aria-describedby"?: string }>, {
+              "aria-labelledby": `${id}-label`,
+              ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
+            })
+          : children}
+      </div>
     </div>
   );
 }
