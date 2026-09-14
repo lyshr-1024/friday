@@ -2,7 +2,8 @@ import type { Thread, ThreadBrief } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { markAutoDone } from "../memory/threads.js";
-import { addLocalTodo, deleteTodo } from "../memory/todos.js";
+import { addNoteTask, dropNoteTask } from "../memory/noteTask.js";
+import { deleteTodo } from "../memory/todos.js";
 
 /**
  * 情境卡里的可逆写：记待办、更新 people.md。按 permission.ts 属 reversible：自动做、记账、可撤销、每个线程每类只做一次。
@@ -10,15 +11,20 @@ import { addLocalTodo, deleteTodo } from "../memory/todos.js";
 export function applyReversibleWrites(thread: Thread, brief: ThreadBrief, taskId?: string): string[] {
   const done: string[] = [];
   if (brief.todo && markAutoDone(thread.id, "todo")) {
-    const todo = addLocalTodo(brief.todo.due ? { text: brief.todo.text, due: brief.todo.due } : { text: brief.todo.text });
+    const todo = addNoteTask({
+      text: brief.todo.text,
+      ...(brief.todo.due ? { due: brief.todo.due } : {}),
+      kind: "slack",
+      source: taskId ? { fromTaskId: taskId } : {},
+    });
     record({
       ...(taskId ? { taskId } : {}),
       action: "todo_add",
       why: `${thread.userName} 的消息里有需要你之后做的事`,
-      how: "写入本地待办表",
-      evidence: { text: todo.text, due: todo.due ?? null, threadId: thread.id },
+      how: "建成一条待办任务",
+      evidence: { text: todo.title, due: todo.due ?? null, threadId: thread.id },
       risk: "reversible",
-      undo: { kind: "delete_todo", id: todo.id },
+      undo: { kind: "drop_note_task", id: todo.id },
     });
     done.push(`已记待办：${brief.todo.text}`);
   }
@@ -58,6 +64,8 @@ export function upsertPerson(name: string, note: string, current = readMemoryFil
 
 /** 撤销一笔可逆动作。 */
 export function undoWrite(plan: { kind: string; id?: string; name?: string; line?: string }): boolean {
+  if (plan.kind === "drop_note_task" && plan.id) return dropNoteTask(plan.id);
+  // 旧账本里的条目还指着 todos 表，留着让它们仍可撤销
   if (plan.kind === "delete_todo" && plan.id) return deleteTodo(plan.id);
   if (plan.kind === "remove_people_line" && plan.line) {
     const cur = readMemoryFile("people");

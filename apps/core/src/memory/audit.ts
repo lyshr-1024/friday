@@ -16,7 +16,12 @@ interface Row {
   undo: string | null;
 }
 
-export type Undo = { kind: "delete_todo"; id: string } | { kind: "remove_people_line"; name: string; line: string } | { kind: "none" };
+// delete_todo 是旧账本里的，todos 表不再写新条目，但已有的账要能撤销
+export type Undo =
+  | { kind: "drop_note_task"; id: string }
+  | { kind: "delete_todo"; id: string }
+  | { kind: "remove_people_line"; name: string; line: string }
+  | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({
   id: r.id,

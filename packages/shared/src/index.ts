@@ -303,6 +303,8 @@ export interface TaskSource {
   autonomous?: boolean;
   /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
   researchFile?: string;
+  /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
+  fromTaskId?: string;
 }
 
 /** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */

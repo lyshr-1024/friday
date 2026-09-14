@@ -19,7 +19,7 @@ import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listThreads } from "../memory/threads.js";
 import { resolveProject } from "../memory/projects.js";
-import { addLocalTodo } from "../memory/todos.js";
+import { addNoteTask } from "../memory/noteTask.js";
 import { userSettings } from "../settings.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
@@ -53,11 +53,11 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
     ),
     tool(
       "todo_add",
-      "添加一条本地待办。",
+      "记一条待办。会建成一条任务，出现在工作台左栏的「待办」分组里。",
       { text: z.string().min(1).max(2000), due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("截止日期 YYYY-MM-DD") },
       async (input) => {
-        const todo = addLocalTodo(input.due ? { text: input.text, due: input.due } : { text: input.text });
-        return text(`已记录：${todo.text}${todo.due ? `（截止 ${todo.due}）` : ""}`);
+        const task = addNoteTask({ text: input.text, ...(input.due ? { due: input.due } : {}), ...(conversationId ? { source: { conversationId } } : {}) });
+        return text(`已记到待办：${task.title}${task.due ? `（截止 ${task.due}）` : ""}`);
       },
     ),
     tool(
