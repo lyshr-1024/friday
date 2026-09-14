@@ -2,10 +2,14 @@ import { serve } from "@hono/node-server";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
+import { reapStaleJobs } from "./memory/jobs.js";
 import { startScheduler } from "./scheduler/index.js";
 
 initMemory();
 console.log(`memory at ${config.dataDir}`);
+// PTY 活在内存里，上次进程没了它们就都死了——启动先收尸，否则计数越攒越多
+const reaped = reapStaleJobs();
+if (reaped) console.log(`收尾 ${reaped} 个上次遗留的终端记录`);
 
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);
