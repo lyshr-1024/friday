@@ -113,6 +113,11 @@ apps/core/src/
   **Elevation**：`.fx` 和 `.fx__foot` 是同级却各背一层 45% 不透明的 dialog 级阴影。改成基础面平（`--shadow-card` 只剩顶部高光），真正浮起的（右键菜单、回到底部）用新的 `--shadow-pop`，四套阴影配方统一成两套。
   **字号 token**：原来 108 处硬编码对 25 处 token，`11px`/`12.5px`/`13.5px` 各有一份字面量和 token 重复，`12px`（31 次）和 `13px`（22 次）根本没有 token。补 `--t-page/--t-sm/--t-xs`，88 处字面量换成 token；按 Apple tracking 表加 `--tr-*` 字距（字号越小越正、越大越负）。
   **其他**：等宽数字 `tabular-nums`（原来 0 处，计数和耗时会抖）；`.switch` 的 `cursor: pointer` 改箭头（桌面约定只有链接用手形）；打开弹层的命令加省略号（「看一眼再发…」「打回…」「编辑…」）；`disabled` 四种透明度统一成 `--o-disabled`；折叠块补展开指示（原来 `list-style: none` 抹掉三角又没给替代）；同步按钮留 `min-width` 防文案切换时推动同行；「待回复」Badge 从语义青改中性（它不是 success/warning/danger）；空状态补「下一步是什么」。
+- **证据优先（2026-09-14）**：用户确认过界面的真正目标——「工作要对产出负责，不能全交给 agent」，所以要解决的不是「更快清掉」而是「让你敢下判断」，需要的是**可核对的证据**而不是好看的摘要。判断依据见记忆库 `research/2026-09-11-界面的真正目标是让人敢下判断.md`。三处改动：
+  ① **对方原话从最底下的折叠提到卡片最上面**（`.fx__source`，标题之下、情境之上）：带频道名、逐条列出、每条 hover 出「在 Slack 打开」。原来那个底部的「Slack 原文」折叠删掉了，不再重复。**空消息也显示**（标成「这条没有文字，可能是图片或表情」）——Friday 可能正是因为读到空消息才判断错的，藏起来用户就看不出。
+  ② **证据不足要明说**（`evidenceCheck`，`.fx__evidence`）：只做能确定的检查，拿不准就不报（误报比不报更伤信任）。两条规则：一条带文字的都没有 → 「Friday 没有可依据的内容，这条草稿是猜的」（amber）；草稿说「内容没显示出来」但线程里其实有带文字的消息 → 「和原文对不上」（red）。**后者会把主按钮从「看一眼再发…」换成「改一下再发…」**——证据和草稿对不上时默认动作应该是改而不是发。
+  ③ **后果预览**（`consequence`，`.fx__consequence`，在操作栏内、按钮上方）：`slack_reply` 说清「以你的身份 + 发到哪（私聊还是回在谁那条下面）+ 撤不回但会记进操作记录」；`git_merge` 说「合完可以在操作记录里撤销」。原来除了 slack_reply 的确认框，点「通过并执行」之前完全不知道会发生什么。
+  数据支撑：库里 110 条任务 57% 来自 Slack，当前待决定的 5 件全是「回复某人」；准备过 56 条草稿只发出 10 条，所以次按钮保留「我自己回」的位置。
 - **主题预设**：`settings.theme`（graphite / warm / navy / light，`THEME_OPTIONS`；light 是 2026-09-09 加的浅色，写死的颜色都已收进 token：`--ok` `--bad` `--shadow-card`），设置页「外观」分段切换，`lib/theme.ts` 把值写到 `<html data-theme>` 并缓存 localStorage 防闪，设置窗改完 `emit("friday://theme")` 广播给工作台即时换色。每个预设只是 `:root[data-theme=…]` 一组变量，布局不动；浅色主题未做。设置页 `.settings` 自身滚动（全局 html/body 是 overflow hidden）。
 - 首屏问候用 `settings.name` + 本地时段，不再调 `/desk`（前端 `DeskView` 已删）。
 - 验收方式：core `FRIDAY_PORT=7791 FRIDAY_DATA_DIR=<临时目录> FRIDAY_NO_SCHEDULER=1` + `VITE_FRIDAY_PORT=7791 vite --port 1421`，浏览器直开 vite 页面（`coreBaseUrl` 无 Tauri 时回退到本机端口；CORS 放行所有本机 origin），用 agent-browser 截图。
