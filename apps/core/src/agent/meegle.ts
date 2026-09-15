@@ -1,7 +1,9 @@
 import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
-import { loadProjects, matchProjectByUrl, type Project } from "../memory/projects.js";
+import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
+import { judgeIntake } from "./intake.js";
+import { startAutonomousJob } from "./pipeline.js";
 import { createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
@@ -141,6 +143,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     const projects = loadProjects();
     let added = 0;
     let reopened = 0;
+    const fresh: Array<{ task: Task; item: MeegleWorkItem }> = [];
     for (const item of items) {
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id, true);
@@ -148,6 +151,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
         added++;
+        fresh.push({ task: t, item });
       } else if (OPEN.includes(existing.status)) {
         const { status: _s, ...patch } = input;
         // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
@@ -172,6 +176,15 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     }
     meegleState.lastSyncAt = new Date().toISOString();
     meegleState.lastError = null;
+    // 新工单逐条过一道「能不能自己动手」。放在最后、串行跑：判断要调模型，
+    // 失败也不该影响同步本身已经完成的部分。
+    for (const f of fresh) {
+      try {
+        await intakeWorkItem(f.task, f.item);
+      } catch (e) {
+        console.error(`[meegle] 判断 ${f.item.id} 能否开工时出错：${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     return { added, closed, reopened };
   } catch (e) {
     meegleState.lastError = e instanceof Error ? e.message : String(e);
@@ -180,6 +193,46 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
   } finally {
     meegleState.running = false;
   }
+}
+
+/** 新工单的自动处置：能做的直接开终端，缺项目归属的问用户一句，其余排队。 */
+export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<void> {
+  const verdict = await judgeIntake(task, item.description ?? "", loadProjects());
+  if (verdict.kind === "queue") {
+    console.log(`[meegle] ${item.id} 排队：${verdict.why}`);
+    return;
+  }
+
+  if (verdict.kind === "ask") {
+    updateTask(task.id, { attention: "question", progress: verdict.question });
+    record({
+      taskId: task.id,
+      action: "intake_ask",
+      why: verdict.why || "自己判断不了，需要用户给一句",
+      how: verdict.question,
+      evidence: { meegleId: item.id },
+      risk: "read",
+    });
+    state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question });
+    return;
+  }
+
+  const dir = resolveProject(verdict.project);
+  if (dir.kind !== "match") {
+    console.log(`[meegle] ${item.id} 排队：项目 ${verdict.project} 定位不到目录`);
+    return;
+  }
+  const t = updateTask(task.id, { project: dir.project.name })!;
+  await startAutonomousJob(t, dir.project.name, dir.project.dir, verdict.detail);
+  record({
+    taskId: task.id,
+    action: "intake_start",
+    why: verdict.why || "工单说得够具体，直接开工",
+    how: `在 ${dir.project.name} 上自主开工`,
+    evidence: { meegleId: item.id, detail: verdict.detail.slice(0, 500) },
+    risk: "reversible",
+  });
+  state.notices.push({ title: `已开始做 · ${dir.project.name}`, body: item.name.slice(0, 120) });
 }
 
 function toTodoLike(it: MeegleWorkItem) {
