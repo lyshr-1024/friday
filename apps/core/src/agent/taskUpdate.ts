@@ -1,6 +1,6 @@
 import type { Task, TaskStatus } from "@friday/shared";
 import { record } from "../memory/audit.js";
-import { addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
+import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
@@ -52,6 +52,17 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
       const hints = hintsFrom(task.title, links);
       const r = addProjectHints(known.name, hints);
       if (r.changed) changed.push(`记住线索（${[...r.added.aliases, ...r.added.urls].join("、")}）`);
+      // 同一个需求下的其他几条归属是同一个答案，一起定了，别再逐条问
+      const story = task.source.linkedStoryId;
+      if (story) {
+        const siblings = listTasks().filter(
+          (t) => t.id !== taskId && t.source.linkedStoryId === story && !t.project && t.status !== "done" && t.status !== "ignored",
+        );
+        for (const s of siblings) {
+          updateTask(s.id, { project: known.name, ...(s.attention === "question" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known.name}` } : {}) });
+        }
+        if (siblings.length) changed.push(`同需求另外 ${siblings.length} 条一起归到 ${known.name}`);
+      }
     }
   }
 

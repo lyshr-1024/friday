@@ -12,6 +12,8 @@ import { state } from "../scheduler/index.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
+const OPEN: TaskStatus[] = ["collected", "understood", "review"];
+
 /** 工单标题里出现项目名或别名（≥3 个字符）就算属于那个项目。 */
 export function matchProject(title: string, projects: Project[]): string | undefined {
   const t = title.toLowerCase();
@@ -38,6 +40,17 @@ export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me
 
 /** 关了的需求不必再拉进来当容器。 */
 const STORY_CLOSED = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
+
+/**
+ * 同一个需求下已经有一条在问归属了吗。有就别再问第二遍——答案是同一个。
+ * 没挂在需求下的（linkedStoryId 为空）各问各的，它们确实是不同的事。
+ */
+export function alreadyAsking(task: Task, tasks?: Task[]): Task | undefined {
+  const story = task.source.linkedStoryId;
+  if (!story) return undefined;
+  const pool = tasks ?? listTasks(OPEN, 500);
+  return pool.find((t) => t.id !== task.id && t.attention === "question" && t.source.linkedStoryId === story);
+}
 
 /**
  * 需求容器该不该跟着收尾：名下缺陷全部收工才收。
@@ -162,8 +175,6 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   };
   return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
-
-const OPEN: TaskStatus[] = ["collected", "understood", "review"];
 
 /** 缺陷转到这个状态就不用我修了，任务直接收掉，不必等下一次同步。 */
 const DONE_STATE = "RESOLVED";
@@ -326,13 +337,21 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<
   }
 
   if (verdict.kind === "ask") {
+    // 同一个需求下的几条缺陷归属是同一个答案，问一遍就够——实测一个需求下
+    // 三条缺陷各问了一次「这是哪个项目的」，答一次该覆盖全部。
+    const asked = alreadyAsking(task);
+    if (asked) {
+      updateTask(task.id, { progress: `等你回答「${asked.title.slice(0, 20)}」那条的归属，同一个需求下的一起定` });
+      console.log(`[meegle] ${item.id} 的归属跟着同需求那条一起问，不重复提问`);
+      return;
+    }
     updateTask(task.id, { attention: "question", progress: verdict.question });
     record({
       taskId: task.id,
       action: "intake_ask",
       why: verdict.why || "自己判断不了，需要用户给一句",
       how: verdict.question,
-      evidence: { meegleId: item.id },
+      evidence: { meegleId: item.id, ...(task.source.linkedStoryId ? { linkedStoryId: task.source.linkedStoryId } : {}) },
       risk: "read",
     });
     state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question });
