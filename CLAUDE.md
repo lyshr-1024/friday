@@ -56,6 +56,8 @@ apps/core/src/
 ## 任务中枢与账本（2026-09-07 对齐后的主干）
 
 - 目标形态：Friday 是握着全部上下文的专属 agent，**替用户干活，用户只审核**。一切输入（Slack 线程、Meegle 工单、口头交代、文档链接）汇成 `tasks` 表里的**任务**：collected → understood → processing → review → done（blocked / ignored）。
+- **记待办统一建成任务（2026-09-14，`memory/noteTask.ts`）**：用户让 Friday 记了六条待办，左栏没有任何变化——`todo_add` 写的是 `todos` 表，而左栏「待办」分组读的是 `tasks` 表里 `understood` 的任务，两者毫无关系。`todos` 是旧启动器时代的遗留，启动器删掉后写入端还在（`todo_add` / `POST /note` / 情境卡的自动待办），读取端一个不剩（`TodoList` 组件已无人引用），库里攒了 85 条从没露过面的待办。改成一律走 `addNoteTask` 进 `tasks`（`kind: verbal`，界面本来就显示「口头」「Meegle」这些来源标识），`createTask` 自带 `publish` 所以 UI 刷新顺带解决。启动时 `migrateLocalTodos` 把**最近一天**的旧待办补成任务、去重、搬完标 done 不重复搬；更早的留在表里不动，免得几十条陈年内容一次涌进左栏把真在办的事淹掉。
+  **autowrite 的待办不能用 `threadId` 做 source**：线程本身那条任务就是靠 `findTaskBySource(threadId)` 找回来的，再挂一条同 `threadId` 的会让它匹配到哪条变得不确定，改用 `source.fromTaskId` 关联。撤销从删 todo 行改成标 `ignored` 保留痕迹（`undo.kind: drop_note_task`），旧账本里的 `delete_todo` 仍能撤。`todos` 表只剩 Meegle 同步和 `/todos` 接口用。
 - 三级权限落地：只读直接做；可逆直接做并记账、可撤销（记待办、更新 people.md）；不可逆挂成任务的 `pending` 动作等用户点「通过并执行」（发 Slack 回复 `slack_reply`、合并分支 `git_merge`）。用户已同意审核通过后由 Friday 发 Slack。
 - **账本** `audit` 表：Friday 每个动作一条（action / why / how / evidence / risk / reversible / status / undo）。`GET /audit`，`POST /audit/:id/undo`。账本视图在会话窗「工作台 → 账本」。
 - **自主改代码**（`agent/pipeline.ts`）：情境卡建议 run_claude 且能定位项目 → `startAutonomousJob`：Ghostty 里 `claude -p`（`autonomousPrompt`：新分支 friday/<id8>、跑类型检查与测试、界面改动用 agent-browser 截图到 `<runs>/<id>.shots/`、交付报告写到 `<runs>/<id>.report.md`，禁止 push/merge/提问）。任务退出 → `onJobExit` 用 `agent/report.ts` 解析报告与截图（存附件）→ 任务进 review，附 `git_merge` 待审核动作。
@@ -78,6 +80,9 @@ apps/core/src/
   做法：消息在 thread 里（`inbox.thread_ts` 增量列，从 `search.messages` / `conversations.history` 的 `thread_ts` 取，等于自身 ts 的是根消息不算回复）就 `conversations.replies` 拉整个 thread；否则 `conversations.history` 带 `latest` + `inclusive` 拉它前面 `CONTEXT_LIMIT`（10）条。**按 `subtype` 过滤系统消息**——真实 API 跑出来第一版混进了 `has joined the channel`，4 条前文里 2 条是噪音，挤掉了真正有用的内容。拉不到就返回空数组，不让整条消息的处理失败。
   同一份上下文喂给三处：①情境卡（`Enrichment.context` → `briefPrompt` 的「这之前，#频道 里聊的是」，系统提示加了「找用户的消息常常是指代句，先读前文再判断」）；②灰区归并判断（`isContinuation` 多收 `situation` 和 `context`——之前拿两条指代句互相比对，判不准是必然的）；③界面（`ThreadBrief.priorMessages` 落库，任务卡「对方原话」上方一个默认收起的 `.fx__prior`「这之前聊的是什么 N 条」，判断依据要能核对）。
   **边界**：`thread_ts` 是这次才加的列，**老消息补不回来**，只有新进来的消息吃得到这个能力。
+- **收件前挡噪音（2026-09-14，`connectors/noise.ts`）**：248 条历史收件里 21 条（8.5%）没有信息量——日历/IT 工单的空消息、`:ok_hand:` 纯表情、只 @ 一下没写字、「好」「ok」「哈哈哈」这类应答。空消息尤其有害：Friday 没有可依据的内容只能猜，之前那条「内容好像没显示出来」的错误草稿就是这么来的。挡掉的**不入库、用户完全看不到**，所以规则只认客观特征：去掉 @ 和 emoji 后一个字都不剩，或整句完全等于固定应答词（`ACK` 白名单，不做「短于 N 字就算」——「改好了」「没问题」也短但是结论）。链接保留占位符，「只发了个文档链接」是有信息的。判不准的一律放行。游标照常推进，否则挡掉的下次同步会重新捞一遍。
+  **按 @ 人数挡群发广播试过但放弃了**：拿库里历史数据一验，@ 六人以上的消息里要回的 6 条、不用回的 10 条，挡掉会误杀六件真事。
+  **顺序要紧**（与另一条并行任务合并后的最终形态）：先 `isBot` 挡机器人 → 再 `blocksText` 取 Block Kit 正文 → 最后拿**取出来的正文**判噪音。原来直接 `classifyNoise(m.text)` 有缺陷：Block Kit 消息的 `text` 恒为空，真事会被当空消息挡掉。
 - 每个被新消息触及的线程做功课（`agent/enrich.ts`，只读）：同一人历史线程的情境、`people.md` 里的条目、消息里 Meegle 链接用 `meegle` CLI 拉标题/状态/优先级/负责人、关联项目的 git 状态；然后 `agent/brief.ts` 用 Sonnet 出**情境卡**（situation / needs / needsReply / urgency / reply / actions / context / todo / person），最多 3 个线程并行。
 - 可逆自动写（`agent/autowrite.ts`，permission.ts 的 reversible 级）：情境卡给了 todo 就记待办，给了 person 就往 `people.md` 该人条目追加一行「备注（日期，Friday 自动）」；每个线程每类只做一次（`threads.auto_done`），结果写进 context 留痕。
 - 通知按线程发「N 个人等你回」。`GET /threads`、`POST /threads/:id/{refresh,done,ignore}`；`slack_inbox` 工具输出线程视角。启动器「Slack 找我的人」是线程卡片（情境、需要你、建议回复、背景、原文折叠、复制回复 / 在会话里处理 / 已处理 / 忽略）。
@@ -139,7 +144,7 @@ apps/core/src/
 - 起因：用户"老是对不齐哪个任务对应哪个会话"。根子是任务板、抽屉、终端三个有独立状态、靠两套规则松耦合（抽屉有时跟任务走，⌘N 自由模式又不跟）。换左右边解决不了，所以把抽屉删了，**任务是唯一的锚**。
 - `views/Thread.tsx`：一段会话的消息流 + 输入框 + 附件 + 流式跟随，`forwardRef` 暴露 `load / reset / send / focus`；滚动：切会话 / 自己发消息强制落底，用户在底部才跟着新内容滚，往上翻了就不打扰，右下角浮「↓」（有没看到的新回复时变「有新回复 ↓」）；`conversationId` 为 null 时第一句走 `resolve(prompt)` 决定落到哪。空闲时每 8 秒对一次消息（终端里 Claude 的交付 / 卡住会追加进来）。
 - **主从布局（2026-09-09）**：用户说展开式看不到哪些任务在跑 / 做完了。Board 的 queue / doing / all 视图改成 `.split`：左栏 `.split__list`（分组：待我决定 / Friday 在做 / 待办 / 最近完成；`all` 按状态分组）每条 `.li` = 状态点（attention 优先）+ 标题两行 + 一句状态（needs / doingRight / queuedRight），左栏排序按活跃度：终端在输出 / Friday 在回的排最前，其次最近更新倒序（待我决定里有待审动作的仍优先）；**关注**（`task.pinned`，`POST /tasks/:id/pin`，条目悬停出 ☆、卡片状态行 ☆ 关注）单独一组放最顶上，默认焦点也先看它。右栏 `.split__detail` 是 flex 列：Focus 的 `.fx` 卡片自己滚动（meta sticky），`.fx__foot` 操作栏在卡片外、钉在右栏底部一直可见（独立一条带边框底色）。左栏条目在终端 busy 或该任务会话生成中（Chat 传 `runningConvs`）时显示青色活动条 `.li__bar`；导航底部有「N 个终端在跑」。旧的 `Row` 组件删了；ledger 视图仍是单列页面。
-- **任务卡单列，从上到下按优先级**：标题 → 情境 / 建议 / 报告 → `.fx__talk`「和 Friday 聊这条任务」（`<ChatThread conversationId={task.source.conversationId}>`，高 clamp(300px, 44vh, 480px)，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前）→ 「终端在做」动作流 → **终端默认收起**（`.fx__term-toggle`，标签带终端状态——展开时由 xterm 输出流本地判定（3 秒无输出=空闲），收起时用 `/jobs/:id/activity` 5 秒一拉带回的 `terminal`，最后才是任务板 15 秒的；点开才挂 xterm；「聚焦终端」点过来自动展开）→ 账 → 按钮。用户的心智是「先看 Friday 怎么说，不放心再展开终端自己看」，左右两栏试过被否。「在会话里讨论」按钮删了——讨论一直在卡上。回车 = 主动作在 `.thread` 内不触发。
+- **任务卡单列，从上到下按优先级**：标题 → 情境 / 建议 / 报告 → `.fx__talk`「和 Friday 聊这条任务」（`<ChatThread conversationId={task.source.conversationId}>`，高 clamp(300px, 44vh, 480px)，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前）→ 「终端在做」动作流 → **终端默认收起**（`.fx__term-toggle`；点开才挂 xterm；「聚焦终端」点过来自动展开）。**2026-09-14 起这条只做开合，不写状态**：原来标签上写「终端 · 已断，展开可重新打开」，和左栏那条「终端已断 · 点开重新打开」是同一件事说两遍，措辞还更吓人——终端断掉是常态（sidecar 一重启 PTY 就没了），不该在卡片里反复强调。删掉 `TERM_LABEL`，只留「终端」+「展开/收起」，开合本身做明显（inset 边框 + 底色 + hover + `aria-expanded` + 焦点环，原来没底色没边框没 padding 看不出是控件）。连带删掉因此变成死代码的 `liveBusy` / `onTermOutput`（那套 xterm 输出流判忙闲只用来算标签上的「在输出/空闲」）和 `Terminal` 的 `onOutput` 参数→ 账 → 按钮。用户的心智是「先看 Friday 怎么说，不放心再展开终端自己看」，左右两栏试过被否。「在会话里讨论」按钮删了——讨论一直在卡上。回车 = 主动作在 `.thread` 内不触发。
 - **输入框的 Esc 与发送按钮（2026-09-14）**：两个用户报的问题。①**Esc 退出了全屏**：`Thread` 的 keydown 里处理了 Escape 但**没有 `preventDefault()`**，事件冒到浏览器就触发了原生的退出全屏。补上之后 Esc 只做它该做的：Friday 在回时中断生成、正在路由时取消路由、都不忙时交给 `onEscape`（「问 Friday」视图里是回工作台）。②**发送按钮看不出为什么不能点**：原来四种情况（Friday 在回 / 附件在传 / 正在路由 / 没写内容）都是同一个灰掉的箭头。现在分开：Friday 在回时按钮变成三点动画且**可点，点了就中断**（和 Esc 一个效果，title 写明「点一下中断（Esc 也行）」）；附件上传中和路由中显示转圈；没写内容时 title 说「写点什么再发」。三点动画在 `prefers-reduced-motion` 下停掉但保持半透明实心，仍看得出在忙。
 - **「问 Friday」是一个视图**（`view === "ask"`，侧栏第一项，`⌘N`）：全宽 Thread，`resolve` 走 `POST /route`（接旧 / 新开），命中旧会话时 `.route-hint` 显示「接着：… · 理由」+「其实是新话题」；页头右侧 新对话（`⌘⇧N`）/ Skill / 模型。Esc 回工作台。`openAsk(pending)` 把要做的事排队，Thread 挂上后的 effect 执行（视图切换是异步的）。「会话历史」点一段 → 在这个视图打开。`take_pending_chat` / `friday://open-conversation` 也落到这里。
 - 已删：`.drawer*` 全部 CSS、`syncDrawerToTask`、free 模式标志、`Board.onDiscuss`。「聚焦终端」仍是 `friday:focus-job` → 切回队列 → 选中任务 → xterm 聚焦。
@@ -172,6 +177,17 @@ apps/core/src/
 - `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，生成 `<dataDir>/runs/<id>.sh`，`open -na Ghostty --args --working-directory=… -e 脚本`。脚本用 `whence -p claude` 拿到的绝对路径并显式加 `--dangerously-skip-permissions`（Friday 只是透传用户指令，权限策略与用户平时用 claude 一致）；Claude 退出后留一个交互 shell。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
 - 呼出热键默认 `⌘⇧Space`（`⌥Space` 被 Raycast 占用，`⌃Space` 被输入法占用），可在记忆库目录 `settings.json` 里写 `{"hotkey": "..."}` 覆盖。
+
+## token 成本（2026-09-14 量过一轮）
+
+用户说消耗太大，量了每个调用点的实际提示词大小和近 7 天真实频率后发现**大头不在后台任务**：`triage` ~1400 字符/批、`brief` ~1600、`route` ~600、`continuation` ~470，近 7 天加起来约 13 万字符；而会话 1071 条消息每轮都把记忆库全文塞进 system prompt，量级差两个数量级。
+
+做了三件事：
+
+- **记忆库按需读**（`memory/context.ts`）：`projects.md` 留着内联（判断「说的是哪个项目」几乎每次都要拿名字和别名对一遍），`people.md`（实测 3746 字符）和 `decisions.md`（2178）改成提示里说一句「需要时 `memory_read` 读，不要凭印象编」。按真实记忆库实测**每轮 system prompt 从 12644 降到 6840 字符，省 46%**。文件为空时不提那句，免得让它去读空文件。实测问「拂晓是谁」它会自己去读 people.md，问待办则直接用内联块不多跑一轮。
+  `MemoryContext` 因此从 `{projects, decisions, people, todos}` 变成 `{projects, todos, hasPeople, hasDecisions}`。待办块顺带从 `todos` 表改读 `tasks`（记待办已统一建任务，原来注入的是陈旧内容）。
+- **`route` 与 `continuation` 换 Haiku**（`claude-haiku-4-5`，实测可用）：两个都是「输出一个 JSON 做二选一」的小任务，判错代价也小（route 接错有「其实是新话题」可点，continuation 判不准时提示词要求答 false 偏保守）。**`triage` 和 `brief` 留 Sonnet**——要读懂中文语境、写能直接发出去的草稿，brief 更是界面的核心输出，降级会明显变差。
+- **Skill 模式开关补成本说明**：「开着时每轮都要读 skill 文档、最多跑 30 轮，一次提问可能到 $1；不常用 skill 就关掉」。**默认值没动**（仍是 `skills: true`）——那是使用习惯，留给用户自己决定。
 
 ## settings.json（记忆库目录下，可选）
 

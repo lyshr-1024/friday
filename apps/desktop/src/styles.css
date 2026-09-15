@@ -2914,6 +2914,11 @@ body,
   text-align: left;
   transition: background var(--dur) var(--ease);
 }
+/* .k 自带 margin-bottom，在居中的 flex 里会把文字整体顶上去 */
+.fx__term-toggle .k {
+  margin-bottom: 0;
+  line-height: 1;
+}
 .fx__term-toggle:hover {
   background: var(--bg-4);
 }
@@ -2932,6 +2937,8 @@ body,
   color: var(--fg-2);
   font-size: var(--t-aux);
   letter-spacing: var(--tr-aux);
+  /* 和左边的 .k 字号不同，行高都归一才落在同一条中线上 */
+  line-height: 1;
 }
 .fx__term-act .icon {
   color: var(--fg-3);

@@ -213,7 +213,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
     ),
     tool(
       "task_update",
-      "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展，以及待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步）。用户说不用回了就 dropReply。只对这条会话绑定的任务有效。",
+      "把会话里聊出来的结论写回当前任务卡：状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展、待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步），以及「通过前请确认」的验收列表 verify。用户说不用回了就 dropReply。方案在会话里改过、卡片上那几条验收点已经对不上新方案时，用 verify 重写一遍（会清掉已勾状态，因为新条目还没人验过）。只对这条会话绑定的任务有效。",
       {
         understanding: z.string().max(4000).optional().describe("对这件事的最新理解，整段覆盖"),
         plan: z.string().max(4000).optional().describe("最新方案，整段覆盖"),
@@ -221,6 +221,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         replyDraft: z.string().max(2000).optional().describe("给对方的回复全文，可直接发的口语中文"),
         dropReply: z.boolean().optional().describe("撤掉待审的回复动作"),
         status: z.enum(["processing", "review", "blocked", "done", "ignored"]).optional().describe("用户明确说了才改：做完了=done，不用管了=ignored，先放着/等我看=review，卡住=blocked，继续做=processing"),
+        verify: z.array(z.string().max(300)).max(12).optional().describe("「通过前请确认」那几条，整组覆盖。方案改了、旧列表对不上了就重写一遍；每条写用户能自己核对的具体现象，不要写「代码已修改」这种没法验的"),
       },
       async (patch) => {
         const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
