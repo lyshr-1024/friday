@@ -1448,27 +1448,15 @@ kbd {
   margin-left: auto;
   color: var(--label-3);
 }
-.job__task {
-  margin-top: 4px;
-  color: var(--label-2);
-  font-size: var(--t-aux);
-}
+/* 只剩一句话，超出就截断而不是撑高卡片 */
 .job__last {
-  margin-top: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--card);
+  margin-top: var(--s-2);
+  color: var(--fg-2);
   font-size: var(--t-aux);
   line-height: var(--lh-aux);
-  white-space: pre-wrap;
-}
-.job__last-k {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--label-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .job__actions {
   margin-top: 8px;

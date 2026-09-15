@@ -480,11 +480,27 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const [acts, setActs] = useState<Activity[]>([]);
   // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
   const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
+  const termRef = useRef<HTMLDivElement>(null);
+  // 展开后要把终端滚进视野，否则点了「聚焦终端」人还停在卡片上半部分不知道发生了什么
+  const [scrollToTerm, setScrollToTerm] = useState(() => peekFocusJob() === t.source.jobId);
   useEffect(() => {
-    const onFocusJob = (e: Event) => { if ((e as CustomEvent<string>).detail === t.source.jobId) setTermOpen(true); };
+    const onFocusJob = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== t.source.jobId) return;
+      setTermOpen(true);
+      setScrollToTerm(true);
+    };
     window.addEventListener("friday:focus-job", onFocusJob);
     return () => window.removeEventListener("friday:focus-job", onFocusJob);
   }, [t.source.jobId]);
+  useEffect(() => {
+    if (!scrollToTerm || !termOpen) return;
+    // 等 xterm 挂完再滚，否则量到的还是没撑开的高度
+    const id = window.requestAnimationFrame(() => {
+      termRef.current?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      setScrollToTerm(false);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [scrollToTerm, termOpen]);
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -736,7 +752,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         </div>
       )}
       {t.source.jobId && (
-        <div className="fx__term">
+        <div className="fx__term" ref={termRef}>
           {/* 状态交给左栏那条说，这里只做开合——原来两处都报「已断」，措辞还更吓人 */}
           <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)} aria-expanded={termOpen}>
             <span className="k">终端</span>

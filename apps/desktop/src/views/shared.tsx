@@ -230,8 +230,23 @@ export function elapsed(job: Job, now = Date.now()): string {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${s % 60}s` : `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
 }
 
+/**
+ * 终端最后一轮说的话取头一句。
+ * 上面 Friday 已经讲过一遍了，这里只要够认出「它说到哪儿了」，看全文点「聚焦终端」。
+ */
+export function gist(text: string, max = 80): string {
+  const line = text
+    .split("\n")
+    .map((l) => l.replace(/^#{1,6}\s*/, "").replace(/^[-*]\s+/, "").trim())
+    .find((l) => l && !/^[-*_=]{3,}$/.test(l));
+  if (!line) return "";
+  const plain = line.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`(.+?)`/g, "$1");
+  return plain.length > max ? `${plain.slice(0, max)}…` : plain;
+}
+
 export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }) {
   const label = job.status === "running" ? "运行中" : job.status === "done" ? "已完成" : `失败 · 退出码 ${job.exitCode ?? "?"}`;
+  const last = job.lastMessage ? gist(job.lastMessage) : "";
   return (
     <div className={`job job--${job.status}`}>
       <div className="job__head">
@@ -240,13 +255,8 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
         <span className="job__status mono">{label}</span>
         <span className="job__time mono">{elapsed(job)}</span>
       </div>
-      {job.task && <div className="job__task">{job.task}</div>}
-      {job.lastMessage && (
-        <div className="job__last">
-          <span className="job__last-k mono">终端里的 Claude</span>
-          {job.lastMessage.length > 400 ? `${job.lastMessage.slice(0, 400)}…` : job.lastMessage}
-        </div>
-      )}
+      {/* job.task 是发给终端的整段提示词，上面 Friday 已经说过要干什么了，不再重复一遍 */}
+      {last && <div className="job__last">{last}</div>}
       <div className="job__actions">
         <button onClick={() => { requestFocusJob(job.id); void jobFocus(job.id); }}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
