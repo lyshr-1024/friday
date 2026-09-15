@@ -93,13 +93,13 @@ export async function syncSlackOnce(): Promise<number> {
       }
       const needReply: string[] = [];
       await mapLimit([...touched], 3, async (id) => {
-        const thread = getThread(id);
+        const thread = getThread(id, true);
         if (!thread) return;
         try {
           const enrichment = await enrichThread(thread);
           const brief = await buildBrief(thread, enrichment);
           if (!brief) return;
-          const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name, {
+          const task = await threadToTask(getThread(id, true)!, brief, enrichment.project?.name, {
             slackPost: (channel, text, threadTs) => postMessage(call, channel, text, threadTs),
           });
           const writes = applyReversibleWrites(thread, brief, task.id);

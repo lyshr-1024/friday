@@ -2226,7 +2226,11 @@ body,
 .fx__term .xterm-host {
   border-radius: var(--r-md);
   overflow: hidden;
+  /* WKWebView 里 overflow:hidden 裁不到合成层，而下面的 translateZ(0) 正好把
+     WebGL canvas 提成了合成层，四角会被方角盖住。mask 强制按圆角裁一次。 */
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
   border: 1px solid var(--line-1);
+  background: var(--term-bg);
   /* 跟着窗口走，但不少于 24 行（12px × 1.25 行高 = 15px/行）：Claude Code 的 Ink 界面一帧
      约 20 行，行数不够它就清不掉旧帧，画面会叠花；窄窗口宁可让卡片超出靠页面滚动 */
   height: clamp(360px, calc(100vh - 420px), 560px);
@@ -2260,7 +2264,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(17, 17, 19, 0.6);
+  background: var(--term-veil);
 }
 
 /* 一行一件 */
@@ -2721,6 +2725,34 @@ body,
   --green: #4fd1a0;
 }
 /* 浅色：亮底深字。青色改成能在白底上读的深青，状态色全部降亮度 */
+/* ── 终端配色
+   ANSI 16 色必须给全：缺的会落到 xterm.js 内置的 Tango 默认值，那套是给紫底
+   (#300a24) 配的，放在深灰底上 blue(#3465a4)、magenta(#75507b) 对比度只有 2:1。
+   Claude Code 的 Ink 界面恰好大量用这些色（diff 红绿、工具名青、dim 灰）。 */
+:root {
+  --term-bg: #0e0f12;
+  --term-fg: #e8eaee;
+  --term-cursor: #38d6ff;
+  --term-sel: rgba(56, 214, 255, 0.25);
+  --term-veil: rgba(17, 17, 19, 0.6);
+  --term-black: #1a1c21;
+  --term-red: #f07178;
+  --term-green: #98c379;
+  --term-yellow: #e5c07b;
+  --term-blue: #61afef;
+  --term-magenta: #c678dd;
+  --term-cyan: #56b6c2;
+  --term-white: #c8ccd4;
+  --term-bright-black: #585e6a;
+  --term-bright-red: #ff7b72;
+  --term-bright-green: #b5e890;
+  --term-bright-yellow: #ffd58a;
+  --term-bright-blue: #82c7ff;
+  --term-bright-magenta: #dba0f0;
+  --term-bright-cyan: #7fdbe8;
+  --term-bright-white: #f0f2f5;
+}
+
 :root[data-theme="light"] {
   --bg-1: #f4f5f7;
   --bg-2: #ffffff;
@@ -2749,6 +2781,27 @@ body,
   --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.06);
   color-scheme: light;
+  --term-bg: #fbfcfd;
+  --term-fg: #1b1f24;
+  --term-cursor: #0b7a96;
+  --term-sel: rgba(14, 143, 176, 0.2);
+  --term-veil: rgba(250, 251, 253, 0.72);
+  --term-black: #1b1f24;
+  --term-red: #c0392b;
+  --term-green: #1f7a4d;
+  --term-yellow: #8a6000;
+  --term-blue: #2060c0;
+  --term-magenta: #8e44ad;
+  --term-cyan: #00707f;
+  --term-white: #6b727c;
+  --term-bright-black: #8a919b;
+  --term-bright-red: #d64545;
+  --term-bright-green: #1f9d5a;
+  --term-bright-yellow: #a37200;
+  --term-bright-blue: #2b74d8;
+  --term-bright-magenta: #a259c6;
+  --term-bright-cyan: #0e8fb0;
+  --term-bright-white: #4a515b;
 }
 
 /* 设置页：分段选择 */
@@ -3273,6 +3326,12 @@ body,
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* Friday 问你：同样在等你回，但没有终端卡在那儿，用等你决定的琥珀色 */
+.dot--intake {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(255, 202, 22, 0.16);
+}
+
 /* 分组头右侧的动作（待办 → 刷新 Meegle） */
 .grp__head--row {
   display: flex;
@@ -3759,6 +3818,29 @@ body,
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--line-1);
+}
+
+/* ── Friday 自己要问用户的一句：放标题下面，不是「进展」 */
+.fx__ask {
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.fx__ask-q {
+  margin-top: var(--s-2);
+  color: var(--fg-1);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-body);
+}
+.fx__ask-how {
+  margin-top: var(--s-2);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
 }
 
 /* ── Meegle 关联需求：缺陷往上挂需求，需求往下列缺陷 */

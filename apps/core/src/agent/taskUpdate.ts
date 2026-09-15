@@ -5,6 +5,7 @@ import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
+import { closeTaskThread } from "./pipeline.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -44,8 +45,9 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
   if (project && project !== task.project) {
     const known = loadProjects().find((p) => p.name === project);
     if (known) {
-      // 用户答了归属就把 attention 清掉——问题已经解决，不该还挂在「待我决定」里
-      task = updateTask(taskId, { project: known.name, ...(task.attention === "question" ? { attention: undefined } : {}) })!;
+      // 用户答了归属就把 Friday 的提问清掉——问题已经解决，不该还挂在「待我决定」里。
+      // 终端在问的（question）是另一回事，它还在等答案，不能顺手清。
+      task = updateTask(taskId, { project: known.name, ...(task.attention === "intake" ? { attention: undefined } : {}) })!;
       changed.push(`项目 → ${known.name}`);
       // 顺带记住线索：标题里的【BO】这类标记、工单页面的地址前缀，下次同类自动归
       const links = [task.source.url, ...(task.understanding ?? "").match(/https?:\/\/[^\s)）」】]+/g) ?? []].filter((u): u is string => Boolean(u));
@@ -59,7 +61,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
           (t) => t.id !== taskId && t.source.linkedStoryId === story && !t.project && t.status !== "done" && t.status !== "ignored",
         );
         for (const s of siblings) {
-          updateTask(s.id, { project: known.name, ...(s.attention === "question" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known.name}` } : {}) });
+          updateTask(s.id, { project: known.name, ...(s.attention === "intake" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known.name}` } : {}) });
         }
         if (siblings.length) changed.push(`同需求另外 ${siblings.length} 条一起归到 ${known.name}`);
       }
@@ -117,7 +119,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     const closing = patch.status === "done" || patch.status === "ignored";
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
-    if (closing) closeTaskTerminal(task, "用户在会话里说这条任务收工了");
+    if (closing) { closeTaskTerminal(task, "用户在会话里说这条任务收工了"); closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done"); }
   }
 
   if (changed.length) {

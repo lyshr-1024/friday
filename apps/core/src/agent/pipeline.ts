@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
-import { REPLY_CATEGORY_LABEL } from "@friday/shared";
+import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -11,9 +11,9 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
 import { getThreshold } from "../memory/thresholds.js";
-import { markAutoDone, threadCategory } from "../memory/threads.js";
+import { markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
-import { decide } from "./gate.js";
+import { decide, decideStart } from "./gate.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
 import { untrusted } from "./fence.js";
@@ -42,15 +42,29 @@ export interface ThreadDeps {
   slackPost?: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }>;
 }
 
+/**
+ * 任务收工时把它的 Slack 线程一并关掉。
+ * 不关的话线程一直 open，对方下一条消息会接回这条老线程，
+ * 带着已经处理完的旧消息重做一遍功课——用户看到的就是「处理过的又回来了」。
+ */
+export function closeTaskThread(task: Task, status: "done" | "ignored" = "done"): void {
+  if (task.source.threadId) setThreadStatus(task.source.threadId, status);
+}
+
 export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps = {}): Promise<Task> {
-  let task = findTaskBySource((s) => s.threadId === thread.id);
+  // 含已收工的：同一条线程只能有一条任务。上一轮标了完成之后对方又催一句时，
+  // 只找未完成的会找不到它、再建一条，同一件事就在板上出现两遍。
+  let task = findTaskBySource((s) => s.threadId === thread.id, true);
   const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
   const plan = brief.actions.map((a) => `${a.label}${a.detail ? `：${a.detail}` : ""}`).join("\n");
   if (!task) {
     task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, plan, status: "understood" });
     record({ taskId: task.id, action: "task_create", why: "Slack 线程做完功课", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   } else {
-    task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}) })!;
+    // 收工过的线程又有新消息 = 这件事没完，拉回队列；用户手动忽略的不翻回来。
+    const revive = task.status === "done";
+    task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}), ...(revive ? { status: "understood" as const } : {}) })!;
+    if (revive) record({ taskId: task.id, action: "task_reopen", why: "这条线程收工后对方又来消息", how: "拉回待办，不另建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   }
 
   // 消息里贴了 Meegle 工单链接就把线程接到那条工单上：聊的往往就是它，
@@ -120,8 +134,27 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
   const wantsCode = brief.actions.some((a) => a.type === "run_claude");
   const dir = project ? resolveProject(project) : undefined;
   if (wantsCode && dir?.kind === "match" && !task.source.jobId) {
-    const detail = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
-    task = await startAutonomousJob(task, dir.project.name, dir.project.dir, codeTaskDetail(thread, detail));
+    const what = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
+    const detail = codeTaskDetail(thread, what);
+    // 改代码比发一句话更重（而且项目可能判错，改的是哪个仓库得先让人看见），同一份情境卡的置信度
+    // 既然拦得住回复，就也得拦得住开工。阈值表和回复共用，默认 100 = 全部等人点。
+    const startThreshold = getThreshold(AUTOSTART_CATEGORY);
+    const payload = { project: dir.project.name, dir: dir.project.dir, detail, confidence: brief.confidence };
+    if (decideStart(brief.confidence, startThreshold) === "auto") {
+      task = await startAutonomousJob(task, dir.project.name, dir.project.dir, detail);
+    } else {
+      updateTask(task.id, { status: "review" });
+      task = addPending(task.id, { type: "start_job", label: `开工：${dir.project.name}`, detail: what, payload })!;
+      record({
+        taskId: task.id,
+        action: "intake_start_pending",
+        why: startThreshold >= 100 ? `开工闸门默认关着（阈值 ${startThreshold}），等你点` : `置信度 ${brief.confidence} 低于开工阈值 ${startThreshold}`,
+        how: `拟在 ${dir.project.name} 上开工：${what.slice(0, 200)}`,
+        evidence: payload,
+        risk: "reversible",
+        status: "pending",
+      });
+    }
   }
   return task;
 }

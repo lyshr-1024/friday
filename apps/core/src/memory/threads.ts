@@ -102,15 +102,29 @@ export function graceCandidate(item: InboxItem, graceMs: number): Thread | undef
   return toThread(row, threadItems(row.id));
 }
 
-export function threadItems(threadId: string): InboxItem[] {
-  const ids = (db().prepare("SELECT id FROM inbox WHERE thread_id = ? ORDER BY ts").all(threadId) as Array<{ id: string }>).map((r) => r.id);
+/**
+ * 线程里还没处理的消息。已标 done 的不返回：线程可以挂很久，
+ * 全带上会让情境卡把上一轮已经收工的内容当成新事又写一遍标题。
+ * 要连已处理的一起看（原文核对）传 includeDone。
+ */
+export function threadItems(threadId: string, includeDone = false): InboxItem[] {
+  const ids = (
+    db()
+      .prepare(`SELECT id FROM inbox WHERE thread_id = ?${includeDone ? "" : " AND done = 0"} ORDER BY ts`)
+      .all(threadId) as Array<{ id: string }>
+  ).map((r) => r.id);
   const all = new Map(listInbox(true, 1000).map((i) => [i.id, i]));
   return ids.map((id) => all.get(id)).filter((i): i is InboxItem => Boolean(i));
 }
 
-export function getThread(id: string): Thread | undefined {
+/**
+ * 线程详情。默认带上全部消息（含已处理的）——界面的「对方原话」靠它核对判断依据，
+ * 藏起来用户就看不出 Friday 当初凭什么这么判。
+ * 做功课要的是「还没处理的」，传 pendingOnly。
+ */
+export function getThread(id: string, pendingOnly = false): Thread | undefined {
   const row = db().prepare("SELECT * FROM threads WHERE id = ?").get(id) as unknown as Row | undefined;
-  return row ? toThread(row, threadItems(id)) : undefined;
+  return row ? toThread(row, threadItems(id, !pendingOnly)) : undefined;
 }
 
 export function listThreads(status: ThreadStatus | "all" = "open", limit = 50): Thread[] {
@@ -119,7 +133,7 @@ export function listThreads(status: ThreadStatus | "all" = "open", limit = 50): 
       ? db().prepare("SELECT * FROM threads ORDER BY last_ts DESC LIMIT ?").all(limit)
       : db().prepare("SELECT * FROM threads WHERE status = ? ORDER BY last_ts DESC LIMIT ?").all(status, limit)
   ) as unknown as Row[];
-  return rows.map((r) => toThread(r, threadItems(r.id)));
+  return rows.map((r) => toThread(r, threadItems(r.id, true)));
 }
 
 /** 同一个人之前已结束的线程的情境，用来给新线程接上下文。 */
@@ -138,6 +152,24 @@ export function setThreadStatus(id: string, status: ThreadStatus): boolean {
   const r = db().prepare("UPDATE threads SET status = ?, updated_at = ? WHERE id = ?").run(status, new Date().toISOString(), id);
   if (r.changes && status !== "open") db().prepare("UPDATE inbox SET done = 1 WHERE thread_id = ?").run(id);
   return r.changes > 0;
+}
+
+/**
+ * 一次性回填：任务都已收工、线程却还开着的，补关掉。
+ * 「任务收工连带关线程」是后加的，在那之前收的工只关了任务，线程留在 open 里
+ * 继续接续新消息，把已处理完的旧内容一遍遍带进新一轮情境卡。
+ * 没有任务的线程不动——那是还没做完功课的，不是遗留。
+ */
+export function closeSettledThreads(): number {
+  const rows = db()
+    .prepare(
+      `SELECT t.id FROM threads t WHERE t.status = 'open'
+       AND EXISTS (SELECT 1 FROM tasks k WHERE json_extract(k.source, '$.threadId') = t.id)
+       AND NOT EXISTS (SELECT 1 FROM tasks k WHERE json_extract(k.source, '$.threadId') = t.id AND k.status NOT IN ('done', 'ignored'))`,
+    )
+    .all() as Array<{ id: string }>;
+  for (const r of rows) setThreadStatus(r.id, "done");
+  return rows.length;
 }
 
 export function threadCategory(thread: Pick<Thread, "items">): ReplyCategory {

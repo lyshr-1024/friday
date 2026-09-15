@@ -106,6 +106,7 @@ function greeting(): string {
 
 function needs(t: Task): string {
   if (t.attention === "question") return `马上回：${(t.progress ?? "终端在问你").replace(/^终端在问：/, "")}`;
+  if (t.attention === "intake") return `回答一下：${t.progress ?? "Friday 有个问题要问你"}`;
   const first = t.pending?.[0];
   if (first) return `需要你：${first.label}`;
   // 只有验收列表（Friday 在会话里写的）不算交付报告，别让左栏说「看交付报告」却没有报告
@@ -245,6 +246,7 @@ function queuedRight(t: Task): string {
 function doingRight(t: Task): string {
   const p = t.progress?.slice(0, 40);
   if (t.attention === "question") return `马上回：${(t.progress ?? "").replace(/^终端在问：/, "")}`;
+  if (t.attention === "intake") return `回答一下：${t.progress ?? ""}`;
   if (t.attention === "review") return `这轮做完了 · 等你看${t.report ? `：${t.report.summary.slice(0, 30)}` : ""}`;
   if (t.attention === "blocked") return p ?? "卡住了，需要你";
   switch (t.terminal) {
@@ -261,6 +263,7 @@ function doingRight(t: Task): string {
 
 const ATTENTION_NOTE: Record<string, string> = {
   question: " · 终端在问你，回答前它不会继续",
+  intake: " · Friday 有个问题要问你",
   review: " · 这轮做完了，等你看",
   blocked: " · 卡住了，需要你",
 };
@@ -315,7 +318,10 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       setErr("");
       failures.current = 0;
       // 侧栏「Friday 在做」的数字要和页面上那个分组一致：只算 processing，待办另有分组
-      onCounts?.({ decide: b.counts.review + b.counts.blocked + b.tasks.filter((t) => t.attention === "question" && t.status === "processing").length, doing: b.counts.processing });
+      // 在等你回答的（终端问的 / Friday 问的）不管什么状态都算进「待我决定」，和列表分组保持一致；
+      // review / blocked 已经在 counts 里，别重复计一遍
+      const waiting = b.tasks.filter((t) => (t.attention === "question" || t.attention === "intake") && t.status !== "review" && t.status !== "blocked").length;
+      onCounts?.({ decide: b.counts.review + b.counts.blocked + waiting, doing: b.counts.processing });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       failures.current++;
@@ -448,8 +454,8 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   // 星标的单独一组放最顶上，其余分组里不再出现
   const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
-  const asking = (t: Task) => t.attention === "question";
-  // 终端在问你 = 阻塞，不管状态都进「待我决定」并排最前
+  const asking = (t: Task) => t.attention === "question" || t.attention === "intake";
+  // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
   const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
   // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
@@ -708,7 +714,9 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
   const situation = t.understanding || t.source.note || "";
   const links = t.kind === "meegle" ? [] : [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
-  const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
+  // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
+  const asked = t.attention === "intake" && Boolean(t.progress);
+  const rightHas = Boolean(r) || Boolean(!asked && t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
   // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
   const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
@@ -772,6 +780,14 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
+
+      {asked && (
+        <div className="fx__ask">
+          <span className="k">Friday 要问你</span>
+          <div className="fx__ask-q">{t.progress}</div>
+          <div className="fx__ask-how">在下面「和 Friday 聊这条任务」里回一句就行，它记下就继续。</div>
+        </div>
+      )}
 
       {/* 缺陷挂在哪个需求下 / 需求名下有哪些缺陷。Meegle 里填好的关联，点一下就能跳过去 */}
       {t.source.linkedStoryId && (
@@ -874,7 +890,7 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
           )}
-          {!situation && !advice && t.progress && (
+          {!situation && !advice && !asked && t.progress && (
             <div>
               <span className="k">进展</span>
               <div className="fx__text">{t.progress}</div>
@@ -907,7 +923,7 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
               <div className="fx__text">{r.testResult}</div>
             </div>
           )}
-          {!r?.testResult?.trim() && t.progress && (situation || advice) && (
+          {!r?.testResult?.trim() && !asked && t.progress && (situation || advice) && (
             <div>
               <span className="k">进展</span>
               <div className="fx__text">{t.progress}</div>

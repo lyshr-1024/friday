@@ -5,7 +5,7 @@ import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeRea
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
-import { executePending, startAutonomousJob } from "../agent/pipeline.js";
+import { closeTaskThread, executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
@@ -214,12 +214,12 @@ export const tasks = new Hono()
   })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
-    if (t) closeTaskTerminal(t, "你把任务标记完成");
+    if (t) { closeTaskTerminal(t, "你把任务标记完成"); closeTaskThread(t, "done"); }
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", (c) => {
     const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
-    if (t) closeTaskTerminal(t, "你忽略了这条任务");
+    if (t) { closeTaskTerminal(t, "你忽略了这条任务"); closeTaskThread(t, "ignored"); }
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
