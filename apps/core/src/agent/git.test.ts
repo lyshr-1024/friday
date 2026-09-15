@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { gitInspect } from "./git.js";
+import { gitInspect, worktreeDirt } from "./git.js";
 
 function sh(dir: string, ...args: string[]) {
   return execFileSync("git", ["-C", dir, ...args], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString();
@@ -38,5 +38,26 @@ describe("git_inspect", () => {
     const out = await gitInspect(dir, "branches");
     expect(out).toMatch(/未合并：\n\s*feat\/open/);
     expect(out).toMatch(/已合并：[\s\S]*feat\/merged/);
+  });
+});
+
+describe("开工前的工作区检查", () => {
+  const clean = mkdtempSync(join(tmpdir(), "friday-clean-"));
+  sh(clean, "init", "-q", "-b", "main");
+  writeFileSync(join(clean, "a.txt"), "a");
+  sh(clean, "add", "."); sh(clean, "commit", "-qm", "init");
+
+  it("干净仓库放行", async () => {
+    expect(await worktreeDirt(clean)).toBeUndefined();
+  });
+
+  it("有未提交改动时说明拦在哪", async () => {
+    writeFileSync(join(clean, "a.txt"), "changed");
+    const dirt = await worktreeDirt(clean);
+    expect(dirt).toContain("a.txt");
+  });
+
+  it("不是 git 仓库也拦下", async () => {
+    expect(await worktreeDirt(mkdtempSync(join(tmpdir(), "friday-nogit-")))).toBeTruthy();
   });
 });

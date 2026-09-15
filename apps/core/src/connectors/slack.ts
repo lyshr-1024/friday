@@ -284,3 +284,7 @@ export async function postMessage(call: Call, channel: string, text: string, thr
   const link = ts ? ((await call("chat.getPermalink", { channel, message_ts: ts }).catch(() => ({}))) as { permalink?: string }) : {};
   return { ts, ...(link.permalink ? { permalink: link.permalink } : {}) };
 }
+
+export async function deleteMessage(call: Call, channel: string, ts: string): Promise<void> {
+  await call("chat.delete", { channel, ts });
+}

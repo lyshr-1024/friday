@@ -21,6 +21,7 @@ export type Undo =
   | { kind: "drop_note_task"; id: string }
   | { kind: "delete_todo"; id: string }
   | { kind: "remove_people_line"; name: string; line: string }
+  | { kind: "delete_slack_message"; channel: string; ts: string }
   | { kind: "meegle_state"; projectKey: string; workItemId: string; backTo: string }
   | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
   | { kind: "none" };
@@ -69,6 +70,18 @@ export function undoPlan(id: string): Undo | undefined {
 
 export function setEventStatus(id: string, status: AuditStatus): boolean {
   return db().prepare("UPDATE audit SET status = ? WHERE id = ?").run(status, id).changes > 0;
+}
+
+/** 发送前先记一笔待定账，拿到 ts 之后回填 undo。 */
+export function setEventUndo(id: string, undo: Undo): boolean {
+  return db().prepare("UPDATE audit SET undo = ?, reversible = ? WHERE id = ?").run(JSON.stringify(undo), undo.kind === "none" ? 0 : 1, id).changes > 0;
+}
+
+/** 把补充信息（比如失败原因）合并进已有的 evidence，不整条覆盖。 */
+export function updateEventEvidence(id: string, patch: Record<string, unknown>): boolean {
+  const ev = getEvent(id);
+  if (!ev) return false;
+  return db().prepare("UPDATE audit SET evidence = ? WHERE id = ?").run(JSON.stringify({ ...ev.evidence, ...patch }), id).changes > 0;
 }
 
 export function listAudit(opts: { taskId?: string; limit?: number; since?: string } = {}): AuditEvent[] {

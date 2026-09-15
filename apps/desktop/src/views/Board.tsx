@@ -617,6 +617,15 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     setChecked((c) => { const n = [...c]; n[i] = v; return n; });
     void taskVerify(t.id, i, v).catch(() => {});
   }
+  const [undoing, setUndoing] = useState(false);
+  const gateEvent = events.find((e) => e.action === "slack_reply_prepared" || e.action === "slack_reply_sent");
+  const confidence = typeof gateEvent?.evidence.confidence === "number" ? gateEvent.evidence.confidence : undefined;
+  const threshold = typeof gateEvent?.evidence.threshold === "number" ? gateEvent.evidence.threshold : undefined;
+  // evidence.auto 是 pipeline.ts 自动发送分支打的标记（撤销路由也靠它区分）；
+  // 人工审核通过走 executePending，记的同样是 slack_reply_sent 但没有这个标记，两者文案不能混为一谈。
+  const sentEvent = events.find((e) => e.action === "slack_reply_sent" && e.reversible && e.status !== "undone");
+  const autoSent = sentEvent?.evidence.auto === true;
+
   const [trs, setTrs] = useState<StateTransition[]>([]);
   const [node, setNode] = useState<{ canConfirm: boolean; missing: string[] } | null>(null);
   useEffect(() => {
@@ -749,7 +758,10 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           )}
           {advice && (
             <div>
-              <span className="k">{pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}</span>
+              <span className="k">
+                {pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
+                {confidence !== undefined && <span className="fx__conf">置信度 {confidence}{threshold !== undefined ? ` / 阈值 ${threshold}` : ""}</span>}
+              </span>
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
           )}
@@ -870,6 +882,24 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       )}
 
     </article>
+      {sentEvent && (
+        <div className="fx__undo">
+          <span className="k">{autoSent ? "Friday 自动回复了" : "已发出（你批准的）"}</span>
+          <button
+            className="b b--ghost"
+            disabled={undoing}
+            onClick={() => {
+              setUndoing(true);
+              void onAct(t, () => auditUndo(sentEvent.id))
+                .then(() => fetchAudit(t.id, 50).then(setEvents).catch(() => {}))
+                .finally(() => setUndoing(false));
+            }}
+          >
+            撤回
+          </button>
+        </div>
+      )}
+
       {open && (
         <div className="fx__foot">
           {first && consequence(first, thread) && (

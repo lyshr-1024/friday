@@ -17,6 +17,7 @@ import { threads } from "./threads.js";
 import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
+import { learn } from "./learn.js";
 import { memory } from "./memory.js";
 
 // 只放行 Tauri WebView 自己的源；API 虽只监听回环，但浏览器里的任意网页也能打 127.0.0.1，不能用 *。
@@ -42,4 +43,5 @@ export const app = new Hono()
   .route("/", route)
   .route("/", mcp)
   .route("/", events)
-  .route("/", pty);
+  .route("/", pty)
+  .route("/", learn);

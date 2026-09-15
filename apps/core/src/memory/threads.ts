@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { InboxItem, Thread, ThreadBrief, ThreadStatus } from "@friday/shared";
+import type { InboxItem, ReplyCategory, Thread, ThreadBrief, ThreadStatus } from "@friday/shared";
 import { db } from "./db.js";
 import { listInbox } from "./inbox.js";
 
@@ -140,10 +140,19 @@ export function setThreadStatus(id: string, status: ThreadStatus): boolean {
   return r.changes > 0;
 }
 
+export function threadCategory(thread: Pick<Thread, "items">): ReplyCategory {
+  for (let i = thread.items.length - 1; i >= 0; i--) {
+    const c = thread.items[i]?.triage?.category;
+    if (c) return c;
+  }
+  return "other";
+}
+
 /** 可逆自动写只做一次：记录已做过的动作类型。 */
 export function markAutoDone(id: string, action: string): boolean {
   const row = db().prepare("SELECT auto_done FROM threads WHERE id = ?").get(id) as { auto_done: string | null } | undefined;
-  const done = new Set((row?.auto_done ?? "").split(",").filter(Boolean));
+  if (!row) return false; // 线程行不存在时 fail-closed：这道闸门守的是自动发送去重，不能因为找不到行就放行。
+  const done = new Set((row.auto_done ?? "").split(",").filter(Boolean));
   if (done.has(action)) return false;
   done.add(action);
   db().prepare("UPDATE threads SET auto_done = ? WHERE id = ?").run([...done].join(","), id);

@@ -1,17 +1,29 @@
 import { Hono } from "hono";
 import { learnOnce, readResearchNote } from "../agent/learn.js";
+import { recordLesson } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import type { Task , StateTransition } from "@friday/shared";
+import { REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
-import { loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
-import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
+import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
+import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
+import { getThread, markAutoDone, threadCategory } from "../memory/threads.js";
+
+const replyCategory = (t?: Task): ReplyCategory => {
+  const th = t?.source.threadId ? getThread(t.source.threadId) : undefined;
+  return th ? threadCategory(th) : "other";
+};
+const asCategory = (v: unknown): ReplyCategory => (REPLY_CATEGORIES.includes(v as ReplyCategory) ? (v as ReplyCategory) : "other");
+const taskConfidence = (t?: Task): number => {
+  const th = t?.source.threadId ? getThread(t.source.threadId) : undefined;
+  return th?.brief?.confidence ?? 0;
+};
 
 const transitionInput = z.object({
   id: z.string().min(1),
@@ -69,22 +81,32 @@ export const tasks = new Hono()
     return c.json(t, 201);
   })
   .post("/tasks/:id/approve/:actionId", async (c) => {
+    const before = getTask(c.req.param("id"));
+    const action = before?.pending?.find((p) => p.id === c.req.param("actionId"));
+    const draft = action?.detail ?? "";
     // 用户在确认框里改过要发的文本：先落到待审动作上，发出去和记账的都是改后的
     const body = (await c.req.json().catch(() => ({}))) as { text?: string };
-    if (typeof body.text === "string" && body.text.trim()) {
-      const t = getTask(c.req.param("id"));
-      const a = t?.pending?.find((p) => p.id === c.req.param("actionId"));
-      if (a) updatePending(t!.id, a.id, { detail: body.text.trim(), payload: { ...a.payload, text: body.text.trim() } });
+    if (typeof body.text === "string" && body.text.trim() && action) {
+      updatePending(before!.id, action.id, { detail: body.text.trim(), payload: { ...action.payload, text: body.text.trim() } });
     }
+    const text = body.text?.trim() || draft;
     const creds = await loadSlackCreds();
     const call = creds ? slackCaller(creds) : undefined;
     try {
-      const t: Task = await executePending(c.req.param("id"), c.req.param("actionId"), {
-        slackPost: async (channel, text, threadTs) => {
-          if (!call) throw new Error("Slack 未接入");
-          return postMessage(call, channel, text, threadTs);
+      const t: Task = await executePending(
+        c.req.param("id"),
+        c.req.param("actionId"),
+        {
+          slackPost: async (channel, body, threadTs) => {
+            if (!call) throw new Error("Slack 未接入");
+            return postMessage(call, channel, body, threadTs);
+          },
         },
-      });
+        text ? { text } : undefined,
+      );
+      const final = text?.trim() || draft;
+      // 只有回复类动作才算「Friday 起草、用户拍板」的经验；git_merge 这类审核动作不代表对话质量，不该污染 lesson 统计。
+      if (action?.type === "slack_reply" && draft) recordLesson({ taskId: t.id, category: replyCategory(before), kind: final === draft ? "approved" : "edited_approved", draft, final, confidence: taskConfidence(before) });
       return c.json(t);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -97,6 +119,13 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
+    const firstPending = t.pending?.[0];
+    // 只有回复类动作被打回才记 lesson——用户说的是「这条不要发」，git_merge 这类审核动作打回不代表对话质量。
+    if (firstPending?.type === "slack_reply") {
+      recordLesson({ taskId: t.id, category: replyCategory(t), kind: "rejected", feedback: reason ?? "", draft: firstPending.detail ?? "", confidence: taskConfidence(t) });
+    }
+    // 打回是用户表达「这条不要发」的最强信号：关掉这条线程的自动发送闸门，下一轮新消息不能绕过审核直接发出去。
+    if (t.source.threadId) markAutoDone(t.source.threadId, "slack_reply_sent");
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
   // 卡住的任务重新开工（比如用量上限恢复后）
@@ -189,6 +218,22 @@ export const tasks = new Hono()
   .post("/audit/:id/undo", async (c) => {
     const plan = undoPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "这笔不可撤销" }, 400);
+    if (plan.kind === "delete_slack_message") {
+      const creds = await loadSlackCreds();
+      if (!creds) return c.json({ error: "Slack 未接入" }, 400);
+      try {
+        await deleteMessage(slackCaller(creds), plan.channel, plan.ts);
+      } catch (e) {
+        return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+      }
+      setEventStatus(c.req.param("id"), "undone");
+      const ev = getEvent(c.req.param("id"));
+      // 只有 Friday 自动发出去又被撤回的才算它判断失误，人工批准发出的不记这一笔
+      if (ev?.action === "slack_reply_sent" && ev.evidence.auto === true) {
+        recordLesson({ ...(ev.taskId ? { taskId: ev.taskId } : {}), category: asCategory(ev.evidence.category), kind: "auto_undone", final: String(ev.evidence.text ?? ""), confidence: Number(ev.evidence.confidence ?? 0) });
+      }
+      return c.json({ ok: true });
+    }
     if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {
       try {
         const done = plan.kind === "meegle_node" ? await rollbackNode(plan) : await undoTransition(plan);

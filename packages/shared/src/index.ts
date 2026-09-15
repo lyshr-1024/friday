@@ -184,6 +184,7 @@ export interface Triage {
   project?: string;
   /** 若是要动代码的事，一句可直接交给 Claude Code 的任务描述 */
   task?: string;
+  category: ReplyCategory;
 }
 
 export interface InboxItem {
@@ -259,6 +260,8 @@ export interface ThreadBrief {
   priorMessages?: Array<{ ts: string; userName: string; text: string }>;
   todo?: { text: string; due?: string };
   person?: string;
+  confidence: number;
+  confidenceReason: string;
 }
 
 export interface Thread {
@@ -334,6 +337,44 @@ export const TAG_LABELS: Record<string, string> = {
   "Backend Iteration": "后台迭代",
   "Include Backend": "后台纳入",
 };
+
+/** Slack 消息的诉求类型，自动回复的置信度阈值按它分档 */
+export type ReplyCategory = "question" | "status_ask" | "code_fix" | "review_ask" | "notice" | "other";
+
+export const REPLY_CATEGORIES: ReplyCategory[] = ["question", "status_ask", "code_fix", "review_ask", "notice", "other"];
+
+export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
+  question: "问你一件事",
+  status_ask: "问进度",
+  code_fix: "要改代码",
+  review_ask: "要你看东西",
+  notice: "通知",
+  other: "其他",
+};
+
+export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone";
+
+export interface Lesson {
+  id: string;
+  taskId?: string;
+  category: ReplyCategory;
+  kind: LessonKind;
+  draft?: string;
+  final?: string;
+  feedback?: string;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface LearnStats {
+  category: ReplyCategory;
+  label: string;
+  threshold: number;
+  suggested?: number;
+  lessons: number;
+  approved: number;
+  calibrationError: number;
+}
 
 export type TaskCategory = "slack" | "defect" | "story" | "other";
 

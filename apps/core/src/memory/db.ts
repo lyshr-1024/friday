@@ -31,6 +31,7 @@ function migrate(d: DatabaseSync): void {
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!inboxCols.includes("thread_id")) d.exec("ALTER TABLE inbox ADD COLUMN thread_id TEXT");
   if (!inboxCols.includes("thread_ts")) d.exec("ALTER TABLE inbox ADD COLUMN thread_ts TEXT");
+  if (!inboxCols.includes("category")) d.exec("ALTER TABLE inbox ADD COLUMN category TEXT");
   const jobCols = (d.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!jobCols.includes("claude_session_id")) d.exec("ALTER TABLE jobs ADD COLUMN claude_session_id TEXT");
   if (!jobCols.includes("terminal")) d.exec("ALTER TABLE jobs ADD COLUMN terminal TEXT");
