@@ -17,6 +17,11 @@ export interface Enrichment {
 
 const MEEGLE_URL = /https?:\/\/(?:project\.larksuite\.com|project\.feishu\.cn|[a-z0-9-]+\.meegle\.com)\/([a-z0-9_-]+)\/(story|issue|task|[a-z_]+)\/detail\/(\d+)/gi;
 
+/** 消息里提到的 Meegle 工单 id。Slack 里贴工单链接很常见，据此把线程接到对应的需求上。 */
+export function meegleIds(text: string): string[] {
+  return [...new Set([...text.matchAll(MEEGLE_URL)].map((m) => m[3]!).filter(Boolean))];
+}
+
 const projectKeys = new Map<string, string>();
 
 /** 消息里的 Meegle 工单链接：用本机 meegle CLI 拉标题、状态、优先级、负责人。 */

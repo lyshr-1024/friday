@@ -299,6 +299,9 @@ export interface TaskSource {
   meegleId?: string;
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
+  /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
+  linkedStoryId?: string;
+  linkedStoryName?: string;
   /** Meegle 空间 key，流转状态要用 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */

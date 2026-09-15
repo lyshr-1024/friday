@@ -40,6 +40,8 @@ export interface MeegleWorkItem {
   due?: string;
   feDue?: string;
   beDue?: string;
+  /** Meegle 里填的「关联需求」：缺陷属于哪个需求 */
+  linkedStory?: { id: string; name: string };
 }
 
 interface TodoPage {
@@ -106,6 +108,18 @@ export function pickDocs(fields: Array<{ key: string; name?: string; value: unkn
     if (url) out[slot] = url;
   }
   return out;
+}
+
+/**
+ * 缺陷的「关联需求」。字段 key 是 _field_linked_story，字段名在中英文环境下分别是
+ * 「关联需求」/「Linked Requirement」，所以 key 找不到时按名字兜一层。
+ */
+export function pickLinkedStory(fields: Array<{ key: string; name?: string; value: unknown }>): { id: string; name: string } | undefined {
+  const hit = fields.find((f) => f.key === "_field_linked_story") ?? fields.find((f) => f.name && /关联需求|linked\s*requirement/i.test(f.name));
+  const v = hit?.value as { id?: unknown; name?: unknown } | undefined;
+  const id = v?.id === undefined || v.id === null ? "" : String(v.id);
+  const name = typeof v?.name === "string" ? v.name.trim() : "";
+  return id && name ? { id, name } : undefined;
 }
 
 /** Friday 里能一键做的状态流转，顺序就是按钮顺序。需要填表单的不在此列。 */
@@ -210,6 +224,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
   const description = (item.work_item_fields.find((f) => f.key === "description")?.value as string | undefined)?.trim();
   const reporter = a.role_members?.find((r) => /reporter/i.test(r.name))?.members[0]?.name ?? a.create_by?.name;
   const docs = pickDocs(item.work_item_fields);
+  const linkedStory = pickLinkedStory(item.work_item_fields);
   const nodeKey = nodeKeyOf(todo.node_info?.node_state_key, todo.work_item_info.work_item_id);
   const due = todo.schedule?.end_time?.trim();
   return {
@@ -229,6 +244,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
     ...(schedules.feDue ? { feDue: schedules.feDue } : {}),
     ...(schedules.beDue ? { beDue: schedules.beDue } : {}),
     ...(priority ? { priority } : {}),
+    ...(linkedStory ? { linkedStory } : {}),
     ...(todo.node_info?.node_name ? { node: todo.node_info.node_name } : {}),
     projectName: todo.project_name ?? a.owned_project.simple_name,
     url: `https://${host}/${a.owned_project.simple_name}/${a.work_item_type.key}/detail/${a.work_item_id}`,
@@ -353,7 +369,9 @@ export class MeegleConnector implements Connector {
         "workitem", "get",
         "--work-item-id", String(it.work_item_info.work_item_id),
         "--project-key", it.project_key,
-        "--fields", it.work_item_info.work_item_type_key === "issue" ? "priority,tags,description" : "priority,tags,description,field_8fe714,field_8190c7,field_1f7126",
+        // 缺陷多要一个 _field_linked_story（Meegle 里的「关联需求」）：很多缺陷标题里
+        // 根本没有需求名（「【BO】开关开到关没有弹出二次确认弹窗」），只有这个字段能关联上
+        "--fields", it.work_item_info.work_item_type_key === "issue" ? "priority,tags,description,_field_linked_story" : "priority,tags,description,field_8fe714,field_8190c7,field_1f7126",
         "--format", "json",
       ]),
     );

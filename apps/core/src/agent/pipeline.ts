@@ -9,6 +9,7 @@ import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } 
 import { createJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { meegleIds } from "./enrich.js";
 import { getThreshold } from "../memory/thresholds.js";
 import { markAutoDone, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
@@ -50,6 +51,19 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
     record({ taskId: task.id, action: "task_create", why: "Slack 线程做完功课", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   } else {
     task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}) })!;
+  }
+
+  // 消息里贴了 Meegle 工单链接就把线程接到那条工单上：聊的往往就是它，
+  // 这样缺陷、需求、Slack 讨论能在一处看全。取任务板里已有的那个，没有就记 id 备查。
+  const mentioned = meegleIds(thread.items.map((i) => i.text).join("\n"));
+  if (mentioned.length && !task.source.linkedStoryId) {
+    const hit = mentioned.map((id) => findTaskBySource((s) => s.meegleId === id, true)).find(Boolean);
+    const storyId = hit?.source.meegleId ?? mentioned[0]!;
+    task = updateTask(task.id, {
+      source: { linkedStoryId: storyId, ...(hit?.title ? { linkedStoryName: hit.title } : {}) },
+      // 顺带归项目：工单那条已经归好了就跟着它
+      ...(!task.project && hit?.project ? { project: hit.project } : {}),
+    })!;
   }
 
   const first = thread.items[0];

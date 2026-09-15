@@ -556,7 +556,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
           </aside>
           <section className="split__detail" ref={detailRef}>
             {!board ? null : focus ? (
-              <Focus key={focus.id} t={focus} onAct={act} onClose={() => setSelectedId(null)} closable={false} />
+              <Focus key={focus.id} t={focus} all={board.tasks} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} closable={false} />
             ) : (
               <div className="empty">
                 <strong>{view === "all" ? "点左边一条看详情" : "没有等你决定的事"}</strong>
@@ -570,10 +570,13 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   );
 }
 
-function Focus({ t, onAct, onClose, closable, ref }: {
+function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
   t: Task;
+  /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
+  all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
   onClose: () => void;
+  onPick?: (id: string) => void;
   closable: boolean;
   ref?: React.Ref<HTMLElement>;
 }) {
@@ -665,6 +668,11 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const open = t.status !== "done" && t.status !== "ignored";
   const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
+  // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
+  const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
+  const childIssues = t.source.meegleId ? all.filter((x) => x.source.linkedStoryId === t.source.meegleId) : [];
+  const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
+
   const prior = thread?.brief?.priorMessages ?? [];
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
@@ -722,6 +730,39 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
+
+      {/* 缺陷挂在哪个需求下 / 需求名下有哪些缺陷。Meegle 里填好的关联，点一下就能跳过去 */}
+      {t.source.linkedStoryId && (
+        <div className="fx__rel">
+          <span className="k">{t.kind === "slack" ? "聊的是需求" : "属于需求"}</span>
+          {/* 需求没分派给用户时任务板里没有它，只显示名字（或工单号）不给跳转 */}
+          {parentStory ? (
+            <button className="link" onClick={() => onPick?.(parentStory.id)}>{parentStory.title}</button>
+          ) : (
+            <span className="fx__rel-plain">
+              {t.source.linkedStoryName ?? `Meegle #${t.source.linkedStoryId}`}
+              <span className="fx__rel-note">（没分派给你，不在任务板里）</span>
+            </span>
+          )}
+        </div>
+      )}
+      {childIssues.length > 0 && (
+        <details className="fx__rel-list">
+          <summary>
+            {/* 名下挂着的可能是缺陷，也可能是 Slack 上聊这件事的线程 */}
+            <span>{childIssues.every((c) => c.kind === "slack") ? "相关的 Slack 讨论" : childIssues.some((c) => c.kind === "slack") ? "相关的缺陷与讨论" : "名下的缺陷"}</span>
+            <span className="fx__rel-count">{childIssues.length} 条{openChildren > 0 ? `，${openChildren} 条未完` : "，都收工了"}</span>
+          </summary>
+          <ul>
+            {childIssues.map((c) => (
+              <li key={c.id}>
+                <span className={`dot dot--${c.status === "done" || c.status === "ignored" ? "done" : "decide"}`} />
+                <button className="link" onClick={() => onPick?.(c.id)}>{c.title}</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {isIssue(t) && <IssueBody t={t} />}
       {isStory(t) && <StoryBody t={t} />}

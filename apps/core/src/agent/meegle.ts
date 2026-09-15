@@ -18,6 +18,15 @@ export function matchProject(title: string, projects: Project[]): string | undef
   return projects.find((p) => [p.name, ...p.aliases].some((n) => n.length >= 3 && t.includes(n.toLowerCase())))?.name;
 }
 
+/**
+ * 顺着关联需求找项目：需求那条任务已经归好项目就直接用，否则拿需求标题再匹配一次。
+ * 缺陷标题里往往只有【BO】这类泛指，需求标题才带得上项目名。
+ */
+export function projectOfStory(story: { id: string; name: string }, projects: Project[]): string | undefined {
+  const parent = findTaskBySource((s) => s.meegleId === story.id, true);
+  return parent?.project ?? matchProject(story.name, projects);
+}
+
 export function priorityOf(label?: string): Urgency {
   if (!label) return "normal";
   if (/^P[01]\b|紧急|urgent/i.test(label)) return "high";
@@ -34,6 +43,7 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     item.feDue ? `后台前端排期 ${item.feDue}` : "",
     item.beDue ? `服务端排期 ${item.beDue}` : "",
     item.tags?.length ? `标签 ${item.tags.join("、")}` : "",
+    item.linkedStory ? `属于需求「${item.linkedStory.name}」#${item.linkedStory.id}` : "",
     item.due ? `截止 ${item.due.slice(0, 10)}` : "",
   ]
     .filter(Boolean)
@@ -41,7 +51,12 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   // 分派给我的工单一律先排队，不占「待我决定」：这个组织里 P0/P1 太常见，真要拍板的由 Slack/口头触发。
   const status: TaskStatus = "understood";
   // 描述里的页面链接比标题可靠得多：标题只写「【BO 后台】…」，归不到仓库；链接带域名和 app 段。
-  const project = matchProjectByUrl(item.links, projects)?.name ?? matchProject(item.name, projects);
+  // 再兜一层关联需求：缺陷标题常常不带需求名（「【BO】开关开到关没有弹出二次确认弹窗」），
+  // 但它挂在哪个需求下是 Meegle 里填好的，需求那条已经归过项目就顺着拿。
+  const project =
+    matchProjectByUrl(item.links, projects)?.name ??
+    matchProject(item.name, projects) ??
+    (item.linkedStory ? projectOfStory(item.linkedStory, projects) : undefined);
   const page = item.links[0];
   const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
   // 这些键始终写出（含 undefined），工单撤掉排期或标签时 source 的 merge 才能抹掉旧值
@@ -57,6 +72,8 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     docs: item.docs,
     nodeKey: item.nodeKey,
     nodeName: item.node,
+    linkedStoryId: item.linkedStory?.id,
+    linkedStoryName: item.linkedStory?.name,
   };
   return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
