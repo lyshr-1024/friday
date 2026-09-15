@@ -296,6 +296,23 @@ export interface TaskSource {
   meegleId?: string;
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
+  /** Meegle 空间 key，流转状态要用 */
+  meegleProject?: string;
+  /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
+  statusKey?: string;
+  /** tags 字段的原始 label */
+  meegleTags?: string[];
+  /** 后台前端开发节点排期结束日 YYYY-MM-DD */
+  feDue?: string;
+  /** 服务端开发节点排期结束日 */
+  beDue?: string;
+  reporter?: string;
+  description?: string;
+  /** 需求文档 / 技术文档 / 设计稿，没填的键不出现 */
+  docs?: { req?: string; tech?: string; design?: string };
+  /** 当前节点的 node_key，节点流转要用 */
+  nodeKey?: string;
+  nodeName?: string;
   url?: string;
   note?: string;
   jobId?: string;
@@ -310,12 +327,14 @@ export interface TaskSource {
 }
 
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
-export type TaskCategory = "story" | "defect" | "other";
+export type TaskCategory = "slack" | "defect" | "story" | "other";
 
-export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { story: "需求", defect: "缺陷", other: "其他" };
+export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
 
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
+  // Slack 来的没有 meegleType，靠 threadId 认
+  if (source.threadId) return "slack";
   const t = source.meegleType;
   if (t === "story") return "story";
   if (t === "issue" || t === "defect" || t === "bug") return "defect";
@@ -394,9 +413,19 @@ export interface AuditEvent {
   status: AuditStatus;
 }
 
+/** Meegle 里能在 Friday 一键做的状态流转 */
+export interface StateTransition {
+  id: string;
+  stateKey: string;
+  label: string;
+}
+
 export interface TaskBoard {
   tasks: Task[];
   counts: Record<TaskStatus, number>;
+  meegleSyncedAt: string | null;
+  /** 钥匙串里有没有 Slack 登录态；false 时收件是静默不工作的 */
+  slackConfigured: boolean;
 }
 
 export const TERMINAL_LABEL: Record<TerminalApp, string> = { embedded: "内嵌终端", ghostty: "Ghostty", terminal: "Terminal" };

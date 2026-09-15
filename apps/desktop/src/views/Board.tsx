@@ -168,7 +168,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [doingOpen, setDoingOpen] = useState(true);
-  const [queuedOpen, setQueuedOpen] = useState<Record<TaskCategory, boolean>>({ story: true, defect: true, other: true });
+  const [queuedOpen, setQueuedOpen] = useState<Record<TaskCategory, boolean>>({ slack: true, defect: true, story: true, other: true });
   const [doneOpen, setDoneOpen] = useState(false);
   const [err, setErr] = useState("");
   const [ledger, setLedger] = useState<AuditEvent[]>([]);
@@ -317,7 +317,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
   const queued = rest.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || b.updatedAt.localeCompare(a.updatedAt));
   // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
-  const QUEUE_GROUPS: TaskCategory[] = ["story", "defect", "other"];
+  const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
@@ -421,11 +421,11 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                 {QUEUE_GROUPS.map((cat, i) => {
                   const list = queuedBy(cat);
                   // 需求 / 缺陷两组常驻，空了也让人看得见；「其他」没东西就不占位。
-                  if (!list.length && cat === "other") return null;
+                  if (!list.length && (cat === "other" || cat === "slack")) return null;
                   return (
                     <Fragment key={cat}>
                       {group(TASK_CATEGORY_LABEL[cat], list, queuedOpen[cat], () => setQueuedOpen((v) => ({ ...v, [cat]: !v[cat] })),
-                        cat === "other" ? "没有其他待办" : `没有${TASK_CATEGORY_LABEL[cat]}，Meegle 分派给你的会汇到这里`,
+                        cat === "other" ? "没有其他待办" : cat === "slack" ? "没有 Slack 待办" : `没有${TASK_CATEGORY_LABEL[cat]}，Meegle 分派给你的会汇到这里`,
                         queuedRight, (t) => !t.due && t.priority !== "high",
                         // 学一题 / Meegle 同步挂在第一组的头上，三组共用一套入口
                         i === 0 ? (

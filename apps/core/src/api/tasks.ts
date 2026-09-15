@@ -1,17 +1,23 @@
 import { Hono } from "hono";
 import { learnOnce, readResearchNote } from "../agent/learn.js";
-import { meegleState, syncMeegleOnce } from "../agent/meegle.js";
+import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import type { Task } from "@friday/shared";
+import type { Task , StateTransition } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
-import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
+import { loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
+
+const transitionInput = z.object({
+  id: z.string().min(1),
+  stateKey: z.string().min(1),
+  label: z.string().min(1),
+});
 
 const newTask = z.object({
   title: z.string().trim().min(1).max(200),
@@ -29,9 +35,14 @@ export const tasks = new Hono()
   })
   .post("/tasks/learn", async (c) => c.json(await learnOnce(true)))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
-  .get("/tasks", (c) => {
+  .get("/tasks", async (c) => {
     const board = taskBoard();
-    return c.json({ ...board, tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)) });
+    return c.json({
+      ...board,
+      tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)),
+      meegleSyncedAt: meegleState.lastSyncAt,
+      slackConfigured: await slackConfigured(),
+    });
   })
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));
@@ -120,6 +131,50 @@ export const tasks = new Hono()
     const t = updateTask(c.req.param("id"), { pinned: parsed.data.pinned });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  .get("/tasks/:id/transitions", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    try {
+      return c.json({ transitions: await listTaskTransitions(t) });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+    }
+  })
+  .post("/tasks/:id/transition", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    const parsed = transitionInput.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 id / stateKey / label" }, 400);
+    try {
+      return c.json(await applyTransition(t, parsed.data as StateTransition));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      record({ taskId: t.id, action: "meegle_transition_failed", why: `流转到 ${parsed.data.stateKey} 失败`, how: message, risk: "read", status: "failed" });
+      return c.json({ error: message }, 502);
+    }
+  })
+  .get("/tasks/:id/node", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
+    try {
+      return c.json(await nodeReadiness(t));
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+    }
+  })
+  .post("/tasks/:id/node/confirm", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
+    try {
+      return c.json(await confirmNode(t));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      record({ taskId: t.id, action: "meegle_node_failed", why: "完成节点失败", how: message, risk: "read", status: "failed" });
+      return c.json({ error: message }, 502);
+    }
+  })
   .post("/tasks/:id/done", (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
     if (t) closeTaskTerminal(t, "你把任务标记完成");
@@ -131,9 +186,19 @@ export const tasks = new Hono()
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
-  .post("/audit/:id/undo", (c) => {
+  .post("/audit/:id/undo", async (c) => {
     const plan = undoPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "这笔不可撤销" }, 400);
+    if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {
+      try {
+        const done = plan.kind === "meegle_node" ? await rollbackNode(plan) : await undoTransition(plan);
+        if (!done) return c.json({ error: "Meegle 不允许转回原状态，请去网页操作" }, 409);
+      } catch (e) {
+        return c.json({ error: `转回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+      }
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
     const ok = undoWrite(plan);
     if (ok) setEventStatus(c.req.param("id"), "undone");
     return ok ? c.json({ ok: true }) : c.json({ error: "撤销失败（内容可能已被改动）" }, 409);

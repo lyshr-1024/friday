@@ -11,7 +11,7 @@ pub fn build(app: &AppHandle, hotkey: &str) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &settings, &PredefinedMenuItem::separator(app)?, &quit])?;
 
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(tauri::include_image!("./icons/tray@2x.png"))
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)

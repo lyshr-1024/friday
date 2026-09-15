@@ -21,6 +21,8 @@ export type Undo =
   | { kind: "drop_note_task"; id: string }
   | { kind: "delete_todo"; id: string }
   | { kind: "remove_people_line"; name: string; line: string }
+  | { kind: "meegle_state"; projectKey: string; workItemId: string; backTo: string }
+  | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

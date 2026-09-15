@@ -34,6 +34,8 @@ describe("Meegle 工单进任务中枢", () => {
       typeName: "Requirement",
       typeKey: "story",
       status: "Pending Release",
+      statusKey: "",
+      projectKey: "k",
       priority: "P0",
       node: "FE Release",
       projectName: "Longbridge 项目集合管理",
@@ -58,7 +60,7 @@ describe("Meegle 工单进任务中枢", () => {
   });
 
   it("工单一律先排队；理解里写清节点与状态", () => {
-    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectKey: "pk", projectName: "p", url: "u", createdAt: "2026-09-01T00:00:00Z" };
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
     expect(hot.status).toBe("understood");
     expect(hot.priority).toBe("high");
@@ -99,5 +101,140 @@ describe("需求与缺陷分组", () => {
     expect(taskCategory({ meegleType: "6a0d931f3129fdef6aba3188" })).toBe("other");
     expect(taskCategory({})).toBe("other");
     expect(TASK_CATEGORY_LABEL[taskCategory({ meegleType: "story" })]).toBe("需求");
+  });
+
+  it("Slack 线程单独一类，看 threadId 认，它没有 meegleType", () => {
+    expect(taskCategory({ threadId: "th-1" })).toBe("slack");
+    expect(TASK_CATEGORY_LABEL[taskCategory({ threadId: "th-1" })]).toBe("Slack");
+    // Meegle 工单不会有 threadId，不受影响
+    expect(taskCategory({ meegleType: "issue" })).toBe("defect");
+  });
+});
+
+describe("排期与标签进任务", () => {
+  const raw = (fields: Array<{ key: string; value: unknown }>, typeKey = "story", typeName = "Requirement") => ({
+    work_item_attribute: {
+      work_item_id: "24353876",
+      work_item_name: "【通用】后台优化需求汇总",
+      create_time: "2026-08-27T08:46:42Z",
+      owned_project: { simple_name: "projectlb" },
+      work_item_status: { name: "In Technical Solution Confirmation" },
+      work_item_type: { key: typeKey, name: typeName },
+    },
+    work_item_fields: fields,
+  });
+  const todo = { project_key: "k", work_item_info: { work_item_id: 24353876, work_item_type_key: "story" } };
+
+  it("toWorkItem 带出类型、标签与两个节点的排期", () => {
+    const item = toWorkItem(
+      "project.larksuite.com",
+      todo,
+      raw([
+        { key: "priority", value: { label: "P0", value: "0" } },
+        { key: "tags", value: [{ label: "Backend Iteration", value: "545fg1y2o" }] },
+      ]),
+      { feDue: "2026-09-15", beDue: "2026-09-14" },
+    );
+    expect(item.typeKey).toBe("story");
+    expect(item.tags).toEqual(["Backend Iteration"]);
+    expect(item.feDue).toBe("2026-09-15");
+    expect(item.beDue).toBe("2026-09-14");
+  });
+
+  it("缺陷类型认成 issue，没有标签时不产出字段", () => {
+    const item = toWorkItem("h", todo, raw([], "issue", "Defect"), {});
+    expect(item.typeKey).toBe("issue");
+    expect(item.tags).toBeUndefined();
+    expect(item.feDue).toBeUndefined();
+  });
+
+  it("workItemToTask 把它们写进 source，排期没了要能清空", () => {
+    const base = { id: "1", name: "后台优化", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    const t = workItemToTask({ ...base, tags: ["Backend Iteration"], feDue: "2026-09-15" }, []);
+    expect(t.source).toMatchObject({ meegleType: "story", meegleTags: ["Backend Iteration"], feDue: "2026-09-15", beDue: undefined, meegleProject: "pk" });
+    expect(t.understanding).toContain("后台前端排期 2026-09-15");
+
+    const cleared = workItemToTask(base, []);
+    expect(cleared.source).toMatchObject({ meegleType: "story", meegleTags: undefined, feDue: undefined, beDue: undefined });
+  });
+
+  it("只有服务端排期时理解里写服务端", () => {
+    const t = workItemToTask({ id: "1", name: "x", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", beDue: "2026-09-20" }, []);
+    expect(t.understanding).toContain("服务端排期 2026-09-20");
+  });
+});
+
+describe("缺陷详情进任务", () => {
+  const issue = (extra: Record<string, unknown> = {}, fields: Array<{ key: string; value: unknown }> = []) => ({
+    work_item_attribute: {
+      work_item_id: "24420780",
+      work_item_name: "【基金-私募基金净值】Fund code 远程搜索候选永远为空",
+      create_time: "2026-09-05T02:00:00Z",
+      create_by: { name: "木木 (Lin Biwang)", email: "biwang.lin@longbridge-inc.com" },
+      owned_project: { simple_name: "projectlb" },
+      work_item_status: { key: "REOPENED", name: "Reopened" },
+      work_item_type: { key: "issue", name: "Defect" },
+      ...extra,
+    },
+    work_item_fields: fields,
+  });
+  const todo = { project_key: "6a140fc96061a9dd2771b320", work_item_info: { work_item_id: 24420780, work_item_type_key: "issue" } };
+
+  it("带出描述、提出人、状态 key 与空间，供详情和流转用", () => {
+    const item = toWorkItem("project.larksuite.com", todo, issue({}, [{ key: "description", value: "**现象**:候选数全部为 0" }]));
+    expect(item.statusKey).toBe("REOPENED");
+    expect(item.projectKey).toBe("6a140fc96061a9dd2771b320");
+    expect(item.description).toBe("**现象**:候选数全部为 0");
+    expect(item.reporter).toBe("木木 (Lin Biwang)");
+  });
+
+  it("提出人优先取 Reporter 角色，没有才回退创建人", () => {
+    const withRole = issue({ role_members: [{ name: "Reporter", members: [{ name: "馨怡 (Yu Junrong)", email: "junrong.yu@longbridge-inc.com" }] }] });
+    expect(toWorkItem("h", todo, withRole).reporter).toBe("馨怡 (Yu Junrong)");
+  });
+
+  it("缺陷的描述、提出人写进 source，需求不带描述免得塞进几十 KB 需求文档", () => {
+    const t = workItemToTask(
+      { id: "1", name: "x", typeName: "Defect", typeKey: "issue", statusKey: "REOPENED", status: "Reopened", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", reporter: "木木", description: "**现象**:空" },
+      [],
+    );
+    expect(t.source.reporter).toBe("木木");
+    expect(t.source.description).toBe("**现象**:空");
+    expect(t.source.meegleProject).toBe("pk");
+    expect(t.source.statusKey).toBe("REOPENED");
+  });
+});
+
+describe("需求的资料链接与当前节点", () => {
+  const story = (fields: Array<{ key: string; name?: string; value: unknown }>) => ({
+    work_item_attribute: {
+      work_item_id: "24333723",
+      work_item_name: "【LBNZ】客户资料新增人脸照片上传栏位",
+      create_time: "2026-09-01T00:00:00Z",
+      owned_project: { simple_name: "projectlb" },
+      work_item_status: { key: "s", name: "In Development" },
+      work_item_type: { key: "story", name: "Requirement" },
+    },
+    work_item_fields: fields,
+  });
+  const todo = {
+    project_key: "pk",
+    node_info: { node_name: "Admin Frontend Development", node_state_key: "node_state_16_24333723" },
+    work_item_info: { work_item_id: 24333723, work_item_type_key: "story" },
+  };
+
+  it("带出资料链接与流转要用的 node_key", () => {
+    const item = toWorkItem("h", todo, story([{ key: "field_8fe714", name: "Requirement doc URL", value: "https://a/req" }]));
+    expect(item.docs).toEqual({ req: "https://a/req" });
+    expect(item.nodeKey).toBe("state_16");
+  });
+
+  it("三份资料都写进 source，没填的键不出现", () => {
+    const t = workItemToTask(
+      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: { req: "https://a/req", tech: "https://a/tech" } },
+      [],
+    );
+    expect(t.source.docs).toEqual({ req: "https://a/req", tech: "https://a/tech" });
+    expect(t.source.nodeKey).toBe("state_16");
   });
 });

@@ -124,7 +124,7 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
   return rows.map(toTask);
 }
 
-export function taskBoard(): TaskBoard {
+export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured"> {
   const tasks = listTasks(undefined, 500);
   const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TaskStatus, number>;
   for (const t of tasks) counts[t.status]++;

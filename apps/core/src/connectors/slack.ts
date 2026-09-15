@@ -13,6 +13,17 @@ export async function loadSlackCreds(): Promise<SlackCreds | undefined> {
   return token && cookie ? { token, cookie } : undefined;
 }
 
+let configured: boolean | null = null;
+
+/**
+ * 钥匙串里有没有 Slack 登录态。没配和「配了但没消息」在界面上必须能分开，
+ * 否则收件静默不工作，用户看到的永远是空列表。跟 creds 一样只读一次，配完要重启。
+ */
+export async function slackConfigured(): Promise<boolean> {
+  configured ??= Boolean(await loadSlackCreds());
+  return configured;
+}
+
 type Call = (method: string, params: Record<string, string>) => Promise<Record<string, unknown>>;
 
 export function slackCaller(creds: SlackCreds): Call {
@@ -36,6 +47,7 @@ export function slackCaller(creds: SlackCreds): Call {
 interface SearchMatch {
   ts: string;
   text: string;
+  bot_id?: string;
   user?: string;
   username?: string;
   permalink?: string;
@@ -142,7 +154,8 @@ export async function fetchSlack(
     // 游标要照常推进：机器人和挡掉的消息也算「看过了」，否则下次同步还会重新捞一遍
     if (Number(m.ts) > Number(maxMention)) maxMention = m.ts;
     // 和私聊一样，机器人（Meegle 工单通知、日历提醒等）@ 我的不进收件箱。
-    if (m.user && (await isBot(m.user))) continue;
+    // search 结果里机器人常常只有 bot_id 和 username，没有 user，光判 isBot 挡不住。
+    if (m.bot_id || !m.user || (await isBot(m.user))) continue;
     // 先把 Block Kit 的正文取出来再判噪音：text 为空不等于没内容，否则真事会被当空消息挡掉。
     const text = m.text?.trim() || blocksText(m.blocks);
     const verdict = classifyNoise(text);
