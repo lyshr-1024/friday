@@ -80,6 +80,14 @@ function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "
   return null;
 }
 
+/** 处理完一条之后接着看哪条：先往下找，没有就往上回退，都没有才不选。 */
+function neighbourOf(id: string, order: string[], live: Task[]): string | null {
+  const at = order.indexOf(id);
+  if (at < 0) return null;
+  const alive = new Set(live.map((t) => t.id));
+  return [...order.slice(at + 1), ...order.slice(0, at).reverse()].find((x) => x !== id && alive.has(x)) ?? null;
+}
+
 function waited(iso: string): string {
   const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (m < 60) return `等了 ${m} 分钟`;
@@ -284,6 +292,8 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 列表此刻从上到下的可见顺序，处理完一条要靠它找到相邻的下一条
+  const orderRef = useRef<string[]>([]);
   const [doingOpen, setDoingOpen] = useState(true);
   const [queuedOpen, setQueuedOpen] = useState<Record<TaskCategory, boolean>>({ slack: true, defect: true, story: true, other: true });
   const [doneOpen, setDoneOpen] = useState(false);
@@ -411,12 +421,16 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
 
   async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
+    // 操作前的顺序才包含被操作的那条，拿它去找相邻项
+    const order = orderRef.current;
     try {
       await fn();
       const b = await taskBoard();
       setBoard(b);
       const after = t ? b.tasks.find((x) => x.id === t.id) : undefined;
-      if (t && (!after || after.status !== t.status)) setSelectedId(null);
+      // 处理完接着看相邻的那条。清空选中会让焦点回落到 pinned[0] / decide[0]，
+      // 而刚操作的那条常常根本不在顶上那个分组里，看着就是整个列表跳走了。
+      if (t && (!after || after.status !== t.status)) setSelectedId(neighbourOf(t.id, order, b.tasks));
       if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -446,6 +460,11 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+  // 折叠起来的分组不算可见，否则会把焦点交给一条看不见的任务
+  orderRef.current = (view === "all"
+    ? ALL_ORDER.flatMap((st) => tasks.filter((t) => t.status === st))
+    : [...pinned, ...decide, ...(doingOpen ? doing : []), ...QUEUE_GROUPS.flatMap((c) => (queuedOpen[c] ? queuedBy(c) : [])), ...(doneOpen ? done : [])]
+  ).map((t) => t.id);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? pinned[0] ?? decide[0] ?? null;
   useEffect(() => {

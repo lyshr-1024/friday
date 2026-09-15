@@ -61,6 +61,12 @@ describe("Meegle 工单进任务中枢", () => {
     expect(matchProject("消息记录权限申请", projects)).toBeUndefined();
   });
 
+  it("中文两个字的别名够独特，拉丁字母短词仍要三个字符", () => {
+    const ps = [{ name: "whale-console", dir: "/x/w", aliases: ["风控", "bo"], channels: [], urls: [] }];
+    expect(matchProject("【风控-提醒查询】欠款余额对不上", ps)).toBe("whale-console");
+    expect(matchProject("bond 报表导出时区错乱", ps)).toBeUndefined();
+  });
+
   it("工单一律先排队；理解里写清节点与状态", () => {
     const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectKey: "pk", projectName: "p", url: "u", links: [], createdAt: "2026-09-01T00:00:00Z" };
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
@@ -261,6 +267,15 @@ describe("extractLinks", () => {
     const desc = "【测试环境】lb staging\n[https://console.longbridge.xyz/wbo/risk/x](https://console.longbridge.xyz/wbo/risk/x)\n工单 https://project.larksuite.com/projectlb/issue/detail/1 见 https://console.longbridge.xyz/wbo/risk/x。";
     expect(extractLinks(desc)).toEqual(["https://console.longbridge.xyz/wbo/risk/x"]);
     expect(extractLinks(undefined)).toEqual([]);
+  });
+
+  it("走查模板只写站内路径时也算线索，完整链接仍排在前面", () => {
+    expect(extractLinks("**操作入口**：`/x/wbo/fund/private-funds/nav` → 工具栏「Add NAV」")).toEqual(["/x/wbo/fund/private-funds/nav"]);
+    expect(extractLinks("见 https://console.longbridge.xyz/wbo/risk/x，入口 `/x/wbo/risk/config`")).toEqual([
+      "https://console.longbridge.xyz/wbo/risk/x",
+      "/x/wbo/risk/config",
+    ]);
+    expect(extractLinks("跑 `pnpm dev` 就行，`/a` 太短")).toEqual([]);
   });
 });
 
