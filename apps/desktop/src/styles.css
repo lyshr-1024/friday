@@ -1616,6 +1616,25 @@ kbd {
 .thread--high {
   border-left-color: var(--live);
 }
+/* 拖文件到对话上：整块描边点亮，中间浮一条提示 */
+.thread--drop {
+  position: relative;
+  border-color: var(--live);
+  border-left-color: var(--live);
+}
+.thread__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-1) 78%, transparent);
+  color: var(--fg-2);
+  font-size: var(--t-sm);
+  pointer-events: none;
+}
 .thread--low {
   opacity: 0.8;
 }

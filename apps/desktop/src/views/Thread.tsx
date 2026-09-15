@@ -216,6 +216,10 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
 
   useImperativeHandle(ref, () => ({ load, reset, send, focus: () => inputRef.current?.focus() }));
 
+  // 拖到对话上时给个明确的可放提示，否则用户不知道松手会不会有反应
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+
   async function addFiles(files: Iterable<File>) {
     const list = [...files].filter((f) => f.size > 0).slice(0, 10 - pending.length);
     if (!list.length) return;
@@ -255,7 +259,27 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }
 
   return (
-    <div className="thread" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files); }}>
+    <div
+      className={`thread ${dragging ? "thread--drop" : ""}`}
+      onDragEnter={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => {
+        // 子元素之间来回移动也会触发 leave，靠进出计数才不会闪
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragging && <div className="thread__drop">松手就把文件交给 Friday</div>}
       {banner}
       <div className="thread__scroll">
       <div className="chat__body" ref={bodyRef} onScroll={onBodyScroll}>
