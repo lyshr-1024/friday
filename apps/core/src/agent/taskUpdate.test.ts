@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addPending, createTask, getTask } from "../memory/tasks.js";
+import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { executePending } from "./pipeline.js";
 import { app } from "../api/index.js";
@@ -13,6 +13,48 @@ describe("会话结论回流任务卡", () => {
     const after = getTask(t.id)!;
     expect(after.plan).toContain("exclusive");
     expect(after.pending![0]).toMatchObject({ detail: "改法定了：variant_mode 改 exclusive，今天下午提 MR", payload: { channel: "C1", text: "改法定了：variant_mode 改 exclusive，今天下午提 MR", userName: "知许" } });
+  });
+
+  it("Friday 能重写验收列表：没有报告时凭空建，已勾的状态清零", () => {
+    const t = createTask({ title: "改导出中心", kind: "code", source: {}, status: "processing" });
+    // 之前没有交付报告也能写
+    const r1 = updateTaskFromChat(t.id, { verify: ["导出按钮出现在右上角", "点了能下到 csv"] })!;
+    expect(r1.changed).toEqual(["验收列表"]);
+    const a = getTask(t.id)!;
+    expect(a.report!.verify).toEqual(["导出按钮出现在右上角", "点了能下到 csv"]);
+    expect(a.report!.checked).toEqual([false, false]);
+    expect(a.report!.summary).toBe("");
+
+    // 勾掉一条后换列表：新条目没人验过，勾选必须清零
+    updateTaskFromChat(t.id, { verify: ["导出按钮出现在右上角", "点了能下到 csv"] });
+    const withCheck = getTask(t.id)!;
+    updateTaskFromChat(t.id, { verify: ["换了方案：导出入口挪到了左栏"] });
+    const b = getTask(t.id)!;
+    expect(b.report!.verify).toEqual(["换了方案：导出入口挪到了左栏"]);
+    expect(b.report!.checked).toEqual([false]);
+    expect(withCheck.report!.verify).toHaveLength(2);
+  });
+
+  it("验收列表没变就不算改动，空条目会被丢掉", () => {
+    const t = createTask({ title: "y", kind: "code", source: {}, status: "processing" });
+    updateTaskFromChat(t.id, { verify: ["  只有这一条  ", "   "] });
+    expect(getTask(t.id)!.report!.verify).toEqual(["只有这一条"]);
+    expect(updateTaskFromChat(t.id, { verify: ["只有这一条"] })!.changed).toEqual([]);
+  });
+
+  it("重写验收列表不碰终端已经交付的正文", () => {
+    const t = createTask({ title: "z", kind: "code", source: {}, status: "review" });
+    updateTask(t.id, {
+      report: { summary: "改完了导出中心", changes: ["动了 3 个文件"], testSteps: ["跑了 pnpm test"], testResult: "42 passed", screenshots: [], verify: ["旧的一条"], checked: [true] },
+    });
+    updateTaskFromChat(t.id, { verify: ["新方案的一条"] });
+    const a = getTask(t.id)!;
+    // 只换验收点和勾选，终端交付的正文原样留着
+    expect(a.report!.verify).toEqual(["新方案的一条"]);
+    expect(a.report!.checked).toEqual([false]);
+    expect(a.report!.summary).toBe("改完了导出中心");
+    expect(a.report!.changes).toEqual(["动了 3 个文件"]);
+    expect(a.report!.testResult).toBe("42 passed");
   });
 
   it("dropReply 撤掉待审回复；没变化就不记", () => {
