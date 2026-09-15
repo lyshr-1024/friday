@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepWorkItem, nodeKeyOf, pickDocs, pickNodeSchedules, pickTransitions, toTodo } from "./meegle.js";
+import { keepWorkItem, nodeKeyOf, pickDocs, pickLinkedStory, pickNodeSchedules, pickTransitions, toTodo } from "./meegle.js";
 
 describe("Meegle 工作项转待办", () => {
   it("拼出标签、状态与详情链接", () => {
@@ -119,5 +119,24 @@ describe("需求的节点与资料链接", () => {
 
   it("空串和非字符串当没填", () => {
     expect(pickDocs([{ key: "field_8fe714", name: "Requirement doc URL", value: "   " }, { key: "field_1f7126", name: "Design URL", value: { rich: 1 } }])).toEqual({});
+  });
+});
+
+describe("关联需求", () => {
+  it("按 key 取，中英文字段名兜底", () => {
+    expect(pickLinkedStory([{ key: "_field_linked_story", value: { id: 24212172, name: "【裂变】邀请达标不发奖" } }])).toEqual({
+      id: "24212172",
+      name: "【裂变】邀请达标不发奖",
+    });
+    // key 变了但名字对得上
+    expect(pickLinkedStory([{ key: "other", name: "关联需求", value: { id: 1, name: "x" } }])).toEqual({ id: "1", name: "x" });
+    expect(pickLinkedStory([{ key: "other", name: "Linked Requirement", value: { id: 2, name: "y" } }])).toEqual({ id: "2", name: "y" });
+  });
+
+  it("没填、只有一半、类型不对都当没有", () => {
+    expect(pickLinkedStory([])).toBeUndefined();
+    expect(pickLinkedStory([{ key: "_field_linked_story", value: null }])).toBeUndefined();
+    expect(pickLinkedStory([{ key: "_field_linked_story", value: { id: 1 } }])).toBeUndefined();
+    expect(pickLinkedStory([{ key: "_field_linked_story", value: { name: "只有名字" } }])).toBeUndefined();
   });
 });

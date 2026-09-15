@@ -61,6 +61,12 @@ describe("Meegle 工单进任务中枢", () => {
     expect(matchProject("消息记录权限申请", projects)).toBeUndefined();
   });
 
+  it("中文两个字的别名够独特，拉丁字母短词仍要三个字符", () => {
+    const ps = [{ name: "whale-console", dir: "/x/w", aliases: ["风控", "bo"], channels: [], urls: [] }];
+    expect(matchProject("【风控-提醒查询】欠款余额对不上", ps)).toBe("whale-console");
+    expect(matchProject("bond 报表导出时区错乱", ps)).toBeUndefined();
+  });
+
   it("工单一律先排队；理解里写清节点与状态", () => {
     const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectKey: "pk", projectName: "p", url: "u", links: [], createdAt: "2026-09-01T00:00:00Z" };
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
@@ -262,6 +268,15 @@ describe("extractLinks", () => {
     expect(extractLinks(desc)).toEqual(["https://console.longbridge.xyz/wbo/risk/x"]);
     expect(extractLinks(undefined)).toEqual([]);
   });
+
+  it("走查模板只写站内路径时也算线索，完整链接仍排在前面", () => {
+    expect(extractLinks("**操作入口**：`/x/wbo/fund/private-funds/nav` → 工具栏「Add NAV」")).toEqual(["/x/wbo/fund/private-funds/nav"]);
+    expect(extractLinks("见 https://console.longbridge.xyz/wbo/risk/x，入口 `/x/wbo/risk/config`")).toEqual([
+      "https://console.longbridge.xyz/wbo/risk/x",
+      "/x/wbo/risk/config",
+    ]);
+    expect(extractLinks("跑 `pnpm dev` 就行，`/a` 太短")).toEqual([]);
+  });
 });
 
 describe("matchProjectByUrl", () => {
@@ -277,29 +292,5 @@ describe("matchProjectByUrl", () => {
     expect(matchProjectByUrl(["https://console.longbridge.xyz/wbotest/x"], ps)?.name).toBe("老后台");
     expect(matchProjectByUrl(["https://other.example.com/wbo"], ps)).toBeUndefined();
     expect(matchProjectByUrl([], ps)).toBeUndefined();
-  });
-});
-
-describe("缺陷关联需求", () => {
-  const base = { id: "9", name: "【BO 后台】下拉框缺少「日内融平仓」", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectName: "p", projectKey: "pk", url: "u", links: [], createdAt: "2026-09-01T00:00:00Z" };
-
-  it("关联的需求写进 source，理解里也说一句", () => {
-    const t = workItemToTask({ ...base, parent: { id: "23641847", name: "自动平仓重构" } }, projects);
-    expect(t.source.parentId).toBe("23641847");
-    expect(t.source.parentName).toBe("自动平仓重构");
-    expect(t.understanding).toContain("属于需求「自动平仓重构」");
-  });
-
-  it("没关联时两个键都是 undefined，理解里不留空话", () => {
-    const t = workItemToTask(base, projects);
-    expect(t.source.parentId).toBeUndefined();
-    expect(t.source.parentName).toBeUndefined();
-    expect(t.understanding).not.toContain("属于需求");
-  });
-
-  it("页面链接和所属需求可以同时出现", () => {
-    const t = workItemToTask({ ...base, parent: { id: "1", name: "自动平仓重构" }, links: ["https://console.longbridge.xyz/wbo/risk/x"] }, projects);
-    expect(t.understanding).toContain("属于需求「自动平仓重构」");
-    expect(t.understanding).toContain("出问题的页面：https://console.longbridge.xyz/wbo/risk/x");
   });
 });

@@ -3,8 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.32.1",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
+    "postinstall": "find node_modules -maxdepth 7 -path '*node-pty*' -name spawn-helper -type f -exec chmod +x {} +",
     "dev": "pnpm --filter @friday/desktop tauri dev",
     "dev:core": "pnpm --filter @friday/core dev",
     "build": "pnpm -r build",

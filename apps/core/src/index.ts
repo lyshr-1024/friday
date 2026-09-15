@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
 import { reapStaleJobs } from "./memory/jobs.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
+import { backfillSlackLinks } from "./memory/backfillLinks.js";
 import { startScheduler } from "./scheduler/index.js";
 
 initMemory();
@@ -14,6 +15,9 @@ if (reaped) console.log(`收尾 ${reaped} 个上次遗留的终端记录`);
 // todos 表在启动器删掉后就没有界面出口了，把最近写进去的补成任务
 const moved = migrateLocalTodos();
 if (moved) console.log(`把 ${moved} 条本地待办补成了任务`);
+// 存量 Slack 任务的需求关联只在新线程进来时建，老的补一次
+const linked = backfillSlackLinks();
+if (linked) console.log(`给 ${linked} 条 Slack 任务补上了关联需求`);
 
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);

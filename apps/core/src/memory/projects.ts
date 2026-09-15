@@ -33,7 +33,8 @@ export function parseProjects(markdown: string): Project[] {
     if (field && current) {
       const [, key, value] = field;
       if (key === "目录") current.dir = expandHome(value!);
-      if (key === "别名") current.aliases = value!.split(/[,，、\s]+/).filter(Boolean);
+      // 别名不按空格拆：「Whale 管理后台」拆开会留下「管理后台」这种泛词，命中一切后台工单
+      if (key === "别名") current.aliases = value!.split(/[,，、]+/).map((a) => a.trim()).filter(Boolean);
       if (key === "频道") current.channels = value!.split(/[,，、\s]+/).filter(Boolean).map((c) => (c.startsWith("#") ? c : `#${c}`));
       if (key === "地址") current.urls = value!.split(/[,，、\s]+/).filter(Boolean).map(normalizeUrlPrefix);
       if (key === "状态") current.status = value;

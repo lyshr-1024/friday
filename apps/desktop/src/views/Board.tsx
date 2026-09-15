@@ -80,6 +80,14 @@ function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "
   return null;
 }
 
+/** 处理完一条之后接着看哪条：先往下找，没有就往上回退，都没有才不选。 */
+function neighbourOf(id: string, order: string[], live: Task[]): string | null {
+  const at = order.indexOf(id);
+  if (at < 0) return null;
+  const alive = new Set(live.map((t) => t.id));
+  return [...order.slice(at + 1), ...order.slice(0, at).reverse()].find((x) => x !== id && alive.has(x)) ?? null;
+}
+
 function waited(iso: string): string {
   const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (m < 60) return `等了 ${m} 分钟`;
@@ -153,23 +161,12 @@ function MeegleChips({ t, extra }: { t: Task; extra?: string }) {
   );
 }
 
-function IssueBody({ t, onOpenParent }: { t: Task; onOpenParent?: (parentId: string) => void }) {
+function IssueBody({ t }: { t: Task }) {
   const [full, setFull] = useState(false);
   const desc = t.source.description ?? "";
-  const { parentId, parentName } = t.source;
   return (
     <>
       <MeegleChips t={t} extra={ISSUE_STATUS[t.source.statusKey ?? ""] ?? t.source.statusKey} />
-      {parentName && (
-        <div>
-          <span className="k">所属需求</span>
-          <div className="fx__text">
-            {onOpenParent && parentId
-              ? <button className="b b--text" onClick={() => onOpenParent(parentId)}>{parentName}</button>
-              : parentName}
-          </div>
-        </div>
-      )}
       {desc && (
         <div>
           <span className="k">缺陷描述</span>
@@ -181,18 +178,12 @@ function IssueBody({ t, onOpenParent }: { t: Task; onOpenParent?: (parentId: str
   );
 }
 
-function StoryBody({ t, defectCount }: { t: Task; defectCount?: number }) {
+function StoryBody({ t }: { t: Task }) {
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
-      {defectCount ? (
-        <div>
-          <span className="k">关联缺陷</span>
-          <div className="fx__text">{defectCount} 条还开着</div>
-        </div>
-      ) : null}
       {(feDue || beDue) && (
         <div>
           <span className="k">排期</span>
@@ -228,6 +219,14 @@ function byTier(a: Task, b: Task): number {
     (a.due ?? "9").localeCompare(b.due ?? "9") ||
     b.updatedAt.localeCompare(a.updatedAt)
   );
+}
+
+/** 待办右侧：需求名下挂着缺陷时先说这个，这是它现在最要紧的信息 */
+function queuedRightWith(nestedCount: (t: Task) => number) {
+  return (t: Task): string => {
+    const n = nestedCount(t);
+    return n > 0 ? `${n} 条缺陷要改` : queuedRight(t);
+  };
 }
 
 function queuedRight(t: Task): string {
@@ -293,6 +292,8 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 列表此刻从上到下的可见顺序，处理完一条要靠它找到相邻的下一条
+  const orderRef = useRef<string[]>([]);
   const [doingOpen, setDoingOpen] = useState(true);
   const [queuedOpen, setQueuedOpen] = useState<Record<TaskCategory, boolean>>({ slack: true, defect: true, story: true, other: true });
   const [doneOpen, setDoneOpen] = useState(false);
@@ -420,12 +421,16 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
 
   async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
+    // 操作前的顺序才包含被操作的那条，拿它去找相邻项
+    const order = orderRef.current;
     try {
       await fn();
       const b = await taskBoard();
       setBoard(b);
       const after = t ? b.tasks.find((x) => x.id === t.id) : undefined;
-      if (t && (!after || after.status !== t.status)) setSelectedId(null);
+      // 处理完接着看相邻的那条。清空选中会让焦点回落到 pinned[0] / decide[0]，
+      // 而刚操作的那条常常根本不在顶上那个分组里，看着就是整个列表跳走了。
+      if (t && (!after || after.status !== t.status)) setSelectedId(neighbourOf(t.id, order, b.tasks));
       if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -441,27 +446,25 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   // 终端在问你 = 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
   const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
-  const queued = rest.filter((t) => QUEUED.includes(t.status)).sort(byTier);
+  // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
+  // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
+  const storyIds = new Set(tasks.filter((t) => t.source.meegleId).map((t) => t.source.meegleId!));
+  const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
+  /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
+  const nestedCount = (t: Task) =>
+    t.source.meegleId
+      ? tasks.filter((x) => x.source.linkedStoryId === t.source.meegleId && x.status !== "done" && x.status !== "ignored").length
+      : 0;
+  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t)).sort(byTier);
   // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
-  const queuedBy = (c: TaskCategory) => {
-    const list = queued.filter((t) => taskCategory(t.source) === c);
-    // 缺陷按所属需求聚簇：同一条需求下的缺陷排在一起，一眼看出哪个需求在冒问题
-    if (c !== "defect") return list;
-    const order = new Map<string, number>();
-    for (const t of list) {
-      const key = t.source.parentId ?? "";
-      if (!order.has(key)) order.set(key, order.size);
-    }
-    return [...list].sort((a, b) => (order.get(a.source.parentId ?? "") ?? 0) - (order.get(b.source.parentId ?? "") ?? 0));
-  };
-  // 需求 → 它下面有几条缺陷还开着
-  const defectCount = new Map<string, number>();
-  for (const t of queued) {
-    if (taskCategory(t.source) !== "defect" || !t.source.parentId) continue;
-    defectCount.set(t.source.parentId, (defectCount.get(t.source.parentId) ?? 0) + 1);
-  }
+  const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+  // 折叠起来的分组不算可见，否则会把焦点交给一条看不见的任务
+  orderRef.current = (view === "all"
+    ? ALL_ORDER.flatMap((st) => tasks.filter((t) => t.status === st))
+    : [...pinned, ...decide, ...(doingOpen ? doing : []), ...QUEUE_GROUPS.flatMap((c) => (queuedOpen[c] ? queuedBy(c) : [])), ...(doneOpen ? done : [])]
+  ).map((t) => t.id);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? pinned[0] ?? decide[0] ?? null;
   useEffect(() => {
@@ -568,7 +571,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                     <Fragment key={cat}>
                       {group(TASK_CATEGORY_LABEL[cat], list, queuedOpen[cat], () => setQueuedOpen((v) => ({ ...v, [cat]: !v[cat] })),
                         cat === "other" ? "没有其他待办" : cat === "slack" ? "没有 Slack 待办" : `没有${TASK_CATEGORY_LABEL[cat]}，Meegle 分派给你的会汇到这里`,
-                        queuedRight, (t) => !t.due && t.priority !== "high",
+                        queuedRightWith(nestedCount), (t) => !t.due && t.priority !== "high",
                         // 学一题 / Meegle 同步挂在第一组的头上，三组共用一套入口
                         i === 0 ? (
                           <>
@@ -589,18 +592,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
           </aside>
           <section className="split__detail" ref={detailRef}>
             {!board ? null : focus ? (
-              <Focus
-                key={focus.id}
-                t={focus}
-                onAct={act}
-                onClose={() => setSelectedId(null)}
-                closable={false}
-                defectCount={focus.source.meegleId ? defectCount.get(focus.source.meegleId) : undefined}
-                onOpenParent={(parentId) => {
-                  const parent = tasks.find((x) => x.source.meegleId === parentId);
-                  if (parent) setSelectedId(parent.id);
-                }}
-              />
+              <Focus key={focus.id} t={focus} all={board.tasks} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} closable={false} />
             ) : (
               <div className="empty">
                 <strong>{view === "all" ? "点左边一条看详情" : "没有等你决定的事"}</strong>
@@ -614,15 +606,14 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   );
 }
 
-function Focus({ t, onAct, onClose, closable, onOpenParent, defectCount, ref }: {
+function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
   t: Task;
+  /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
+  all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
   onClose: () => void;
+  onPick?: (id: string) => void;
   closable: boolean;
-  /** 缺陷卡上点「所属需求」跳到那条需求 */
-  onOpenParent?: (parentId: string) => void;
-  /** 这条需求下还开着几个缺陷 */
-  defectCount?: number;
   ref?: React.Ref<HTMLElement>;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -713,6 +704,11 @@ function Focus({ t, onAct, onClose, closable, onOpenParent, defectCount, ref }: 
   const open = t.status !== "done" && t.status !== "ignored";
   const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
+  // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
+  const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
+  const childIssues = t.source.meegleId ? all.filter((x) => x.source.linkedStoryId === t.source.meegleId) : [];
+  const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
+
   const prior = thread?.brief?.priorMessages ?? [];
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
@@ -771,8 +767,41 @@ function Focus({ t, onAct, onClose, closable, onOpenParent, defectCount, ref }: 
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
 
-      {isIssue(t) && <IssueBody t={t} onOpenParent={onOpenParent} />}
-      {isStory(t) && <StoryBody t={t} defectCount={defectCount} />}
+      {/* 缺陷挂在哪个需求下 / 需求名下有哪些缺陷。Meegle 里填好的关联，点一下就能跳过去 */}
+      {t.source.linkedStoryId && (
+        <div className="fx__rel">
+          <span className="k">{t.kind === "slack" ? "聊的是需求" : "属于需求"}</span>
+          {/* 需求没分派给用户时任务板里没有它，只显示名字（或工单号）不给跳转 */}
+          {parentStory ? (
+            <button className="link" onClick={() => onPick?.(parentStory.id)}>{parentStory.title}</button>
+          ) : (
+            <span className="fx__rel-plain">
+              {t.source.linkedStoryName ?? `Meegle #${t.source.linkedStoryId}`}
+              <span className="fx__rel-note">（没分派给你，不在任务板里）</span>
+            </span>
+          )}
+        </div>
+      )}
+      {childIssues.length > 0 && (
+        <details className="fx__rel-list">
+          <summary>
+            {/* 名下挂着的可能是缺陷，也可能是 Slack 上聊这件事的线程 */}
+            <span>{childIssues.every((c) => c.kind === "slack") ? "相关的 Slack 讨论" : childIssues.some((c) => c.kind === "slack") ? "相关的缺陷与讨论" : "名下的缺陷"}</span>
+            <span className="fx__rel-count">{childIssues.length} 条{openChildren > 0 ? `，${openChildren} 条未完` : "，都收工了"}</span>
+          </summary>
+          <ul>
+            {childIssues.map((c) => (
+              <li key={c.id}>
+                <span className={`dot dot--${c.status === "done" || c.status === "ignored" ? "done" : "decide"}`} />
+                <button className="link" onClick={() => onPick?.(c.id)}>{c.title}</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {isIssue(t) && <IssueBody t={t} />}
+      {isStory(t) && <StoryBody t={t} />}
 
       {thread && thread.items.length > 0 && (
         <div className="fx__source">

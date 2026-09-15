@@ -16,14 +16,6 @@ interface TodoItem {
 }
 
 /** 分派给我的 Meegle 工作项，已拼好任务中枢需要的字段。 */
-type Parent = { id: string; name: string } | undefined;
-
-interface RelationDef {
-  id: string;
-  work_item_type_key: string;
-  relation_details?: Array<{ work_item_type_key: string }>;
-}
-
 export interface MeegleWorkItem {
   id: string;
   name: string;
@@ -41,8 +33,6 @@ export interface MeegleWorkItem {
   docs?: Docs;
   reporter?: string;
   description?: string;
-  /** 缺陷挂的需求，story 上没有 */
-  parent?: { id: string; name: string };
   projectName: string;
   projectKey: string;
   url: string;
@@ -50,6 +40,8 @@ export interface MeegleWorkItem {
   due?: string;
   feDue?: string;
   beDue?: string;
+  /** Meegle 里填的「关联需求」：缺陷属于哪个需求 */
+  linkedStory?: { id: string; name: string };
 }
 
 interface TodoPage {
@@ -63,7 +55,7 @@ interface WorkItem {
     work_item_name: string;
     create_time: string;
     create_by?: { name?: string };
-    role_members?: Array<{ name: string; members: Array<{ name?: string }> }>;
+    role_members?: Array<{ name: string; members: Array<{ name?: string; key?: string }> }>;
     owned_project: { simple_name: string };
     work_item_status: { key?: string; name: string };
     work_item_type: { key: string; name: string };
@@ -118,6 +110,18 @@ export function pickDocs(fields: Array<{ key: string; name?: string; value: unkn
   return out;
 }
 
+/**
+ * 缺陷的「关联需求」。字段 key 是 _field_linked_story，字段名在中英文环境下分别是
+ * 「关联需求」/「Linked Requirement」，所以 key 找不到时按名字兜一层。
+ */
+export function pickLinkedStory(fields: Array<{ key: string; name?: string; value: unknown }>): { id: string; name: string } | undefined {
+  const hit = fields.find((f) => f.key === "_field_linked_story") ?? fields.find((f) => f.name && /关联需求|linked\s*requirement/i.test(f.name));
+  const v = hit?.value as { id?: unknown; name?: unknown } | undefined;
+  const id = v?.id === undefined || v.id === null ? "" : String(v.id);
+  const name = typeof v?.name === "string" ? v.name.trim() : "";
+  return id && name ? { id, name } : undefined;
+}
+
 /** Friday 里能一键做的状态流转，顺序就是按钮顺序。需要填表单的不在此列。 */
 const TRANSITIONS: Array<[string, string]> = [
   ["IN PROGRESS", "开始处理"],
@@ -170,7 +174,7 @@ interface WorkItem {
     work_item_name: string;
     create_time: string;
     create_by?: { name?: string };
-    role_members?: Array<{ name: string; members: Array<{ name?: string }> }>;
+    role_members?: Array<{ name: string; members: Array<{ name?: string; key?: string }> }>;
     owned_project: { simple_name: string };
     work_item_status: { key?: string; name: string };
     work_item_type: { key: string; name: string };
@@ -192,15 +196,19 @@ export function toTodo(host: string, item: WorkItem): Todo {
   };
 }
 
-const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
+export const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
 
 /**
  * 缺陷描述里的「测试环境」链接就是出问题的页面，是定位代码最强的线索——
  * 标题只写「【BO 后台】…」，归不到具体仓库。Meegle / 飞书自己的链接要排掉。
  */
+/** 走查模板的「操作入口」写的是反引号包的站内路径而不是完整地址，同样能落到项目的地址前缀上。 */
+const INLINE_PATH = /`(\/[A-Za-z0-9\-_/]{3,})`/g;
+
 export function extractLinks(description: unknown): string[] {
   const text = typeof description === "string" ? description : JSON.stringify(description ?? "");
-  const found = text.match(/https?:\/\/[^\s)\]<>"'|]+/g) ?? [];
+  // 非 ASCII 一律不算链接的一部分：中文描述里「见 https://x，然后…」会把后面半句话都粘进来
+  const found = text.match(/https?:\/\/[^\s)\]<>"'|\u00a0-\uffff]+/g) ?? [];
   const out: string[] = [];
   for (const raw of found) {
     // 中文描述里 URL 后面常常直接跟句号顿号，连进来链接就废了
@@ -208,10 +216,13 @@ export function extractLinks(description: unknown): string[] {
     if (SELF_HOSTS.test(url) || out.includes(url)) continue;
     out.push(url);
   }
+  for (const m of text.matchAll(INLINE_PATH)) {
+    if (!out.includes(m[1]!)) out.push(m[1]!);
+  }
   return out.slice(0, 5);
 }
 
-export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedules: NodeSchedules = {}, parent?: { id: string; name: string }): MeegleWorkItem {
+export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedules: NodeSchedules = {}): MeegleWorkItem {
   const a = item.work_item_attribute;
   const priority = (item.work_item_fields.find((f) => f.key === "priority")?.value as { label?: string } | undefined)?.label;
   const tags = (item.work_item_fields.find((f) => f.key === "tags")?.value as Array<{ label?: string }> | undefined)
@@ -220,6 +231,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
   const description = (item.work_item_fields.find((f) => f.key === "description")?.value as string | undefined)?.trim();
   const reporter = a.role_members?.find((r) => /reporter/i.test(r.name))?.members[0]?.name ?? a.create_by?.name;
   const docs = pickDocs(item.work_item_fields);
+  const linkedStory = pickLinkedStory(item.work_item_fields);
   const nodeKey = nodeKeyOf(todo.node_info?.node_state_key, todo.work_item_info.work_item_id);
   const due = todo.schedule?.end_time?.trim();
   return {
@@ -228,7 +240,6 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
     typeName: a.work_item_type.name,
     typeKey: a.work_item_type.key,
     links: extractLinks(item.work_item_fields.find((f) => f.key === "description")?.value),
-    ...(parent ? { parent } : {}),
     status: a.work_item_status.name,
     statusKey: a.work_item_status.key ?? "",
     projectKey: todo.project_key,
@@ -240,6 +251,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
     ...(schedules.feDue ? { feDue: schedules.feDue } : {}),
     ...(schedules.beDue ? { beDue: schedules.beDue } : {}),
     ...(priority ? { priority } : {}),
+    ...(linkedStory ? { linkedStory } : {}),
     ...(todo.node_info?.node_name ? { node: todo.node_info.node_name } : {}),
     projectName: todo.project_name ?? a.owned_project.simple_name,
     url: `https://${host}/${a.owned_project.simple_name}/${a.work_item_type.key}/detail/${a.work_item_id}`,
@@ -251,6 +263,8 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
 export class MeegleConnector implements Connector {
   source = "meegle" as const;
 
+  private me: string | undefined;
+
   constructor(private bin = "meegle") {}
 
   async fetchTodos(): Promise<Todo[]> {
@@ -258,7 +272,43 @@ export class MeegleConnector implements Connector {
   }
 
   async fetchWorkItems(): Promise<MeegleWorkItem[]> {
-    return (await this.fetchRaw()).map(([it, d, host, sch, parent]) => toWorkItem(host, it, d, sch, parent));
+    return (await this.fetchRaw()).map(([it, d, host, sch]) => toWorkItem(host, it, d, sch));
+  }
+
+  /** 当前登录用户的 user_key。判断「这条需求里有没有我」要用它精确比对，不靠名字。 */
+  async myKey(): Promise<string | undefined> {
+    if (this.me !== undefined) return this.me || undefined;
+    try {
+      const res = await runJson<{ user_key?: string }>(this.bin, ["user", "me", "--format", "json"]);
+      this.me = res.user_key ?? "";
+    } catch {
+      this.me = "";
+    }
+    return this.me || undefined;
+  }
+
+  /**
+   * 单独拉一条工单（不经 mywork todo，所以没分派给我的也能拿到）。
+   * 用来看缺陷关联的那个需求里有没有我的角色。
+   */
+  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; statusKey: string; roles: Array<{ role: string; memberKeys: string[] }> } | undefined> {
+    try {
+      const d = await runJson<WorkItem>(this.bin, [
+        "workitem", "get",
+        "--work-item-id", workItemId,
+        "--project-key", projectKey,
+        "--fields", "priority,tags,description",
+        "--format", "json",
+      ]);
+      const a = d.work_item_attribute;
+      return {
+        name: a.work_item_name.trim(),
+        statusKey: a.work_item_status.key ?? "",
+        roles: (a.role_members ?? []).map((r) => ({ role: r.name, memberKeys: r.members.map((m) => m.key).filter((k): k is string => Boolean(k)) })),
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   async listRawTransitions(projectKey: string, workItemId: string): Promise<RawTransition[]> {
@@ -347,52 +397,7 @@ export class MeegleConnector implements Connector {
     }
   }
 
-  /** 「缺陷 → 需求」那条关联定义的 id，一个空间一条，缓存住。 */
-  private relationIds = new Map<string, string | null>();
-
-  private async defectRelationId(projectKey: string): Promise<string | null> {
-    const hit = this.relationIds.get(projectKey);
-    if (hit !== undefined) return hit;
-    let id: string | null = null;
-    try {
-      const res = await runJson<{ list?: RelationDef[] | null }>(this.bin, [
-        "relation", "meta-definitions",
-        "--project-key", projectKey,
-        "--format", "json",
-      ]);
-      // 按类型找而不是按名字：名字是本地化的，换个语言就失配
-      const def = (res.list ?? []).find(
-        (r) => r.work_item_type_key === "issue" && (r.relation_details ?? []).some((d) => d.work_item_type_key === "story"),
-      );
-      id = def?.id ?? null;
-    } catch {
-      id = null;
-    }
-    this.relationIds.set(projectKey, id);
-    return id;
-  }
-
-  /** 缺陷挂的需求。只有 issue 有；查不到当作没挂，不拖垮整次同步。 */
-  private async linkedRequirement(it: TodoItem): Promise<{ id: string; name: string } | undefined> {
-    if (it.work_item_info.work_item_type_key !== "issue") return undefined;
-    const relationId = await this.defectRelationId(it.project_key);
-    if (!relationId) return undefined;
-    try {
-      const res = await runJson<{ list?: Array<{ id: number | string; name?: string }> | null }>(this.bin, [
-        "relation", "list",
-        "--work-item-id", String(it.work_item_info.work_item_id),
-        "--project-key", it.project_key,
-        "--relation-id", relationId,
-        "--format", "json",
-      ]);
-      const first = (res.list ?? [])[0];
-      return first ? { id: String(first.id), name: (first.name ?? "").trim() } : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async fetchRaw(): Promise<Array<[TodoItem, WorkItem, string, NodeSchedules, Parent]>> {
+  private async fetchRaw(): Promise<Array<[TodoItem, WorkItem, string, NodeSchedules]>> {
     const auth = await runJson<AuthStatus>(this.bin, ["auth", "status", "--format", "json"]);
     if (!auth.authenticated || !auth.host) throw new Error("Meegle 未登录，请在终端执行 meegle auth login");
 
@@ -409,7 +414,9 @@ export class MeegleConnector implements Connector {
         "workitem", "get",
         "--work-item-id", String(it.work_item_info.work_item_id),
         "--project-key", it.project_key,
-        "--fields", it.work_item_info.work_item_type_key === "issue" ? "priority,tags,description" : "priority,tags,description,field_8fe714,field_8190c7,field_1f7126",
+        // 缺陷多要一个 _field_linked_story（Meegle 里的「关联需求」）：很多缺陷标题里
+        // 根本没有需求名（「【BO】开关开到关没有弹出二次确认弹窗」），只有这个字段能关联上
+        "--fields", it.work_item_info.work_item_type_key === "issue" ? "priority,tags,description,_field_linked_story" : "priority,tags,description,field_8fe714,field_8190c7,field_1f7126",
         "--format", "json",
       ]),
     );
@@ -417,7 +424,6 @@ export class MeegleConnector implements Connector {
       .map((it, i) => [it, details[i]!] as const)
       .filter(([, d]) => keepWorkItem(d.work_item_attribute.work_item_type.key, d.work_item_attribute.work_item_status.key ?? ""));
     const schedules = await mapLimit(kept, 3, ([it]) => this.nodeSchedules(it));
-    const parents = await mapLimit(kept, 3, ([it]) => this.linkedRequirement(it));
-    return kept.map(([it, d], i) => [it, d, auth.host!, schedules[i]!, parents[i]]);
+    return kept.map(([it, d], i) => [it, d, auth.host!, schedules[i]!]);
   }
 }

@@ -3741,3 +3741,86 @@ body,
   padding-top: 12px;
   border-top: 1px solid var(--line-1);
 }
+
+/* ── Meegle 关联需求：缺陷往上挂需求，需求往下列缺陷 */
+.fx__rel {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  font-size: var(--t-aux);
+  letter-spacing: var(--tr-aux);
+}
+.fx__rel .k {
+  margin-bottom: 0;
+  flex: none;
+}
+.fx__rel-plain {
+  color: var(--fg-2);
+}
+.fx__rel-note {
+  margin-left: var(--s-1);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+}
+.fx__rel-list {
+  margin-top: var(--s-3);
+}
+.fx__rel-list > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: default;
+  list-style: none;
+  color: var(--fg-3);
+  font-size: var(--t-aux);
+  letter-spacing: var(--tr-aux);
+  transition: color var(--dur) var(--ease);
+}
+.fx__rel-list > summary::-webkit-details-marker {
+  display: none;
+}
+.fx__rel-list > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform var(--dur) var(--ease);
+}
+.fx__rel-list[open] > summary::after {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+.fx__rel-list > summary:hover {
+  color: var(--fg-2);
+}
+.fx__rel-list > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.fx__rel-count {
+  color: var(--fg-4);
+  font-variant-numeric: tabular-nums;
+}
+.fx__rel-list ul {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.fx__rel-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--t-aux);
+}
+.fx__rel-list li .link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

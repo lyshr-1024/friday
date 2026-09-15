@@ -299,15 +299,17 @@ export interface TaskSource {
   meegleId?: string;
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
+  /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
+  linkedStoryId?: string;
+  linkedStoryName?: string;
+  /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
+  storyContainer?: boolean;
   /** Meegle 空间 key，流转状态要用 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
   statusKey?: string;
   /** tags 字段的原始 label */
   meegleTags?: string[];
-  /** 缺陷挂在哪条需求下（Meegle 的 Defect - Linked Requirement 关联） */
-  parentId?: string;
-  parentName?: string;
   /** 后台前端开发节点排期结束日 YYYY-MM-DD */
   feDue?: string;
   /** 服务端开发节点排期结束日 */

@@ -12,10 +12,122 @@ import { state } from "../scheduler/index.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
-/** 工单标题里出现项目名或别名（≥3 个字符）就算属于那个项目。 */
+const OPEN: TaskStatus[] = ["collected", "understood", "review"];
+
+/** 中文两个字（风控、基金）已经够独特，拉丁字母短词太容易撞进别的词里（bo 命中 bond），仍要三个。 */
+function distinctive(name: string): boolean {
+  return /[\u4e00-\u9fa5]/.test(name) ? name.length >= 2 : name.length >= 3;
+}
+
+/** 工单标题里出现项目名或别名就算属于那个项目。 */
 export function matchProject(title: string, projects: Project[]): string | undefined {
   const t = title.toLowerCase();
-  return projects.find((p) => [p.name, ...p.aliases].some((n) => n.length >= 3 && t.includes(n.toLowerCase())))?.name;
+  return projects.find((p) => [p.name, ...p.aliases].some((n) => distinctive(n) && t.includes(n.toLowerCase())))?.name;
+}
+
+/**
+ * 顺着关联需求找项目：需求那条任务已经归好项目就直接用，否则拿需求标题再匹配一次。
+ * 缺陷标题里往往只有【BO】这类泛指，需求标题才带得上项目名。
+ */
+export function projectOfStory(story: { id: string; name: string }, projects: Project[]): string | undefined {
+  const parent = findTaskBySource((s) => s.meegleId === story.id, true);
+  return parent?.project ?? matchProject(story.name, projects);
+}
+
+/**
+ * 需求里我担着哪些角色。判据是 user_key，不靠名字。
+ * 一个角色可以有多个成员（真实数据里 Business owner 常常两人），只要包含我就算。
+ * 不按角色类型过滤：用户明确要求任何角色里有自己都算这需求归他。
+ */
+export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me: string): string[] {
+  return roles.filter((r) => r.memberKeys.includes(me)).map((r) => r.role);
+}
+
+/** 关了的需求不必再拉进来当容器。 */
+const STORY_CLOSED = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
+
+/**
+ * 同一个需求下已经有一条在问归属了吗。有就别再问第二遍——答案是同一个。
+ * 没挂在需求下的（linkedStoryId 为空）各问各的，它们确实是不同的事。
+ */
+export function alreadyAsking(task: Task, tasks?: Task[]): Task | undefined {
+  const story = task.source.linkedStoryId;
+  if (!story) return undefined;
+  const pool = tasks ?? listTasks(OPEN, 500);
+  return pool.find((t) => t.id !== task.id && t.attention === "question" && t.source.linkedStoryId === story);
+}
+
+/**
+ * 需求容器该不该跟着收尾：名下缺陷全部收工才收。
+ * 容器本来就不在 Meegle 的分派列表里（当前节点在别人手上），不能按「不再分派给你」判。
+ * 一条缺陷都没有时也不收——刚建出来还没挂上就被收掉了。
+ */
+export function containerDone(kids: Array<Pick<Task, "status">>): boolean {
+  return kids.length > 0 && kids.every((x) => x.status === "done" || x.status === "ignored");
+}
+
+/**
+ * 缺陷关联的需求不在任务板里（当前节点不在我手上，所以不在 mywork todo），
+ * 但只要需求的角色成员里有我，它就是我的活——拉进来建一条任务当容器，
+ * 名下的缺陷挂在它下面，列表里不再各自占一行。
+ */
+export async function ensureStoryContainers(connector = new MeegleConnector()): Promise<number> {
+  const orphans = new Map<string, { projectKey: string; name: string }>();
+  for (const t of listTasks(OPEN, 500)) {
+    const { linkedStoryId, linkedStoryName, meegleProject } = t.source;
+    if (!linkedStoryId || !meegleProject) continue;
+    // 只有「还开着的需求任务」才算容器已到位。已经收掉的不算——否则一旦被误收，
+    // 它会被当成已存在而永远不再复活。
+    const existing = findTaskBySource((s) => s.meegleId === linkedStoryId, true);
+    if (existing && existing.status !== "done" && existing.status !== "ignored") continue;
+    // 用户自己标忽略的别硬拉回来
+    if (existing?.status === "ignored") continue;
+    orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "" });
+  }
+  if (!orphans.size) return 0;
+  const me = await connector.myKey();
+  if (!me) {
+    console.log("[meegle] 拿不到当前用户 key，跳过需求容器");
+    return 0;
+  }
+
+  let made = 0;
+  for (const [storyId, { projectKey, name }] of orphans) {
+    // 这个容器之前建过又被收了（名下缺陷当时都完了），现在又来了新缺陷：拉回来复用，
+    // 不必重新问一次 Meegle。只复活容器，不碰用户真正完成过的、分派给他的需求工单。
+    const closedBefore = findTaskBySource((s) => s.meegleId === storyId && Boolean(s.storyContainer), true);
+    if (closedBefore) {
+      updateTask(closedBefore.id, { status: "understood" });
+      record({ taskId: closedBefore.id, action: "story_container_revived", why: "名下还有没处理完的缺陷", how: "容器之前被自动收尾误收，拉回待办", evidence: { meegleId: storyId }, risk: "read" });
+      made += 1;
+      continue;
+    }
+    const story = await connector.getWorkItem(projectKey, storyId);
+    if (!story) continue;
+    if (STORY_CLOSED.test(story.statusKey)) continue;
+    const roles = myRoles(story.roles, me);
+    if (!roles.length) continue;
+    const projects = loadProjects();
+    const project = matchProject(story.name, projects);
+    const t = createTask({
+      title: story.name || name || `Meegle 需求 #${storyId}`,
+      kind: "meegle",
+      status: "understood",
+      understanding: `Meegle 需求 #${storyId}，我在这个需求里担 ${roles.join("、")}。当前节点不在我手上（状态 ${story.statusKey}），但名下的缺陷要我改。`,
+      source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey, storyContainer: true },
+      ...(project ? { project } : {}),
+    });
+    record({
+      taskId: t.id,
+      action: "story_container_created",
+      why: `名下有分派给我的缺陷，而我在这个需求里担 ${roles.join("、")}`,
+      how: "把需求拉进任务板当容器，缺陷挂在它下面",
+      evidence: { meegleId: storyId, roles, statusKey: story.statusKey },
+      risk: "read",
+    });
+    made += 1;
+  }
+  return made;
 }
 
 export function priorityOf(label?: string): Urgency {
@@ -34,6 +146,7 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     item.feDue ? `后台前端排期 ${item.feDue}` : "",
     item.beDue ? `服务端排期 ${item.beDue}` : "",
     item.tags?.length ? `标签 ${item.tags.join("、")}` : "",
+    item.linkedStory ? `属于需求「${item.linkedStory.name}」#${item.linkedStory.id}` : "",
     item.due ? `截止 ${item.due.slice(0, 10)}` : "",
   ]
     .filter(Boolean)
@@ -41,10 +154,14 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   // 分派给我的工单一律先排队，不占「待我决定」：这个组织里 P0/P1 太常见，真要拍板的由 Slack/口头触发。
   const status: TaskStatus = "understood";
   // 描述里的页面链接比标题可靠得多：标题只写「【BO 后台】…」，归不到仓库；链接带域名和 app 段。
-  const project = matchProjectByUrl(item.links, projects)?.name ?? matchProject(item.name, projects);
+  // 再兜一层关联需求：缺陷标题常常不带需求名（「【BO】开关开到关没有弹出二次确认弹窗」），
+  // 但它挂在哪个需求下是 Meegle 里填好的，需求那条已经归过项目就顺着拿。
+  const project =
+    matchProjectByUrl(item.links, projects)?.name ??
+    matchProject(item.name, projects) ??
+    (item.linkedStory ? projectOfStory(item.linkedStory, projects) : undefined);
   const page = item.links[0];
-  const parent = item.parent?.name ? `。属于需求「${item.parent.name}」` : "";
-  const full = `${understanding}${parent}${page ? `。出问题的页面：${page}` : ""}`;
+  const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
   // 这些键始终写出（含 undefined），工单撤掉排期或标签时 source 的 merge 才能抹掉旧值
   const source = {
     meegleType: item.typeKey,
@@ -58,13 +175,11 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     docs: item.docs,
     nodeKey: item.nodeKey,
     nodeName: item.node,
-    parentId: item.parent?.id,
-    parentName: item.parent?.name,
+    linkedStoryId: item.linkedStory?.id,
+    linkedStoryName: item.linkedStory?.name,
   };
   return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
-
-const OPEN: TaskStatus[] = ["collected", "understood", "review"];
 
 /** 缺陷转到这个状态就不用我修了，任务直接收掉，不必等下一次同步。 */
 const DONE_STATE = "RESOLVED";
@@ -175,9 +290,27 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     let closed = 0;
     for (const t of listTasks(OPEN, 500)) {
       if (t.kind !== "meegle" || !t.source.meegleId || live.has(t.source.meegleId)) continue;
+      // 需求容器本来就不在分派列表里（当前节点在别人手上），这正是它要当容器的原因——
+      // 不能按「不再分派给你」把它收掉，否则建出来下次同步就没了。
+      // 它的收尾由名下缺陷决定：缺陷都完了才跟着收。
+      if (t.source.storyContainer) {
+        const kids = listTasks().filter((x) => x.source.linkedStoryId === t.source.meegleId);
+        if (!containerDone(kids)) continue;
+        updateTask(t.id, { status: "done" });
+        record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });
+        closed++;
+        continue;
+      }
       updateTask(t.id, { status: "done" });
       record({ taskId: t.id, action: "meegle_done", why: "这个工单不再分派给你（已流转或关闭）", how: "同步时发现它不在分派列表里，标记完成", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
+    }
+    // 缺陷关联的需求不在任务板里时，只要我在那个需求里担角色就拉进来当容器
+    try {
+      const made = await ensureStoryContainers(connector);
+      if (made) console.log(`[meegle] 拉进 ${made} 条需求当容器`);
+    } catch (e) {
+      console.error(`[meegle] 建需求容器失败：${e instanceof Error ? e.message : String(e)}`);
     }
     meegleState.lastSyncAt = new Date().toISOString();
     meegleState.lastError = null;
@@ -209,13 +342,21 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<
   }
 
   if (verdict.kind === "ask") {
+    // 同一个需求下的几条缺陷归属是同一个答案，问一遍就够——实测一个需求下
+    // 三条缺陷各问了一次「这是哪个项目的」，答一次该覆盖全部。
+    const asked = alreadyAsking(task);
+    if (asked) {
+      updateTask(task.id, { progress: `等你回答「${asked.title.slice(0, 20)}」那条的归属，同一个需求下的一起定` });
+      console.log(`[meegle] ${item.id} 的归属跟着同需求那条一起问，不重复提问`);
+      return;
+    }
     updateTask(task.id, { attention: "question", progress: verdict.question });
     record({
       taskId: task.id,
       action: "intake_ask",
       why: verdict.why || "自己判断不了，需要用户给一句",
       how: verdict.question,
-      evidence: { meegleId: item.id },
+      evidence: { meegleId: item.id, ...(task.source.linkedStoryId ? { linkedStoryId: task.source.linkedStoryId } : {}) },
       risk: "read",
     });
     state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question });
