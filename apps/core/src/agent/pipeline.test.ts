@@ -3,11 +3,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codeTaskDetail, startAutonomousJob, threadToTask } from "./pipeline.js";
-import { createTask } from "../memory/tasks.js";
+import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask } from "./pipeline.js";
+import { createTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { setThreshold } from "../memory/thresholds.js";
 import { attachToThread, getThread } from "../memory/threads.js";
+import { addInboxItems } from "../memory/inbox.js";
+import { initMemory } from "../memory/db.js";
 
 const thread = {
   id: "t", kind: "dm" as const, userId: "U", userName: "灵雨", channelId: "D", channelName: "私聊",
@@ -166,5 +168,53 @@ describe("自动回复的账本可读性（Task 6 review round 2）", () => {
     expect(task.status).toBe("blocked");
     const ev = listAudit({ taskId: task.id }).find((e) => e.action === "slack_reply_sent")!;
     expect(ev.evidence.error).toContain("token 过期");
+  });
+});
+
+describe("同一线程不重复建任务", () => {
+  it("上一条任务已收工，同线程再来消息时复用它而不是新建第二条", async () => {
+    const thread = mkRealThread("th-reuse");
+    const brief = { situation: "问进度", needs: "回一句", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
+    const first = await threadToTask(thread, brief);
+    updateTask(first.id, { status: "done" });
+    const again = await threadToTask(thread, { ...brief, situation: "又催了一遍" });
+    expect(again.id).toBe(first.id);
+    expect(listTasks().filter((t) => t.source.threadId === thread.id)).toHaveLength(1);
+    expect(again.status).toBe("understood");
+  });
+});
+
+describe("任务收工时线程跟着收工", () => {
+  it("标完成会把线程关掉，下一条消息才能干净地另起一条", () => {
+    const thread = mkRealThread("th-close");
+    const task = createTask({ title: "回复拂晓", kind: "slack", source: { threadId: thread.id }, status: "understood" });
+    closeTaskThread(updateTask(task.id, { status: "done" })!);
+    expect(getThread(thread.id)!.status).toBe("done");
+  });
+
+  it("没有线程来源的任务收工时什么都不做", () => {
+    const task = createTask({ title: "口头交代", kind: "verbal", source: { note: "补 README" }, status: "understood" });
+    expect(() => closeTaskThread(updateTask(task.id, { status: "done" })!)).not.toThrow();
+  });
+});
+
+describe("收工 + 新消息的完整链路", () => {
+  it("任务标完成关掉线程后，对方再来消息是一条新线程新任务，旧任务不被翻出来", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const G = { kind: "mention" as const, channelId: "C9", channelName: "#链路", userId: "U9L", userName: "拂晓", permalink: "", receivedAt: "", done: false };
+    const [first] = addInboxItems([{ ...G, id: "C9:1", ts: "1760000100", text: "验收问题改一波" }]);
+    const t1 = attachToThread(first!, 1760000101000);
+    const brief = { situation: "催验收", needs: "改一波", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
+    const task1 = await threadToTask(getThread(t1)!, brief);
+    closeTaskThread(updateTask(task1.id, { status: "done" })!);
+
+    const [next] = addInboxItems([{ ...G, id: "C9:2", ts: "1760000200", text: "另外发布也安排下" }]);
+    const t2 = attachToThread(next!, 1760000201000);
+    expect(t2).not.toBe(t1);
+    const task2 = await threadToTask(getThread(t2, true)!, { ...brief, situation: "催发布" });
+    expect(task2.id).not.toBe(task1.id);
+    expect(task2.status).toBe("understood");
+    // 新任务的功课里不该再出现上一轮已经收工的那条消息
+    expect(getThread(t2, true)!.items.map((i) => i.id)).toEqual(["C9:2"]);
   });
 });

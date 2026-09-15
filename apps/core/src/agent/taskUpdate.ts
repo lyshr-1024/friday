@@ -5,6 +5,7 @@ import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
+import { closeTaskThread } from "./pipeline.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -117,7 +118,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     const closing = patch.status === "done" || patch.status === "ignored";
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
-    if (closing) closeTaskTerminal(task, "用户在会话里说这条任务收工了");
+    if (closing) { closeTaskTerminal(task, "用户在会话里说这条任务收工了"); closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done"); }
   }
 
   if (changed.length) {

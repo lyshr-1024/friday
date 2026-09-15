@@ -11,7 +11,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
 import { getThreshold } from "../memory/thresholds.js";
-import { markAutoDone, threadCategory } from "../memory/threads.js";
+import { markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
 import { decide } from "./gate.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
@@ -42,15 +42,29 @@ export interface ThreadDeps {
   slackPost?: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }>;
 }
 
+/**
+ * 任务收工时把它的 Slack 线程一并关掉。
+ * 不关的话线程一直 open，对方下一条消息会接回这条老线程，
+ * 带着已经处理完的旧消息重做一遍功课——用户看到的就是「处理过的又回来了」。
+ */
+export function closeTaskThread(task: Task, status: "done" | "ignored" = "done"): void {
+  if (task.source.threadId) setThreadStatus(task.source.threadId, status);
+}
+
 export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps = {}): Promise<Task> {
-  let task = findTaskBySource((s) => s.threadId === thread.id);
+  // 含已收工的：同一条线程只能有一条任务。上一轮标了完成之后对方又催一句时，
+  // 只找未完成的会找不到它、再建一条，同一件事就在板上出现两遍。
+  let task = findTaskBySource((s) => s.threadId === thread.id, true);
   const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
   const plan = brief.actions.map((a) => `${a.label}${a.detail ? `：${a.detail}` : ""}`).join("\n");
   if (!task) {
     task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, plan, status: "understood" });
     record({ taskId: task.id, action: "task_create", why: "Slack 线程做完功课", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   } else {
-    task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}) })!;
+    // 收工过的线程又有新消息 = 这件事没完，拉回队列；用户手动忽略的不翻回来。
+    const revive = task.status === "done";
+    task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}), ...(revive ? { status: "understood" as const } : {}) })!;
+    if (revive) record({ taskId: task.id, action: "task_reopen", why: "这条线程收工后对方又来消息", how: "拉回待办，不另建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   }
 
   // 消息里贴了 Meegle 工单链接就把线程接到那条工单上：聊的往往就是它，
