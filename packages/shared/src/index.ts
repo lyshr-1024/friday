@@ -305,6 +305,9 @@ export interface TaskSource {
   statusKey?: string;
   /** tags 字段的原始 label */
   meegleTags?: string[];
+  /** 缺陷挂在哪条需求下（Meegle 的 Defect - Linked Requirement 关联） */
+  parentId?: string;
+  parentName?: string;
   /** 后台前端开发节点排期结束日 YYYY-MM-DD */
   feDue?: string;
   /** 服务端开发节点排期结束日 */

@@ -16,6 +16,14 @@ interface TodoItem {
 }
 
 /** 分派给我的 Meegle 工作项，已拼好任务中枢需要的字段。 */
+type Parent = { id: string; name: string } | undefined;
+
+interface RelationDef {
+  id: string;
+  work_item_type_key: string;
+  relation_details?: Array<{ work_item_type_key: string }>;
+}
+
 export interface MeegleWorkItem {
   id: string;
   name: string;
@@ -33,6 +41,8 @@ export interface MeegleWorkItem {
   docs?: Docs;
   reporter?: string;
   description?: string;
+  /** 缺陷挂的需求，story 上没有 */
+  parent?: { id: string; name: string };
   projectName: string;
   projectKey: string;
   url: string;
@@ -201,7 +211,7 @@ export function extractLinks(description: unknown): string[] {
   return out.slice(0, 5);
 }
 
-export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedules: NodeSchedules = {}): MeegleWorkItem {
+export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedules: NodeSchedules = {}, parent?: { id: string; name: string }): MeegleWorkItem {
   const a = item.work_item_attribute;
   const priority = (item.work_item_fields.find((f) => f.key === "priority")?.value as { label?: string } | undefined)?.label;
   const tags = (item.work_item_fields.find((f) => f.key === "tags")?.value as Array<{ label?: string }> | undefined)
@@ -218,6 +228,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
     typeName: a.work_item_type.name,
     typeKey: a.work_item_type.key,
     links: extractLinks(item.work_item_fields.find((f) => f.key === "description")?.value),
+    ...(parent ? { parent } : {}),
     status: a.work_item_status.name,
     statusKey: a.work_item_status.key ?? "",
     projectKey: todo.project_key,
@@ -247,7 +258,7 @@ export class MeegleConnector implements Connector {
   }
 
   async fetchWorkItems(): Promise<MeegleWorkItem[]> {
-    return (await this.fetchRaw()).map(([it, d, host, sch]) => toWorkItem(host, it, d, sch));
+    return (await this.fetchRaw()).map(([it, d, host, sch, parent]) => toWorkItem(host, it, d, sch, parent));
   }
 
   async listRawTransitions(projectKey: string, workItemId: string): Promise<RawTransition[]> {
@@ -336,7 +347,52 @@ export class MeegleConnector implements Connector {
     }
   }
 
-  private async fetchRaw(): Promise<Array<[TodoItem, WorkItem, string, NodeSchedules]>> {
+  /** 「缺陷 → 需求」那条关联定义的 id，一个空间一条，缓存住。 */
+  private relationIds = new Map<string, string | null>();
+
+  private async defectRelationId(projectKey: string): Promise<string | null> {
+    const hit = this.relationIds.get(projectKey);
+    if (hit !== undefined) return hit;
+    let id: string | null = null;
+    try {
+      const res = await runJson<{ list?: RelationDef[] | null }>(this.bin, [
+        "relation", "meta-definitions",
+        "--project-key", projectKey,
+        "--format", "json",
+      ]);
+      // 按类型找而不是按名字：名字是本地化的，换个语言就失配
+      const def = (res.list ?? []).find(
+        (r) => r.work_item_type_key === "issue" && (r.relation_details ?? []).some((d) => d.work_item_type_key === "story"),
+      );
+      id = def?.id ?? null;
+    } catch {
+      id = null;
+    }
+    this.relationIds.set(projectKey, id);
+    return id;
+  }
+
+  /** 缺陷挂的需求。只有 issue 有；查不到当作没挂，不拖垮整次同步。 */
+  private async linkedRequirement(it: TodoItem): Promise<{ id: string; name: string } | undefined> {
+    if (it.work_item_info.work_item_type_key !== "issue") return undefined;
+    const relationId = await this.defectRelationId(it.project_key);
+    if (!relationId) return undefined;
+    try {
+      const res = await runJson<{ list?: Array<{ id: number | string; name?: string }> | null }>(this.bin, [
+        "relation", "list",
+        "--work-item-id", String(it.work_item_info.work_item_id),
+        "--project-key", it.project_key,
+        "--relation-id", relationId,
+        "--format", "json",
+      ]);
+      const first = (res.list ?? [])[0];
+      return first ? { id: String(first.id), name: (first.name ?? "").trim() } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async fetchRaw(): Promise<Array<[TodoItem, WorkItem, string, NodeSchedules, Parent]>> {
     const auth = await runJson<AuthStatus>(this.bin, ["auth", "status", "--format", "json"]);
     if (!auth.authenticated || !auth.host) throw new Error("Meegle 未登录，请在终端执行 meegle auth login");
 
@@ -361,6 +417,7 @@ export class MeegleConnector implements Connector {
       .map((it, i) => [it, details[i]!] as const)
       .filter(([, d]) => keepWorkItem(d.work_item_attribute.work_item_type.key, d.work_item_attribute.work_item_status.key ?? ""));
     const schedules = await mapLimit(kept, 3, ([it]) => this.nodeSchedules(it));
-    return kept.map(([it, d], i) => [it, d, auth.host!, schedules[i]!]);
+    const parents = await mapLimit(kept, 3, ([it]) => this.linkedRequirement(it));
+    return kept.map(([it, d], i) => [it, d, auth.host!, schedules[i]!, parents[i]]);
   }
 }

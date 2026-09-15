@@ -279,3 +279,27 @@ describe("matchProjectByUrl", () => {
     expect(matchProjectByUrl([], ps)).toBeUndefined();
   });
 });
+
+describe("缺陷关联需求", () => {
+  const base = { id: "9", name: "【BO 后台】下拉框缺少「日内融平仓」", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectName: "p", projectKey: "pk", url: "u", links: [], createdAt: "2026-09-01T00:00:00Z" };
+
+  it("关联的需求写进 source，理解里也说一句", () => {
+    const t = workItemToTask({ ...base, parent: { id: "23641847", name: "自动平仓重构" } }, projects);
+    expect(t.source.parentId).toBe("23641847");
+    expect(t.source.parentName).toBe("自动平仓重构");
+    expect(t.understanding).toContain("属于需求「自动平仓重构」");
+  });
+
+  it("没关联时两个键都是 undefined，理解里不留空话", () => {
+    const t = workItemToTask(base, projects);
+    expect(t.source.parentId).toBeUndefined();
+    expect(t.source.parentName).toBeUndefined();
+    expect(t.understanding).not.toContain("属于需求");
+  });
+
+  it("页面链接和所属需求可以同时出现", () => {
+    const t = workItemToTask({ ...base, parent: { id: "1", name: "自动平仓重构" }, links: ["https://console.longbridge.xyz/wbo/risk/x"] }, projects);
+    expect(t.understanding).toContain("属于需求「自动平仓重构」");
+    expect(t.understanding).toContain("出问题的页面：https://console.longbridge.xyz/wbo/risk/x");
+  });
+});

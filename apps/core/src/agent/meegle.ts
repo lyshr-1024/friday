@@ -43,7 +43,8 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   // 描述里的页面链接比标题可靠得多：标题只写「【BO 后台】…」，归不到仓库；链接带域名和 app 段。
   const project = matchProjectByUrl(item.links, projects)?.name ?? matchProject(item.name, projects);
   const page = item.links[0];
-  const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
+  const parent = item.parent?.name ? `。属于需求「${item.parent.name}」` : "";
+  const full = `${understanding}${parent}${page ? `。出问题的页面：${page}` : ""}`;
   // 这些键始终写出（含 undefined），工单撤掉排期或标签时 source 的 merge 才能抹掉旧值
   const source = {
     meegleType: item.typeKey,
@@ -57,6 +58,8 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     docs: item.docs,
     nodeKey: item.nodeKey,
     nodeName: item.node,
+    parentId: item.parent?.id,
+    parentName: item.parent?.name,
   };
   return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }

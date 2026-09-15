@@ -153,12 +153,23 @@ function MeegleChips({ t, extra }: { t: Task; extra?: string }) {
   );
 }
 
-function IssueBody({ t }: { t: Task }) {
+function IssueBody({ t, onOpenParent }: { t: Task; onOpenParent?: (parentId: string) => void }) {
   const [full, setFull] = useState(false);
   const desc = t.source.description ?? "";
+  const { parentId, parentName } = t.source;
   return (
     <>
       <MeegleChips t={t} extra={ISSUE_STATUS[t.source.statusKey ?? ""] ?? t.source.statusKey} />
+      {parentName && (
+        <div>
+          <span className="k">所属需求</span>
+          <div className="fx__text">
+            {onOpenParent && parentId
+              ? <button className="b b--text" onClick={() => onOpenParent(parentId)}>{parentName}</button>
+              : parentName}
+          </div>
+        </div>
+      )}
       {desc && (
         <div>
           <span className="k">缺陷描述</span>
@@ -170,12 +181,18 @@ function IssueBody({ t }: { t: Task }) {
   );
 }
 
-function StoryBody({ t }: { t: Task }) {
+function StoryBody({ t, defectCount }: { t: Task; defectCount?: number }) {
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
+      {defectCount ? (
+        <div>
+          <span className="k">关联缺陷</span>
+          <div className="fx__text">{defectCount} 条还开着</div>
+        </div>
+      ) : null}
       {(feDue || beDue) && (
         <div>
           <span className="k">排期</span>
@@ -427,7 +444,23 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const queued = rest.filter((t) => QUEUED.includes(t.status)).sort(byTier);
   // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
-  const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
+  const queuedBy = (c: TaskCategory) => {
+    const list = queued.filter((t) => taskCategory(t.source) === c);
+    // 缺陷按所属需求聚簇：同一条需求下的缺陷排在一起，一眼看出哪个需求在冒问题
+    if (c !== "defect") return list;
+    const order = new Map<string, number>();
+    for (const t of list) {
+      const key = t.source.parentId ?? "";
+      if (!order.has(key)) order.set(key, order.size);
+    }
+    return [...list].sort((a, b) => (order.get(a.source.parentId ?? "") ?? 0) - (order.get(b.source.parentId ?? "") ?? 0));
+  };
+  // 需求 → 它下面有几条缺陷还开着
+  const defectCount = new Map<string, number>();
+  for (const t of queued) {
+    if (taskCategory(t.source) !== "defect" || !t.source.parentId) continue;
+    defectCount.set(t.source.parentId, (defectCount.get(t.source.parentId) ?? 0) + 1);
+  }
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? pinned[0] ?? decide[0] ?? null;
@@ -556,7 +589,18 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
           </aside>
           <section className="split__detail" ref={detailRef}>
             {!board ? null : focus ? (
-              <Focus key={focus.id} t={focus} onAct={act} onClose={() => setSelectedId(null)} closable={false} />
+              <Focus
+                key={focus.id}
+                t={focus}
+                onAct={act}
+                onClose={() => setSelectedId(null)}
+                closable={false}
+                defectCount={focus.source.meegleId ? defectCount.get(focus.source.meegleId) : undefined}
+                onOpenParent={(parentId) => {
+                  const parent = tasks.find((x) => x.source.meegleId === parentId);
+                  if (parent) setSelectedId(parent.id);
+                }}
+              />
             ) : (
               <div className="empty">
                 <strong>{view === "all" ? "点左边一条看详情" : "没有等你决定的事"}</strong>
@@ -570,11 +614,15 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   );
 }
 
-function Focus({ t, onAct, onClose, closable, ref }: {
+function Focus({ t, onAct, onClose, closable, onOpenParent, defectCount, ref }: {
   t: Task;
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
   onClose: () => void;
   closable: boolean;
+  /** 缺陷卡上点「所属需求」跳到那条需求 */
+  onOpenParent?: (parentId: string) => void;
+  /** 这条需求下还开着几个缺陷 */
+  defectCount?: number;
   ref?: React.Ref<HTMLElement>;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -723,8 +771,8 @@ function Focus({ t, onAct, onClose, closable, ref }: {
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
 
-      {isIssue(t) && <IssueBody t={t} />}
-      {isStory(t) && <StoryBody t={t} />}
+      {isIssue(t) && <IssueBody t={t} onOpenParent={onOpenParent} />}
+      {isStory(t) && <StoryBody t={t} defectCount={defectCount} />}
 
       {thread && thread.items.length > 0 && (
         <div className="fx__source">
