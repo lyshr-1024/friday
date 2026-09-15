@@ -40,6 +40,15 @@ export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me
 const STORY_CLOSED = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
 
 /**
+ * 需求容器该不该跟着收尾：名下缺陷全部收工才收。
+ * 容器本来就不在 Meegle 的分派列表里（当前节点在别人手上），不能按「不再分派给你」判。
+ * 一条缺陷都没有时也不收——刚建出来还没挂上就被收掉了。
+ */
+export function containerDone(kids: Array<Pick<Task, "status">>): boolean {
+  return kids.length > 0 && kids.every((x) => x.status === "done" || x.status === "ignored");
+}
+
+/**
  * 缺陷关联的需求不在任务板里（当前节点不在我手上，所以不在 mywork todo），
  * 但只要需求的角色成员里有我，它就是我的活——拉进来建一条任务当容器，
  * 名下的缺陷挂在它下面，列表里不再各自占一行。
@@ -49,7 +58,12 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
   for (const t of listTasks(OPEN, 500)) {
     const { linkedStoryId, linkedStoryName, meegleProject } = t.source;
     if (!linkedStoryId || !meegleProject) continue;
-    if (findTaskBySource((s) => s.meegleId === linkedStoryId, true)) continue;
+    // 只有「还开着的需求任务」才算容器已到位。已经收掉的不算——否则一旦被误收，
+    // 它会被当成已存在而永远不再复活。
+    const existing = findTaskBySource((s) => s.meegleId === linkedStoryId, true);
+    if (existing && existing.status !== "done" && existing.status !== "ignored") continue;
+    // 用户自己标忽略的别硬拉回来
+    if (existing?.status === "ignored") continue;
     orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "" });
   }
   if (!orphans.size) return 0;
@@ -61,6 +75,15 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
 
   let made = 0;
   for (const [storyId, { projectKey, name }] of orphans) {
+    // 这个容器之前建过又被收了（名下缺陷当时都完了），现在又来了新缺陷：拉回来复用，
+    // 不必重新问一次 Meegle。只复活容器，不碰用户真正完成过的、分派给他的需求工单。
+    const closedBefore = findTaskBySource((s) => s.meegleId === storyId && Boolean(s.storyContainer), true);
+    if (closedBefore) {
+      updateTask(closedBefore.id, { status: "understood" });
+      record({ taskId: closedBefore.id, action: "story_container_revived", why: "名下还有没处理完的缺陷", how: "容器之前被自动收尾误收，拉回待办", evidence: { meegleId: storyId }, risk: "read" });
+      made += 1;
+      continue;
+    }
     const story = await connector.getWorkItem(projectKey, storyId);
     if (!story) continue;
     if (STORY_CLOSED.test(story.statusKey)) continue;
@@ -73,7 +96,7 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
       kind: "meegle",
       status: "understood",
       understanding: `Meegle 需求 #${storyId}，我在这个需求里担 ${roles.join("、")}。当前节点不在我手上（状态 ${story.statusKey}），但名下的缺陷要我改。`,
-      source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey },
+      source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey, storyContainer: true },
       ...(project ? { project } : {}),
     });
     record({
@@ -251,6 +274,17 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     let closed = 0;
     for (const t of listTasks(OPEN, 500)) {
       if (t.kind !== "meegle" || !t.source.meegleId || live.has(t.source.meegleId)) continue;
+      // 需求容器本来就不在分派列表里（当前节点在别人手上），这正是它要当容器的原因——
+      // 不能按「不再分派给你」把它收掉，否则建出来下次同步就没了。
+      // 它的收尾由名下缺陷决定：缺陷都完了才跟着收。
+      if (t.source.storyContainer) {
+        const kids = listTasks().filter((x) => x.source.linkedStoryId === t.source.meegleId);
+        if (!containerDone(kids)) continue;
+        updateTask(t.id, { status: "done" });
+        record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });
+        closed++;
+        continue;
+      }
       updateTask(t.id, { status: "done" });
       record({ taskId: t.id, action: "meegle_done", why: "这个工单不再分派给你（已流转或关闭）", how: "同步时发现它不在分派列表里，标记完成", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;

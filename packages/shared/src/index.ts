@@ -302,6 +302,8 @@ export interface TaskSource {
   /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
   linkedStoryId?: string;
   linkedStoryName?: string;
+  /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
+  storyContainer?: boolean;
   /** Meegle 空间 key，流转状态要用 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */

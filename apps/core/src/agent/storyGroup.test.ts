@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { myRoles } from "./meegle.js";
+import { containerDone, myRoles } from "./meegle.js";
 import { handOffToStory } from "./pipeline.js";
 import { createJob, finishJob } from "../memory/jobs.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
@@ -53,5 +53,23 @@ describe("同需求共用一个终端", () => {
     createTask({ title: "还没开工的需求", kind: "meegle", source: { meegleId: "S4", meegleType: "story" }, status: "understood" });
     const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "B4", linkedStoryId: "S4" }, status: "understood" });
     expect(handOffToStory(bug, "x")).toBe(false);
+  });
+});
+
+describe("需求容器的收尾判据", () => {
+  const t = (status: string) => ({ status }) as never;
+
+  it("名下还有没完的就不收", () => {
+    expect(containerDone([t("understood"), t("done")])).toBe(false);
+    expect(containerDone([t("processing")])).toBe(false);
+  });
+
+  it("全部 done 或 ignored 才收", () => {
+    expect(containerDone([t("done"), t("ignored")])).toBe(true);
+    expect(containerDone([t("done")])).toBe(true);
+  });
+
+  it("一条缺陷都没有时不收——刚建出来还没挂上就被收掉了", () => {
+    expect(containerDone([])).toBe(false);
   });
 });
