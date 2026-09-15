@@ -8,6 +8,38 @@ import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
 import { peekFocusJob, takeFocusJob } from "../lib/focusJob";
 
+/**
+ * 终端配色取自 CSS 变量，跟着主题走。ANSI 16 色一个都不能少：漏掉的 xterm.js
+ * 会用它内置的 Tango 默认值，那套配的是紫底，在我们的深灰底上蓝紫两色几乎看不见。
+ */
+function termTheme(): Record<string, string> {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
+  return {
+    background: v("--term-bg"),
+    foreground: v("--term-fg"),
+    cursor: v("--term-cursor"),
+    cursorAccent: v("--term-bg"),
+    selectionBackground: v("--term-sel"),
+    black: v("--term-black"),
+    red: v("--term-red"),
+    green: v("--term-green"),
+    yellow: v("--term-yellow"),
+    blue: v("--term-blue"),
+    magenta: v("--term-magenta"),
+    cyan: v("--term-cyan"),
+    white: v("--term-white"),
+    brightBlack: v("--term-bright-black"),
+    brightRed: v("--term-bright-red"),
+    brightGreen: v("--term-bright-green"),
+    brightYellow: v("--term-bright-yellow"),
+    brightBlue: v("--term-bright-blue"),
+    brightMagenta: v("--term-bright-magenta"),
+    brightCyan: v("--term-bright-cyan"),
+    brightWhite: v("--term-bright-white"),
+  };
+}
+
 /** 任务内嵌终端：连 sidecar 的 PTY，输出经 SSE 回放 + 实时推送，按键直接写回去。 */
 export function Terminal({ id }: { id: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -39,14 +71,7 @@ export function Terminal({ id }: { id: string }) {
       lineHeight: 1.25,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: {
-        background: "#0e0f12",
-        foreground: "#e8eaee",
-        cursor: "#38d6ff",
-        selectionBackground: "rgba(56, 214, 255, 0.25)",
-        black: "#1a1c21",
-        brightBlack: "#585e6a",
-      },
+      theme: termTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -149,6 +174,12 @@ export function Terminal({ id }: { id: string }) {
       }, 120);
     });
     ro.observe(el);
+    // 设置窗换了主题，已经开着的终端也要跟着换，不然白底卡片里留一块黑。
+    // 盯 data-theme 而不是主题事件：变量此刻一定已经是新值，也不用管谁先收到事件。
+    const themeWatch = new MutationObserver(() => {
+      term.options.theme = termTheme();
+    });
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => {
       term.textarea?.removeEventListener("focus", toBottom);
       el.removeEventListener("mousedown", toBottom);
@@ -156,6 +187,7 @@ export function Terminal({ id }: { id: string }) {
       window.clearTimeout(resizeTimer);
       window.clearTimeout(focusTimer);
       ro.disconnect();
+      themeWatch.disconnect();
       ctrl.abort();
       term.dispose();
     };
