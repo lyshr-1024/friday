@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo, TerminalState } from "@friday/shared";
+import type { LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -331,6 +331,34 @@ export async function taskBoard(): Promise<TaskBoard> {
   return res.json();
 }
 
+export async function taskNode(id: string): Promise<{ canConfirm: boolean; missing: string[] }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/node`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `node ${res.status}`);
+  return res.json();
+}
+
+export async function taskConfirmNode(id: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/node/confirm`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `confirm ${res.status}`);
+  return res.json();
+}
+
+export async function taskTransitions(id: string): Promise<StateTransition[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/transitions`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `transitions ${res.status}`);
+  return ((await res.json()) as { transitions: StateTransition[] }).transitions;
+}
+
+export async function taskTransition(id: string, to: StateTransition): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/transition`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(to),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `transition ${res.status}`);
+  return res.json();
+}
+
 export async function createTask(input: { title: string; note?: string; url?: string; project?: string; due?: string }): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
@@ -428,4 +456,10 @@ export async function audit(taskId?: string, limit = 200): Promise<AuditEvent[]>
 export async function auditUndo(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/audit/${encodeURIComponent(id)}/undo`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `撤销失败 ${res.status}`);
+}
+
+export async function learnStats(): Promise<LearnStats[]> {
+  const res = await fetch(`${await coreBaseUrl()}/learn`);
+  if (!res.ok) throw new Error(`core 返回 ${res.status}`);
+  return res.json();
 }

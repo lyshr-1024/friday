@@ -31,6 +31,24 @@ apps/core/src/
 第三版（已完成）：Slack 收件——`connectors/slack.ts` 用浏览器登录态（钥匙串 `friday-slack` 的 `token` xoxc + `cookie` xoxd，`scripts/slack-auth.sh` 写入）调 Web API：`search.messages` 查 `<@me>`、`client.counts` 找有未读的私聊再 `conversations.history`；`scheduler/index.ts` 10:00–20:00（Asia/Shanghai）每 3 分钟、其余 15 分钟拉一次；新消息交 `agent/triage.ts` 用 Sonnet 5 批量判断是否需回复 / 紧急度 / 摘要 / 回复草稿，落 `inbox` 表；只有需回复且在活跃时段才进通知队列，壳 `notify.rs` 每 20 秒 `GET /notifications` 取走弹系统通知。Friday 只读 Slack，不发消息。启动器「Slack 收件」面板 / `⌘R` 立即同步。预处理同时按项目注册表（名字、别名、`- 频道：#a, #b`）推导关联项目 `triage.project`，编码类消息给一句 `triage.task`；收件条目「在会话里处理」→ 带原文、链接、预处理结果开一个新对话（`open_chat` + initialPrompt），Friday 在会话里先给判断（项目、怎么回、要不要动代码、用哪个 skill），用户确认后再 run_claude / skill / 给草稿；操作区不直接动手。`POST /inbox/:id/handle` 仍保留给程序化调用。会话里有 `slack_inbox` 工具，"处理拂晓那条"同一流程。
 未做：项目智能匹配、自动更新、内嵌 node、Slack 发送。结构预留位置即可，不要提前实现。
 
+## 置信度门控与学习闭环
+
+> 从 feat/prompt-guardrails 搬过来时 `TaskCategory` 和 `agent/learn.ts` 都和 main 撞名：消息诉求类别改叫 `ReplyCategory`（`TaskCategory` 留给待办分组 slack/defect/story/other），`agent/learn.ts` 改叫 `agent/lessons.ts`（`agent/learn.ts` 是 main 的「每天自学一题」，两码事）。
+
+- `triage` 给每条 Slack 消息定类别（`question` / `status_ask` / `code_fix` / `review_ask` / `notice` / `other`），线程取最后一条有类别的消息。
+- 情境卡自评 `confidence`（0-100）；回复里含工期、方案、人力这类只有用户能定的承诺时压到 60 以下。解析层对越界/非数字/缺失一律钳到 0。
+- `agent/gate.ts` 纯函数判定：`needsReply && reply && confidence >= thresholds[category]` → 自动发，否则进「待我决定」。**`DEFAULT_THRESHOLD = 100`，即默认全部人工**；用户按类别调低才开启自动发送（`PUT /learn/threshold`）。阈值 100 时直接 queue，不被满分绕过。
+- 自动发送的崩溃安全点（顺序不能改）：`markAutoDone(threadId, "slack_reply_sent")` 线程级闸门 → 落一条 `pending` 账本 → `chat.postMessage` → 成功补 `undo` 并置 done，失败/空 ts 置 `failed` + 任务 `blocked` 并写明「可能已发出」。闸门 fail-closed，reject 时也会关闭，被用户否决的线程不再自动发。
+- 用户每次干预记一条 `lesson`：`approved` / `edited_approved`（改了草稿再通过）/ `rejected`（+10）/ `auto_undone`（自动发出后撤回，+20，靠 `evidence.auto` 与人工发送区分）。阈值只自动上调，下调只给建议。只有 `slack_reply` 类型的审核动作才记 lesson。
+- 每类攒够 5 条非 `approved` 的 lesson 触发 `distill`，Sonnet 重写 `<dataDir>/playbooks/<category>.md`，下次情境卡把手册与最近 3 条改稿范例注入 system prompt（范例里的原文走 `untrusted()`）。触发判定是纯函数 `shouldDistill`，真正调 Claude 那步在测试环境跳过。
+- 已发出的回复可撤回（`chat.delete` 接进账本 `undo`）；撤回失败不标 `undone`。接口 `GET /learn`、`PUT /learn/threshold`。
+
+## 安全护栏
+
+- 外部文本（Slack 原文、Meegle 条目、历史情境卡、few-shot 范例）进任何 prompt 前一律过 `agent/fence.ts` 的 `untrusted(source, text)`，system 里声明定界符内是数据不是指令，并剥掉正文里伪造的闭合标签。
+- 自主任务（无人看着的 `claude -p`）：`agent/guard.ts` 的黑名单经 PreToolUse hook 拦 push / merge / rebase / `reset --hard` / `checkout main` / sudo / `rm -rf` 根目录，正则允许 `git -C <dir>` 这类全局选项插在子命令前。**`--dangerously-skip-permissions` 会让 settings 里的 `permissions.deny` 完全失效（实测过），所以护栏必须走 hook**。交互式终端不挂这个守卫。
+- 自主任务开工前 `worktreeDirt()` 体检，工作区不干净就不开工，任务标 `blocked` 并列出是哪几个文件。
+
 ## macOS 坑
 
 - **PATH**：Finder / 自启拉起的 app PATH 极简。壳启动 sidecar 前先用 `zsh -ilc 'echo $PATH'` 取真实 PATH 注入子进程环境；找 `node`、`claude` 都靠它。

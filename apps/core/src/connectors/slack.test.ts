@@ -190,6 +190,26 @@ describe("机器人与 Block Kit", () => {
     return botResponses[method] as Record<string, unknown>;
   };
 
+  it("只有 bot_id、没有 user 的照样挡掉：Meegle 在 search 结果里就是这形态", async () => {
+    const call = async (method: string, params: Record<string, string>) => {
+      if (method === "users.info") return { user: { is_bot: false, real_name: "灵雨" } };
+      if (method === "search.messages")
+        return {
+          messages: {
+            matches: [
+              { ts: "1757000810.000100", text: "【Meegle】需求分派给 <@U1>", bot_id: "B9", username: "Meegle", channel: { id: "C9", name: "meegle" } },
+              { ts: "1757000805.000100", text: "<@U1> 构建失败", username: "CI", channel: { id: "C8", name: "ci" } },
+              { ts: "1757000700.000100", text: "<@U1> 看下这个", user: "U2", channel: { id: "C1", name: "fe-dev" } },
+            ],
+          },
+        };
+      return botResponses[method] as Record<string, unknown>;
+    };
+    const res = await fetchSlack(call, "U1", { "slack:mentions": "1757000600.000000" }, 1757000900_000);
+    expect(res.items.map((i) => i.text)).toEqual(["<@U1> 看下这个"]);
+    expect(res.cursors["slack:mentions"]).toBe("1757000810.000100");
+  });
+
   it("机器人 @ 我的不进收件箱，但游标照常前进", async () => {
     const res = await fetchSlack(botCall, "U1", { "slack:mentions": "1757000600.000000" }, 1757000900_000);
     expect(res.items.map((i) => i.userId)).toEqual(["U2"]);

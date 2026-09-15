@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS inbox (
   thread_ts TEXT,
   received_at TEXT NOT NULL,
   triage TEXT,
+  category TEXT,
   done INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS inbox_open ON inbox (done, ts);
@@ -139,6 +140,25 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at TEXT NOT NULL,
   finished_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS thresholds (
+  category TEXT PRIMARY KEY,
+  value INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lessons (
+  id TEXT PRIMARY KEY,
+  task_id TEXT,
+  category TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone')),
+  draft TEXT,
+  final TEXT,
+  feedback TEXT,
+  confidence INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS lessons_category ON lessons (category, created_at);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {
