@@ -8,6 +8,8 @@ export interface Project {
   dir: string;
   aliases: string[];
   channels: string[];
+  /** 这个项目对外的地址前缀（host 或 host/路径段），用来把工单里的页面链接归到项目 */
+  urls: string[];
   status?: string;
   note?: string;
 }
@@ -23,21 +25,53 @@ export function parseProjects(markdown: string): Project[] {
   for (const line of markdown.split("\n")) {
     const heading = /^##\s+(.+?)\s*$/.exec(line);
     if (heading) {
-      current = { name: heading[1]!, dir: "", aliases: [], channels: [] };
+      current = { name: heading[1]!, dir: "", aliases: [], channels: [], urls: [] };
       projects.push(current);
       continue;
     }
-    const field = /^-\s*(目录|别名|频道|状态|说明)\s*[:：]\s*(.+?)\s*$/.exec(line);
+    const field = /^-\s*(目录|别名|频道|地址|状态|说明)\s*[:：]\s*(.+?)\s*$/.exec(line);
     if (field && current) {
       const [, key, value] = field;
       if (key === "目录") current.dir = expandHome(value!);
       if (key === "别名") current.aliases = value!.split(/[,，、\s]+/).filter(Boolean);
       if (key === "频道") current.channels = value!.split(/[,，、\s]+/).filter(Boolean).map((c) => (c.startsWith("#") ? c : `#${c}`));
+      if (key === "地址") current.urls = value!.split(/[,，、\s]+/).filter(Boolean).map(normalizeUrlPrefix);
       if (key === "状态") current.status = value;
       if (key === "说明") current.note = value;
     }
   }
   return projects.filter((p) => p.dir);
+}
+
+/** 「https://console.longbridge.xyz/wbo/」→「console.longbridge.xyz/wbo」，比对时两边都走这一步。 */
+export function normalizeUrlPrefix(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[?#].*$/, "")
+    .replace(/\/+$/, "");
+}
+
+/**
+ * 按工单里的页面链接归项目：谁的地址前缀匹配得更长谁赢。
+ * 迁移期同一个域名下新旧两套并存，所以带路径段的前缀（console.x/wbo）要能压过光域名的（console.x）。
+ */
+export function matchProjectByUrl(urls: string[], projects: Project[]): Project | undefined {
+  let best: { project: Project; len: number } | undefined;
+  for (const raw of urls) {
+    const target = normalizeUrlPrefix(raw);
+    for (const project of projects) {
+      for (const prefix of project.urls) {
+        if (!prefix) continue;
+        // 前缀要落在路径边界上，免得 console.x/wbo 命中 console.x/wbotest
+        if (target !== prefix && !target.startsWith(`${prefix}/`)) continue;
+        if (!best || prefix.length > best.len) best = { project, len: prefix.length };
+      }
+    }
+  }
+  return best?.project;
 }
 
 export function loadProjects(): Project[] {
@@ -60,7 +94,7 @@ export function resolveProject(query: string, projects = loadProjects()): Resolu
 
   const asPath = expandHome(query.trim());
   if ((asPath.startsWith("/") || query.startsWith("~")) && existsSync(asPath) && statSync(asPath).isDirectory()) {
-    return { kind: "match", project: { name: basename(asPath), dir: asPath, aliases: [], channels: [] } };
+    return { kind: "match", project: { name: basename(asPath), dir: asPath, aliases: [], channels: [], urls: [] } };
   }
   return { kind: "none" };
 }

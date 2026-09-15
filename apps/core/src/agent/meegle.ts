@@ -1,7 +1,7 @@
 import type { TaskStatus, Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
-import { loadProjects, type Project } from "../memory/projects.js";
+import { loadProjects, matchProjectByUrl, type Project } from "../memory/projects.js";
 import { createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
@@ -29,8 +29,11 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     .join("，");
   // 分派给我的工单一律先排队，不占「待我决定」：这个组织里 P0/P1 太常见，真要拍板的由 Slack/口头触发。
   const status: TaskStatus = "understood";
-  const project = matchProject(item.name, projects);
-  return { title: item.name.slice(0, 200), priority, understanding, status, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
+  // 描述里的页面链接比标题可靠得多：标题只写「【BO 后台】…」，归不到仓库；链接带域名和 app 段。
+  const project = matchProjectByUrl(item.links, projects)?.name ?? matchProject(item.name, projects);
+  const page = item.links[0];
+  const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
+  return { title: item.name.slice(0, 200), priority, understanding: full, status, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
 
 const OPEN: TaskStatus[] = ["collected", "understood", "review"];

@@ -22,6 +22,8 @@ export interface MeegleWorkItem {
   typeName: string;
   /** 工单类型键：story / issue / 自定义类型的 hash */
   typeKey: string;
+  /** 描述里出现的产品页面链接（已去掉 Meegle / 飞书自身的链接） */
+  links: string[];
   status: string;
   priority?: string;
   node?: string;
@@ -62,6 +64,25 @@ export function toTodo(host: string, item: WorkItem): Todo {
   };
 }
 
+const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
+
+/**
+ * 缺陷描述里的「测试环境」链接就是出问题的页面，是定位代码最强的线索——
+ * 标题只写「【BO 后台】…」，归不到具体仓库。Meegle / 飞书自己的链接要排掉。
+ */
+export function extractLinks(description: unknown): string[] {
+  const text = typeof description === "string" ? description : JSON.stringify(description ?? "");
+  const found = text.match(/https?:\/\/[^\s)\]<>"'|]+/g) ?? [];
+  const out: string[] = [];
+  for (const raw of found) {
+    // 中文描述里 URL 后面常常直接跟句号顿号，连进来链接就废了
+    const url = raw.replace(/[.,;:。，、；：！？]+$/u, "");
+    if (SELF_HOSTS.test(url) || out.includes(url)) continue;
+    out.push(url);
+  }
+  return out.slice(0, 5);
+}
+
 export function toWorkItem(host: string, todo: TodoItem, item: WorkItem): MeegleWorkItem {
   const a = item.work_item_attribute;
   const priority = (item.work_item_fields.find((f) => f.key === "priority")?.value as { label?: string } | undefined)?.label;
@@ -71,6 +92,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem): Meegle
     name: a.work_item_name.trim(),
     typeName: a.work_item_type.name,
     typeKey: a.work_item_type.key,
+    links: extractLinks(item.work_item_fields.find((f) => f.key === "description")?.value),
     status: a.work_item_status.name,
     ...(priority ? { priority } : {}),
     ...(todo.node_info?.node_name ? { node: todo.node_info.node_name } : {}),
@@ -111,7 +133,7 @@ export class MeegleConnector implements Connector {
         "workitem", "get",
         "--work-item-id", String(it.work_item_info.work_item_id),
         "--project-key", it.project_key,
-        "--fields", "priority",
+        "--fields", "priority,description",
         "--format", "json",
       ]),
     );
