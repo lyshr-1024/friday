@@ -168,3 +168,52 @@ describe("自动回复的账本可读性（Task 6 review round 2）", () => {
     expect(ev.evidence.error).toContain("token 过期");
   });
 });
+
+// 发一句话（可撤回）要过阈值，改代码（更重）却不用，是这条路径原来的缺陷：
+// 实测置信度 45 的情境卡，回复被拦下等审核，同一份判断 2 秒后直接开了终端改代码。
+describe("Slack 线程要自己开工改代码时的闸门", () => {
+  const mkCodeBrief = (confidence: number) => ({
+    situation: "姜丝反馈人脸照片组件不传图提交失败",
+    needs: "修一下",
+    needsReply: false,
+    urgency: "normal" as const,
+    reply: "",
+    actions: [{ type: "run_claude" as const, label: "改代码", detail: "加 10M 限制并修提交失败" }],
+    context: [],
+    confidence,
+    confidenceReason: "",
+  });
+
+  function mkProject(): string {
+    const dir = mkdtempSync(join(tmpdir(), "friday-proj-"));
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `## demo-proj\n- 目录：${dir}\n`);
+    return dir;
+  }
+
+  it("置信度不到阈值不许自己开工，挂成待审动作等用户点", async () => {
+    mkProject();
+    setThreshold("autostart", 80);
+    const task = await threadToTask(mkRealThread("th-code-low"), mkCodeBrief(45), "demo-proj");
+    expect(task.source.jobId).toBeUndefined();
+    expect(task.status).toBe("review");
+    expect((task.pending ?? []).map((p) => p.type)).toContain("start_job");
+  });
+
+  it("阈值 100（默认）等于关掉自动开工，置信度满分也只是挂起", async () => {
+    mkProject();
+    setThreshold("autostart", 100);
+    const task = await threadToTask(mkRealThread("th-code-full"), mkCodeBrief(100), "demo-proj");
+    expect(task.source.jobId).toBeUndefined();
+    expect((task.pending ?? []).map((p) => p.type)).toContain("start_job");
+  });
+
+  it("待审动作要带上项目和目录，用户点之前能看出它要去哪个仓库改", async () => {
+    const dir = mkProject();
+    setThreshold("autostart", 80);
+    const task = await threadToTask(mkRealThread("th-code-where"), mkCodeBrief(45), "demo-proj");
+    const p = (task.pending ?? []).find((x) => x.type === "start_job")!;
+    expect(p.label).toContain("demo-proj");
+    expect(p.payload).toMatchObject({ project: "demo-proj", dir, confidence: 45 });
+  });
+});

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
-import { REPLY_CATEGORY_LABEL } from "@friday/shared";
+import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -13,7 +13,7 @@ import { meegleIds } from "./enrich.js";
 import { getThreshold } from "../memory/thresholds.js";
 import { markAutoDone, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
-import { decide } from "./gate.js";
+import { decide, decideStart } from "./gate.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
 import { untrusted } from "./fence.js";
@@ -120,8 +120,27 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
   const wantsCode = brief.actions.some((a) => a.type === "run_claude");
   const dir = project ? resolveProject(project) : undefined;
   if (wantsCode && dir?.kind === "match" && !task.source.jobId) {
-    const detail = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
-    task = await startAutonomousJob(task, dir.project.name, dir.project.dir, codeTaskDetail(thread, detail));
+    const what = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
+    const detail = codeTaskDetail(thread, what);
+    // 改代码比发一句话更重（而且项目可能判错，改的是哪个仓库得先让人看见），同一份情境卡的置信度
+    // 既然拦得住回复，就也得拦得住开工。阈值表和回复共用，默认 100 = 全部等人点。
+    const startThreshold = getThreshold(AUTOSTART_CATEGORY);
+    const payload = { project: dir.project.name, dir: dir.project.dir, detail, confidence: brief.confidence };
+    if (decideStart(brief.confidence, startThreshold) === "auto") {
+      task = await startAutonomousJob(task, dir.project.name, dir.project.dir, detail);
+    } else {
+      updateTask(task.id, { status: "review" });
+      task = addPending(task.id, { type: "start_job", label: `开工：${dir.project.name}`, detail: what, payload })!;
+      record({
+        taskId: task.id,
+        action: "intake_start_pending",
+        why: startThreshold >= 100 ? `开工闸门默认关着（阈值 ${startThreshold}），等你点` : `置信度 ${brief.confidence} 低于开工阈值 ${startThreshold}`,
+        how: `拟在 ${dir.project.name} 上开工：${what.slice(0, 200)}`,
+        evidence: payload,
+        risk: "reversible",
+        status: "pending",
+      });
+    }
   }
   return task;
 }
