@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backoff, decide, stats, suggest, DEFAULT_THRESHOLD, MIN_THRESHOLD } from "./gate.js";
+import { backoff, decide, decideStart, stats, suggest, DEFAULT_THRESHOLD, MIN_THRESHOLD } from "./gate.js";
 import type { Lesson } from "@friday/shared";
 
 const brief = (over: Partial<{ needsReply: boolean; reply: string; confidence: number }> = {}) => ({
@@ -55,5 +55,23 @@ describe("统计与阈值建议", () => {
 
   it("默认阈值是 100（等于全部进人工队列，用户自己调低某个类别才开自动发送）", () => {
     expect(DEFAULT_THRESHOLD).toBe(100);
+  });
+});
+
+describe("自己开工的闸门", () => {
+  it("默认 100 等于关着：置信度再高也排队", () => {
+    expect(decideStart(100, DEFAULT_THRESHOLD)).toBe("queue");
+    expect(decideStart(99, 100)).toBe("queue");
+  });
+
+  it("阈值调下来之后，够了才自己开", () => {
+    expect(decideStart(85, 80)).toBe("auto");
+    expect(decideStart(80, 80)).toBe("auto");
+    expect(decideStart(79, 80)).toBe("queue");
+  });
+
+  it("打回一次就把开工阈值抬回去", () => {
+    expect(backoff(80, "rejected")).toBe(90);
+    expect(backoff(95, "rejected")).toBe(100);
   });
 });

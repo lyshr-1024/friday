@@ -1,4 +1,4 @@
-import type { Lesson, LessonKind, ReplyCategory } from "@friday/shared";
+import { AUTOSTART_CATEGORY, type GateCategory, type Lesson, type LessonKind, type ReplyCategory } from "@friday/shared";
 import { REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { backoff } from "./gate.js";
 import { askStream } from "./claude.js";
@@ -36,11 +36,13 @@ export async function distill(category: ReplyCategory): Promise<boolean> {
   return true;
 }
 
-export function shouldDistill(category: ReplyCategory, kind: LessonKind): boolean {
+export function shouldDistill(category: GateCategory, kind: LessonKind): boolean {
+  // 开工没有回复 playbook 可蒸馏，只借用阈值校准那一半
+  if (category === AUTOSTART_CATEGORY) return false;
   return LEARNED.includes(kind) && countSince(category, LEARNED) % DISTILL_EVERY === 0;
 }
 
-export function recordLesson(input: { taskId?: string; category: ReplyCategory; kind: LessonKind; draft?: string; final?: string; feedback?: string; confidence: number }): Lesson {
+export function recordLesson(input: { taskId?: string; category: GateCategory; kind: LessonKind; draft?: string; final?: string; feedback?: string; confidence: number }): Lesson {
   const lesson = addLesson(input);
   if (input.kind === "rejected" || input.kind === "auto_undone") {
     const before = getThreshold(input.category);
@@ -58,7 +60,7 @@ export function recordLesson(input: { taskId?: string; category: ReplyCategory; 
     }
   }
   if (!process.env.VITEST && shouldDistill(input.category, input.kind)) {
-    void distill(input.category).catch((e) => console.error(`[learn] 提炼 ${input.category} 失败：${e instanceof Error ? e.message : String(e)}`));
+    void distill(input.category as ReplyCategory).catch((e) => console.error(`[learn] 提炼 ${input.category} 失败：${e instanceof Error ? e.message : String(e)}`));
   }
   return lesson;
 }

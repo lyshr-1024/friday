@@ -1,21 +1,21 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { REPLY_CATEGORY_LABEL, REPLY_CATEGORIES, type LearnStats, type ReplyCategory } from "@friday/shared";
+import { GATE_CATEGORY_LABEL, type GateCategory, type LearnStats } from "@friday/shared";
 import { stats, suggest, WINDOW } from "../agent/gate.js";
 import { listLessons } from "../memory/lessons.js";
-import { allThresholds, setThreshold } from "../memory/thresholds.js";
+import { allThresholds, GATE_CATEGORIES, setThreshold } from "../memory/thresholds.js";
 import { record } from "../memory/audit.js";
 
-const body = z.object({ category: z.enum(REPLY_CATEGORIES as [ReplyCategory, ...ReplyCategory[]]), value: z.number().int() });
+const body = z.object({ category: z.enum(GATE_CATEGORIES as [GateCategory, ...GateCategory[]]), value: z.number().int() });
 
 function rows(): LearnStats[] {
   const thresholds = allThresholds();
-  return REPLY_CATEGORIES.map((category) => {
+  return GATE_CATEGORIES.map((category) => {
     const s = stats(listLessons(category, WINDOW));
     const suggested = suggest(thresholds[category], s);
     return {
       category,
-      label: REPLY_CATEGORY_LABEL[category],
+      label: GATE_CATEGORY_LABEL[category],
       threshold: thresholds[category],
       ...(suggested !== undefined ? { suggested } : {}),
       lessons: s.total,

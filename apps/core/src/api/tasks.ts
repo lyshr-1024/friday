@@ -3,7 +3,7 @@ import { learnOnce, readResearchNote } from "../agent/learn.js";
 import { recordLesson } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import { REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
+import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
@@ -107,6 +107,10 @@ export const tasks = new Hono()
       const final = text?.trim() || draft;
       // 只有回复类动作才算「Friday 起草、用户拍板」的经验；git_merge 这类审核动作不代表对话质量，不该污染 lesson 统计。
       if (action?.type === "slack_reply" && draft) recordLesson({ taskId: t.id, category: replyCategory(before), kind: final === draft ? "approved" : "edited_approved", draft, final, confidence: taskConfidence(before) });
+      // 点了开工同样是拍板：这条记进 autostart 的经验，阈值据此校准
+      if (action?.type === "start_job") {
+        recordLesson({ taskId: t.id, category: AUTOSTART_CATEGORY, kind: "approved", draft: action.detail, confidence: Number(action.payload.confidence ?? 0) });
+      }
       return c.json(t);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -123,6 +127,10 @@ export const tasks = new Hono()
     // 只有回复类动作被打回才记 lesson——用户说的是「这条不要发」，git_merge 这类审核动作打回不代表对话质量。
     if (firstPending?.type === "slack_reply") {
       recordLesson({ taskId: t.id, category: replyCategory(t), kind: "rejected", feedback: reason ?? "", draft: firstPending.detail ?? "", confidence: taskConfidence(t) });
+    }
+    // 打回开工 = 「这活你不该自己接」，是校准开工阈值最直接的信号
+    if (firstPending?.type === "start_job") {
+      recordLesson({ taskId: t.id, category: AUTOSTART_CATEGORY, kind: "rejected", feedback: reason ?? "", draft: firstPending.detail ?? "", confidence: Number(firstPending.payload.confidence ?? 0) });
     }
     // 打回是用户表达「这条不要发」的最强信号：关掉这条线程的自动发送闸门，下一轮新消息不能绕过审核直接发出去。
     if (t.source.threadId) markAutoDone(t.source.threadId, "slack_reply_sent");

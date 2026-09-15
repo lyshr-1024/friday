@@ -343,6 +343,26 @@ export type ReplyCategory = "question" | "status_ask" | "code_fix" | "review_ask
 
 export const REPLY_CATEGORIES: ReplyCategory[] = ["question", "status_ask", "code_fix", "review_ask", "notice", "other"];
 
+/**
+ * 「自己动手改代码」的闸门类别。和回复分开算：回复错了撤一下，
+ * 开错工是在仓库里改代码，两者不该共用一个阈值。
+ * 和 ReplyCategory 同构，所以阈值表、lessons、校准逻辑都能复用。
+ */
+export const AUTOSTART_CATEGORY = "autostart";
+
+/** 阈值与 lessons 的键：回复类别 + 开工 */
+export type GateCategory = ReplyCategory | typeof AUTOSTART_CATEGORY;
+
+export const GATE_CATEGORY_LABEL: Record<GateCategory, string> = {
+  question: "问你一件事",
+  status_ask: "问进度",
+  code_fix: "要改代码",
+  review_ask: "要你看东西",
+  notice: "通知",
+  other: "其他",
+  autostart: "自己开工改代码",
+};
+
 export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
   question: "问你一件事",
   status_ask: "问进度",
@@ -357,7 +377,8 @@ export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_und
 export interface Lesson {
   id: string;
   taskId?: string;
-  category: ReplyCategory;
+  /** 回复类别，或 autostart（自己开工）——两者共用这张表做校准 */
+  category: GateCategory;
   kind: LessonKind;
   draft?: string;
   final?: string;
@@ -367,7 +388,7 @@ export interface Lesson {
 }
 
 export interface LearnStats {
-  category: ReplyCategory;
+  category: GateCategory;
   label: string;
   threshold: number;
   suggested?: number;
@@ -436,7 +457,7 @@ export interface Task {
 /** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
 export type TerminalState = "busy" | "idle" | "gone" | "external";
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "custom";
 
 export interface PendingAction {
   id: string;

@@ -221,6 +221,14 @@ export async function executePending(
         status: "approved",
         undo: { kind: "delete_slack_message", channel: p.channel, ts: res.ts },
       });
+    } else if (action.type === "start_job") {
+      const p = action.payload as { project: string; dir: string; detail: string; confidence?: number };
+      const t0 = getTask(taskId);
+      if (!t0) throw new Error("任务不存在了");
+      await startAutonomousJob(t0, p.project, p.dir, p.detail);
+      record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
+      // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
+      return getTask(taskId)!;
     } else if (action.type === "git_merge") {
       const p = action.payload as { dir: string; branch: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";

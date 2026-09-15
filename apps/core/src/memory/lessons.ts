@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { Lesson, LessonKind, ReplyCategory } from "@friday/shared";
+import type { Lesson, LessonKind, GateCategory } from "@friday/shared";
 import { db } from "./db.js";
 
 interface Row {
   id: string;
   task_id: string | null;
-  category: ReplyCategory;
+  category: GateCategory;
   kind: LessonKind;
   draft: string | null;
   final: string | null;
@@ -35,12 +35,12 @@ export function addLesson(input: Omit<Lesson, "id" | "createdAt">): Lesson {
   return { ...input, id, createdAt };
 }
 
-export function listLessons(category: ReplyCategory, limit = 50): Lesson[] {
+export function listLessons(category: GateCategory, limit = 50): Lesson[] {
   const rows = db().prepare("SELECT * FROM lessons WHERE category = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(category, limit) as unknown as Row[];
   return rows.map(toLesson);
 }
 
-export function countSince(category: ReplyCategory, kinds: LessonKind[]): number {
+export function countSince(category: GateCategory, kinds: LessonKind[]): number {
   if (kinds.length === 0) return 0;
   const placeholders = kinds.map(() => "?").join(",");
   const query = `SELECT COUNT(*) AS n FROM lessons WHERE category = ? AND kind IN (${placeholders})`;
@@ -48,7 +48,7 @@ export function countSince(category: ReplyCategory, kinds: LessonKind[]): number
   return result?.n ?? 0;
 }
 
-export function recentEdited(category: ReplyCategory, limit: number): Lesson[] {
+export function recentEdited(category: GateCategory, limit: number): Lesson[] {
   const rows = db()
     .prepare("SELECT * FROM lessons WHERE category = ? AND kind = 'edited_approved' ORDER BY created_at DESC, rowid DESC LIMIT ?")
     .all(category, limit) as unknown as Row[];

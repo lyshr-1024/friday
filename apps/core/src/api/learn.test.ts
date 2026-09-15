@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { addLesson } from "../memory/lessons.js";
-import { getThreshold } from "../memory/thresholds.js";
+import { GATE_CATEGORIES, getThreshold } from "../memory/thresholds.js";
 import type { LearnStats } from "@friday/shared";
 
 describe("GET /learn", () => {
@@ -9,7 +9,8 @@ describe("GET /learn", () => {
     addLesson({ category: "question", kind: "approved", confidence: 95 });
     addLesson({ category: "question", kind: "rejected", confidence: 60 });
     const rows = (await (await app.request("/learn")).json()) as LearnStats[];
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(GATE_CATEGORIES.length);
+    expect(rows.map((r) => r.category)).toContain("autostart");
     const q = rows.find((r) => r.category === "question")!;
     expect(q.lessons).toBe(2);
     expect(q.approved).toBe(1);

@@ -10,6 +10,15 @@ export function decide(brief: ThreadBrief, threshold: number): "auto" | "queue" 
   return brief.needsReply && brief.reply && brief.confidence >= threshold ? "auto" : "queue";
 }
 
+/**
+ * 自己开工改代码的闸门。和回复共用阈值表与校准逻辑，默认同样是 100（全部挂起等人点）——
+ * 用户看下来觉得判得准了，把阈值调下来它才开始自己开。
+ */
+export function decideStart(confidence: number, threshold: number): "auto" | "queue" {
+  if (threshold >= 100) return "queue";
+  return confidence >= threshold ? "auto" : "queue";
+}
+
 export function backoff(threshold: number, kind: "rejected" | "auto_undone"): number {
   return Math.min(100, threshold + (kind === "auto_undone" ? 20 : 10));
 }

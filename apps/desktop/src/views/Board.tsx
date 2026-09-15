@@ -50,6 +50,11 @@ function consequence(a: PendingAction, thread: Thread | null): string | null {
   if (a.type === "git_merge") {
     return "把这个分支合进主干。合完可以在操作记录里撤销。";
   }
+  if (a.type === "start_job") {
+    const p = String(a.payload.project ?? "这个项目");
+    const conf = typeof a.payload.confidence === "number" ? `Friday 对这次判断的把握是 ${a.payload.confidence} 分。` : "";
+    return `在 ${p} 起一个终端，让 Claude Code 按上面这段去改。它在新分支上动手、不推远端也不合并，改完交报告给你验。${conf}`;
+  }
   return null;
 }
 
@@ -675,7 +680,10 @@ function Focus({ t, onAct, onClose, closable, ref }: {
           label: evidence?.tone === "mismatch" ? "改一下再发…" : pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
           run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); },
         }
-      : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
+      : first.type === "start_job"
+        // 开工会起一个终端跑 Claude Code，按钮用结果词说清会发生什么
+        ? { label: `开工：${String(first.payload.project ?? "")}`.trim(), run: () => taskApprove(t.id, first.id) }
+        : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
     : t.status === "blocked" && t.project
       ? { label: "重新开工", run: () => taskRetry(t.id) }
       : t.status === "review"

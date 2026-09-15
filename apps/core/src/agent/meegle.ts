@@ -1,10 +1,12 @@
-import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
+import { AUTOSTART_CATEGORY, type StateTransition, type Task, type TaskStatus, type Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
 import { judgeIntake } from "./intake.js";
+import { decideStart } from "./gate.js";
+import { getThreshold } from "../memory/thresholds.js";
 import { startAutonomousJob } from "./pipeline.js";
-import { createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
 
@@ -223,16 +225,41 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<
     return;
   }
   const t = updateTask(task.id, { project: dir.project.name })!;
-  await startAutonomousJob(t, dir.project.name, dir.project.dir, verdict.detail);
+  const threshold = getThreshold(AUTOSTART_CATEGORY);
+  const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, confidence: verdict.confidence, meegleId: item.id };
+
+  if (decideStart(verdict.confidence, threshold) === "auto") {
+    await startAutonomousJob(t, dir.project.name, dir.project.dir, verdict.detail);
+    record({
+      taskId: task.id,
+      action: "intake_start",
+      why: `置信度 ${verdict.confidence} 不低于开工阈值 ${threshold}：${verdict.why}`,
+      how: `在 ${dir.project.name} 上自主开工`,
+      evidence: { ...payload, auto: true },
+      risk: "reversible",
+    });
+    state.notices.push({ title: `已开始做 · ${dir.project.name}`, body: item.name.slice(0, 120) });
+    return;
+  }
+
+  // 阈值没到：挂成待审动作等用户点。用户点通过 / 打回的记录会回流成 lessons，阈值自己校准。
+  updateTask(task.id, { status: "review" });
+  addPending(task.id, {
+    type: "start_job",
+    label: `开工：${dir.project.name}`,
+    detail: verdict.detail,
+    payload,
+  });
   record({
     taskId: task.id,
-    action: "intake_start",
-    why: verdict.why || "工单说得够具体，直接开工",
-    how: `在 ${dir.project.name} 上自主开工`,
-    evidence: { meegleId: item.id, detail: verdict.detail.slice(0, 500) },
+    action: "intake_start_pending",
+    why: threshold >= 100 ? `开工闸门默认关着（阈值 ${threshold}），等你点` : `置信度 ${verdict.confidence} 低于开工阈值 ${threshold}`,
+    how: `拟在 ${dir.project.name} 上开工：${verdict.why}`,
+    evidence: payload,
     risk: "reversible",
+    status: "pending",
   });
-  state.notices.push({ title: `已开始做 · ${dir.project.name}`, body: item.name.slice(0, 120) });
+  state.notices.push({ title: `有条工单可以开工 · ${dir.project.name}`, body: item.name.slice(0, 120) });
 }
 
 function toTodoLike(it: MeegleWorkItem) {

@@ -9,12 +9,19 @@ const projects: Project[] = [
 
 describe("工单进来判断能不能直接做", () => {
   it("start 必须指向注册表里真实存在的项目", () => {
-    const ok = parseIntake('{"kind":"start","project":"whale-console","detail":"复现步骤…","why":"缺陷写得清楚"}', projects);
-    expect(ok).toMatchObject({ kind: "start", project: "whale-console" });
+    const ok = parseIntake('{"kind":"start","project":"whale-console","detail":"复现步骤…","confidence":85,"why":"缺陷写得清楚"}', projects);
+    expect(ok).toMatchObject({ kind: "start", project: "whale-console", confidence: 85 });
     // 编了个不存在的项目就退回排队，不能拿去 resolveProject
     const bad = parseIntake('{"kind":"start","project":"不存在的项目","detail":"x","why":"y"}', projects);
     expect(bad.kind).toBe("queue");
     expect(bad.why).toContain("注册表里没有");
+  });
+
+  it("没给置信度或给了非法值当 0——宁可落在阈值下面挂起，也不因字段缺失就开工", () => {
+    expect(parseIntake('{"kind":"start","project":"whale-console","detail":"x","why":"y"}', projects)).toMatchObject({ confidence: 0 });
+    expect(parseIntake('{"kind":"start","project":"whale-console","detail":"x","confidence":"高","why":"y"}', projects)).toMatchObject({ confidence: 0 });
+    // 超出范围的夹到 0-100
+    expect(parseIntake('{"kind":"start","project":"whale-console","detail":"x","confidence":150,"why":"y"}', projects)).toMatchObject({ confidence: 100 });
   });
 
   it("start 没给 detail 就不算数", () => {
