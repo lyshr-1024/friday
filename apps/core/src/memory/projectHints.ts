@@ -1,3 +1,4 @@
+import { SELF_HOSTS } from "../connectors/meegle.js";
 import { readMemoryFile, writeMemoryFile } from "./files.js";
 import { loadProjects } from "./projects.js";
 
@@ -7,18 +8,31 @@ import { loadProjects } from "./projects.js";
  * matchProjectByUrl 已经在用的东西，写进去立刻生效，用户也能在文件里看到和改。
  */
 
-/** 工单标题里的【BO】【WBO-0907集成】这类标记，是归项目最稳的线索。 */
+/** 谁都在用的词，沉淀成别名会把后面所有工单都归到同一个项目。 */
+const GENERIC = new Set(["通用", "需求", "业务需求", "通用需求", "优化", "问题", "缺陷", "bug", "其他", "待定"]);
+
+/**
+ * 工单标题里的【BO】【WBO-0907集成】这类标记，是归项目最稳的线索。
+ * 【风控-提醒查询】还要留下「风控」：只记全称的话，下一条【风控-市价单价格梯度参数】又不认识了。
+ */
 export function titleTags(title: string): string[] {
-  return [...title.matchAll(/[【\[]([^】\]]{2,20})[】\]]/g)]
-    .map((m) => m[1]!.trim())
+  const out: string[] = [];
+  for (const m of title.matchAll(/[【\[]([^】\]]{2,20})[】\]]/g)) {
+    const tag = m[1]!.trim();
     // 带日期或流水号的是一次性的（【WBO-0907集成】），留着会越攒越多
-    .filter((t) => t.length >= 2 && !/\d{3,}/.test(t));
+    if (tag.length < 2 || /\d{3,}/.test(tag)) continue;
+    for (const t of [tag, tag.split(/[-—–]/)[0]!.trim()]) {
+      if (t.length >= 2 && !GENERIC.has(t.toLowerCase()) && !out.includes(t)) out.push(t);
+    }
+  }
+  return out;
 }
 
 /** 页面链接里可复用的前缀：域名 + 第一段路径。 */
 export function urlPrefix(url: string): string | undefined {
   const m = /^https?:\/\/([^/?#]+)(\/[^/?#]+)?/i.exec(url.trim());
-  if (!m) return undefined;
+  // 每张工单都住在 project.larksuite.com，学成项目地址后所有工单都会归到同一个仓库
+  if (!m || SELF_HOSTS.test(url)) return undefined;
   const host = m[1]!.toLowerCase().replace(/^www\./, "");
   const seg = m[2]?.toLowerCase() ?? "";
   // 单段路径才有区分意义，太深的是具体页面
@@ -42,10 +56,14 @@ export function addProjectHints(project: string, hints: { aliases?: string[]; ur
   let end = lines.findIndex((l, i) => i > head && /^##\s+/.test(l));
   if (end === -1) end = lines.length;
 
-  const current = loadProjects().find((p) => p.name === project);
+  const all = loadProjects();
+  const current = all.find((p) => p.name === project);
   const have = new Set([...(current?.aliases ?? []), ...(current?.urls ?? [])].map((s) => s.toLowerCase()));
-  const aliases = [...new Set(hints.aliases ?? [])].filter((a) => a && !have.has(a.toLowerCase()));
-  const urls = [...new Set(hints.urls ?? [])].filter((u) => u && !have.has(u.toLowerCase()));
+  // 一个标记同时指两个仓库就不再是线索：matchProject 取第一个命中的，等于按注册表顺序随机挑一个仓库改代码
+  const taken = new Set(all.filter((p) => p.name !== project).flatMap((p) => [...p.aliases, ...p.urls]).map((s) => s.toLowerCase()));
+  const fresh = (s: string) => Boolean(s) && !have.has(s.toLowerCase()) && !taken.has(s.toLowerCase());
+  const aliases = [...new Set(hints.aliases ?? [])].filter(fresh);
+  const urls = [...new Set(hints.urls ?? [])].filter(fresh);
   if (!aliases.length && !urls.length) return { added: { aliases: [], urls: [] }, changed: false };
 
   const patch = (key: "别名" | "地址", add: string[]) => {

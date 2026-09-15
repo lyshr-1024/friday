@@ -196,21 +196,28 @@ export function toTodo(host: string, item: WorkItem): Todo {
   };
 }
 
-const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
+export const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
 
 /**
  * 缺陷描述里的「测试环境」链接就是出问题的页面，是定位代码最强的线索——
  * 标题只写「【BO 后台】…」，归不到具体仓库。Meegle / 飞书自己的链接要排掉。
  */
+/** 走查模板的「操作入口」写的是反引号包的站内路径而不是完整地址，同样能落到项目的地址前缀上。 */
+const INLINE_PATH = /`(\/[A-Za-z0-9\-_/]{3,})`/g;
+
 export function extractLinks(description: unknown): string[] {
   const text = typeof description === "string" ? description : JSON.stringify(description ?? "");
-  const found = text.match(/https?:\/\/[^\s)\]<>"'|]+/g) ?? [];
+  // 非 ASCII 一律不算链接的一部分：中文描述里「见 https://x，然后…」会把后面半句话都粘进来
+  const found = text.match(/https?:\/\/[^\s)\]<>"'|\u00a0-\uffff]+/g) ?? [];
   const out: string[] = [];
   for (const raw of found) {
     // 中文描述里 URL 后面常常直接跟句号顿号，连进来链接就废了
     const url = raw.replace(/[.,;:。，、；：！？]+$/u, "");
     if (SELF_HOSTS.test(url) || out.includes(url)) continue;
     out.push(url);
+  }
+  for (const m of text.matchAll(INLINE_PATH)) {
+    if (!out.includes(m[1]!)) out.push(m[1]!);
   }
   return out.slice(0, 5);
 }

@@ -31,6 +31,12 @@ describe("项目注册表", () => {
     expect(projects[1]!.channels).toEqual(["#team-fe-bo", "#proj-whale-console"]);
   });
 
+  it("别名只按逗号顿号拆，词里的空格留着", () => {
+    // 按空格拆会把「Whale 管理后台」拆出「管理后台」这种泛词，命中一切后台工单，归到错的仓库去改代码
+    const ps = parseProjects("## p\n- 目录：/p\n- 别名：Whale 管理后台, wealth-admin、财富后台\n");
+    expect(ps[0]!.aliases).toEqual(["Whale 管理后台", "wealth-admin", "财富后台"]);
+  });
+
   it("精确名优先，其次唯一的部分匹配，多个则返回候选", () => {
     expect(resolveProject("Friday", projects)).toMatchObject({ kind: "match", project: { name: "friday" } });
     expect(resolveProject("whale-console", projects)).toMatchObject({ kind: "match", project: { name: "whale-console" } });

@@ -14,10 +14,15 @@ export const meegleState = { lastSyncAt: null as string | null, lastError: null 
 
 const OPEN: TaskStatus[] = ["collected", "understood", "review"];
 
-/** 工单标题里出现项目名或别名（≥3 个字符）就算属于那个项目。 */
+/** 中文两个字（风控、基金）已经够独特，拉丁字母短词太容易撞进别的词里（bo 命中 bond），仍要三个。 */
+function distinctive(name: string): boolean {
+  return /[\u4e00-\u9fa5]/.test(name) ? name.length >= 2 : name.length >= 3;
+}
+
+/** 工单标题里出现项目名或别名就算属于那个项目。 */
 export function matchProject(title: string, projects: Project[]): string | undefined {
   const t = title.toLowerCase();
-  return projects.find((p) => [p.name, ...p.aliases].some((n) => n.length >= 3 && t.includes(n.toLowerCase())))?.name;
+  return projects.find((p) => [p.name, ...p.aliases].some((n) => distinctive(n) && t.includes(n.toLowerCase())))?.name;
 }
 
 /**
