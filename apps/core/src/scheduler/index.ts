@@ -7,10 +7,10 @@ import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
-import { attachToThread, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
+import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
 import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
-import { fetchSlack, loadSlackCreds, postMessage, slackCaller, type SlackCreds } from "../connectors/slack.js";
-import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "../memory/inbox.js";
+import { fetchSlack, loadSlackCreds, postMessage, repliedSince, slackCaller, type SlackCreds } from "../connectors/slack.js";
+import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
 export const ACTIVE_HOURS: [number, number] = [10, 20];
@@ -42,6 +42,7 @@ export const state = {
 };
 
 let me = "";
+let sweptReplied = false;
 let creds: SlackCreds | undefined;
 
 export async function syncSlackOnce(): Promise<number> {
@@ -60,6 +61,19 @@ export async function syncSlackOnce(): Promise<number> {
       me = String(auth.user_id ?? "");
       if (auth.team_id) setSlackTeam(auth.team_id);
       if (auth.url) setCursor("slack:url", auth.url);
+    }
+    // 存量清理只跑一次：入口拦截是后加的，之前进来的那批里有一大半我早在 Slack 里回过了。
+    if (!sweptReplied && me) {
+      sweptReplied = true;
+      try {
+        const swept = await sweepRepliedInbox((item) => repliedSince(call, me, item));
+        if (swept) {
+          console.log(`把 ${swept} 条我已在 Slack 回过的消息标成已处理`);
+          closeSettledThreads();
+        }
+      } catch (e) {
+        console.error(`[slack] 存量清理失败：${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     const keys = ["slack:mentions"];
     const cursors: Record<string, string | undefined> = Object.fromEntries(keys.map((k) => [k, getCursor(k)]));

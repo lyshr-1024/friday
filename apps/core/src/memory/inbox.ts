@@ -82,6 +82,26 @@ export function markInboxDone(id: string): boolean {
   return db().prepare("UPDATE inbox SET done = 1 WHERE id = ?").run(id).changes > 0;
 }
 
+/**
+ * 补标：我早就在 Slack 里回过、Friday 这边还挂着的消息。
+ * 入口拦截（connectors/slack.ts）是后加的，之前进来的那批得扫一遍。
+ * `didReply` 查不出来时（接口报错）当作没回——宁可多留，不可误标掉真没处理的事。
+ */
+export async function sweepRepliedInbox(didReply: (item: InboxItem) => Promise<boolean>): Promise<number> {
+  const open = listInbox(false, 1000);
+  let n = 0;
+  for (const item of open) {
+    let replied = false;
+    try {
+      replied = await didReply(item);
+    } catch {
+      continue;
+    }
+    if (replied && markInboxDone(item.id)) n++;
+  }
+  return n;
+}
+
 export function getCursor(key: string): string | undefined {
   const row = db().prepare("SELECT cursor FROM sync_state WHERE source = ?").get(key) as { cursor: string | null } | undefined;
   return row?.cursor ?? undefined;

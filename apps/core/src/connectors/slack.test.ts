@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksText, fetchContext, fetchSlack, permalinkFor } from "./slack.js";
+import { blocksText, fetchContext, fetchSlack, permalinkFor, repliedSince } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -225,5 +225,110 @@ describe("机器人与 Block Kit", () => {
   it("blocksText 递归展开 elements 与 fields", async () => {
     expect(blocksText(undefined)).toBe("");
     expect(blocksText([{ elements: [{ text: { text: "a" } }, { fields: [{ text: "b" }] }] }])).toBe("a\nb");
+  });
+});
+
+// 库里 58 条「未处理」私聊消息，41 条其实早就在 Slack app 里回过了（实测）。
+// 典型的一条：对方 09-09 说「一会儿一起听下那个 whale 渠道系统」，我 36 秒后回了「好」，
+// 六天后 Friday 还是把它建成待办挂着。自己回过 = 这件事已经处理完了。
+describe("我在 Slack 里回过的就不算待办", () => {
+  const me = "U1";
+  const base = {
+    "users.info": { user: { real_name: "佳成" } },
+    "chat.getPermalink": { permalink: "https://s/x" },
+    "search.messages": { messages: { matches: [] } },
+  };
+
+  it("私聊里我后来发过话，那之前对方的消息不入库", async () => {
+    const r = {
+      ...base,
+      "client.counts": { ims: [{ id: "D1", has_unreads: true, latest: "1757000900.000100" }] },
+      "conversations.history": {
+        messages: [
+          { ts: "1757000900.000100", text: "这条我还没回", user: "U3" },
+          { ts: "1757000500.000100", text: "好", user: me },
+          { ts: "1757000400.000100", text: "一会儿一起听下那个渠道系统", user: "U3" },
+        ],
+      },
+    };
+    const res = await fetchSlack(async (m: string) => r[m as keyof typeof r] as Record<string, unknown>, me, { "slack:im:D1": "1757000300.000000" }, 1757001000_000);
+    expect(res.items.map((i) => i.text)).toEqual(["这条我还没回"]);
+  });
+
+  it("我回过之后对方又说了新的，新的还要进来", async () => {
+    const r = {
+      ...base,
+      "client.counts": { ims: [{ id: "D1", has_unreads: true, latest: "1757000700.000100" }] },
+      "conversations.history": {
+        messages: [
+          { ts: "1757000700.000100", text: "还有个事", user: "U3" },
+          { ts: "1757000500.000100", text: "好", user: me },
+          { ts: "1757000400.000100", text: "一会儿一起听下", user: "U3" },
+        ],
+      },
+    };
+    const res = await fetchSlack(async (m: string) => r[m as keyof typeof r] as Record<string, unknown>, me, { "slack:im:D1": "1757000300.000000" }, 1757001000_000);
+    expect(res.items.map((i) => i.text)).toEqual(["还有个事"]);
+  });
+
+  it("频道 @ 按 thread 判断：我在那条 thread 里回过就不入库", async () => {
+    const r = {
+      ...base,
+      "client.counts": { ims: [] },
+      "search.messages": {
+        messages: {
+          matches: [
+            { ts: "1757000400.000100", text: "<@U1> 这个你看下", user: "U3", thread_ts: "1757000400.000100", channel: { id: "C1", name: "fe" } },
+            { ts: "1757000800.000100", text: "<@U1> 这条没人回", user: "U3", thread_ts: "1757000800.000100", channel: { id: "C1", name: "fe" } },
+          ],
+        },
+      },
+      "conversations.replies": {
+        messages: [
+          { ts: "1757000400.000100", text: "<@U1> 这个你看下", user: "U3" },
+          { ts: "1757000500.000100", text: "看了，没问题", user: me },
+        ],
+      },
+    };
+    const calls: string[] = [];
+    const res = await fetchSlack(async (m: string) => { calls.push(m); return (m === "conversations.replies" && !calls.includes("done") ? r["conversations.replies"] : r[m as keyof typeof r]) as Record<string, unknown>; }, me, { "slack:mentions": "1757000300.000000" }, 1757001000_000);
+    expect(res.items.map((i) => i.text)).toEqual(["<@U1> 这条没人回"]);
+  });
+
+  it("频道里我在别处说过话不算回了这条：只看同一条 thread", async () => {
+    const r = {
+      ...base,
+      "client.counts": { ims: [] },
+      "search.messages": {
+        messages: { matches: [{ ts: "1757000400.000100", text: "<@U1> 这个你看下", user: "U3", channel: { id: "C1", name: "fe" } }] },
+      },
+      // 没有 thread_ts：是频道里的独立一条，我后面在频道里聊别的不算回它
+      "conversations.replies": { messages: [] },
+    };
+    const res = await fetchSlack(async (m: string) => r[m as keyof typeof r] as Record<string, unknown>, me, { "slack:mentions": "1757000300.000000" }, 1757001000_000);
+    expect(res.items.map((i) => i.text)).toEqual(["<@U1> 这个你看下"]);
+  });
+});
+
+// 实测抓到的误标：频道里不在 thread 里的 @，用它自己的 ts 当 root 调 conversations.replies，
+// Slack 会把这条消息之后频道里的内容也带回来，于是「我在频道别处说过话」被当成回了这条。
+// 两条真事因此被误标已处理（「浩然帮忙看看这个问题」「渠道系统的前端后续由…」）。
+describe("repliedSince 对不在 thread 里的频道消息", () => {
+  it("没有 threadTs 的频道 @ 一律算没回，不去查 replies", async () => {
+    const calls: string[] = [];
+    const call = async (m: string) => {
+      calls.push(m);
+      // 真实 API 的行为：拿非 thread 根消息去查 replies，会带回这条自己 + 频道后续
+      return { messages: [{ ts: "1757000400.000100", user: "U3" }, { ts: "1757000900.000100", user: "U1" }] } as Record<string, unknown>;
+    };
+    const replied = await repliedSince(call, "U1", { kind: "mention", channelId: "C1", ts: "1757000400.000100" });
+    expect(replied).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it("在 thread 里的 @ 仍照常按 thread 判断", async () => {
+    const call = async () => ({ messages: [{ ts: "1757000400.000100", user: "U3" }, { ts: "1757000500.000100", user: "U1" }] }) as Record<string, unknown>;
+    const replied = await repliedSince(call, "U1", { kind: "mention", channelId: "C1", ts: "1757000400.000100", threadTs: "1757000400.000100" });
+    expect(replied).toBe(true);
   });
 });
