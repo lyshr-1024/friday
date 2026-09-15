@@ -292,6 +292,12 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ⌘F 搜索结果里点了一条任务：选中它（视图已由 Chat 切到「全部任务」）
+  useEffect(() => {
+    const onOpen = (e: Event) => setSelectedId((e as CustomEvent<string>).detail);
+    window.addEventListener("friday:open-task", onOpen);
+    return () => window.removeEventListener("friday:open-task", onOpen);
+  }, []);
   // 列表此刻从上到下的可见顺序，处理完一条要靠它找到相邻的下一条
   const orderRef = useRef<string[]>([]);
   const [doingOpen, setDoingOpen] = useState(true);
