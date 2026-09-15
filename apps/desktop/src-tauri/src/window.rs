@@ -38,6 +38,9 @@ pub fn open_chat(app: &AppHandle, conversation_id: Option<String>, initial_promp
         .min_inner_size(820.0, 520.0)
         .title_bar_style(TitleBarStyle::Overlay)
         .hidden_title(true)
+        // 关掉 Tauri 的原生拖放：它开着就会吃掉 WebView 的 HTML5 drop 事件，
+        // 前端 .thread 上的 onDrop 永远收不到，往对话里拖文件没反应（浏览器里调试却是好的）。
+        .disable_drag_drop_handler()
         .center()
         .build();
     if let Ok(win) = built {

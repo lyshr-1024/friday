@@ -334,6 +334,29 @@ export interface TaskSource {
   fromTaskId?: string;
 }
 
+/** 全局搜索（⌘F）的一条结果：任务或对话里的一条消息 */
+export interface SearchHit {
+  kind: "task" | "message";
+  /** task 是任务 id；message 是会话 id，跳过去就是打开这段对话 */
+  id: string;
+  title: string;
+  /** 命中处的上下文；标题本身命中时不给 */
+  snippet?: string;
+  /** task 才有：需求 / 缺陷 / 其他 */
+  category?: TaskCategory;
+  status?: string;
+  project?: string;
+  /** message 才有 */
+  messageId?: string;
+  role?: string;
+  updatedAt: string;
+}
+
+export interface SearchResult {
+  tasks: SearchHit[];
+  messages: SearchHit[];
+}
+
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
 /** 进「后台档」的标签，英文是 Meegle 里的原值，中文是它在界面上的说法 */
 export const BACKEND_TAGS = ["Backend Iteration", "Include Backend", "后台迭代", "后台纳入"];

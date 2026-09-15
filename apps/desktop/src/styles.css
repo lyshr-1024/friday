@@ -1616,6 +1616,25 @@ kbd {
 .thread--high {
   border-left-color: var(--live);
 }
+/* 拖文件到对话上：整块描边点亮，中间浮一条提示 */
+.thread--drop {
+  position: relative;
+  border-color: var(--live);
+  border-left-color: var(--live);
+}
+.thread__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-1) 78%, transparent);
+  color: var(--fg-2);
+  font-size: var(--t-sm);
+  pointer-events: none;
+}
 .thread--low {
   opacity: 0.8;
 }
@@ -3905,4 +3924,105 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ⌘F 全局搜索：压在工作台之上的浮层，靠上摆，输入时眼睛不用来回移 */
+.sr__mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 14vh 16px 16px;
+  background: color-mix(in srgb, var(--bg-1) 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+.sr {
+  width: min(680px, 100%);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--bg-2);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+}
+.sr__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-1);
+}
+.sr__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-1);
+  font-size: var(--t-md);
+  outline: none;
+}
+.sr__list {
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.sr__empty {
+  padding: 22px 16px;
+  color: var(--fg-3);
+  font-size: var(--t-sm);
+}
+.sr__grp-head {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px 4px;
+  color: var(--fg-3);
+  font-size: var(--t-xs);
+}
+.sr__row {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sr__row.on {
+  background: var(--bg-4);
+}
+.sr__title {
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+  /* 标题可能很长，截成一行，细节看 snippet */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr__snip {
+  margin-top: 2px;
+  color: var(--fg-3);
+  font-size: var(--t-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr__meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--fg-4);
+  font-size: var(--t-xs);
+}
+.sr__when {
+  margin-left: auto;
+}
+.sr__foot {
+  padding: 7px 14px;
+  border-top: 1px solid var(--line-1);
+  color: var(--fg-4);
+  font-size: var(--t-xs);
 }

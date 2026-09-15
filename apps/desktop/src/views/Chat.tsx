@@ -9,6 +9,7 @@ import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { HotList, LinkMenuHost, fmtTime } from "./shared";
 import { Board } from "./Board";
+import { Search } from "./Search";
 import type { BoardView } from "./Board";
 import { Icon } from "./Icon";
 import { Thread } from "./Thread";
@@ -49,6 +50,7 @@ export function Chat() {
   const [skills, setSkills] = useState<boolean | null>(null);
   // 「问 Friday」视图：当前会话、路由提示
   const [askConv, setAskConv] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const threadRef = useRef<ThreadHandle>(null);
   const pendingOpen = useRef<PendingOpen | null>(null);
@@ -232,6 +234,9 @@ export function Chat() {
       } else if ((e.key === "N" || e.key === "n") && e.shiftKey) {
         e.preventDefault();
         void startNew();
+      } else if (e.key === "f") {
+        e.preventDefault();
+        setSearching(true);
       } else if (e.key === "\\") {
         e.preventDefault();
         setRailOpen((v) => { try { localStorage.setItem("friday:rail", v ? "0" : "1"); } catch {} return !v; });
@@ -386,6 +391,17 @@ export function Chat() {
           <Board view={view} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
         )}
       </div>
+      {searching && (
+        <Search
+          onClose={() => setSearching(false)}
+          onPickTask={(taskId) => {
+            // 任务可能在任何分组里，统一去「全部任务」再让 Board 选中它
+            setView("all");
+            window.dispatchEvent(new CustomEvent("friday:open-task", { detail: taskId }));
+          }}
+          onPickConversation={(id) => openAsk({ kind: "load", id })}
+        />
+      )}
     </div>
   );
 }

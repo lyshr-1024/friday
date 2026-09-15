@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
+import type { LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -323,6 +323,12 @@ export function threadPrompt(t: Thread): string {
     b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}${b.reply ? `你拟的回复：${b.reply}` : ""}` : "",
     `先给判断和方案，等我确认再动手。`,
   ].filter(Boolean).join("\n");
+}
+
+export async function searchAll(q: string): Promise<SearchResult> {
+  const res = await fetch(`${await coreBaseUrl()}/search?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error(`search ${res.status}`);
+  return res.json();
 }
 
 export async function taskBoard(): Promise<TaskBoard> {
