@@ -418,7 +418,8 @@ export function taskCategory(source: TaskSource): TaskCategory {
 
 /** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */
 /** question = 终端里的 Claude 弹了交互式提问，阻塞中，需要用户马上回 */
-export type TaskAttention = "review" | "blocked" | "question";
+/** intake = Friday 自己有事要问用户（比如工单归哪个项目），这类任务通常还没有终端 */
+export type TaskAttention = "review" | "blocked" | "question" | "intake";
 
 /** 交付报告：功能长什么样（截图）、怎么测的（文本）、请用户验证什么 */
 export interface DeliveryReport {

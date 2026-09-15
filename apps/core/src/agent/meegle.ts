@@ -54,7 +54,7 @@ export function alreadyAsking(task: Task, tasks?: Task[]): Task | undefined {
   const story = task.source.linkedStoryId;
   if (!story) return undefined;
   const pool = tasks ?? listTasks(OPEN, 500);
-  return pool.find((t) => t.id !== task.id && t.attention === "question" && t.source.linkedStoryId === story);
+  return pool.find((t) => t.id !== task.id && t.attention === "intake" && t.source.linkedStoryId === story);
 }
 
 /**
@@ -334,8 +334,8 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
 }
 
 /** 新工单的自动处置：能做的直接开终端，缺项目归属的问用户一句，其余排队。 */
-export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<void> {
-  const verdict = await judgeIntake(task, item.description ?? "", loadProjects());
+export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = judgeIntake): Promise<void> {
+  const verdict = await judge(task, item.description ?? "", loadProjects());
   if (verdict.kind === "queue") {
     console.log(`[meegle] ${item.id} 排队：${verdict.why}`);
     return;
@@ -350,7 +350,7 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<
       console.log(`[meegle] ${item.id} 的归属跟着同需求那条一起问，不重复提问`);
       return;
     }
-    updateTask(task.id, { attention: "question", progress: verdict.question });
+    updateTask(task.id, { attention: "intake", progress: verdict.question });
     record({
       taskId: task.id,
       action: "intake_ask",

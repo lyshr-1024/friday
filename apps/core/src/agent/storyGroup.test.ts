@@ -81,7 +81,7 @@ describe("同需求只问一次归属", () => {
   it("已经有一条在问，同需求的其他条不再重复问", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const a = createTask({ title: "缺陷 A", kind: "meegle", status: "understood", source: { meegleId: "QA1", linkedStoryId: "ST1" } });
-    updateTask(a.id, { attention: "question", progress: "这条是哪个项目的？" });
+    updateTask(a.id, { attention: "intake", progress: "这条是哪个项目的？" });
     const b = createTask({ title: "缺陷 B", kind: "meegle", status: "understood", source: { meegleId: "QA2", linkedStoryId: "ST1" } });
     expect(alreadyAsking(b)?.id).toBe(a.id);
   });
@@ -89,7 +89,7 @@ describe("同需求只问一次归属", () => {
   it("没挂在需求下的各问各的", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const a = createTask({ title: "独立 A", kind: "meegle", status: "understood", source: { meegleId: "QB1" } });
-    updateTask(a.id, { attention: "question", progress: "问一句" });
+    updateTask(a.id, { attention: "intake", progress: "问一句" });
     const b = createTask({ title: "独立 B", kind: "meegle", status: "understood", source: { meegleId: "QB2" } });
     expect(alreadyAsking(b)).toBeUndefined();
   });
@@ -100,7 +100,7 @@ describe("同需求只问一次归属", () => {
     const a = createTask({ title: "【邀请达标不发奖】缺陷 A", kind: "meegle", status: "understood", source: { meegleId: "QC1", linkedStoryId: "ST2" } });
     const b = createTask({ title: "【邀请达标不发奖】缺陷 B", kind: "meegle", status: "understood", source: { meegleId: "QC2", linkedStoryId: "ST2" } });
     const c = createTask({ title: "【邀请达标不发奖】缺陷 C", kind: "meegle", status: "understood", source: { meegleId: "QC3", linkedStoryId: "ST2" } });
-    for (const t of [a, b, c]) updateTask(t.id, { attention: "question", progress: "哪个项目？" });
+    for (const t of [a, b, c]) updateTask(t.id, { attention: "intake", progress: "哪个项目？" });
 
     const r = updateTaskFromChat(a.id, { project: "fe-wealth-admin" })!;
     expect(r.changed.some((x) => x.includes("同需求另外 2 条"))).toBe(true);
