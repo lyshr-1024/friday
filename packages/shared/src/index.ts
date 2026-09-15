@@ -327,6 +327,14 @@ export interface TaskSource {
 }
 
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
+/** 进「后台档」的标签，英文是 Meegle 里的原值，中文是它在界面上的说法 */
+export const BACKEND_TAGS = ["Backend Iteration", "Include Backend", "后台迭代", "后台纳入"];
+
+export const TAG_LABELS: Record<string, string> = {
+  "Backend Iteration": "后台迭代",
+  "Include Backend": "后台纳入",
+};
+
 export type TaskCategory = "slack" | "defect" | "story" | "other";
 
 export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };

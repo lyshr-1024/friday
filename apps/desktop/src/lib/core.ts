@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, SettingsUpdate, Task, TaskBoard, Thread, ThreadsResponse, AskRequest, NoteRequest, RunRequest, RunResponse, SettingsResponse, TodosSyncResponse, Todo, TerminalState } from "@friday/shared";
+import type { AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -379,6 +379,34 @@ export async function closeAllJobs(onlyFinished = false): Promise<{ closed: numb
     body: JSON.stringify({ onlyFinished }),
   });
   if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskTransitions(id: string): Promise<StateTransition[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/transitions`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `transitions ${res.status}`);
+  return ((await res.json()) as { transitions: StateTransition[] }).transitions;
+}
+
+export async function taskTransition(id: string, to: StateTransition): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/transition`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(to),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `transition ${res.status}`);
+  return res.json();
+}
+
+export async function taskNode(id: string): Promise<{ canConfirm: boolean; missing: string[] }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/node`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `node ${res.status}`);
+  return res.json();
+}
+
+export async function taskConfirmNode(id: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/node/confirm`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `confirm ${res.status}`);
   return res.json();
 }
 

@@ -3688,3 +3688,48 @@ body,
     opacity: 0.75;
   }
 }
+
+/* Meegle 工单卡：状态标签一行，缺陷描述默认收 6 行 */
+.fx__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  margin: 10px 0 14px;
+}
+.fx__chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-4);
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.fx__by {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.fx__docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fx__desc {
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+.fx__desc--clip {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fx__rline {
+  margin: 0 0 4px;
+}
+.fx__rline:empty {
+  height: 8px;
+}
+.fx__miss {
+  color: var(--fg-3);
+  font-size: 11px;
+}

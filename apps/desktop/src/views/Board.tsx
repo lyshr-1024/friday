@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { TASK_CATEGORY_LABEL, taskCategory, type AuditEvent, type PendingAction, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
+import { BACKEND_TAGS, TAG_LABELS, TASK_CATEGORY_LABEL, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, jobActivity, newConversation, settings, inbox as fetchInbox, learnNow, syncMeegle, taskResearch, taskApprove, taskBindConversation, taskBoard, taskPin, taskReject, taskRetry, taskSet, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, learnNow, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
@@ -110,7 +110,109 @@ function dueLabel(iso: string): string {
   return `${days} 天后到期`;
 }
 
+const isIssue = (t: Task) => taskCategory(t.source) === "defect";
+const isStory = (t: Task) => taskCategory(t.source) === "story";
+const ISSUE_STATUS: Record<string, string> = { OPEN: "待处理", REOPENED: "重新打开", "IN PROGRESS": "开发中" };
+const DOC_LABELS: Array<[keyof NonNullable<Task["source"]["docs"]>, string]> = [["req", "需求文档"], ["tech", "技术文档"], ["design", "设计稿"]];
+
+function OpenLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return <a href={href} className="link" onClick={(e) => { e.preventDefault(); void openUrl(href); }}>{children}</a>;
+}
+
+/** Meegle 的描述是 Markdown，只用得上加粗和换行，为此引一个库不值当 */
+function Rich({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i) => (
+        <p key={i} className="fx__rline">
+          {line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+            part.startsWith("**") && part.endsWith("**") ? <strong key={j}>{part.slice(2, -2)}</strong> : <Linkified key={j} text={part} />,
+          )}
+        </p>
+      ))}
+    </>
+  );
+}
+
+function MeegleChips({ t, extra }: { t: Task; extra?: string }) {
+  const tags = (t.source.meegleTags ?? []).map((x) => TAG_LABELS[x] ?? x);
+  const chips = [t.priority === "high" ? "高优先级" : "", extra, ...tags].filter(Boolean) as string[];
+  return (
+    <div className="fx__chips">
+      {chips.map((m) => <span key={m} className="fx__chip">{m}</span>)}
+      {t.source.reporter && <span className="fx__by">{t.source.reporter} 提的</span>}
+      {t.source.url && <OpenLink href={t.source.url}>在 Meegle 打开 ↗</OpenLink>}
+    </div>
+  );
+}
+
+function IssueBody({ t }: { t: Task }) {
+  const [full, setFull] = useState(false);
+  const desc = t.source.description ?? "";
+  return (
+    <>
+      <MeegleChips t={t} extra={ISSUE_STATUS[t.source.statusKey ?? ""] ?? t.source.statusKey} />
+      {desc && (
+        <div>
+          <span className="k">缺陷描述</span>
+          <div className={`fx__desc ${full ? "" : "fx__desc--clip"}`}><Rich text={desc} /></div>
+          <button className="b b--text" onClick={() => setFull((v) => !v)}>{full ? "收起" : "展开全文"}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StoryBody({ t }: { t: Task }) {
+  const { feDue, beDue, docs, nodeName } = t.source;
+  const links = DOC_LABELS.filter(([k]) => docs?.[k]);
+  return (
+    <>
+      <MeegleChips t={t} extra={nodeName} />
+      {(feDue || beDue) && (
+        <div>
+          <span className="k">排期</span>
+          <div className="fx__text">{[feDue && `后台前端 ${feDue}`, beDue && `服务端 ${beDue}`].filter(Boolean).join(" · ")}</div>
+        </div>
+      )}
+      {links.length > 0 && (
+        <div>
+          <span className="k">资料</span>
+          <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 0 后台前端已排期 · 1 仅服务端已排期 · 2 标签含后台迭代/纳入 · 3 其余 */
+function todoTier(t: Task): number {
+  if (t.source.feDue) return 0;
+  if (t.source.beDue) return 1;
+  if (t.source.meegleTags?.some((x) => BACKEND_TAGS.includes(x))) return 2;
+  return 3;
+}
+
+/** 先按排期档位，档内按排期日近→远，再按优先级、截止日 */
+function byTier(a: Task, b: Task): number {
+  const tier = todoTier(a);
+  if (tier !== todoTier(b)) return tier - todoTier(b);
+  const due = (t: Task) => (tier === 0 ? t.source.feDue : tier === 1 ? t.source.beDue : "") ?? "";
+  return (
+    due(a).localeCompare(due(b)) ||
+    (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) ||
+    (a.due ?? "9").localeCompare(b.due ?? "9") ||
+    b.updatedAt.localeCompare(a.updatedAt)
+  );
+}
+
 function queuedRight(t: Task): string {
+  const { feDue, beDue } = t.source;
+  if (feDue) {
+    const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    return d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天到期" : `排期 ${feDue.slice(5)}`;
+  }
+  if (beDue) return `服务端 ${beDue.slice(5)}`;
   if (t.due) return dueLabel(t.due);
   if (t.progress) return t.progress.slice(0, 40);
   return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
@@ -315,7 +417,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   // 终端在问你 = 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
   const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
-  const queued = rest.filter((t) => QUEUED.includes(t.status)).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) || b.updatedAt.localeCompare(a.updatedAt));
+  const queued = rest.filter((t) => QUEUED.includes(t.status)).sort(byTier);
   // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
@@ -515,10 +617,19 @@ function Focus({ t, onAct, onClose, closable, ref }: {
     setChecked((c) => { const n = [...c]; n[i] = v; return n; });
     void taskVerify(t.id, i, v).catch(() => {});
   }
+  const [trs, setTrs] = useState<StateTransition[]>([]);
+  const [node, setNode] = useState<{ canConfirm: boolean; missing: string[] } | null>(null);
+  useEffect(() => {
+    setTrs([]);
+    setNode(null);
+    if (isIssue(t)) void taskTransitions(t.id).then(setTrs).catch(() => {});
+    else if (isStory(t) && t.source.nodeKey) void taskNode(t.id).then(setNode).catch(() => {});
+  }, [t.id, t.source.statusKey, t.source.nodeKey]);
+
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
   const situation = t.understanding || t.source.note || "";
-  const links = [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
+  const links = t.kind === "meegle" ? [] : [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
   const rightHas = Boolean(r) || Boolean(t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
 
@@ -526,7 +637,11 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
   const evidence = isMessage ? evidenceCheck(thread, String(first.payload.text ?? first.detail ?? "")) : null;
-  const primary: { label: string; run: () => Promise<unknown> } | null = first
+  const primary: { label: string; run: () => Promise<unknown> } | null = isIssue(t) && trs[0]
+    ? { label: trs[0].label, run: () => taskTransition(t.id, trs[0]!) }
+    : isStory(t) && t.project
+    ? { label: "交给 Friday 改", run: () => taskRetry(t.id) }
+    : first
     ? isMessage
       ? {
           // 原文和草稿对不上时，默认动作应该是「改」而不是「发」
@@ -571,7 +686,10 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         </button>
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
-      <h2 className="fx__title">{t.title}</h2>
+      <h2 className="fx__title" title={t.title}>{t.title}</h2>
+
+      {isIssue(t) && <IssueBody t={t} />}
+      {isStory(t) && <StoryBody t={t} />}
 
       {thread && thread.items.length > 0 && (
         <div className="fx__source">
@@ -768,8 +886,22 @@ function Focus({ t, onAct, onClose, closable, ref }: {
                 {first ? (isMessage ? "完成，不发" : "完成，不执行") : "标记完成"}
               </button>
             )}
+            {isIssue(t) && trs.slice(1).map((tr) => (
+              <button key={tr.id} className="b b--ghost" onClick={() => void onAct(t, () => taskTransition(t.id, tr))}>{tr.label}</button>
+            ))}
+            {isStory(t) && t.source.nodeKey && (
+              <button
+                className="b b--ghost"
+                disabled={!node?.canConfirm}
+                title={node ? (node.canConfirm ? `流转节点「${t.source.nodeName ?? ""}」` : `还差：${node.missing.join("、")}`) : "正在问 Meegle…"}
+                onClick={() => void onAct(t, () => taskConfirmNode(t.id))}
+              >
+                完成当前节点
+              </button>
+            )}
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回…</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
+            {isStory(t) && node && !node.canConfirm && <span className="fx__miss">还差：{node.missing.join("、")}</span>}
           </div>
           {confirming && first && (
             <div className="fx__confirm">
