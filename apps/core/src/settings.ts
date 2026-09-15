@@ -13,9 +13,11 @@ export interface UserSettings {
   theme: ThemeId;
   /** 每天自学一题：研究社区做法，给手头项目提建议 */
   learn: boolean;
+  /** 每周从 Claude Code 历史提炼项目手册 */
+  learnHistory: boolean;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true, learnHistory: true };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -39,6 +41,7 @@ export function userSettings(): UserSettings {
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
     learn: typeof raw.learn === "boolean" ? raw.learn : DEFAULTS.learn,
+    learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
   };
 }
 
@@ -50,6 +53,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
   if (patch.learn !== undefined) raw.learn = patch.learn;
+  if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();

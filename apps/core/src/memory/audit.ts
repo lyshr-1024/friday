@@ -24,6 +24,7 @@ export type Undo =
   | { kind: "delete_slack_message"; channel: string; ts: string }
   | { kind: "meegle_state"; projectKey: string; workItemId: string; backTo: string }
   | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
+  | { kind: "restore_memory"; snapshot: { handbooks: Record<string, string>; decisions: string; people: string; projects: string } }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

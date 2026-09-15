@@ -3474,12 +3474,12 @@ body,
 
 /* ── 对方原话：证据在摘要之前。用户要对产出负责，判断依据不能藏在折叠里。
    基础面保持平（GPUI：Elevation 只解释叠放，不表达重要程度）。 */
+/* 原话是核对依据，要读得清楚：不套灰底（fg-1 压在 bg-4 上对比最低），
+   只用一条分隔线划出范围，正文直接落在卡片底色上 */
 .fx__source {
   margin-top: var(--s-5);
-  padding: var(--s-4) var(--s-5);
-  border-radius: var(--r-md);
-  background: var(--bg-4);
-  box-shadow: var(--shadow-card);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line-1);
 }
 .fx__source-head {
   display: flex;
@@ -3498,6 +3498,13 @@ body,
   color: var(--fg-4);
   font-size: var(--t-micro);
   letter-spacing: var(--tr-micro);
+}
+a.fx__source-where {
+  color: var(--fg-3);
+  transition: color var(--dur) var(--ease);
+}
+a.fx__source-where:hover {
+  color: var(--fg-1);
 }
 /* 前文：默认收起（它是背景不是主体），但要能一眼看到有多少条可核对 */
 .fx__prior {
@@ -3546,7 +3553,9 @@ body,
 }
 .fx__prior-list {
   margin-top: var(--s-3);
-  opacity: 0.82;
+}
+.fx__prior-list .fx__source-text {
+  color: var(--fg-2);
 }
 .fx__source-list {
   list-style: none;
@@ -3554,11 +3563,11 @@ body,
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-4);
 }
 .fx__source-list li {
   display: flex;
-  gap: var(--s-2);
+  gap: var(--s-3);
   align-items: baseline;
   min-width: 0;
 }

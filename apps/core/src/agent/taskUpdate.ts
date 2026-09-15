@@ -119,7 +119,12 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     const closing = patch.status === "done" || patch.status === "ignored";
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
-    if (closing) { closeTaskTerminal(task, "用户在会话里说这条任务收工了"); closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done"); }
+    if (closing) {
+      closeTaskTerminal(task, "用户在会话里说这条任务收工了");
+      closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done");
+      const t = task;
+      void import("./pipeline.js").then((m) => m.cleanupTaskWorktree(t, "用户在会话里说这条任务收工了")).catch(() => {});
+    }
   }
 
   if (changed.length) {

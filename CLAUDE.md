@@ -43,6 +43,37 @@ apps/core/src/
 - 每类攒够 5 条非 `approved` 的 lesson 触发 `distill`，Sonnet 重写 `<dataDir>/playbooks/<category>.md`，下次情境卡把手册与最近 3 条改稿范例注入 system prompt（范例里的原文走 `untrusted()`）。触发判定是纯函数 `shouldDistill`，真正调 Claude 那步在测试环境跳过。
 - 已发出的回复可撤回（`chat.delete` 接进账本 `undo`）；撤回失败不标 `undone`。接口 `GET /learn`、`PUT /learn/threshold`。
 
+## 从 Claude Code 历史学（2026-09-15）
+
+冷启动问题：Friday 的经验闭环（lessons / playbooks）只能等用户一次次干预慢慢攒，而用户在 Claude Code 里已经说过几百条约定了。实测近 30 天 673 个会话里有 2244 条用户原话，本地预筛出 322 条带纠正信号的（17.5 万字符），全量提炼约 $0.6——**大头不是模型钱，是别学错**。
+
+- **取料** `agent/history.ts`：扫 `~/.claude/projects/**/*.jsonl`，只取 `type: "user"` 且 `isMeta`/`isSidechain` 都不为真的文本块（sidechain 是 subagent 的 prompt，不是用户说的）。预筛正则只用来把两千条缩到三百条，「这算不算可复用约定」交给模型——正则判不了「改成 No photo yet」是一次性文案还是长期口径。
+- **项目归属看 jsonl 自带的 `cwd`**，不要反解目录名（`whale-console` 里的连字符和路径分隔符编码后长得一样，解不回来）。先对 `projects.md` 的 `- 目录：` 做前缀匹配（仓库内 worktree 天然覆盖，嵌套取最深），不中再看路径段里有没有项目名——**orca 把 worktree 放在 `~/orca/workspaces/<仓库>/<分支>`，跟项目目录毫无关系，实测 6 条 fe-wealth-admin 的原话全被丢进「通用」**。
+- **挡掉 Friday 自己写的 prompt**（`isOwnPrompt`）：`cwd` 在记忆库目录下的会话是 Friday 自己调 Claude（情境卡、intake、提炼），那些"用户消息"是它自己写的。实测混进来 3 条（「这之前，与千一的私聊里聊的是…」「工单信息：Meegle Defect #…」），学回来是自我强化的回音室。
+- **提炼** `agent/handbook.ts`：按项目分批喂 Sonnet，**每条规则必须跟一行 `>` 开头的原话出处**——手册里一条「member_id 一律用 string」没有出处，用户就没法判断是不是模型编的（同「证据优先」）。已有手册一起喂进去要求**重写整份而不是追加**，否则跑十周变成一百条流水账，新旧口径并存等于没学。输出 JSON：`handbook` / `decisions` / `people` / `aliases`，解析层对越界字段一律钳掉。历史原文过 `untrusted()`（里面混着 Slack 原文和网页抓取）。
+- **不直接写记忆库**：提炼结果建一条 `kind: "handbook"` 的 review 任务（`plan` 是分项目的草稿全文），挂 `handbook_apply` 待审动作，用户点「通过并执行」才落盘 → `handbooks/<项目>.md`、追加 `decisions.md` / `people.md`、`addProjectHints` 补别名。整个 apply 记一条账，`undo: restore_memory` 存 apply 前的快照整体还原（手册是覆盖写的，逐条撤销没意义）。
+- **注入**：`autonomousPrompt` 内联该项目手册 + `_global`（各截 1500 字，`memory/handbooks.ts` 的 `handbookBlock`；放在 memory 层是为了不让 runner 把整条提炼链路拖进来）。会话的 `friday()` **不内联**，只说一句「handbooks/ 下有这几份，需要时 `memory_read handbook:<项目名>`」——不破坏记忆库瘦身那 46%。
+- **节奏**：一条代码路径，游标为空扫近 30 天（冷启动），有水位从水位往后扫。`historyDue` 跟 `learnDue` 一个思路，只看离上次跑过了多久（存 `sync_state` 的 `history:ran`，重启不丢），每周一轮；候选不足 8 条不弹，但照样推进「跑过」时间，否则每半小时重扫同一批。
+- 入口：`POST /tasks/learn-history`、会话工具 `learn_history`、设置页「项目手册」分组的「现在学一轮」；开关 `settings.learnHistory`（默认开）。手册在设置页可直接编辑（`GET/PUT /handbooks/:slug`，只放行已存在的文件名），学错了删掉那一行就行。
+
+## 自主任务在 worktree 里跑（2026-09-15）
+
+原来 `startAutonomousJob` 直接在项目主目录里 `claude -p` 建分支改代码，两个后果：占着主仓（用户没法同时在那儿干活）、`worktreeDirt()` 要求主仓干净才肯开工，用户手上有未提交改动时 Friday 直接 blocked。
+
+- 开工前 `git worktree add --detach <项目>/.claude/worktrees/friday-<id8>`（`git.ts` 的 `fridayWorktree` / `addWorktree`），`launchClaude` 的 cwd 指到那儿。位置跟 Claude Code 客户端一致，用完即删，不混进 orca 的 workspace 列表。**用 `--detach` 不预建分支**——分支名仍由终端里的 Claude 按项目规范自己起（它有完整上下文，Friday 做中文 slug 会变乱码），提示词第一条改成「你已经在一个 worktree 里（detached），先 `git switch -c <分支名>`」。
+- `worktreeDirt()` 只剩「得是个 git 仓库」这一条。主仓脏不脏跟 Friday 无关了，这正是用 worktree 的意义。
+- **清理**（`cleanupTaskWorktree`）：目录一律删（只是个检出），**分支只用 `git branch -d` 删**——没合并的 git 会拒绝，那是安全阀不是错误：被忽略的任务里可能有还想捡回来的改动，那个决定归用户，账本 `worktree_removed` 里写明分支留着了。出口三处：`git_merge` 执行成功后（合完再收，这时 `-d` 才删得掉）、`/tasks/:id/done`、`/tasks/:id/ignore`，以及会话里 `task_update` 说收工。
+- **顺带修了一个一直没被发现的 bug**：`getTaskByJob` 读 `task.source.dir`，而 `TaskSource` 根本没有 `dir` 字段，一直拿到空串 → `currentBranchSync("")` 返回空 → **`git_merge` 待审动作从来没挂上过**。现在 `TaskSource` 加了 `repoDir`（主仓）和 `worktree`（Friday 开的那个），分支名去 worktree 读，合并在主仓做（分支正被 worktree 检出着，在 worktree 里 merge 不了）。
+
+## 内嵌终端渲染（2026-09-15 修）
+
+用户报「终端内容看起来是乱的」：字符叠加、新旧两屏糊在一起。三处叠加造成，全修了：
+
+- **前端没等 resize 生效就订阅**：PTY 固定 `cols: 120` 起，前端 `void post("resize")` 不等返回就 `fetch stream`，回放的是 120 列时写下的字节，xterm 按实际宽度（约 150 列）渲染，折行位置全错。改成 `await post("resize")` 之后再订阅。
+- **回放缓冲按字节截断**：`buffer.slice(-REPLAY_TAIL)` 会切在 ANSI 转义序列中间，后面的字符被当序列参数吃掉。`replayTail()` 改成从截断点后的第一个换行开始，丢掉残缺的半行。
+- **重连不清屏**：回放直接盖在上一屏残留上。`subscribe` 回放前先发 `\x1b[H\x1b[2J\x1b[3J`。
+- 另外 `term.open()` 后立刻 `fit()` 时容器可能还没布局完（终端默认收起，点开才挂载），补了一次下一帧的 fit。
+
 ## 安全护栏
 
 - 外部文本（Slack 原文、Meegle 条目、历史情境卡、few-shot 范例）进任何 prompt 前一律过 `agent/fence.ts` 的 `untrusted(source, text)`，system 里声明定界符内是数据不是指令，并剥掉正文里伪造的闭合标签。

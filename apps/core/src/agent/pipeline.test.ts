@@ -26,16 +26,26 @@ describe("自主任务的任务描述", () => {
   });
 });
 
-describe("开工前的工作区体检", () => {
-  it("工作区不干净就不开工，任务标 blocked 并说明原因", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "friday-dirty-"));
-    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
-    writeFileSync(join(dir, "wip.ts"), "用户自己没提交的改动");
+describe("开工前的体检", () => {
+  it("不是 git 仓库就不开工", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "friday-nogit-"));
     const task = createTask({ title: "改点东西", kind: "code", source: {}, status: "understood" });
     const out = await startAutonomousJob(task, "demo", dir, "修登录报错");
     expect(out.status).toBe("blocked");
-    expect(out.progress).toContain("wip.ts");
+    expect(out.progress).toContain("不是 git 仓库");
     expect(out.source.jobId).toBeUndefined();
+  });
+
+  it("开不出 worktree 就不开工，不留半拉子任务", async () => {
+    // 空仓库（还没有任何提交）开不出 worktree
+    const dir = mkdtempSync(join(tmpdir(), "friday-empty-"));
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    const task = createTask({ title: "改点东西", kind: "code", source: {}, status: "understood" });
+    const out = await startAutonomousJob(task, "demo", dir, "修登录报错");
+    expect(out.status).toBe("blocked");
+    expect(out.progress).toContain("没有开工");
+    expect(out.source.jobId).toBeUndefined();
+    expect(out.source.worktree).toBeUndefined();
   });
 });
 

@@ -6,6 +6,7 @@ import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
+import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
 import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
@@ -165,4 +166,10 @@ export function startScheduler(): void {
     setTimeout(learnTick, LEARN_CHECK_MS).unref();
   };
   setTimeout(learnTick, 20_000).unref();
+  // 从 Claude Code 历史提炼项目手册，每周一轮（historyDue 只看离上次跑过了多久）
+  const historyTick = async () => {
+    if (historyDue(getCursor(RAN_KEY))) await learnHistoryOnce();
+    setTimeout(historyTick, LEARN_CHECK_MS).unref();
+  };
+  setTimeout(historyTick, 40_000).unref();
 }

@@ -195,6 +195,34 @@ export async function conversationById(id: string): Promise<Conversation> {
 }
 
 
+export async function listHandbooks(): Promise<string[]> {
+  const res = await fetch(`${await coreBaseUrl()}/handbooks`);
+  if (!res.ok) return [];
+  return ((await res.json()) as { files: string[] }).files;
+}
+
+export async function readHandbook(slug: string): Promise<{ name: string; path: string; content: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/handbooks/${encodeURIComponent(slug)}`);
+  if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function writeHandbook(slug: string, content: string): Promise<{ name: string; path: string; content: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/handbooks/${encodeURIComponent(slug)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`保存失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function learnHistory(): Promise<{ taskId?: string; groups?: number; candidates?: number; skipped?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/learn-history`, { method: "POST" });
+  if (!res.ok) throw new Error(`core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function readMemory(name: MemoryFile): Promise<MemoryFileResponse> {
   const res = await fetch(`${await coreBaseUrl()}/memory/${name}`);
   if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);

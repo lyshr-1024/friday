@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import type { TerminalApp } from "../settings.js";
 import { getSession, spawnSession } from "./pty.js";
 import { getJob } from "../memory/jobs.js";
+import { handbookBlock } from "../memory/handbooks.js";
 import { terminalBridgePrompt } from "./prompt.js";
 import { FORBIDDEN } from "./guard.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
@@ -27,12 +28,14 @@ export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 
 /** 自主任务的提示词：分支、测试、交付报告、截图，全部落在约定路径，Friday 事后解析进审核。 */
 export function autonomousPrompt(id: string, task: string, project: string): string {
+  const handbook = handbookBlock(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
     `任务：${task}`,
     "",
     "规则：",
-    "1. 先 git status 确认工作区，然后新建分支再改，不要动 main / master，不要 push，不要 merge。",
+    "1. 你已经在一个专门给这次任务开的 git worktree 里（detached HEAD），主仓不受影响。",
+    "   先 git switch -c <分支名> 建分支再改，不要 push，不要 merge，不要回主仓操作。",
     "   分支名按项目规范起，用英文小写加连字符，要能看出在做什么：",
     "   新功能用 feat/<topic>，修缺陷用 fix/<bug>，杂活或样式用 chore/<topic> 或 style/<topic>。",
     "   例如 feat/export-center、fix/withdrawal-rule-tabs、style/task-card-spacing。",
@@ -54,6 +57,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "## 截图",
     "- 文件名 — 说明（没有就写 无）",
     "5. 全程不要问用户问题；拿不准就按最保守的方式做并在报告里写明。",
+    ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
 }

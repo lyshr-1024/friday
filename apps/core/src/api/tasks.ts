@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import { learnOnce, readResearchNote } from "../agent/learn.js";
+import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { recordLesson } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
-import { closeTaskThread, executePending, startAutonomousJob } from "../agent/pipeline.js";
+import { cleanupTaskWorktree, closeTaskThread, executePending, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
@@ -46,6 +47,7 @@ export const tasks = new Hono()
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
   .post("/tasks/learn", async (c) => c.json(await learnOnce(true)))
+  .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
@@ -212,14 +214,22 @@ export const tasks = new Hono()
       return c.json({ error: message }, 502);
     }
   })
-  .post("/tasks/:id/done", (c) => {
+  .post("/tasks/:id/done", async (c) => {
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
-    if (t) { closeTaskTerminal(t, "你把任务标记完成"); closeTaskThread(t, "done"); }
+    if (t) {
+      closeTaskTerminal(t, "你把任务标记完成");
+      closeTaskThread(t, "done");
+      await cleanupTaskWorktree(t, "你把任务标记完成");
+    }
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
-  .post("/tasks/:id/ignore", (c) => {
+  .post("/tasks/:id/ignore", async (c) => {
     const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
-    if (t) { closeTaskTerminal(t, "你忽略了这条任务"); closeTaskThread(t, "ignored"); }
+    if (t) {
+      closeTaskTerminal(t, "你忽略了这条任务");
+      closeTaskThread(t, "ignored");
+      await cleanupTaskWorktree(t, "你忽略了这条任务");
+    }
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
@@ -240,6 +250,11 @@ export const tasks = new Hono()
       if (ev?.action === "slack_reply_sent" && ev.evidence.auto === true) {
         recordLesson({ ...(ev.taskId ? { taskId: ev.taskId } : {}), category: asCategory(ev.evidence.category), kind: "auto_undone", final: String(ev.evidence.text ?? ""), confidence: Number(ev.evidence.confidence ?? 0) });
       }
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_memory") {
+      restoreMemorySnapshot(plan.snapshot);
+      setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
     if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {

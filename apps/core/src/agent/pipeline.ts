@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
-import { currentBranchSync } from "./git.js";
+import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
@@ -14,6 +14,7 @@ import { getThreshold } from "../memory/thresholds.js";
 import { markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
 import { decide, decideStart } from "./gate.js";
+import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
 import { untrusted } from "./fence.js";
@@ -209,21 +210,50 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     return updateTask(task.id, { status: "blocked", progress: `没有开工：${dirt}。提交或清掉这些改动后点「重新开工」。` })!;
   }
   const id = randomUUID();
+  // 在独立 worktree 里干活，不占主仓：用户可以同时在主仓改自己的东西
+  const tree = fridayWorktree(dir, id);
+  const failed = await addWorktree(dir, tree);
+  if (failed) {
+    record({ taskId: task.id, action: "claude_code_blocked", why: "开不出 worktree", how: failed, evidence: { dir, project, tree }, risk: "read", status: "failed" });
+    return updateTask(task.id, { status: "blocked", progress: `没有开工：${failed}` })!;
+  }
   const prompt = autonomousPrompt(id, detail, project);
-  await launchClaude({ id, dir, terminal: userSettings().terminal, task: prompt, autonomous: true });
-  createJob({ id, project, dir, task: detail.slice(0, 500), logPath: jobLog(id) });
+  await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
+  createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id) });
   record({
     taskId: task.id,
     action: "claude_code_start",
     why: "任务需要改代码，按策略自动在分支上完成再交审核",
-    how: "Ghostty 里 claude -p，在按项目规范命名的新分支上改，完成后写交付报告",
-    evidence: { jobId: id, project, dir },
+    how: `在 worktree ${tree} 里跑 claude -p，按项目规范建分支，完成后写交付报告`,
+    evidence: { jobId: id, project, dir, worktree: tree },
     risk: "reversible",
   });
   // task.progress 可能已经写了「Friday 已自动回复」之类的话（同一条线程既触发了回复又触发了改代码），
   // 这里是覆盖 progress 的地方，得接上而不是整句丢掉，不然工作台上那条已经发出去的回复就查无痕迹。
   const progress = [task.progress, `Claude Code 正在 ${project} 上处理`].filter(Boolean).join("\n");
-  return updateTask(task.id, { status: "processing", progress, source: { ...task.source, jobId: id, autonomous: true } })!;
+  return updateTask(task.id, { status: "processing", progress, source: { ...task.source, jobId: id, autonomous: true, repoDir: dir, worktree: tree } })!;
+}
+
+/**
+ * 任务收工：收掉 Friday 给它开的 worktree。
+ * 目录一律删（只是个检出），分支只在已合并时删——没合并的改动可能还想捡回来，
+ * 那个决定归用户，账本里写清楚分支留着了。
+ */
+export async function cleanupTaskWorktree(task: Task, why: string): Promise<void> {
+  const tree = task.source.worktree;
+  const repo = task.source.repoDir;
+  if (!tree || !repo) return;
+  const r = await removeWorktree(repo, tree);
+  if (!r.removed) return;
+  record({
+    taskId: task.id,
+    action: "worktree_removed",
+    why,
+    how: r.branchDeleted ? `收掉 worktree 并删了分支 ${r.branch}` : `收掉 worktree${r.branch ? `，${r.kept ?? "分支留着"}：${r.branch}` : ""}`,
+    evidence: { worktree: tree, branch: r.branch ?? null, branchDeleted: r.branchDeleted },
+    risk: "reversible",
+  });
+  updateTask(task.id, { source: { ...task.source, worktree: undefined } });
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
@@ -263,15 +293,18 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     ...(report ? { report } : {}),
   })!;
   // 读不到分支名（不是 git 仓库、或它没建分支）就不挂合并动作，免得挂个假的
+  // 合并要在主仓做，不能在 worktree 里（分支正被它检出着，merge 不了）
+  const repo = task.source.repoDir || job.dir;
   if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
-    task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: job.dir, branch } })!;
+    task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push），合完收掉 worktree`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
   return task;
 }
 
 function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
   const ev = findTaskBySource((s) => s.jobId === jobId, true);
-  if (ev) return { task: ev, dir: (ev.source as { dir?: string }).dir ?? "" };
+  // dir 要指向终端实际干活的地方：自主任务在 worktree 里，分支名得去那儿读
+  if (ev) return { task: ev, dir: ev.source.worktree ?? ev.source.repoDir ?? "" };
   // 兼容：通过账本里 claude_code_start 的证据反查
   const hit = listAudit({ limit: 500 }).find((e) => e.action === "claude_code_start" && e.evidence.jobId === jobId);
   const task = hit?.taskId ? getTask(hit.taskId) : undefined;
@@ -313,11 +346,35 @@ export async function executePending(
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
+    } else if (action.type === "handbook_apply") {
+      const { applyHandbookDraft } = await import("./handbook.js");
+      const p = action.payload as { draft: HandbookDraft; cursor?: string };
+      const { snapshot, wrote } = applyHandbookDraft(p.draft);
+      record({
+        taskId,
+        action: "handbook_applied",
+        why: "你审核通过",
+        how: `写了 ${wrote.join("、")}`,
+        evidence: { wrote, groups: p.draft.groups.map((g) => g.project) },
+        risk: "reversible",
+        status: "approved",
+        undo: { kind: "restore_memory", snapshot },
+      });
     } else if (action.type === "git_merge") {
-      const p = action.payload as { dir: string; branch: string };
+      const p = action.payload as { dir: string; branch: string; worktree?: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
       await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
-      record({ taskId, action: "git_merge", why: "你审核通过", how: `git merge --no-ff ${p.branch} 到 ${base}`, evidence: p, risk: "irreversible", status: "approved" });
+      // 合完再收 worktree：分支这时已经进主干，removeWorktree 的 git branch -d 才删得掉
+      const cleaned = p.worktree ? await removeWorktree(p.dir, p.worktree) : undefined;
+      record({
+        taskId,
+        action: "git_merge",
+        why: "你审核通过",
+        how: `git merge --no-ff ${p.branch} 到 ${base}${cleaned?.removed ? `，已收掉 worktree${cleaned.branchDeleted ? " 和分支" : ""}` : ""}`,
+        evidence: { ...p, ...(cleaned ? { worktreeRemoved: cleaned.removed, branchDeleted: cleaned.branchDeleted } : {}) },
+        risk: "irreversible",
+        status: "approved",
+      });
     } else {
       record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
     }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../config.js";
+import { listHandbooks } from "./handbooks.js";
 import { listTasks } from "./tasks.js";
 
 export interface MemoryContext {
@@ -9,6 +10,8 @@ export interface MemoryContext {
   /** people.md / decisions.md 有没有内容。有就在提示里说一句「需要时 memory_read」 */
   hasPeople: boolean;
   hasDecisions: boolean;
+  /** handbooks/ 下已有的项目手册，问到某个项目的约定时让它自己去读 */
+  handbooks: string[];
 }
 
 const LIMIT = 4000;
@@ -32,7 +35,7 @@ const nonEmpty = (name: string): boolean => {
  */
 export function loadMemoryContext(): MemoryContext {
   const todos = openTodoLines(30).join("\n");
-  return { projects: readMd("projects.md"), todos, hasPeople: nonEmpty("people.md"), hasDecisions: nonEmpty("decisions.md") };
+  return { projects: readMd("projects.md"), todos, hasPeople: nonEmpty("people.md"), hasDecisions: nonEmpty("decisions.md"), handbooks: listHandbooks() };
 }
 
 /** 未完成的待办。记待办已经统一进 tasks 表，todos 表只剩 Meegle 同步用，这里读 tasks。 */

@@ -1,4 +1,6 @@
 import { learnOnce } from "./learn.js";
+import { learnHistoryOnce } from "./handbook.js";
+import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
@@ -32,6 +34,7 @@ function resolveOrExplain(query: string) {
 }
 
 const file = z.enum(["projects", "decisions", "people"]).describe("projects=项目注册表，decisions=决策记录，people=人物");
+const MEMORY_NAMES = file;
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
 // Friday 在对话里能用的全部工具。都是对记忆库的可逆写操作，按 permission.ts 归为 reversible：放行并留痕。
@@ -39,7 +42,18 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
   name: "friday",
   version: "0.1.0",
   tools: [
-    tool("memory_read", "读取记忆库里的一个 markdown 文件全文。", { file }, async ({ file }) => text(readMemoryFile(file) || "（空文件）")),
+    tool(
+      "memory_read",
+      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册。",
+      { file: z.string().min(1).max(80) },
+      async ({ file }) => {
+        const hb = /^handbook:(.+)$/.exec(file);
+        if (hb) return text(readHandbook(hb[1]!) || `（没有 ${hb[1]} 的手册，现有：${listHandbooks().join("、") || "一份都没有"}）`);
+        const parsed = MEMORY_NAMES.safeParse(file);
+        if (!parsed.success) return text(`没有这个文件。可读：projects / decisions / people${listHandbooks().length ? `，以及 ${listHandbooks().map((h) => `handbook:${h}`).join("、")}` : ""}`);
+        return text(readMemoryFile(parsed.data) || "（空文件）");
+      },
+    ),
     tool(
       "memory_write",
       "整篇覆盖写入记忆库 markdown 文件。改项目别名、登记新项目、记决策、记人物都用它：先 memory_read 拿全文，改好后整篇写回，保持原有格式（## 名称 / - 目录 / - 别名 / - 状态 / - 说明）。",
@@ -202,6 +216,15 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
+      "learn_history",
+      "从用户过去在 Claude Code 里说过的话里提炼「在某个项目怎么干活」的手册（技术口径、分支流程、踩过的坑），每条带原话出处。用户说“从历史学一下”“把我以前说过的规矩学了”“更新项目手册”时用。结果不会直接写记忆库，会挂成一条待审任务等用户点头。要花一两分钟。平时每周自动学一轮（设置里可关）。",
+      {},
+      async () => {
+        const r = await learnHistoryOnce(true);
+        return text("skipped" in r ? `这次没学：${r.skipped}` : `提炼完了：${r.groups} 份手册，依据 ${r.candidates} 条你说过的原话，已挂成待审任务（${r.taskId.slice(0, 8)}）。在「待我决定」里过一眼，点「通过并执行」才会写进记忆库。`);
+      },
+    ),
+    tool(
       "slack_sync",
       "立刻拉一次 Slack（@我 和私聊里的新消息，预处理成线程和任务）。用户说“刷一下 Slack”“看看有没有新消息”时用。平时白天每 3 分钟、其余 15 分钟自动拉。",
       {},
@@ -259,5 +282,6 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__meegle_sync",
   "mcp__friday__slack_sync",
   "mcp__friday__learn_now",
+  "mcp__friday__learn_history",
   "mcp__friday__close_terminals",
 ];

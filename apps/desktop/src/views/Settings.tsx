@@ -1,10 +1,10 @@
 import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { THEME_OPTIONS, type MemoryFile, type SettingsResponse } from "@friday/shared";
+import { THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { applyTheme, broadcastTheme } from "../lib/theme";
-import { MEMORY_FILES, MemoryEditor } from "./MemoryEditor";
-import { coreBaseUrl, health, settings, testNotification, updateSettings } from "../lib/core";
+import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
+import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 
 export function Settings() {
@@ -12,11 +12,15 @@ export function Settings() {
   const [core, setCore] = useState<{ url: string; version?: string; ok: boolean } | null>(null);
   const [hotkey, setHotkey] = useState("");
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
-  const [editing, setEditing] = useState<MemoryFile | null>(null);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
   const [notified, setNotified] = useState(false);
+  const [handbooks, setHandbooks] = useState<string[]>([]);
+  const [learning, setLearning] = useState(false);
+  const [learnNote, setLearnNote] = useState("");
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
+    void listHandbooks().then(setHandbooks).catch(() => {});
     void invoke<string>("current_hotkey").then(setHotkey);
     void settings().then((p) => { setPrefs(p); applyTheme(p.theme); }).catch(() => setPrefs(null));
     void (async () => {
@@ -30,6 +34,21 @@ export function Settings() {
     })();
   }, []);
 
+  async function runLearn() {
+    setLearning(true);
+    setLearnNote("");
+    try {
+      const r = await learnHistory();
+      setLearnNote(r.skipped ? "没学到新的" : `提炼了 ${r.groups} 份，去「待我决定」过目`);
+      await listHandbooks().then(setHandbooks);
+    } catch {
+      setLearnNote("出错了");
+    } finally {
+      setLearning(false);
+      setTimeout(() => setLearnNote(""), 6000);
+    }
+  }
+
   async function toggleAutostart() {
     if (autostart === null) return;
     if (autostart) await disable();
@@ -40,10 +59,11 @@ export function Settings() {
   if (editing) {
     return (
       <MemoryEditor
-        name={editing}
+        target={editing}
         onBack={() => {
           setEditing(null);
           void settings().then(setPrefs).catch(() => {});
+          void listHandbooks().then(setHandbooks).catch(() => {});
         }}
       />
     );
@@ -58,9 +78,31 @@ export function Settings() {
         <div className="group">
           {MEMORY_FILES.map((f) => (
             <Row key={f.name} label={f.label} hint={f.name === "projects" ? `${prefs?.projects.length ?? "…"} 个项目，别名在这里改` : f.hint}>
-              <button className="btn" onClick={() => setEditing(f.name)}>编辑…</button>
+              <button className="btn" onClick={() => setEditing({ kind: "memory", name: f.name })}>编辑…</button>
             </Row>
           ))}
+        </div>
+      </section>
+
+      <section>
+        <h2>项目手册</h2>
+        <div className="group">
+          {handbooks.length === 0 ? (
+            <Row label="还没有手册" hint="从 Claude Code 历史学一轮，会按项目提炼出「在这里怎么干活」，每条带你的原话出处">
+              <button className="btn" disabled={learning} onClick={() => void runLearn()}>{learning ? "提炼中…" : learnNote || "现在学一轮"}</button>
+            </Row>
+          ) : (
+            <>
+              {handbooks.map((slug) => (
+                <Row key={slug} label={slug === "_global" ? "通用习惯" : slug} hint="派去终端干活的 Claude 会先读这份；学错了直接删掉那一行">
+                  <button className="btn" onClick={() => setEditing({ kind: "handbook", slug })}>编辑…</button>
+                </Row>
+              ))}
+              <Row label="再学一轮" hint="扫上次之后的 Claude Code 会话，提炼结果会挂成待审任务，点头才写进来">
+                <button className="btn" disabled={learning} onClick={() => void runLearn()}>{learning ? "提炼中…" : learnNote || "现在学一轮"}</button>
+              </Row>
+            </>
+          )}
         </div>
       </section>
 
@@ -129,6 +171,15 @@ export function Settings() {
             aria-checked={!!prefs?.learn}
             disabled={!prefs}
             onClick={() => prefs && void updateSettings({ learn: !prefs.learn }).then(setPrefs)}
+          />
+        </Row>
+        <Row label="从 Claude Code 学" hint="每周扫一次你在 Claude Code 里说过的话，提炼成项目手册挂成待审；一轮约 $0.2，冷启动那次约 $1">
+          <button
+            className={`switch ${prefs?.learnHistory ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.learnHistory}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
           />
         </Row>
         <Row label="跑 Claude 用的终端" hint="内嵌：在任务详情里直接看和聊；Ghostty / Terminal：弹外部窗口">
