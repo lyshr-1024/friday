@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { config } from "../config.js";
 import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { executePending } from "./pipeline.js";
@@ -95,5 +98,13 @@ describe("会话结论回流任务卡", () => {
     expect(getTask(t.id)!.pinned).toBe(true);
     const off = (await (await app.request(`/tasks/${t.id}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: false }) })).json()) as { pinned?: boolean };
     expect(off.pinned).toBeUndefined();
+  });
+
+  it("答了归属就把 Friday 的提问收掉，不然它还挂在「待我决定」里", () => {
+    writeFileSync(join(config.dataDir, "projects.md"), "## whale-console\n- 目录：/x/whale-console\n");
+    const t = createTask({ title: "【NZ-开户详情页】无人脸照片时展示「暂无照片」", kind: "meegle", source: { meegleId: "24519239" }, status: "understood" });
+    updateTask(t.id, { attention: "intake", progress: "这条工单是财富后台还是新BO项目的？" });
+    updateTaskFromChat(t.id, { project: "whale-console" });
+    expect(getTask(t.id)!.attention).toBeUndefined();
   });
 });

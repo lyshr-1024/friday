@@ -4,8 +4,9 @@ import { state as schedState } from "../scheduler/index.js";
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
+import type { MeegleWorkItem } from "../connectors/meegle.js";
 import { matchProjectByUrl } from "../memory/projects.js";
-import { matchProject, priorityOf, workItemToTask } from "./meegle.js";
+import { intakeWorkItem, matchProject, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
   { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"] },
@@ -292,5 +293,30 @@ describe("matchProjectByUrl", () => {
     expect(matchProjectByUrl(["https://console.longbridge.xyz/wbotest/x"], ps)?.name).toBe("老后台");
     expect(matchProjectByUrl(["https://other.example.com/wbo"], ps)).toBeUndefined();
     expect(matchProjectByUrl([], ps)).toBeUndefined();
+  });
+});
+
+describe("新工单 Friday 判断不了归属时问一句", () => {
+  const item: MeegleWorkItem = {
+    id: "24519239",
+    name: "【NZ-开户详情页】无人脸照片时展示「暂无照片」",
+    typeName: "Defect",
+    typeKey: "issue",
+    links: [],
+    status: "In Development",
+    statusKey: "IN PROGRESS",
+    projectName: "Longbridge",
+    projectKey: "k",
+    url: "https://project.larksuite.com/projectlb/issue/detail/24519239",
+    createdAt: "2026-09-15T07:19:16.478Z",
+    description: "登录 nz 后台看开户详情页，无人脸照片时字段展示为空",
+  };
+
+  it("问的是 Friday 自己，不能标成终端在问——这条任务根本没有终端", async () => {
+    const t = mkTask({ title: item.name, kind: "meegle", source: { meegleId: item.id }, status: "understood" });
+    await intakeWorkItem(t, item, async () => ({ kind: "ask", question: "这条工单是财富后台还是新BO项目的？", why: "标题里两边都沾" }));
+    const after = readTask(t.id)!;
+    expect(after.attention).toBe("intake");
+    expect(after.progress).toBe("这条工单是财富后台还是新BO项目的？");
   });
 });

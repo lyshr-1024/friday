@@ -3254,6 +3254,12 @@ body,
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* Friday 问你：同样在等你回，但没有终端卡在那儿，用等你决定的琥珀色 */
+.dot--intake {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(255, 202, 22, 0.16);
+}
+
 /* 分组头右侧的动作（待办 → 刷新 Meegle） */
 .grp__head--row {
   display: flex;
@@ -3740,6 +3746,29 @@ body,
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--line-1);
+}
+
+/* ── Friday 自己要问用户的一句：放标题下面，不是「进展」 */
+.fx__ask {
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.fx__ask-q {
+  margin-top: var(--s-2);
+  color: var(--fg-1);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-body);
+}
+.fx__ask-how {
+  margin-top: var(--s-2);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
 }
 
 /* ── Meegle 关联需求：缺陷往上挂需求，需求往下列缺陷 */
