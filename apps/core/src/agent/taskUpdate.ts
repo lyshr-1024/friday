@@ -14,6 +14,8 @@ export interface TaskPatch {
   dropReply?: boolean;
   /** 用户在会话里说"做完了 / 不用管了 / 先放着 / 卡住了"：任务状态由用户定，Friday 只是执行 */
   status?: Extract<TaskStatus, "processing" | "review" | "blocked" | "done" | "ignored">;
+  /** 重写「通过前请确认」那几条。方案改了之后旧列表就对不上了，得能从会话里换掉 */
+  verify?: string[];
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "Friday 在做", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -33,6 +35,25 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     }
   }
   if (Object.keys(fields).length) task = updateTask(taskId, fields)!;
+
+  const verify = patch.verify?.map((v) => v.trim()).filter(Boolean).slice(0, 12);
+  if (verify?.length && JSON.stringify(verify) !== JSON.stringify(task.report?.verify ?? [])) {
+    const prev = task.report;
+    task = updateTask(taskId, {
+      report: {
+        summary: prev?.summary ?? "",
+        changes: prev?.changes ?? [],
+        testSteps: prev?.testSteps ?? [],
+        testResult: prev?.testResult ?? "",
+        screenshots: prev?.screenshots ?? [],
+        verify,
+        at: new Date().toISOString(),
+        // 换了列表就把勾选清掉：新条目没人验过，继承旧勾会让用户以为验过了
+        checked: verify.map(() => false),
+      },
+    })!;
+    changed.push(prev?.verify?.length ? "验收列表（已勾选状态清零）" : "验收列表");
+  }
 
   const reply = (task.pending ?? []).find((p) => p.type === "slack_reply");
   if (patch.dropReply && reply) {

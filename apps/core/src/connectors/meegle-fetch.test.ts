@@ -58,7 +58,7 @@ describe("拉分派列表时过滤缺陷状态", () => {
     });
 
     await new MeegleConnector().fetchWorkItems();
-    expect(fieldsFor.get(1)).toBe("priority,tags,field_8fe714,field_8190c7,field_1f7126");
+    expect(fieldsFor.get(1)).toBe("priority,tags,description,field_8fe714,field_8190c7,field_1f7126");
     expect(fieldsFor.get(2)).toBe("priority,tags,description");
   });
 });

@@ -95,7 +95,9 @@ function needs(t: Task): string {
   if (t.attention === "question") return `马上回：${(t.progress ?? "终端在问你").replace(/^终端在问：/, "")}`;
   const first = t.pending?.[0];
   if (first) return `需要你：${first.label}`;
-  if (t.report) return "需要你：看交付报告";
+  // 只有验收列表（Friday 在会话里写的）不算交付报告，别让左栏说「看交付报告」却没有报告
+  if (t.report?.summary?.trim()) return "需要你：看交付报告";
+  if (t.report?.verify.length) return `需要你：确认 ${t.report.verify.length} 个验收点`;
   if (t.plan) return "需要你：定方案";
   if (t.status === "review") return "需要你：过一眼";
   if (t.status === "blocked") return "需要你：介入";
@@ -580,11 +582,27 @@ function Focus({ t, onAct, onClose, closable, ref }: {
   const [acts, setActs] = useState<Activity[]>([]);
   // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
   const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
+  const termRef = useRef<HTMLDivElement>(null);
+  // 展开后要把终端滚进视野，否则点了「聚焦终端」人还停在卡片上半部分不知道发生了什么
+  const [scrollToTerm, setScrollToTerm] = useState(() => peekFocusJob() === t.source.jobId);
   useEffect(() => {
-    const onFocusJob = (e: Event) => { if ((e as CustomEvent<string>).detail === t.source.jobId) setTermOpen(true); };
+    const onFocusJob = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== t.source.jobId) return;
+      setTermOpen(true);
+      setScrollToTerm(true);
+    };
     window.addEventListener("friday:focus-job", onFocusJob);
     return () => window.removeEventListener("friday:focus-job", onFocusJob);
   }, [t.source.jobId]);
+  useEffect(() => {
+    if (!scrollToTerm || !termOpen) return;
+    // 等 xterm 挂完再滚，否则量到的还是没撑开的高度
+    const id = window.requestAnimationFrame(() => {
+      termRef.current?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      setScrollToTerm(false);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [scrollToTerm, termOpen]);
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -791,13 +809,14 @@ function Focus({ t, onAct, onClose, closable, ref }: {
               </ul>
             </div>
           )}
-          {r && (
+          {/* Friday 在会话里只重写 verify 时，报告的其余字段是空的——别渲染出一个空标签 */}
+          {r?.testResult?.trim() && (
             <div>
               <span className="k">测试结果</span>
               <div className="fx__text">{r.testResult}</div>
             </div>
           )}
-          {!r && t.progress && (situation || advice) && (
+          {!r?.testResult?.trim() && t.progress && (situation || advice) && (
             <div>
               <span className="k">进展</span>
               <div className="fx__text">{t.progress}</div>
@@ -863,7 +882,7 @@ function Focus({ t, onAct, onClose, closable, ref }: {
         </div>
       )}
       {t.source.jobId && (
-        <div className="fx__term">
+        <div className="fx__term" ref={termRef}>
           {/* 状态交给左栏那条说，这里只做开合——原来两处都报「已断」，措辞还更吓人 */}
           <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)} aria-expanded={termOpen}>
             <span className="k">终端</span>

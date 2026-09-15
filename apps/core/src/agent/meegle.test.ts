@@ -3,12 +3,13 @@ import { createTask as mkTask, getTask as readTask, updateTask as setTask } from
 import { state as schedState } from "../scheduler/index.js";
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory } from "@friday/shared";
-import { toWorkItem } from "../connectors/meegle.js";
+import { extractLinks, toWorkItem } from "../connectors/meegle.js";
+import { matchProjectByUrl } from "../memory/projects.js";
 import { matchProject, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
-  { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [] },
-  { name: "lb-app", dir: "/x/lb-app", aliases: ["长桥 app"], channels: [] },
+  { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"] },
+  { name: "lb-app", dir: "/x/lb-app", aliases: ["长桥 app"], channels: [], urls: [] },
 ];
 
 describe("Meegle 工单进任务中枢", () => {
@@ -33,6 +34,7 @@ describe("Meegle 工单进任务中枢", () => {
       name: "【消息】消息记录内容查看权限申请与展示",
       typeName: "Requirement",
       typeKey: "story",
+      links: [],
       status: "Pending Release",
       statusKey: "",
       projectKey: "k",
@@ -60,7 +62,7 @@ describe("Meegle 工单进任务中枢", () => {
   });
 
   it("工单一律先排队；理解里写清节点与状态", () => {
-    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectKey: "pk", projectName: "p", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    const base = { id: "1", name: "wbo 导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", statusKey: "OPEN", projectKey: "pk", projectName: "p", url: "u", links: [], createdAt: "2026-09-01T00:00:00Z" };
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
     expect(hot.status).toBe("understood");
     expect(hot.priority).toBe("high");
@@ -74,7 +76,7 @@ describe("Meegle 工单进任务中枢", () => {
 });
 
 describe("Meegle 同步：Reopen 的工单拉回待办", () => {
-  const item = (id: string, status: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", status, projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" });
+  const item = (id: string, status: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status, projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" });
   const fake = (items: ReturnType<typeof item>[]) => ({ fetchWorkItems: async () => items }) as never;
 
   it("Friday 里已完成、Meegle 里 Reopened 且又在分派列表 → 回到待办、记账、通知", async () => {
@@ -149,7 +151,7 @@ describe("排期与标签进任务", () => {
   });
 
   it("workItemToTask 把它们写进 source，排期没了要能清空", () => {
-    const base = { id: "1", name: "后台优化", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    const base = { id: "1", name: "后台优化", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z" };
     const t = workItemToTask({ ...base, tags: ["Backend Iteration"], feDue: "2026-09-15" }, []);
     expect(t.source).toMatchObject({ meegleType: "story", meegleTags: ["Backend Iteration"], feDue: "2026-09-15", beDue: undefined, meegleProject: "pk" });
     expect(t.understanding).toContain("后台前端排期 2026-09-15");
@@ -159,7 +161,7 @@ describe("排期与标签进任务", () => {
   });
 
   it("只有服务端排期时理解里写服务端", () => {
-    const t = workItemToTask({ id: "1", name: "x", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", beDue: "2026-09-20" }, []);
+    const t = workItemToTask({ id: "1", name: "x", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", beDue: "2026-09-20" }, []);
     expect(t.understanding).toContain("服务端排期 2026-09-20");
   });
 });
@@ -195,7 +197,7 @@ describe("缺陷详情进任务", () => {
 
   it("缺陷的描述、提出人写进 source，需求不带描述免得塞进几十 KB 需求文档", () => {
     const t = workItemToTask(
-      { id: "1", name: "x", typeName: "Defect", typeKey: "issue", statusKey: "REOPENED", status: "Reopened", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", reporter: "木木", description: "**现象**:空" },
+      { id: "1", name: "x", typeName: "Defect", typeKey: "issue", statusKey: "REOPENED", status: "Reopened", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", reporter: "木木", description: "**现象**:空" },
       [],
     );
     expect(t.source.reporter).toBe("木木");
@@ -231,10 +233,49 @@ describe("需求的资料链接与当前节点", () => {
 
   it("三份资料都写进 source，没填的键不出现", () => {
     const t = workItemToTask(
-      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: { req: "https://a/req", tech: "https://a/tech" } },
+      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: { req: "https://a/req", tech: "https://a/tech" } },
       [],
     );
     expect(t.source.docs).toEqual({ req: "https://a/req", tech: "https://a/tech" });
     expect(t.source.nodeKey).toBe("state_16");
+  });
+});
+
+describe("按页面链接归项目", () => {
+  it("描述里的链接比标题可靠：标题只写「BO 后台」也能归到 whale-console", () => {
+    const base = { id: "2", name: "【BO 后台】任务类型下拉框缺少「日内融平仓」", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", statusKey: "OPEN", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    expect(workItemToTask({ ...base, links: [] }, projects).project).toBeUndefined();
+    const located = workItemToTask({ ...base, links: ["https://console.longbridge.xyz/wbo/risk/auto-close-settings?page=1"] }, projects);
+    expect(located.project).toBe("whale-console");
+    expect(located.understanding).toContain("出问题的页面：https://console.longbridge.xyz/wbo/risk/auto-close-settings");
+  });
+
+  it("链接归不到项目时回落到标题匹配", () => {
+    const base = { id: "3", name: "鲸鱼后台导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", statusKey: "OPEN", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
+    expect(workItemToTask({ ...base, links: ["https://unknown.example.com/x"] }, projects).project).toBe("whale-console");
+  });
+});
+
+describe("extractLinks", () => {
+  it("挑出产品链接，排掉 Meegle / 飞书自己的，去重并截断尾随标点", () => {
+    const desc = "【测试环境】lb staging\n[https://console.longbridge.xyz/wbo/risk/x](https://console.longbridge.xyz/wbo/risk/x)\n工单 https://project.larksuite.com/projectlb/issue/detail/1 见 https://console.longbridge.xyz/wbo/risk/x。";
+    expect(extractLinks(desc)).toEqual(["https://console.longbridge.xyz/wbo/risk/x"]);
+    expect(extractLinks(undefined)).toEqual([]);
+  });
+});
+
+describe("matchProjectByUrl", () => {
+  const ps = [
+    { name: "老后台", dir: "/o", aliases: [], channels: [], urls: ["console.longbridge.xyz"] },
+    { name: "新后台", dir: "/n", aliases: [], channels: [], urls: ["console.longbridge.xyz/wbo"] },
+  ];
+  it("前缀更长的赢：迁移期同域名下新旧并存", () => {
+    expect(matchProjectByUrl(["https://console.longbridge.xyz/wbo/risk/x"], ps)?.name).toBe("新后台");
+    expect(matchProjectByUrl(["https://console.longbridge.xyz/other/y"], ps)?.name).toBe("老后台");
+  });
+  it("前缀必须落在路径边界上，不做半个段的匹配", () => {
+    expect(matchProjectByUrl(["https://console.longbridge.xyz/wbotest/x"], ps)?.name).toBe("老后台");
+    expect(matchProjectByUrl(["https://other.example.com/wbo"], ps)).toBeUndefined();
+    expect(matchProjectByUrl([], ps)).toBeUndefined();
   });
 });

@@ -11,7 +11,7 @@ const material: Material = {
   tasks: ["- [meegle · whale-console] 多语言字段编辑：表单里要能切语言"],
   commits: ["- [whale-console] 2026-09-09 feat: 多语言字段草稿"],
   threads: [],
-  projects: [{ name: "whale-console", dir: "/x/wc", aliases: ["wbo"], channels: [], note: "后台" }],
+  projects: [{ name: "whale-console", dir: "/x/wc", aliases: ["wbo"], channels: [], urls: [], note: "后台" }],
   done: ["工作台配色与层级"],
 };
 
