@@ -65,6 +65,8 @@ export function upsertPerson(name: string, note: string, current = readMemoryFil
 /** 撤销一笔可逆动作。 */
 export function undoWrite(plan: { kind: string; id?: string; name?: string; line?: string }): boolean {
   if (plan.kind === "drop_note_task" && plan.id) return dropNoteTask(plan.id);
+  // Slack 撤回、Meegle 流转不在这里做：要调外部接口，由 api/tasks.ts 的撤销路由分派
+  if (plan.kind === "delete_slack_message") return false;
   // 旧账本里的条目还指着 todos 表，留着让它们仍可撤销
   if (plan.kind === "delete_todo" && plan.id) return deleteTodo(plan.id);
   if (plan.kind === "remove_people_line" && plan.line) {

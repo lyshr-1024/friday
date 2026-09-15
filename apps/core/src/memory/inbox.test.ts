@@ -10,7 +10,7 @@ describe("收件箱", () => {
     const a = addInboxItems([{ ...base, id: "D1:1", ts: "1" }, { ...base, id: "D1:2", ts: "2" }]);
     expect(a).toHaveLength(2);
     expect(addInboxItems([{ ...base, id: "D1:1", ts: "1" }])).toHaveLength(0);
-    setTriage("D1:2", { needsReply: true, urgency: "high", summary: "要回" });
+    setTriage("D1:2", { needsReply: true, urgency: "high", summary: "要回" , category: "question" });
     expect(listInbox().map((i) => i.id)).toEqual(["D1:2", "D1:1"]);
     expect(listInbox()[0]!.triage?.urgency).toBe("high");
     expect(markInboxDone("D1:1")).toBe(true);

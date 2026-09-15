@@ -222,6 +222,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         dropReply: z.boolean().optional().describe("撤掉待审的回复动作"),
         status: z.enum(["processing", "review", "blocked", "done", "ignored"]).optional().describe("用户明确说了才改：做完了=done，不用管了=ignored，先放着/等我看=review，卡住=blocked，继续做=processing"),
         verify: z.array(z.string().max(300)).max(12).optional().describe("「通过前请确认」那几条，整组覆盖。方案改了、旧列表对不上了就重写一遍；每条写用户能自己核对的具体现象，不要写「代码已修改」这种没法验的"),
+        project: z.string().max(80).optional().describe("这条任务属于哪个项目（注册表里的名字）。用户回答「这条是 X 项目的」时填，会顺带把工单标题里的标记和页面地址记进 projects.md，下次同类工单自动归"),
       },
       async (patch) => {
         const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;

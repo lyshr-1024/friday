@@ -2,15 +2,21 @@ import { randomUUID } from "node:crypto";
 import { closeTaskTerminal } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
+import { REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { listAudit, record } from "../memory/audit.js";
+import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { createJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { getThreshold } from "../memory/thresholds.js";
+import { markAutoDone, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
+import { decide } from "./gate.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
+import { untrusted } from "./fence.js";
+import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
@@ -31,7 +37,11 @@ const execFileP = promisify(execFile);
  * - 需要回复且有草稿 → 挂一个待审核的 slack_reply（不可逆，等用户点）。
  * - 建议动作里有 run_claude 且能定位项目 → 自动在分支上开自主 Claude Code 任务（可逆），完成后交付报告进审核。
  */
-export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string): Promise<Task> {
+export interface ThreadDeps {
+  slackPost?: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }>;
+}
+
+export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps = {}): Promise<Task> {
   let task = findTaskBySource((s) => s.threadId === thread.id);
   const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
   const plan = brief.actions.map((a) => `${a.label}${a.detail ? `：${a.detail}` : ""}`).join("\n");
@@ -43,27 +53,77 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
   }
 
   const first = thread.items[0];
-  if (brief.needsReply && brief.reply && first && !(task.pending ?? []).some((p) => p.type === "slack_reply")) {
-    task = addPending(task.id, {
-      type: "slack_reply",
-      label: `回复 ${thread.userName}`,
-      detail: brief.reply,
-      payload: { channel: first.channelId, text: brief.reply, ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}), userName: thread.userName },
-    })!;
-    record({ taskId: task.id, action: "slack_reply_prepared", why: "对方等回复", how: "按背景拟好回复，等你审核后发送", evidence: { text: brief.reply }, risk: "irreversible", status: "pending" });
+  const already = (task.pending ?? []).some((p) => p.type === "slack_reply");
+  if (brief.needsReply && brief.reply && first && !already) {
+    const category = threadCategory(thread);
+    const threshold = getThreshold(category);
+    const payload = { channel: first.channelId, text: brief.reply, ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}), userName: thread.userName };
+    // 闸门必须在真正尝试发送之前过：同一线程自动发过一次后，即便又有新消息触发同一判断也不再重发，只排队等人看。
+    const wouldAuto = decide(brief, threshold) === "auto";
+    if (deps.slackPost && wouldAuto && markAutoDone(thread.id, "slack_reply_sent")) {
+      const ev = record({
+        taskId: task.id,
+        action: "slack_reply_sent",
+        why: `置信度 ${brief.confidence} 不低于 ${REPLY_CATEGORY_LABEL[category]} 的阈值 ${threshold}`,
+        how: "Friday 正在自动回复，你可以撤回",
+        evidence: { channel: payload.channel, text: payload.text, confidence: brief.confidence, threshold, category, auto: true },
+        risk: "irreversible",
+        status: "pending",
+      });
+      try {
+        const res = await deps.slackPost(payload.channel, payload.text, payload.threadTs);
+        if (!res.ts) throw new Error("Slack 没有返回消息 ts，发送结果不可信");
+        setEventUndo(ev.id, { kind: "delete_slack_message", channel: payload.channel, ts: res.ts });
+        setEventStatus(ev.id, "done");
+        task = updateTask(task.id, { status: "done", progress: `Friday 已自动回复（置信度 ${brief.confidence} ≥ 阈值 ${threshold}）：${brief.reply}` })!;
+      } catch (e) {
+        updateEventEvidence(ev.id, { error: e instanceof Error ? e.message : String(e) });
+        setEventStatus(ev.id, "failed");
+        task = updateTask(task.id, { status: "blocked", progress: `自动回复可能已经发出，请去 Slack 核对后手动处理：${brief.reply}` })!;
+      }
+    } else {
+      // 置信度够但闸门已经关了（这条线程自动回过一次）、没有注入发送能力、置信度本身不够，是三种不同的原因，账本要分开说，
+      // 不能不管哪种都写「低于阈值」——置信度明明达标却这么说，用户点开账本会看出自相矛盾。
+      const gateBlocked = Boolean(deps.slackPost) && wouldAuto;
+      const noSendCapability = !deps.slackPost && wouldAuto;
+      task = addPending(task.id, { type: "slack_reply", label: `回复 ${thread.userName}`, detail: brief.reply, payload })!;
+      record({
+        taskId: task.id,
+        action: "slack_reply_prepared",
+        why: gateBlocked ? "对方等回复，但这条线程已经自动回过一次" : "对方等回复",
+        how: gateBlocked
+          ? `置信度 ${brief.confidence} 达标，同一线程只自动回一次，这次等你确认`
+          : noSendCapability
+            ? `置信度 ${brief.confidence} 达标，但这轮没有发送能力，等你审核`
+            : `置信度 ${brief.confidence}，低于阈值 ${threshold}，等你审核`,
+        evidence: { text: brief.reply, confidence: brief.confidence, threshold, category, ...(gateBlocked ? { gateBlocked: true } : {}) },
+        risk: "irreversible",
+        status: "pending",
+      });
+    }
   }
 
   const wantsCode = brief.actions.some((a) => a.type === "run_claude");
   const dir = project ? resolveProject(project) : undefined;
   if (wantsCode && dir?.kind === "match" && !task.source.jobId) {
     const detail = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
-    task = await startAutonomousJob(task, dir.project.name, dir.project.dir, `${detail}\n\n来源：${thread.userName} 在 Slack 说：${thread.items.map((i) => i.text).join(" / ").slice(0, 800)}`);
+    task = await startAutonomousJob(task, dir.project.name, dir.project.dir, codeTaskDetail(thread, detail));
   }
   return task;
 }
 
+/** 交给 Claude Code 的任务描述：Friday 的指令在外，Slack 原文只作素材。 */
+export function codeTaskDetail(thread: Thread, detail: string): string {
+  return `${detail}\n\n来源：${thread.userName} 在 Slack 说：\n${untrusted("slack", thread.items.map((i) => i.text).join(" / ").slice(0, 800))}`;
+}
+
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
+  const dirt = await worktreeDirt(dir);
+  if (dirt) {
+    record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });
+    return updateTask(task.id, { status: "blocked", progress: `没有开工：${dirt}。提交或清掉这些改动后点「重新开工」。` })!;
+  }
   const id = randomUUID();
   const prompt = autonomousPrompt(id, detail, project);
   await launchClaude({ id, dir, terminal: userSettings().terminal, task: prompt, autonomous: true });
@@ -76,7 +136,10 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     evidence: { jobId: id, project, dir },
     risk: "reversible",
   });
-  return updateTask(task.id, { status: "processing", progress: `Claude Code 正在 ${project} 上处理`, source: { ...task.source, jobId: id, autonomous: true } })!;
+  // task.progress 可能已经写了「Friday 已自动回复」之类的话（同一条线程既触发了回复又触发了改代码），
+  // 这里是覆盖 progress 的地方，得接上而不是整句丢掉，不然工作台上那条已经发出去的回复就查无痕迹。
+  const progress = [task.progress, `Claude Code 正在 ${project} 上处理`].filter(Boolean).join("\n");
+  return updateTask(task.id, { status: "processing", progress, source: { ...task.source, jobId: id, autonomous: true } })!;
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
@@ -132,7 +195,12 @@ function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
 }
 
 /** 执行一个审核通过的不可逆动作。 */
-export async function executePending(taskId: string, actionId: string, deps: { slackPost: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }> }): Promise<Task> {
+export async function executePending(
+  taskId: string,
+  actionId: string,
+  deps: { slackPost: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }> },
+  override?: { text?: string },
+): Promise<Task> {
   const { takePending } = await import("../memory/tasks.js");
   const taken = takePending(taskId, actionId);
   if (!taken) throw new Error("待审核动作不存在");
@@ -141,7 +209,26 @@ export async function executePending(taskId: string, actionId: string, deps: { s
     if (action.type === "slack_reply") {
       const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
       const res = await deps.slackPost(p.channel, p.text, p.threadTs);
-      record({ taskId, action: "slack_reply_sent", why: "你审核通过", how: "chat.postMessage", evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null }, risk: "irreversible", status: "approved" });
+      // 没有 ts 就没法撤回，也说明发送结果不可信，不能记成已发出
+      if (!res.ts) throw new Error("Slack 没有返回消息 ts，发送结果不可信");
+      record({
+        taskId,
+        action: "slack_reply_sent",
+        why: "你审核通过",
+        how: "chat.postMessage",
+        evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null },
+        risk: "irreversible",
+        status: "approved",
+        undo: { kind: "delete_slack_message", channel: p.channel, ts: res.ts },
+      });
+    } else if (action.type === "start_job") {
+      const p = action.payload as { project: string; dir: string; detail: string; confidence?: number };
+      const t0 = getTask(taskId);
+      if (!t0) throw new Error("任务不存在了");
+      await startAutonomousJob(t0, p.project, p.dir, p.detail);
+      record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
+      // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
+      return getTask(taskId)!;
     } else if (action.type === "git_merge") {
       const p = action.payload as { dir: string; branch: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";

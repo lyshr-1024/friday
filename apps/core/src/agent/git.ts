@@ -39,6 +39,17 @@ async function defaultBranch(dir: string): Promise<string> {
   return "HEAD";
 }
 
+/** 自主任务开工前的体检：返回拦下的理由，干净则 undefined。脏工作区上改代码，改动和用户自己的混在一起就分不清了。 */
+export async function worktreeDirt(dir: string): Promise<string | undefined> {
+  const inside = await git(dir, ["rev-parse", "--is-inside-work-tree"]);
+  if (inside.trim() !== "true") return `${dir} 不是 git 仓库`;
+  const status = await git(dir, ["status", "--porcelain"]);
+  if (status.startsWith("（")) return status;
+  const lines = status.split("\n").filter(Boolean);
+  if (!lines.length) return undefined;
+  return `工作区有 ${lines.length} 处未提交改动：${lines.slice(0, 5).map((l) => l.trim()).join("、")}${lines.length > 5 ? " 等" : ""}`;
+}
+
 export type GitInspect = "status" | "worktrees" | "log" | "branches";
 
 export async function gitInspect(dir: string, what: GitInspect): Promise<string> {

@@ -1448,27 +1448,15 @@ kbd {
   margin-left: auto;
   color: var(--label-3);
 }
-.job__task {
-  margin-top: 4px;
-  color: var(--label-2);
-  font-size: var(--t-aux);
-}
+/* 只剩一句话，超出就截断而不是撑高卡片 */
 .job__last {
-  margin-top: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--card);
+  margin-top: var(--s-2);
+  color: var(--fg-2);
   font-size: var(--t-aux);
   line-height: var(--lh-aux);
-  white-space: pre-wrap;
-}
-.job__last-k {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--label-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .job__actions {
   margin-top: 8px;
@@ -3687,4 +3675,69 @@ body,
     animation: none;
     opacity: 0.75;
   }
+}
+
+/* Meegle 工单卡：状态标签一行，缺陷描述默认收 6 行 */
+.fx__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  margin: 10px 0 14px;
+}
+.fx__chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-4);
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.fx__by {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.fx__docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fx__desc {
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+.fx__desc--clip {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fx__rline {
+  margin: 0 0 4px;
+}
+.fx__rline:empty {
+  height: 8px;
+}
+.fx__miss {
+  color: var(--fg-3);
+  font-size: 11px;
+}
+
+/* 自动回复的门控：这条草稿 Friday 自己打了多少分、该类阈值是多少 */
+.fx__conf {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-4);
+  color: var(--fg-3);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.fx__undo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-1);
 }

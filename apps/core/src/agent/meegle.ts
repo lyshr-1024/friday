@@ -1,8 +1,12 @@
-import type { TaskStatus, Urgency } from "@friday/shared";
+import { AUTOSTART_CATEGORY, type StateTransition, type Task, type TaskStatus, type Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
-import { loadProjects, matchProjectByUrl, type Project } from "../memory/projects.js";
-import { createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
+import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
+import { judgeIntake } from "./intake.js";
+import { decideStart } from "./gate.js";
+import { getThreshold } from "../memory/thresholds.js";
+import { startAutonomousJob } from "./pipeline.js";
+import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
 
@@ -24,7 +28,14 @@ export function priorityOf(label?: string): Urgency {
 export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   const priority = priorityOf(item.priority);
   const where = item.node ? `节点「${item.node}」在等你` : "分派给你";
-  const understanding = [`Meegle ${item.typeName} #${item.id}，${where}，状态 ${item.status}`, item.priority ? `优先级 ${item.priority}` : "", item.due ? `截止 ${item.due.slice(0, 10)}` : ""]
+  const understanding = [
+    `Meegle ${item.typeName} #${item.id}，${where}，状态 ${item.status}`,
+    item.priority ? `优先级 ${item.priority}` : "",
+    item.feDue ? `后台前端排期 ${item.feDue}` : "",
+    item.beDue ? `服务端排期 ${item.beDue}` : "",
+    item.tags?.length ? `标签 ${item.tags.join("、")}` : "",
+    item.due ? `截止 ${item.due.slice(0, 10)}` : "",
+  ]
     .filter(Boolean)
     .join("，");
   // 分派给我的工单一律先排队，不占「待我决定」：这个组织里 P0/P1 太常见，真要拍板的由 Slack/口头触发。
@@ -33,10 +44,96 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   const project = matchProjectByUrl(item.links, projects)?.name ?? matchProject(item.name, projects);
   const page = item.links[0];
   const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
-  return { title: item.name.slice(0, 200), priority, understanding: full, status, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
+  // 这些键始终写出（含 undefined），工单撤掉排期或标签时 source 的 merge 才能抹掉旧值
+  const source = {
+    meegleType: item.typeKey,
+    meegleTags: item.tags,
+    feDue: item.feDue,
+    beDue: item.beDue,
+    meegleProject: item.projectKey,
+    statusKey: item.statusKey,
+    reporter: item.reporter,
+    description: item.description,
+    docs: item.docs,
+    nodeKey: item.nodeKey,
+    nodeName: item.node,
+  };
+  return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
 
 const OPEN: TaskStatus[] = ["collected", "understood", "review"];
+
+/** 缺陷转到这个状态就不用我修了，任务直接收掉，不必等下一次同步。 */
+const DONE_STATE = "RESOLVED";
+
+function meegleRef(t: Task): { projectKey: string; workItemId: string } {
+  const { meegleProject, meegleId } = t.source;
+  if (!meegleProject || !meegleId) throw new Error("这条任务没有 Meegle 工单信息");
+  return { projectKey: meegleProject, workItemId: meegleId };
+}
+
+export async function listTaskTransitions(t: Task, connector = new MeegleConnector()): Promise<StateTransition[]> {
+  const { projectKey, workItemId } = meegleRef(t);
+  return connector.listTransitions(projectKey, workItemId);
+}
+
+export async function applyTransition(t: Task, to: StateTransition, connector = new MeegleConnector()): Promise<Task> {
+  const { projectKey, workItemId } = meegleRef(t);
+  const from = t.source.statusKey ?? "";
+  await connector.transitionState(projectKey, workItemId, to.id);
+  record({
+    taskId: t.id,
+    action: "meegle_transition",
+    why: `你在 Friday 里点了「${to.label}」`,
+    how: `workflow transition-state → ${to.stateKey}`,
+    evidence: { meegleId: workItemId, from, to: to.stateKey },
+    risk: "reversible",
+    ...(from ? { undo: { kind: "meegle_state" as const, projectKey, workItemId, backTo: from } } : {}),
+  });
+  const done = to.stateKey === DONE_STATE;
+  return updateTask(t.id, { source: { statusKey: to.stateKey }, ...(done ? { status: "done" as TaskStatus, pending: [] } : {}) })!;
+}
+
+function nodeRef(t: Task): { projectKey: string; workItemId: string; nodeKey: string } {
+  const { meegleProject, meegleId, nodeKey } = t.source;
+  if (!meegleProject || !meegleId || !nodeKey) throw new Error("这条任务没有可流转的 Meegle 节点");
+  return { projectKey: meegleProject, workItemId: meegleId, nodeKey };
+}
+
+export async function nodeReadiness(t: Task, connector = new MeegleConnector()): Promise<{ nodeKey: string; canConfirm: boolean; missing: string[] }> {
+  const { projectKey, workItemId, nodeKey } = nodeRef(t);
+  const { missing } = await connector.nodeReadiness(projectKey, workItemId, nodeKey);
+  return { nodeKey, canConfirm: missing.length === 0, missing };
+}
+
+export async function confirmNode(t: Task, connector = new MeegleConnector()): Promise<Task> {
+  const { projectKey, workItemId, nodeKey } = nodeRef(t);
+  await connector.transitionNode(projectKey, workItemId, nodeKey, "confirm");
+  record({
+    taskId: t.id,
+    action: "meegle_node_confirm",
+    why: "你在 Friday 里点了「完成当前节点」",
+    how: `workflow transition ${nodeKey} confirm`,
+    evidence: { meegleId: workItemId, nodeKey },
+    risk: "reversible",
+    undo: { kind: "meegle_node" as const, projectKey, workItemId, nodeKey },
+  });
+  // 节点推给下游后这条多半不再分派给我；万一还在，下次同步会把它复活
+  return updateTask(t.id, { status: "done", pending: [] })!;
+}
+
+export async function rollbackNode(plan: { projectKey: string; workItemId: string; nodeKey: string }, connector = new MeegleConnector()): Promise<boolean> {
+  await connector.transitionNode(plan.projectKey, plan.workItemId, plan.nodeKey, "rollback", "Friday 撤销了这次流转");
+  return true;
+}
+
+/** 撤销一笔流转：重新问 Meegle 现在能不能转回去，不能就如实失败。 */
+export async function undoTransition(plan: { projectKey: string; workItemId: string; backTo: string }, connector = new MeegleConnector()): Promise<boolean> {
+  const back = (await connector.listRawTransitions(plan.projectKey, plan.workItemId)).find((x) => x.state_key === plan.backTo);
+  if (!back) return false;
+  await connector.transitionState(plan.projectKey, plan.workItemId, String(back.id));
+  return true;
+}
 
 /** 拉一次分派给我的 Meegle 工单：新工单建任务，已有的更新，不再分派给我的自动完成。 */
 export async function syncMeegleOnce(connector = new MeegleConnector()): Promise<{ added: number; closed: number; reopened: number }> {
@@ -48,22 +145,24 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     const projects = loadProjects();
     let added = 0;
     let reopened = 0;
+    const fresh: Array<{ task: Task; item: MeegleWorkItem }> = [];
     for (const item of items) {
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id, true);
       if (!existing) {
-        const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, meegleType: item.typeKey } });
+        const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
         added++;
+        fresh.push({ task: t, item });
       } else if (OPEN.includes(existing.status)) {
         const { status: _s, ...patch } = input;
-        // source 会与旧值合并，顺带把早先同步下来、还没有类型的工单补上 meegleType。
-        updateTask(existing.id, { ...patch, source: { meegleType: item.typeKey } });
+        // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
+        updateTask(existing.id, { ...patch, source: input.source });
       } else if ((existing.status === "done" || existing.status === "ignored") && /reopen/i.test(item.status)) {
         // Friday 里已经收工，Meegle 里却被 Reopen 又分派回来：拉回待办并提醒。
         // 只认 Reopen 状态——用户在 Friday 里主动标完成而 Meegle 还挂着的，不能每 15 分钟翻回来。
         const { status: _s, ...patch } = input;
-        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: { meegleType: item.typeKey } });
+        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120) });
         reopened++;
@@ -79,6 +178,15 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     }
     meegleState.lastSyncAt = new Date().toISOString();
     meegleState.lastError = null;
+    // 新工单逐条过一道「能不能自己动手」。放在最后、串行跑：判断要调模型，
+    // 失败也不该影响同步本身已经完成的部分。
+    for (const f of fresh) {
+      try {
+        await intakeWorkItem(f.task, f.item);
+      } catch (e) {
+        console.error(`[meegle] 判断 ${f.item.id} 能否开工时出错：${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     return { added, closed, reopened };
   } catch (e) {
     meegleState.lastError = e instanceof Error ? e.message : String(e);
@@ -87,6 +195,71 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
   } finally {
     meegleState.running = false;
   }
+}
+
+/** 新工单的自动处置：能做的直接开终端，缺项目归属的问用户一句，其余排队。 */
+export async function intakeWorkItem(task: Task, item: MeegleWorkItem): Promise<void> {
+  const verdict = await judgeIntake(task, item.description ?? "", loadProjects());
+  if (verdict.kind === "queue") {
+    console.log(`[meegle] ${item.id} 排队：${verdict.why}`);
+    return;
+  }
+
+  if (verdict.kind === "ask") {
+    updateTask(task.id, { attention: "question", progress: verdict.question });
+    record({
+      taskId: task.id,
+      action: "intake_ask",
+      why: verdict.why || "自己判断不了，需要用户给一句",
+      how: verdict.question,
+      evidence: { meegleId: item.id },
+      risk: "read",
+    });
+    state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question });
+    return;
+  }
+
+  const dir = resolveProject(verdict.project);
+  if (dir.kind !== "match") {
+    console.log(`[meegle] ${item.id} 排队：项目 ${verdict.project} 定位不到目录`);
+    return;
+  }
+  const t = updateTask(task.id, { project: dir.project.name })!;
+  const threshold = getThreshold(AUTOSTART_CATEGORY);
+  const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, confidence: verdict.confidence, meegleId: item.id };
+
+  if (decideStart(verdict.confidence, threshold) === "auto") {
+    await startAutonomousJob(t, dir.project.name, dir.project.dir, verdict.detail);
+    record({
+      taskId: task.id,
+      action: "intake_start",
+      why: `置信度 ${verdict.confidence} 不低于开工阈值 ${threshold}：${verdict.why}`,
+      how: `在 ${dir.project.name} 上自主开工`,
+      evidence: { ...payload, auto: true },
+      risk: "reversible",
+    });
+    state.notices.push({ title: `已开始做 · ${dir.project.name}`, body: item.name.slice(0, 120) });
+    return;
+  }
+
+  // 阈值没到：挂成待审动作等用户点。用户点通过 / 打回的记录会回流成 lessons，阈值自己校准。
+  updateTask(task.id, { status: "review" });
+  addPending(task.id, {
+    type: "start_job",
+    label: `开工：${dir.project.name}`,
+    detail: verdict.detail,
+    payload,
+  });
+  record({
+    taskId: task.id,
+    action: "intake_start_pending",
+    why: threshold >= 100 ? `开工闸门默认关着（阈值 ${threshold}），等你点` : `置信度 ${verdict.confidence} 低于开工阈值 ${threshold}`,
+    how: `拟在 ${dir.project.name} 上开工：${verdict.why}`,
+    evidence: payload,
+    risk: "reversible",
+    status: "pending",
+  });
+  state.notices.push({ title: `有条工单可以开工 · ${dir.project.name}`, body: item.name.slice(0, 120) });
 }
 
 function toTodoLike(it: MeegleWorkItem) {

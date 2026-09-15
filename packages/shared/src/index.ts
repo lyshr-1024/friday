@@ -184,6 +184,7 @@ export interface Triage {
   project?: string;
   /** 若是要动代码的事，一句可直接交给 Claude Code 的任务描述 */
   task?: string;
+  category: ReplyCategory;
 }
 
 export interface InboxItem {
@@ -259,6 +260,8 @@ export interface ThreadBrief {
   priorMessages?: Array<{ ts: string; userName: string; text: string }>;
   todo?: { text: string; due?: string };
   person?: string;
+  confidence: number;
+  confidenceReason: string;
 }
 
 export interface Thread {
@@ -296,6 +299,23 @@ export interface TaskSource {
   meegleId?: string;
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
+  /** Meegle 空间 key，流转状态要用 */
+  meegleProject?: string;
+  /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
+  statusKey?: string;
+  /** tags 字段的原始 label */
+  meegleTags?: string[];
+  /** 后台前端开发节点排期结束日 YYYY-MM-DD */
+  feDue?: string;
+  /** 服务端开发节点排期结束日 */
+  beDue?: string;
+  reporter?: string;
+  description?: string;
+  /** 需求文档 / 技术文档 / 设计稿，没填的键不出现 */
+  docs?: { req?: string; tech?: string; design?: string };
+  /** 当前节点的 node_key，节点流转要用 */
+  nodeKey?: string;
+  nodeName?: string;
   url?: string;
   note?: string;
   jobId?: string;
@@ -310,12 +330,81 @@ export interface TaskSource {
 }
 
 /** 待办分组：Meegle 的需求与缺陷分开看，其余归「其他」。 */
-export type TaskCategory = "story" | "defect" | "other";
+/** 进「后台档」的标签，英文是 Meegle 里的原值，中文是它在界面上的说法 */
+export const BACKEND_TAGS = ["Backend Iteration", "Include Backend", "后台迭代", "后台纳入"];
 
-export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { story: "需求", defect: "缺陷", other: "其他" };
+export const TAG_LABELS: Record<string, string> = {
+  "Backend Iteration": "后台迭代",
+  "Include Backend": "后台纳入",
+};
+
+/** Slack 消息的诉求类型，自动回复的置信度阈值按它分档 */
+export type ReplyCategory = "question" | "status_ask" | "code_fix" | "review_ask" | "notice" | "other";
+
+export const REPLY_CATEGORIES: ReplyCategory[] = ["question", "status_ask", "code_fix", "review_ask", "notice", "other"];
+
+/**
+ * 「自己动手改代码」的闸门类别。和回复分开算：回复错了撤一下，
+ * 开错工是在仓库里改代码，两者不该共用一个阈值。
+ * 和 ReplyCategory 同构，所以阈值表、lessons、校准逻辑都能复用。
+ */
+export const AUTOSTART_CATEGORY = "autostart";
+
+/** 阈值与 lessons 的键：回复类别 + 开工 */
+export type GateCategory = ReplyCategory | typeof AUTOSTART_CATEGORY;
+
+export const GATE_CATEGORY_LABEL: Record<GateCategory, string> = {
+  question: "问你一件事",
+  status_ask: "问进度",
+  code_fix: "要改代码",
+  review_ask: "要你看东西",
+  notice: "通知",
+  other: "其他",
+  autostart: "自己开工改代码",
+};
+
+export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
+  question: "问你一件事",
+  status_ask: "问进度",
+  code_fix: "要改代码",
+  review_ask: "要你看东西",
+  notice: "通知",
+  other: "其他",
+};
+
+export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone";
+
+export interface Lesson {
+  id: string;
+  taskId?: string;
+  /** 回复类别，或 autostart（自己开工）——两者共用这张表做校准 */
+  category: GateCategory;
+  kind: LessonKind;
+  draft?: string;
+  final?: string;
+  feedback?: string;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface LearnStats {
+  category: GateCategory;
+  label: string;
+  threshold: number;
+  suggested?: number;
+  lessons: number;
+  approved: number;
+  calibrationError: number;
+}
+
+export type TaskCategory = "slack" | "defect" | "story" | "other";
+
+export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
 
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
+  // Slack 来的没有 meegleType，靠 threadId 认
+  if (source.threadId) return "slack";
   const t = source.meegleType;
   if (t === "story") return "story";
   if (t === "issue" || t === "defect" || t === "bug") return "defect";
@@ -368,7 +457,7 @@ export interface Task {
 /** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
 export type TerminalState = "busy" | "idle" | "gone" | "external";
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "custom";
 
 export interface PendingAction {
   id: string;
@@ -394,9 +483,19 @@ export interface AuditEvent {
   status: AuditStatus;
 }
 
+/** Meegle 里能在 Friday 一键做的状态流转 */
+export interface StateTransition {
+  id: string;
+  stateKey: string;
+  label: string;
+}
+
 export interface TaskBoard {
   tasks: Task[];
   counts: Record<TaskStatus, number>;
+  meegleSyncedAt: string | null;
+  /** 钥匙串里有没有 Slack 登录态；false 时收件是静默不工作的 */
+  slackConfigured: boolean;
 }
 
 export const TERMINAL_LABEL: Record<TerminalApp, string> = { embedded: "内嵌终端", ghostty: "Ghostty", terminal: "Terminal" };

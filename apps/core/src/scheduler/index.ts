@@ -9,7 +9,7 @@ import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
 import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
-import { fetchSlack, loadSlackCreds, slackCaller, type SlackCreds } from "../connectors/slack.js";
+import { fetchSlack, loadSlackCreds, postMessage, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
@@ -99,10 +99,13 @@ export async function syncSlackOnce(): Promise<number> {
           const enrichment = await enrichThread(thread);
           const brief = await buildBrief(thread, enrichment);
           if (!brief) return;
-          const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name);
+          const task = await threadToTask(getThread(id)!, brief, enrichment.project?.name, {
+            slackPost: (channel, text, threadTs) => postMessage(call, channel, text, threadTs),
+          });
           const writes = applyReversibleWrites(thread, brief, task.id);
           setThreadBrief(id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
-          if (brief.needsReply) needReply.push(`${thread.userName}：${brief.situation}`);
+          // Friday 已经自动回过（任务已 done）就不用再推「等你回」的通知，用户点开只会看到一件已经处理完的事。
+          if (brief.needsReply && task.status !== "done") needReply.push(`${thread.userName}：${brief.situation}`);
         } catch (e) {
           console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
         }

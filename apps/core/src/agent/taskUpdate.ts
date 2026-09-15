@@ -2,6 +2,8 @@ import type { Task, TaskStatus } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
+import { loadProjects } from "../memory/projects.js";
+import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 
 export interface TaskPatch {
@@ -16,6 +18,8 @@ export interface TaskPatch {
   status?: Extract<TaskStatus, "processing" | "review" | "blocked" | "done" | "ignored">;
   /** 重写「通过前请确认」那几条。方案改了之后旧列表就对不上了，得能从会话里换掉 */
   verify?: string[];
+  /** 用户回答「这条是哪个项目的」：归属写到任务上，线索沉淀进 projects.md */
+  project?: string;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "Friday 在做", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -35,6 +39,21 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     }
   }
   if (Object.keys(fields).length) task = updateTask(taskId, fields)!;
+
+  const project = patch.project?.trim();
+  if (project && project !== task.project) {
+    const known = loadProjects().find((p) => p.name === project);
+    if (known) {
+      // 用户答了归属就把 attention 清掉——问题已经解决，不该还挂在「待我决定」里
+      task = updateTask(taskId, { project: known.name, ...(task.attention === "question" ? { attention: undefined } : {}) })!;
+      changed.push(`项目 → ${known.name}`);
+      // 顺带记住线索：标题里的【BO】这类标记、工单页面的地址前缀，下次同类自动归
+      const links = [task.source.url, ...(task.understanding ?? "").match(/https?:\/\/[^\s)）」】]+/g) ?? []].filter((u): u is string => Boolean(u));
+      const hints = hintsFrom(task.title, links);
+      const r = addProjectHints(known.name, hints);
+      if (r.changed) changed.push(`记住线索（${[...r.added.aliases, ...r.added.urls].join("、")}）`);
+    }
+  }
 
   const verify = patch.verify?.map((v) => v.trim()).filter(Boolean).slice(0, 12);
   if (verify?.length && JSON.stringify(verify) !== JSON.stringify(task.report?.verify ?? [])) {

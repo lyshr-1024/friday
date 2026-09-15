@@ -8,6 +8,8 @@ import type { TerminalApp } from "../settings.js";
 import { getSession, spawnSession } from "./pty.js";
 import { getJob } from "../memory/jobs.js";
 import { terminalBridgePrompt } from "./prompt.js";
+import { FORBIDDEN } from "./guard.js";
+import { UNTRUSTED_NOTE } from "./fence.js";
 
 const execFileP = promisify(execFile);
 
@@ -35,6 +37,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "   新功能用 feat/<topic>，修缺陷用 fix/<bug>，杂活或样式用 chore/<topic> 或 style/<topic>。",
     "   例如 feat/export-center、fix/withdrawal-rule-tabs、style/task-card-spacing。",
     "   起好后第一时间调 friday_progress 把分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
+    "   push、merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -51,6 +54,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "## 截图",
     "- 文件名 — 说明（没有就写 无）",
     "5. 全程不要问用户问题；拿不准就按最保守的方式做并在报告里写明。",
+    UNTRUSTED_NOTE,
   ].join("\n");
 }
 
@@ -105,11 +109,13 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
 }
 
 /** SessionStart 一开始就把 session id 回传，不然 Claude 第一轮没说完 Friday 就重启，这条任务就再也接不上了；Stop 每轮回传最后一段回答。 */
-export function buildHookSettings(hookScript: string): string {
+export function buildHookSettings(hookScript: string, guardScript?: string): string {
   const hook = [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }];
   // 交互式提问（选项题 / plan 确认）不会发 Stop，PTY 也安静，不接这两个 hook 就感知不到它在等人
   const asking = [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: hook[0]!.hooks }];
-  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook, PreToolUse: asking, PostToolUse: asking, Notification: hook } }, null, 2);
+  // 自主任务多挂一条 Bash 守卫；settings 的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效
+  const guard = guardScript ? [{ matcher: "Bash", hooks: [{ type: "command", command: shellQuote(guardScript), timeout: 10 }] }] : [];
+  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...asking], PostToolUse: asking, Notification: hook } }, null, 2);
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
@@ -142,6 +148,35 @@ export function buildScript(req: LaunchRequest, claudePath: string, port: number
 }
 
 /** 写 Stop hook 脚本与 --settings 文件；每次启动/重开都重写，保证用的是当前版本的 hook。 */
+/**
+ * 自主任务的 PreToolUse 守卫：每条 Bash 命令过一遍 guard.ts 的黑名单，命中就 deny。
+ * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
+ */
+export function buildGuardScript(nodePath = process.execPath): string {
+  return [
+    "#!/bin/zsh",
+    `${shellQuote(nodePath)} -e ${shellQuote(`
+const rules = ${JSON.stringify(FORBIDDEN)};
+let input = "";
+let done = false;
+const decide = () => {
+  if (done) return;
+  done = true;
+  let cmd = "";
+  try { cmd = String((JSON.parse(input).tool_input || {}).command || ""); } catch {}
+  const hit = rules.find(([p]) => new RegExp(p).test(cmd));
+  process.stdout.write(
+    hit
+      ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Friday 自主任务禁止这条命令（" + hit[1] + "）。换个做法，或在交付报告里写明卡在这里。" } })
+      : "{}",
+  );
+};
+process.stdin.on("data", (d) => (input += d)).on("end", decide);
+setTimeout(decide, 2000).unref();`)}`,
+    "",
+  ].join("\n");
+}
+
 export interface ClaudeFiles {
   settings: string;
   mcp: string;
@@ -152,13 +187,19 @@ export function buildMcpConfig(id: string, port: number): string {
   return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
 }
 
-function writeHookFiles(id: string): ClaudeFiles {
+function writeHookFiles(id: string, autonomous = false): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
   chmodSync(hook, 0o755);
+  let guard: string | undefined;
+  if (autonomous) {
+    guard = join(runsDir(), `${id}.guard.sh`);
+    writeFileSync(guard, buildGuardScript());
+    chmodSync(guard, 0o755);
+  }
   const settings = join(runsDir(), `${id}.settings.json`);
-  writeFileSync(settings, buildHookSettings(hook));
+  writeFileSync(settings, buildHookSettings(hook, guard));
   const mcp = join(runsDir(), `${id}.mcp.json`);
   writeFileSync(mcp, buildMcpConfig(id, config.port));
   return { settings, mcp };
@@ -180,7 +221,7 @@ export function claudeFlags(files: ClaudeFiles, autonomous = false): string {
 
 export async function launchClaude(req: LaunchRequest): Promise<string> {
   const claudePath = await findClaude();
-  const files = writeHookFiles(req.id);
+  const files = writeHookFiles(req.id, req.autonomous);
 
   const ext = req.terminal === "terminal" ? ".command" : ".sh";
   const script = join(runsDir(), `${req.id}${ext}`);
