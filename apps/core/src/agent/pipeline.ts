@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { closeTaskTerminal } from "./terminal.js";
+import { closeTaskTerminal, say } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
-import { createJob } from "../memory/jobs.js";
+import { createJob, getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
@@ -131,8 +131,45 @@ export function codeTaskDetail(thread: Thread, detail: string): string {
   return `${detail}\n\n来源：${thread.userName} 在 Slack 说：\n${untrusted("slack", thread.items.map((i) => i.text).join(" / ").slice(0, 800))}`;
 }
 
+/**
+ * 同一个需求下的活要走同一个终端、同一个分支。
+ * 两个缺陷各起一个终端各建一个分支去改同一片代码，合起来必冲突——所以缺陷不自己开工，
+ * 而是把要改的内容转达给需求那条任务已有的终端。
+ *
+ * 返回 true 表示已经交给需求的终端了，调用方不必再开新的。
+ */
+export function handOffToStory(task: Task, detail: string): boolean {
+  const storyId = task.source.linkedStoryId;
+  if (!storyId) return false;
+  const story = findTaskBySource((s) => s.meegleId === storyId, true);
+  const jobId = story?.source.jobId;
+  if (!story || !jobId) return false;
+  const job = getJob(jobId);
+  // 终端已经退出的不算：转达进去没人看，得让它自己开
+  if (!job || job.status !== "running") return false;
+
+  const r = say(jobId, `顺带再改一条同需求下的缺陷：\n${detail}\n\n改完一并在同一个分支上交付，不要另起分支。`);
+  const note = r === "queued" ? "已排队，等它这轮说完就转达" : "已转达给需求的终端";
+  updateTask(task.id, {
+    status: "processing",
+    progress: `${note}（和「${story.title.slice(0, 24)}」共用一个终端和分支）`,
+    source: { jobId },
+  });
+  record({
+    taskId: task.id,
+    action: "handed_to_story_terminal",
+    why: "同一个需求下的改动要走同一个分支，免得两个终端改同一片代码后合不上",
+    how: `转达给需求任务 ${story.id.slice(0, 8)} 的终端（${r}）`,
+    evidence: { storyId, jobId, detail: detail.slice(0, 300) },
+    risk: "reversible",
+  });
+  return true;
+}
+
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
+  // 归在某个需求下、而那个需求已经有终端在跑：交给它，不要另起一个改同一片代码
+  if (handOffToStory(task, detail)) return getTask(task.id)!;
   const dirt = await worktreeDirt(dir);
   if (dirt) {
     record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });

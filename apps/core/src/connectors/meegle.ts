@@ -55,7 +55,7 @@ interface WorkItem {
     work_item_name: string;
     create_time: string;
     create_by?: { name?: string };
-    role_members?: Array<{ name: string; members: Array<{ name?: string }> }>;
+    role_members?: Array<{ name: string; members: Array<{ name?: string; key?: string }> }>;
     owned_project: { simple_name: string };
     work_item_status: { key?: string; name: string };
     work_item_type: { key: string; name: string };
@@ -174,7 +174,7 @@ interface WorkItem {
     work_item_name: string;
     create_time: string;
     create_by?: { name?: string };
-    role_members?: Array<{ name: string; members: Array<{ name?: string }> }>;
+    role_members?: Array<{ name: string; members: Array<{ name?: string; key?: string }> }>;
     owned_project: { simple_name: string };
     work_item_status: { key?: string; name: string };
     work_item_type: { key: string; name: string };
@@ -256,6 +256,8 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
 export class MeegleConnector implements Connector {
   source = "meegle" as const;
 
+  private me: string | undefined;
+
   constructor(private bin = "meegle") {}
 
   async fetchTodos(): Promise<Todo[]> {
@@ -264,6 +266,42 @@ export class MeegleConnector implements Connector {
 
   async fetchWorkItems(): Promise<MeegleWorkItem[]> {
     return (await this.fetchRaw()).map(([it, d, host, sch]) => toWorkItem(host, it, d, sch));
+  }
+
+  /** 当前登录用户的 user_key。判断「这条需求里有没有我」要用它精确比对，不靠名字。 */
+  async myKey(): Promise<string | undefined> {
+    if (this.me !== undefined) return this.me || undefined;
+    try {
+      const res = await runJson<{ user_key?: string }>(this.bin, ["user", "me", "--format", "json"]);
+      this.me = res.user_key ?? "";
+    } catch {
+      this.me = "";
+    }
+    return this.me || undefined;
+  }
+
+  /**
+   * 单独拉一条工单（不经 mywork todo，所以没分派给我的也能拿到）。
+   * 用来看缺陷关联的那个需求里有没有我的角色。
+   */
+  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; statusKey: string; roles: Array<{ role: string; memberKeys: string[] }> } | undefined> {
+    try {
+      const d = await runJson<WorkItem>(this.bin, [
+        "workitem", "get",
+        "--work-item-id", workItemId,
+        "--project-key", projectKey,
+        "--fields", "priority,tags,description",
+        "--format", "json",
+      ]);
+      const a = d.work_item_attribute;
+      return {
+        name: a.work_item_name.trim(),
+        statusKey: a.work_item_status.key ?? "",
+        roles: (a.role_members ?? []).map((r) => ({ role: r.name, memberKeys: r.members.map((m) => m.key).filter((k): k is string => Boolean(k)) })),
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   async listRawTransitions(projectKey: string, workItemId: string): Promise<RawTransition[]> {

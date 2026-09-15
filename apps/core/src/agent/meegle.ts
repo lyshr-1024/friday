@@ -27,6 +27,68 @@ export function projectOfStory(story: { id: string; name: string }, projects: Pr
   return parent?.project ?? matchProject(story.name, projects);
 }
 
+/**
+ * 需求里我担着哪些角色。判据是 user_key，不靠名字。
+ * 一个角色可以有多个成员（真实数据里 Business owner 常常两人），只要包含我就算。
+ * 不按角色类型过滤：用户明确要求任何角色里有自己都算这需求归他。
+ */
+export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me: string): string[] {
+  return roles.filter((r) => r.memberKeys.includes(me)).map((r) => r.role);
+}
+
+/** 关了的需求不必再拉进来当容器。 */
+const STORY_CLOSED = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
+
+/**
+ * 缺陷关联的需求不在任务板里（当前节点不在我手上，所以不在 mywork todo），
+ * 但只要需求的角色成员里有我，它就是我的活——拉进来建一条任务当容器，
+ * 名下的缺陷挂在它下面，列表里不再各自占一行。
+ */
+export async function ensureStoryContainers(connector = new MeegleConnector()): Promise<number> {
+  const orphans = new Map<string, { projectKey: string; name: string }>();
+  for (const t of listTasks(OPEN, 500)) {
+    const { linkedStoryId, linkedStoryName, meegleProject } = t.source;
+    if (!linkedStoryId || !meegleProject) continue;
+    if (findTaskBySource((s) => s.meegleId === linkedStoryId, true)) continue;
+    orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "" });
+  }
+  if (!orphans.size) return 0;
+  const me = await connector.myKey();
+  if (!me) {
+    console.log("[meegle] 拿不到当前用户 key，跳过需求容器");
+    return 0;
+  }
+
+  let made = 0;
+  for (const [storyId, { projectKey, name }] of orphans) {
+    const story = await connector.getWorkItem(projectKey, storyId);
+    if (!story) continue;
+    if (STORY_CLOSED.test(story.statusKey)) continue;
+    const roles = myRoles(story.roles, me);
+    if (!roles.length) continue;
+    const projects = loadProjects();
+    const project = matchProject(story.name, projects);
+    const t = createTask({
+      title: story.name || name || `Meegle 需求 #${storyId}`,
+      kind: "meegle",
+      status: "understood",
+      understanding: `Meegle 需求 #${storyId}，我在这个需求里担 ${roles.join("、")}。当前节点不在我手上（状态 ${story.statusKey}），但名下的缺陷要我改。`,
+      source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey },
+      ...(project ? { project } : {}),
+    });
+    record({
+      taskId: t.id,
+      action: "story_container_created",
+      why: `名下有分派给我的缺陷，而我在这个需求里担 ${roles.join("、")}`,
+      how: "把需求拉进任务板当容器，缺陷挂在它下面",
+      evidence: { meegleId: storyId, roles, statusKey: story.statusKey },
+      risk: "read",
+    });
+    made += 1;
+  }
+  return made;
+}
+
 export function priorityOf(label?: string): Urgency {
   if (!label) return "normal";
   if (/^P[01]\b|紧急|urgent/i.test(label)) return "high";
@@ -192,6 +254,13 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       updateTask(t.id, { status: "done" });
       record({ taskId: t.id, action: "meegle_done", why: "这个工单不再分派给你（已流转或关闭）", how: "同步时发现它不在分派列表里，标记完成", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
+    }
+    // 缺陷关联的需求不在任务板里时，只要我在那个需求里担角色就拉进来当容器
+    try {
+      const made = await ensureStoryContainers(connector);
+      if (made) console.log(`[meegle] 拉进 ${made} 条需求当容器`);
+    } catch (e) {
+      console.error(`[meegle] 建需求容器失败：${e instanceof Error ? e.message : String(e)}`);
     }
     meegleState.lastSyncAt = new Date().toISOString();
     meegleState.lastError = null;

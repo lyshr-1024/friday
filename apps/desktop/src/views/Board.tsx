@@ -213,6 +213,14 @@ function byTier(a: Task, b: Task): number {
   );
 }
 
+/** 待办右侧：需求名下挂着缺陷时先说这个，这是它现在最要紧的信息 */
+function queuedRightWith(nestedCount: (t: Task) => number) {
+  return (t: Task): string => {
+    const n = nestedCount(t);
+    return n > 0 ? `${n} 条缺陷要改` : queuedRight(t);
+  };
+}
+
 function queuedRight(t: Task): string {
   const { feDue, beDue } = t.source;
   if (feDue) {
@@ -424,7 +432,16 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
   // 终端在问你 = 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
   const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
-  const queued = rest.filter((t) => QUEUED.includes(t.status)).sort(byTier);
+  // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
+  // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
+  const storyIds = new Set(tasks.filter((t) => t.source.meegleId).map((t) => t.source.meegleId!));
+  const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
+  /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
+  const nestedCount = (t: Task) =>
+    t.source.meegleId
+      ? tasks.filter((x) => x.source.linkedStoryId === t.source.meegleId && x.status !== "done" && x.status !== "ignored").length
+      : 0;
+  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t)).sort(byTier);
   // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
@@ -535,7 +552,7 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                     <Fragment key={cat}>
                       {group(TASK_CATEGORY_LABEL[cat], list, queuedOpen[cat], () => setQueuedOpen((v) => ({ ...v, [cat]: !v[cat] })),
                         cat === "other" ? "没有其他待办" : cat === "slack" ? "没有 Slack 待办" : `没有${TASK_CATEGORY_LABEL[cat]}，Meegle 分派给你的会汇到这里`,
-                        queuedRight, (t) => !t.due && t.priority !== "high",
+                        queuedRightWith(nestedCount), (t) => !t.due && t.priority !== "high",
                         // 学一题 / Meegle 同步挂在第一组的头上，三组共用一套入口
                         i === 0 ? (
                           <>
