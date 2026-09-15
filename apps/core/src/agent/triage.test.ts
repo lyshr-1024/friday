@@ -15,7 +15,7 @@ describe("预处理结果解析", () => {
 
 describe("预处理提示词", () => {
   it("带上项目注册表的名字、别名和频道", () => {
-    const { system } = triagePrompt([], [{ name: "whale-console", dir: "/w", aliases: ["后台"], channels: ["#team-fe-bo"], note: "后台前端" }]);
+    const { system } = triagePrompt([], [{ name: "whale-console", dir: "/w", aliases: ["后台"], channels: ["#team-fe-bo"], urls: [], note: "后台前端" }]);
     expect(system).toContain("- whale-console（别名：后台） 频道：#team-fe-bo — 后台前端");
   });
 });
