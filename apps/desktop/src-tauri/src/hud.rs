@@ -38,7 +38,7 @@ fn to_panel(win: &tauri::WebviewWindow) {
 
     let Ok(panel) = win.to_panel() else { return };
 
-    const NS_FLOATING_WINDOW_LEVEL: i32 = 4;
+    const NS_FLOATING_WINDOW_LEVEL: i32 = 3;
     panel.set_level(NS_FLOATING_WINDOW_LEVEL);
 
     const NS_WINDOW_STYLE_MASK_NON_ACTIVATING_PANEL: i32 = 1 << 7;
