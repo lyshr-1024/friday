@@ -109,6 +109,7 @@ export interface SettingsResponse {
   name: string;
   theme: ThemeId;
   learn: boolean;
+  learnHistory: boolean;
   dataDir: string;
   projects: string[];
 }
@@ -120,6 +121,7 @@ export interface SettingsUpdate {
   name?: string;
   theme?: ThemeId;
   learn?: boolean;
+  learnHistory?: boolean;
 }
 
 /** 工作台首屏：Friday 自动拉好的“现在该做什么” */
@@ -290,7 +292,7 @@ export interface ThreadsResponse {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "other";
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
@@ -326,8 +328,14 @@ export interface TaskSource {
   jobId?: string;
   /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
   conversationId?: string;
+  /** 从 Claude Code 历史学到这个时间点为止（ISO），审核通过后成为下次扫描的水位 */
+  historyCursor?: string;
   /** Friday 自主派出的 -p 任务：用户只审交付报告，friday_done 直接进 review */
   autonomous?: boolean;
+  /** 项目主仓目录：合并分支、收 worktree 都要在这儿操作 */
+  repoDir?: string;
+  /** Friday 给这条任务开的 worktree，终端就跑在里面；收工时连同分支一起清 */
+  worktree?: string;
   /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
   researchFile?: string;
   /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
@@ -486,7 +494,7 @@ export interface Task {
 /** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
 export type TerminalState = "busy" | "idle" | "gone" | "external";
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "custom";
 
 export interface PendingAction {
   id: string;

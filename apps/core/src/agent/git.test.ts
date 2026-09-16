@@ -51,10 +51,9 @@ describe("开工前的工作区检查", () => {
     expect(await worktreeDirt(clean)).toBeUndefined();
   });
 
-  it("有未提交改动时说明拦在哪", async () => {
+  it("主仓有未提交改动也放行——Friday 在独立 worktree 里干活，碰不到主仓", async () => {
     writeFileSync(join(clean, "a.txt"), "changed");
-    const dirt = await worktreeDirt(clean);
-    expect(dirt).toContain("a.txt");
+    expect(await worktreeDirt(clean)).toBeUndefined();
   });
 
   it("不是 git 仓库也拦下", async () => {

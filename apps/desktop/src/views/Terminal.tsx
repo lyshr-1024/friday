@@ -84,7 +84,9 @@ export function Terminal({ id }: { id: string }) {
       term.loadAddon(webgl);
     } catch {
     }
+    // 容器刚展开时可能还没布局完，这一次 fit 会算出错的列数；下一帧再补一次
     fit.fit();
+    const fitFrame = requestAnimationFrame(() => fit.fit());
     // 延后再取标记：StrictMode 下第一次挂载会立刻被清理，取走标记却没来得及聚焦
     const focusTimer = peekFocusJob() === id ? window.setTimeout(() => { if (takeFocusJob(id)) term.focus(); }, 80) : 0;
 
@@ -114,7 +116,11 @@ export function Terminal({ id }: { id: string }) {
 
     void (async () => {
       base = await coreBaseUrl();
-      void post("resize", { cols: term.cols, rows: term.rows });
+      // 必须等尺寸真的生效再订阅。PTY 默认 120 列，前端多半不是这个宽度；不等的话
+      // 回放的是旧宽度写下的字节，xterm 按新宽度渲染，折行位置全错、新旧内容叠在一起。
+      await new Promise((r) => requestAnimationFrame(r));
+      fit.fit();
+      await post("resize", { cols: term.cols, rows: term.rows });
       const res = await fetch(`${base}/pty/${encodeURIComponent(id)}/stream`, { signal: ctrl.signal }).catch(() => null);
       if (ctrl.signal.aborted) return;
       if (!res?.ok || !res.body) {
@@ -186,6 +192,7 @@ export function Terminal({ id }: { id: string }) {
       onData.dispose();
       window.clearTimeout(resizeTimer);
       window.clearTimeout(focusTimer);
+      cancelAnimationFrame(fitFrame);
       ro.disconnect();
       themeWatch.disconnect();
       ctrl.abort();

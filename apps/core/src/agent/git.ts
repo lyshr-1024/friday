@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
@@ -39,15 +40,52 @@ async function defaultBranch(dir: string): Promise<string> {
   return "HEAD";
 }
 
-/** 自主任务开工前的体检：返回拦下的理由，干净则 undefined。脏工作区上改代码，改动和用户自己的混在一起就分不清了。 */
+/**
+ * 自主任务开工前的体检：返回拦下的理由，能开工则 undefined。
+ * Friday 在独立 worktree 里干活，主仓脏不脏跟它无关——用户正改着自己的东西时
+ * Friday 照样能开工，这正是用 worktree 的意义。只剩「得是个 git 仓库」这一条。
+ */
 export async function worktreeDirt(dir: string): Promise<string | undefined> {
   const inside = await git(dir, ["rev-parse", "--is-inside-work-tree"]);
   if (inside.trim() !== "true") return `${dir} 不是 git 仓库`;
-  const status = await git(dir, ["status", "--porcelain"]);
-  if (status.startsWith("（")) return status;
-  const lines = status.split("\n").filter(Boolean);
-  if (!lines.length) return undefined;
-  return `工作区有 ${lines.length} 处未提交改动：${lines.slice(0, 5).map((l) => l.trim()).join("、")}${lines.length > 5 ? " 等" : ""}`;
+  return undefined;
+}
+
+/** Friday 的 worktree 放这儿：跟 Claude Code 客户端同一个位置，用完即删，不混进 orca 的 workspace 列表。 */
+export const fridayWorktree = (dir: string, jobId: string): string => join(dir, ".claude", "worktrees", `friday-${jobId.slice(0, 8)}`);
+
+/**
+ * 开一个 detached worktree。不预先建分支——分支名由终端里的 Claude 按项目规范起，
+ * 它有完整上下文（任务标题多是中文，这边做 slug 会变乱码）。失败返回原因。
+ */
+export async function addWorktree(dir: string, path: string): Promise<string | undefined> {
+  const out = await git(dir, ["worktree", "add", "--detach", path]);
+  return out.startsWith("（") ? out : undefined;
+}
+
+export interface WorktreeCleanup {
+  removed: boolean;
+  branch?: string;
+  branchDeleted: boolean;
+  /** 没删成分支的原因，通常是「还没合并」——那不是错误，是安全阀 */
+  kept?: string;
+}
+
+/**
+ * 收掉一个 worktree。目录一律删（它只是个检出，删了不丢东西）；
+ * 分支只用 -d 删，没合并的 git 会拒绝——被忽略的任务里可能有还想捡回来的改动，
+ * 不能替用户做这个决定。
+ */
+export async function removeWorktree(dir: string, path: string): Promise<WorktreeCleanup> {
+  const branch = currentBranchSync(path) || undefined;
+  const rm = await git(dir, ["worktree", "remove", "--force", path]);
+  const removed = !rm.startsWith("（");
+  if (removed) await git(dir, ["worktree", "prune"]);
+  if (!removed || !branch) return { removed, ...(branch ? { branch } : {}), branchDeleted: false };
+  const del = await git(dir, ["branch", "-d", branch]);
+  return del.startsWith("（")
+    ? { removed, branch, branchDeleted: false, kept: "还没合并进主干，分支留着" }
+    : { removed, branch, branchDeleted: true };
 }
 
 export type GitInspect = "status" | "worktrees" | "log" | "branches";

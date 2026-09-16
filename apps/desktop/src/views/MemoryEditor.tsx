@@ -1,7 +1,7 @@
 import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import type { MemoryFile } from "@friday/shared";
-import { readMemory, writeMemory } from "../lib/core";
+import { readHandbook, readMemory, writeHandbook, writeMemory } from "../lib/core";
 
 export const MEMORY_FILES: Array<{ name: MemoryFile; label: string; hint: string }> = [
   { name: "projects", label: "项目注册表", hint: "## 名称 / - 目录 / - 别名 / - 状态 / - 说明" },
@@ -9,8 +9,15 @@ export const MEMORY_FILES: Array<{ name: MemoryFile; label: string; hint: string
   { name: "people", label: "人物", hint: "## 姓名 / - 角色 / - 联系 / - 备注" },
 ];
 
-export function MemoryEditor({ name, onBack }: { name: MemoryFile; onBack: () => void }) {
-  const meta = MEMORY_FILES.find((f) => f.name === name)!;
+/** 编辑记忆库的三个 md，或 handbooks/ 下的某一份项目手册 */
+export type EditTarget = { kind: "memory"; name: MemoryFile } | { kind: "handbook"; slug: string };
+
+export function MemoryEditor({ target, onBack }: { target: EditTarget; onBack: () => void }) {
+  const meta =
+    target.kind === "memory"
+      ? MEMORY_FILES.find((f) => f.name === target.name)!
+      : { label: target.slug === "_global" ? "通用习惯" : target.slug, hint: "## 约定 / ## 技术口径 / ## 流程，每条下面一行 > 原话出处" };
+  const key = target.kind === "memory" ? target.name : `handbook:${target.slug}`;
   const [content, setContent] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [path, setPath] = useState("");
@@ -19,13 +26,13 @@ export function MemoryEditor({ name, onBack }: { name: MemoryFile; onBack: () =>
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    void readMemory(name).then((r) => {
+    void (target.kind === "memory" ? readMemory(target.name) : readHandbook(target.slug)).then((r) => {
       setContent(r.content);
       setSaved(r.content);
       setPath(r.path);
       setTimeout(() => ref.current?.focus(), 0);
     });
-  }, [name]);
+  }, [key]);
 
   const dirty = content !== null && content !== saved;
 
@@ -33,7 +40,7 @@ export function MemoryEditor({ name, onBack }: { name: MemoryFile; onBack: () =>
     if (content === null || !dirty) return;
     setStatus("saving");
     try {
-      const r = await writeMemory(name, content);
+      const r = target.kind === "memory" ? await writeMemory(target.name, content) : await writeHandbook(target.slug, content);
       setSaved(r.content);
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 1500);

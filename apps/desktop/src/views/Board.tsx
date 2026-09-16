@@ -12,7 +12,7 @@ import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
 
-const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", other: "其他" };
+const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const DECIDE: TaskStatus[] = ["review", "blocked"];
@@ -711,7 +711,8 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
 
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
-  const situation = t.understanding || t.source.note || "";
+  // 需求卡的 understanding 是「节点/状态/优先级/排期/截止」的复述，StoryBody 已经逐项列过
+  const situation = isStory(t) ? "" : t.understanding || t.source.note || "";
   const links = t.kind === "meegle" ? [] : [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
   // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
@@ -724,6 +725,15 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
   const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
 
   const prior = thread?.brief?.priorMessages ?? [];
+  const sourceName = thread ? thread.channelName || `与 ${thread.userName} 的私聊` : "";
+  // 会话级深链：拿任一条消息的 slack:// 链接去掉 message 参数就落在这个会话上；
+  // 没有桌面端深链时退到网页版的频道归档页。
+  const channelLink = (() => {
+    const app = thread?.items.find((i) => i.appLink)?.appLink;
+    if (app) return app.replace(/&message=[^&]*/, "");
+    const web = thread?.items.find((i) => i.permalink)?.permalink;
+    return web ? web.replace(/\/p\d+.*$/, "") : "";
+  })();
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
   const evidence = isMessage ? evidenceCheck(thread, String(first.payload.text ?? first.detail ?? "")) : null;
@@ -829,7 +839,16 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
         <div className="fx__source">
           <div className="fx__source-head">
             <span className="k">对方原话</span>
-            <span className="fx__source-where">{thread.channelName || `与 ${thread.userName} 的私聊`}</span>
+            {channelLink ? (
+              <a
+                href={channelLink}
+                className="link fx__source-where"
+                title="在 Slack 里打开这个会话"
+                onClick={(e) => { e.preventDefault(); void openUrl(channelLink); }}
+              >{sourceName}</a>
+            ) : (
+              <span className="fx__source-where">{sourceName}</span>
+            )}
           </div>
           {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
           {prior.length > 0 && (

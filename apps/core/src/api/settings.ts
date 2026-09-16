@@ -12,6 +12,7 @@ const patch = z.object({
   name: z.string().max(40).optional(),
   theme: z.enum(THEME_OPTIONS.map((t) => t.id) as [string, ...string[]]).optional(),
   learn: z.boolean().optional(),
+  learnHistory: z.boolean().optional(),
 });
 
 function respond(): SettingsResponse {

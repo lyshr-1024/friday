@@ -93,11 +93,25 @@ export function kill(id: string): boolean {
   return true;
 }
 
+/**
+ * 回放要从行边界开始：按字节截断会切在 ANSI 转义序列中间，后面的字符被当成
+ * 序列参数吃掉，整屏就花了。丢掉残缺的第一行比留着它安全。
+ */
+export function replayTail(buffer: string, limit = REPLAY_TAIL): string {
+  if (buffer.length <= limit) return buffer;
+  const cut = buffer.slice(-limit);
+  const nl = cut.indexOf("\n");
+  return nl === -1 ? cut : cut.slice(nl + 1);
+}
+
+/** 清屏 + 清 scrollback + 光标归位：回放不能盖在上一屏的残留上。 */
+const RESET_SCREEN = "\x1b[H\x1b[2J\x1b[3J";
+
 export function subscribe(id: string, listener: Listener): (() => void) | undefined {
   const s = sessions.get(id);
   if (!s) return undefined;
   // 连上时只回放尾部：全屏 TUI 每次都整屏重绘，前面的内容没意义，回放太多反而卡一下
-  if (s.buffer) listener(s.buffer.length > REPLAY_TAIL ? s.buffer.slice(-REPLAY_TAIL) : s.buffer);
+  if (s.buffer) listener(RESET_SCREEN + replayTail(s.buffer));
   s.listeners.add(listener);
   return () => s.listeners.delete(listener);
 }
