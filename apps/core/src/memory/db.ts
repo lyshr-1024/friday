@@ -25,7 +25,15 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
 }
 
 // 增量列：CREATE TABLE IF NOT EXISTS 不会给老库加列，这里按需补。
-function migrate(d: DatabaseSync): void {
+export function migrate(d: DatabaseSync): void {
+  // lessons.kind 的取值范围写死在 CHECK 里，加了新类别只能重建表（SQLite 改不了 CHECK）
+  const lessonsSql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'lessons'").get() as { sql?: string } | undefined)?.sql ?? "";
+  if (lessonsSql && !lessonsSql.includes("done_without_reply")) {
+    d.exec("ALTER TABLE lessons RENAME TO lessons_old");
+    d.exec(SCHEMA);
+    d.exec("INSERT INTO lessons SELECT id, task_id, category, kind, draft, final, feedback, confidence, created_at FROM lessons_old");
+    d.exec("DROP TABLE lessons_old");
+  }
   const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);

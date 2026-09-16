@@ -96,7 +96,7 @@ export async function buildBrief(thread: Thread, e: Enrichment): Promise<ThreadB
   const examples = recentEdited(category, 3).map((l) => ({ input: l.draft ?? "", final: l.final ?? "" })).filter((x) => x.final);
   const { system, prompt } = briefPrompt(thread, e, { ...(playbook ? { playbook } : {}), ...(examples.length ? { examples } : {}) });
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "brief" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

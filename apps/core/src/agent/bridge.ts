@@ -9,7 +9,7 @@ import { addPending, createTask, findTaskBySource, getTask, updateTask } from ".
 import { listThreads } from "../memory/threads.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "./enrich.js";
-import { readResearchNote } from "./learn.js";
+import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
 
 const execFileP = promisify(execFile);

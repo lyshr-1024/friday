@@ -4,6 +4,7 @@ import { listTasks, addPending, getTask, removePending, updatePending, updateTas
 import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
+import { lessonFromTask } from "./lessons.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { closeTaskThread } from "./pipeline.js";
 
@@ -89,13 +90,17 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
 
   const reply = (task.pending ?? []).find((p) => p.type === "slack_reply");
   if (patch.dropReply && reply) {
+    // 「不用回了」跟在列表里忽略是同一个判断：Friday 认为该回，你说不用
+    lessonFromTask(task, "ignored");
     task = removePending(taskId, reply.id) ?? task;
     changed.push("撤掉回复");
   } else if (patch.replyDraft?.trim()) {
     const text = patch.replyDraft.trim().slice(0, 2000);
     if (reply) {
       if (text !== reply.detail) {
-        task = updatePending(taskId, reply.id, { detail: text, payload: { ...reply.payload, text } }) ?? task;
+        lessonFromTask(task, "edited_approved", text);
+        // 标记改过：审核通过时不再按「原样发出」记一笔
+        task = updatePending(taskId, reply.id, { detail: text, payload: { ...reply.payload, text, edited: true } }) ?? task;
         changed.push("回复草稿");
       }
     } else if (task.source.threadId) {
@@ -117,6 +122,8 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
   if (patch.status && patch.status !== task.status) {
     // 收工 / 忽略时把"等你看"标记和没发出去的待审动作一起清掉，不然列表里还挂着
     const closing = patch.status === "done" || patch.status === "ignored";
+    // 收工时草稿还挂着 = 没用上它，跟列表里点完成 / 忽略记一样的经验
+    if (closing) lessonFromTask(task, patch.status === "ignored" ? "ignored" : "done_without_reply");
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
     if (closing) {

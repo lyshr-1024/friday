@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
+import type { UsageRange, UsageSummary, LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -419,13 +419,6 @@ export async function taskResearch(id: string): Promise<{ file: string; content:
   return res.json();
 }
 
-/** 让 Friday 现在自学一题（挑题 + 上网研究，要一两分钟） */
-export async function learnNow(): Promise<{ skipped: string } | { taskId: string; title: string; file: string }> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/learn`, { method: "POST" });
-  if (!res.ok) throw new Error(`learn ${res.status}`);
-  return res.json();
-}
-
 /** 关掉一个终端。任务不动，用户可能还想接着做。 */
 export async function closeJob(id: string): Promise<{ closed: boolean }> {
   const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
@@ -495,5 +488,12 @@ export async function auditUndo(id: string): Promise<void> {
 export async function learnStats(): Promise<LearnStats[]> {
   const res = await fetch(`${await coreBaseUrl()}/learn`);
   if (!res.ok) throw new Error(`core 返回 ${res.status}`);
+  return res.json();
+}
+
+/** 用量统计：按调用点和模型分组的 token 与折合金额 */
+export async function usage(range: UsageRange): Promise<UsageSummary> {
+  const res = await fetch(`${await coreBaseUrl()}/usage?range=${range}`);
+  if (!res.ok) throw new Error(`usage ${res.status}`);
   return res.json();
 }

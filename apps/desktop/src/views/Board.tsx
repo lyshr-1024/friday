@@ -4,7 +4,7 @@ import { BACKEND_TAGS, TAG_LABELS, TASK_CATEGORY_LABEL, taskCategory, type Audit
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, learnNow, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
@@ -222,11 +222,14 @@ function byTier(a: Task, b: Task): number {
   );
 }
 
-/** 待办右侧：需求名下挂着缺陷时先说这个，这是它现在最要紧的信息 */
-function queuedRightWith(nestedCount: (t: Task) => number) {
+/** 待办右侧：名下挂着缺陷或 Friday 记的待办时先说这个，这是它现在最要紧的信息 */
+function queuedRightWith(nestedCount: (t: Task) => number, derivedCount: (t: Task) => number) {
   return (t: Task): string => {
     const n = nestedCount(t);
-    return n > 0 ? `${n} 条缺陷要改` : queuedRight(t);
+    if (n > 0) return `${n} 条缺陷要改`;
+    const d = derivedCount(t);
+    if (d > 0) return `${d} 条待办要跟进`;
+    return queuedRight(t);
   };
 }
 
@@ -284,12 +287,14 @@ function sortDecide(a: Task, b: Task): number {
   return b.updatedAt.localeCompare(a.updatedAt);
 }
 
-export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
+export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, runningConvs }: {
   view: BoardView;
   tools: React.ReactNode;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
   runningConvs?: Set<string>;
   onCounts?: (c: { decide: number; doing: number }) => void;
+  /** 待办四组各有几条，左栏锚点用 */
+  onQueueCounts?: (c: Record<TaskCategory, number>) => void;
   onFocusChange?: (t: Task | null) => void;
 }) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
@@ -301,6 +306,22 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     window.addEventListener("friday:open-task", onOpen);
     return () => window.removeEventListener("friday:open-task", onOpen);
   }, []);
+  // 左栏点了待办分组的锚点：展开那组再滚过去。滚动放在 effect 里，等展开渲染完才有正确位置
+  const [jumpTo, setJumpTo] = useState<TaskCategory | null>(null);
+  useEffect(() => {
+    const onJump = (e: Event) => {
+      const cat = (e as CustomEvent<TaskCategory>).detail;
+      setQueuedOpen((v) => ({ ...v, [cat]: true }));
+      setJumpTo(cat);
+    };
+    window.addEventListener("friday:jump-group", onJump);
+    return () => window.removeEventListener("friday:jump-group", onJump);
+  }, []);
+  useEffect(() => {
+    if (!jumpTo) return;
+    document.querySelector(`[data-group="${jumpTo}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    setJumpTo(null);
+  }, [jumpTo]);
   // 列表此刻从上到下的可见顺序，处理完一条要靠它找到相邻的下一条
   const orderRef = useRef<string[]>([]);
   const [doingOpen, setDoingOpen] = useState(true);
@@ -398,23 +419,6 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       window.setTimeout(() => setSlackNote(null), 4000);
     }
   }
-  const [learning, setLearning] = useState(false);
-  const [learnNote, setLearnNote] = useState<string | null>(null);
-  async function doLearn() {
-    setLearning(true);
-    setLearnNote(null);
-    try {
-      const r = await learnNow();
-      if ("skipped" in r) setLearnNote(r.skipped.startsWith("出错") ? "出错了" : "这次没学"), setErr(r.skipped);
-      else setLearnNote(`学了：${r.title}`);
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLearning(false);
-      window.setTimeout(() => setLearnNote(null), 6000);
-    }
-  }
   async function doSync() {
     setSyncing(true);
     setSyncNote(null);
@@ -467,8 +471,13 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     t.source.meegleId
       ? tasks.filter((x) => x.source.linkedStoryId === t.source.meegleId && x.status !== "done" && x.status !== "ignored").length
       : 0;
-  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t)).sort(byTier);
-  // 待办按 Meegle 工单类型拆开：需求一组、缺陷一组，口头/自学/Slack 等没有类型的归「其他」。
+  // 情境卡从 Slack 线程派生出来的待办：线程那条还在时它们说的是同一件事，不再单独占一行，
+  // 跟缺陷挂需求一样收进父任务里看。线程已经收工的留着独立显示，那才是真正剩下的事。
+  const liveIds = new Set(tasks.filter((t) => t.status !== "done" && t.status !== "ignored").map((t) => t.id));
+  const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
+  const derivedCount = (t: Task) => tasks.filter((x) => x.source.fromTaskId === t.id && x.status !== "done" && x.status !== "ignored").length;
+  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t) && !derived(t)).sort(byTier);
+  // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
   const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
@@ -477,6 +486,11 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
     ? ALL_ORDER.flatMap((st) => tasks.filter((t) => t.status === st))
     : [...pinned, ...decide, ...(doingOpen ? doing : []), ...QUEUE_GROUPS.flatMap((c) => (queuedOpen[c] ? queuedBy(c) : [])), ...(doneOpen ? done : [])]
   ).map((t) => t.id);
+  const queueCounts = Object.fromEntries(QUEUE_GROUPS.map((c) => [c, queuedBy(c).length])) as Record<TaskCategory, number>;
+  const queueKey = QUEUE_GROUPS.map((c) => queueCounts[c]).join(",");
+  useEffect(() => {
+    onQueueCounts?.(queueCounts);
+  }, [queueKey]);
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = view === "all" || view === "ledger" ? explicit : explicit ?? pinned[0] ?? decide[0] ?? null;
   useEffect(() => {
@@ -510,8 +524,8 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
       <button className="li__pin" title={t.pinned ? "取消关注" : "关注"} aria-label={t.pinned ? "取消关注" : "关注"} aria-pressed={!!t.pinned} onClick={(e) => { e.stopPropagation(); void act(null, () => taskPin(t.id, !t.pinned)); }}><Icon name="star" filled={t.pinned} /></button>
     </div>
   );
-  const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean, extra?: React.ReactNode) => (
-    <section className="grp grp--side">
+  const group = (label: string, list: Task[], open: boolean, toggle: () => void, empty: string, line: (t: Task) => string, dim: (t: Task) => boolean, extra?: React.ReactNode, anchor?: string) => (
+    <section className="grp grp--side" data-group={anchor}>
       <div className="grp__head grp__head--row">
         <button className="grp__head grp__head--inner" onClick={toggle}>
           {label}<span className="mono">{list.length}</span>
@@ -583,18 +597,14 @@ export function Board({ view, tools, onCounts, onFocusChange, runningConvs }: {
                     <Fragment key={cat}>
                       {group(TASK_CATEGORY_LABEL[cat], list, queuedOpen[cat], () => setQueuedOpen((v) => ({ ...v, [cat]: !v[cat] })),
                         cat === "other" ? "没有其他待办" : cat === "slack" ? "没有 Slack 待办" : `没有${TASK_CATEGORY_LABEL[cat]}，Meegle 分派给你的会汇到这里`,
-                        queuedRightWith(nestedCount), (t) => !t.due && t.priority !== "high",
+                        queuedRightWith(nestedCount, derivedCount), (t) => !t.due && t.priority !== "high",
                         // 学一题 / Meegle 同步挂在第一组的头上，三组共用一套入口
                         i === 0 ? (
-                          <>
-                            <button className="grp__act" title="让 Friday 现在自学一题：挑一个手头项目的具体问题，研究社区做法给建议（要一两分钟；平时每天早上自动）" disabled={learning} onClick={() => void doLearn()}>
-                              {learning ? <span className="side__spin" /> : <Icon name="sparkle" />} {learnNote ?? "学一题"}
-                            </button>
-                            <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
-                              {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
-                            </button>
-                          </>
-                        ) : undefined)}
+                          <button className={`grp__act ${syncing ? "is-busy" : ""}`} title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
+                            {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
+                          </button>
+                        ) : undefined,
+                        cat)}
                     </Fragment>
                   );
                 })}
@@ -723,6 +733,9 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
   const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
   const childIssues = t.source.meegleId ? all.filter((x) => x.source.linkedStoryId === t.source.meegleId) : [];
   const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
+  // Friday 从这条线程的情境卡里记下的待办：列表里不单独占行，在这儿看
+  const derivedTodos = all.filter((x) => x.source.fromTaskId === t.id);
+  const openTodos = derivedTodos.filter((c) => c.status !== "done" && c.status !== "ignored").length;
 
   const prior = thread?.brief?.priorMessages ?? [];
   const sourceName = thread ? thread.channelName || `与 ${thread.userName} 的私聊` : "";
@@ -813,6 +826,23 @@ function Focus({ t, all, onAct, onClose, onPick, closable, ref }: {
             </span>
           )}
         </div>
+      )}
+      {derivedTodos.length > 0 && (
+        <details className="fx__rel-list" open={openTodos > 0}>
+          <summary>
+            <span>Friday 记下的待办</span>
+            <span className="fx__rel-count">{derivedTodos.length} 条{openTodos > 0 ? `，${openTodos} 条没做` : "，都收工了"}</span>
+          </summary>
+          <ul>
+            {derivedTodos.map((c) => (
+              <li key={c.id}>
+                <span className={`dot dot--${c.status === "done" || c.status === "ignored" ? "done" : "decide"}`} />
+                <button className="link" onClick={() => onPick?.(c.id)}>{c.title}</button>
+                {c.due && <span className="fx__rel-note">{dueLabel(c.due)}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {childIssues.length > 0 && (
         <details className="fx__rel-list">

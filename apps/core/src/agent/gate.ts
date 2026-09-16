@@ -1,4 +1,4 @@
-import type { Lesson, ThreadBrief } from "@friday/shared";
+import type { Lesson, LessonKind, ThreadBrief } from "@friday/shared";
 
 export const DEFAULT_THRESHOLD = 100;
 export const MIN_THRESHOLD = 60;
@@ -19,8 +19,11 @@ export function decideStart(confidence: number, threshold: number): "auto" | "qu
   return confidence >= threshold ? "auto" : "queue";
 }
 
-export function backoff(threshold: number, kind: "rejected" | "auto_undone"): number {
-  return Math.min(100, threshold + (kind === "auto_undone" ? 20 : 10));
+/** 负信号按代价大小抬阈值：已发出去要撤回最重，你自己回了最轻 */
+const BACKOFF: Record<string, number> = { auto_undone: 20, rejected: 10, ignored: 10, done_without_reply: 5 };
+
+export function backoff(threshold: number, kind: LessonKind): number {
+  return Math.min(100, threshold + (BACKOFF[kind] ?? 0));
 }
 
 export interface Stats {

@@ -2615,6 +2615,16 @@ body,
 .rail__item .mono.amber {
   color: var(--amber);
 }
+/* 待办分组锚点：挂在导航项下一级，缩进 + 小一号字表明从属 */
+.rail__sub {
+  height: 28px;
+  padding-left: var(--s-6);
+  font-size: var(--t-aux);
+  color: var(--fg-3);
+}
+.rail__sub:hover {
+  color: var(--fg-2);
+}
 .rail__foot {
   margin-top: auto;
   display: flex;
@@ -2640,6 +2650,123 @@ body,
   background: none;
   border: none;
   padding: 0;
+}
+/* 左栏底部用量：收起一行今天花了多少，展开向右弹出明细面板 */
+.usage {
+  position: relative;
+}
+.usage__strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--s-3);
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  font: inherit;
+  font-size: var(--t-aux);
+  color: var(--fg-3);
+  cursor: default;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.usage__strip:hover {
+  background: var(--bg-3);
+  color: var(--fg-2);
+}
+.usage__strip[aria-expanded="true"] {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.usage__strip-cost {
+  color: var(--fg-1);
+  font-size: var(--t-aux);
+}
+.usage__strip-calls {
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+}
+.usage__panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--s-2));
+  z-index: 40;
+  width: 300px;
+  padding: var(--s-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-pop);
+  font-variant-numeric: tabular-nums;
+}
+.usage__seg {
+  width: 100%;
+  margin-bottom: var(--s-4);
+}
+.usage__seg .seg__item {
+  flex: 1;
+  justify-content: center;
+}
+.usage__total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.usage__total-cost {
+  font-size: var(--t-title);
+  color: var(--fg-1);
+}
+.usage__total-sub {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+}
+.usage__group {
+  margin-top: var(--s-4);
+}
+.usage__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.usage__list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-1) 0;
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+}
+.usage__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage__calls {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+}
+.usage__cost {
+  min-width: 52px;
+  text-align: right;
+  color: var(--fg-1);
+}
+.usage__empty {
+  padding: var(--s-3) 0;
+  font-size: var(--t-aux);
+  color: var(--fg-4);
+}
+.usage__note {
+  margin: var(--s-4) 0 0;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--fg-4);
 }
 .rail__status {
   padding: var(--s-1) var(--s-2) 0;

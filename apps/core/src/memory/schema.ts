@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS lessons (
   id TEXT PRIMARY KEY,
   task_id TEXT,
   category TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone')),
+  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone','ignored','done_without_reply')),
   draft TEXT,
   final TEXT,
   feedback TEXT,
@@ -159,6 +159,21 @@ CREATE TABLE IF NOT EXISTS lessons (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS lessons_category ON lessons (category, created_at);
+
+CREATE TABLE IF NOT EXISTS usage (
+  id TEXT PRIMARY KEY,
+  call_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  label TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL,
+  cost_usd REAL NOT NULL,
+  turns INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_at ON usage (at);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

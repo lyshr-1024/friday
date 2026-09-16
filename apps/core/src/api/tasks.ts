@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { learnOnce, readResearchNote } from "../agent/learn.js";
+import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { recordLesson } from "../agent/lessons.js";
+import { lessonFromTask, recordLesson, reviewOnce } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
@@ -46,7 +46,7 @@ export const tasks = new Hono()
     if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
-  .post("/tasks/learn", async (c) => c.json(await learnOnce(true)))
+  .post("/tasks/review", async (c) => c.json(await reviewOnce(true)))
   .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
@@ -108,7 +108,10 @@ export const tasks = new Hono()
       );
       const final = text?.trim() || draft;
       // 只有回复类动作才算「Friday 起草、用户拍板」的经验；git_merge 这类审核动作不代表对话质量，不该污染 lesson 统计。
-      if (action?.type === "slack_reply" && draft) recordLesson({ taskId: t.id, category: replyCategory(before), kind: final === draft ? "approved" : "edited_approved", draft, final, confidence: taskConfidence(before) });
+      // 会话里改过的草稿在改那一刻已记过 edited_approved，这里再记一条 approved 会把统计冲成「判得很准」
+      if (action?.type === "slack_reply" && draft && !action.payload.edited) {
+        recordLesson({ taskId: t.id, category: replyCategory(before), kind: final === draft ? "approved" : "edited_approved", draft, final, confidence: taskConfidence(before) });
+      }
       // 点了开工同样是拍板：这条记进 autostart 的经验，阈值据此校准
       if (action?.type === "start_job") {
         recordLesson({ taskId: t.id, category: AUTOSTART_CATEGORY, kind: "approved", draft: action.detail, confidence: Number(action.payload.confidence ?? 0) });
@@ -215,8 +218,11 @@ export const tasks = new Hono()
     }
   })
   .post("/tasks/:id/done", async (c) => {
+    const before = getTask(c.req.param("id"));
     const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
     if (t) {
+      // 收工时还挂着没发的草稿 = 你自己回的，这条没用上。是弱负信号，记下来校准
+      if (before) lessonFromTask(before, "done_without_reply");
       closeTaskTerminal(t, "你把任务标记完成");
       closeTaskThread(t, "done");
       await cleanupTaskWorktree(t, "你把任务标记完成");
@@ -224,8 +230,11 @@ export const tasks = new Hono()
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", async (c) => {
+    const before = getTask(c.req.param("id"));
     const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
     if (t) {
+      // Friday 判断这条要回、你却直接忽略：最强的「这类消息不该起草回复」信号
+      if (before) lessonFromTask(before, "ignored");
       closeTaskTerminal(t, "你忽略了这条任务");
       closeTaskThread(t, "ignored");
       await cleanupTaskWorktree(t, "你忽略了这条任务");

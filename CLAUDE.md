@@ -33,7 +33,7 @@ apps/core/src/
 
 ## 置信度门控与学习闭环
 
-> 从 feat/prompt-guardrails 搬过来时 `TaskCategory` 和 `agent/learn.ts` 都和 main 撞名：消息诉求类别改叫 `ReplyCategory`（`TaskCategory` 留给待办分组 slack/defect/story/other），`agent/learn.ts` 改叫 `agent/lessons.ts`（`agent/learn.ts` 是 main 的「每天自学一题」，两码事）。
+> 从 feat/prompt-guardrails 搬过来时 `TaskCategory` 和 `agent/learn.ts` 都和 main 撞名：消息诉求类别改叫 `ReplyCategory`（`TaskCategory` 留给待办分组 slack/defect/story/other），`agent/learn.ts` 改叫 `agent/lessons.ts`（当时 `agent/learn.ts` 是 main 的「每天自学一题」；那条已于 2026-09-16 删掉，见下文「自学 = 复盘人工处理」）。
 
 - `triage` 给每条 Slack 消息定类别（`question` / `status_ask` / `code_fix` / `review_ask` / `notice` / `other`），线程取最后一条有类别的消息。
 - 情境卡自评 `confidence`（0-100）；回复里含工期、方案、人力这类只有用户能定的承诺时压到 60 以下。解析层对越界/非数字/缺失一律钳到 0。
@@ -116,9 +116,11 @@ apps/core/src/
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
 - **内嵌终端**（已做）：`settings.terminal` 新增并默认 `embedded`：`launchClaude` 不再 `open` 外部终端，而是 `agent/pty.ts` 用 node-pty 在 PTY 里跑同一份任务脚本（锁 / script 录日志 / Stop hook / 退出回报都不变），输出留 400KB 回放缓冲。接口 `GET /pty/:id/stream`（SSE，先回放再实时）、`POST /pty/:id/{input,resize,kill}`。前端 `views/Terminal.tsx` 用 @xterm/xterm + fit + web-links 渲染在任务详情里（任务 `source.jobId`），可直接打字与 Claude Code 对话。node-pty 的 `spawn-helper` 丢可执行位会让 PTY 起不来（`nodePty.spawn` 抛 `posix_spawnp failed`，而 `pty.node` 是 dlopen 加载的不受影响，所以 core 照常启动、只有终端起不来）：打包时 `bundle-core.sh` chmod，**开发环境同样会丢**——pnpm 从内容寻址 store 取文件时不保留可执行位，而 spawn-helper 不在 node-pty 的 bin 字段里没人替它补，所以根 `package.json` 的 `postinstall` 也要 chmod 一次（`pty.test.ts` 守着这条）；esbuild 不打包原生模块，用 `createRequire` 运行时加载。Ghostty / Terminal 仍可在设置里选回。
-- **Friday 自学一题（2026-09-11，`agent/learn.ts`）**：不是给用户推荐学什么，而是 Friday 自己学。素材只取近 7 天真在忙的事（tasks 的标题与理解、projects.md 里各项目 `git log --since=7.days`、有情境卡的 Slack 线程），一条素材都没有就跳过不硬凑。三步：①挑题（Sonnet，给素材 + 项目注册表 + 「已研究过 / 用户忽略过的题」让它绕开，输出 `{topic, project, why}`，没值得研究的就 `{skip}`）；②研究（`askStream` 的新选项 `builtin: ["WebSearch","WebFetch"]`——只放行这两个内置工具、不挂 Friday 自己的 MCP 工具，`maxTurns: 20`，要求至少 3 个一手来源、固定 Markdown 结构：为什么现在研究 / 社区做法（每条带链接和年份）/ 对手头项目的建议 / 不建议做的）；③沉淀（全文写记忆库 `research/<上海日期>-<题>.md`，建一条 `kind: "learn"` 任务：`understood` 进「待办」不占「待我决定」、priority low、understanding = 为什么、plan = 建议正文、`source.researchFile` 记相对路径；记账 `learned`、发系统通知）。
-- 触发：调度器起来 20 秒后首检、之后每 30 分钟看一眼。`learnDue` 不看「是不是 8 点这一刻」（机器常关着，那样会整天漏掉），只看离上次学过了多久：`research/` 里最新那个日期就是上次学的日子——今天学过就不再学；隔一天等到上海时间 8 点（`LEARN_HOUR`）；**隔两天以上说明中间关过机，几点开机都立刻补一题**（只补当天一题，不追补积压的多天）。`settings.learn`（默认开，设置页「每天自学一题」开关）关掉后自动的那条不跑，手动仍可跑。一题约 $0.7（挑题 + 研究两次 Sonnet 调用），两分钟左右。
-- 入口：`POST /tasks/learn` 手动、左栏「待办」分组头「✦ 学一题」按钮、会话工具 `learn_now`；`GET /tasks/:id/research` 读笔记全文，任务卡上折叠「完整研究笔记」（展开才拉，链接可点）。`bridge.contextFor` 给 learn 任务带上笔记全文，所以在卡片里直接「和 Friday 聊这条」就能追问、让它改建议、或者说「按第 1 条做」走 run_claude。用户说「不感兴趣」就忽略，题目会进下次选题的绕开列表。
+- **自学 = 复盘人工处理（2026-09-16 改，`agent/lessons.ts`）**：原来的「每天自学一题」（挑题 → WebSearch 研究 → 建一条 `kind: learn` 待办）已删。它做反了事：查库时发现 `lessons` 表 0 条、`thresholds` 空——置信度闭环从投产起一次都没跑过，因为 `recordLesson` 只挂在「通过 / 打回」这两个审核动作上，而用户实际是直接 ignore / done；与此同时 Friday 每天花 $0.7 研究一道技术题，把结论抄成一条待办塞进列表，跟它研究的那条任务在界面上并排出现（用户原话：「自学是指学习人工处理的操作，以便提高置信度，而不是把待办抄过来」）。
+- **采集面**：`lessonFromTask(task, kind, final?)` 统一处理「没按草稿走」的情形，只认 `slack_reply` 草稿（`git_merge` 这类跟对话质量无关）。新增两个 `LessonKind`：`ignored`（列表里忽略 / 会话里说不用回了——Friday 判要回、你说不用，最强负信号，阈值 +10）、`done_without_reply`（收工时草稿还挂着 = 你自己回的，弱负信号 +5）。会话里改写草稿即刻记 `edited_approved`（draft 旧稿、final 新稿）并在 `payload.edited` 打标，审核通过时跳过那笔 `approved`——否则统计会被冲成「判得很准」。`backoff` 改成按 kind 查表：撤回 20 > 打回 / 忽略 10 > 自己回了 5，正信号不动。
+- **复盘**：`reviewOnce` 每天一次（`reviewDue` 同 `historyDue` 思路，只看离上次跑过多久，游标 `review:ran` 存 sync_state），只对「自上次复盘后攒了新 lesson」的类别跑 `distill` 重写 `playbooks/<category>.md`。产物是下次草稿更准，**不建任务、不进待办列表**，只记一条 `reviewed` 账。喂给模型的 lesson 带中文动作标签（原样发出 / 改了再发 / 打回不发 / 直接忽略没回 / 用户自己回的），并要求手册写清「什么时候根本不该起草回复」。
+- 入口：`POST /tasks/review`、会话工具 `review_now`、设置页「每天复盘人工处理」开关（沿用 `settings.learn` 字段）。左栏「✦ 学一题」按钮已删。`lessons.kind` 的 CHECK 约束写死在建表语句里，加类别要重建表——`db.ts` 的 `migrate` 检测旧 CHECK 后 rename → 重建 → 拷回 → drop（`db.test.ts` 守着）。
+- 历史遗留：`research/*.md` 笔记与库里已有的 `kind: learn` 任务不动，`readResearchNote` 搬到 `memory/research.ts`，任务卡照样能展开笔记。
 
 ## 工作台：线程、功课、首屏
 
@@ -237,6 +239,14 @@ apps/core/src/
   `MemoryContext` 因此从 `{projects, decisions, people, todos}` 变成 `{projects, todos, hasPeople, hasDecisions}`。待办块顺带从 `todos` 表改读 `tasks`（记待办已统一建任务，原来注入的是陈旧内容）。
 - **`route` 与 `continuation` 换 Haiku**（`claude-haiku-4-5`，实测可用）：两个都是「输出一个 JSON 做二选一」的小任务，判错代价也小（route 接错有「其实是新话题」可点，continuation 判不准时提示词要求答 false 偏保守）。**`triage` 和 `brief` 留 Sonnet**——要读懂中文语境、写能直接发出去的草稿，brief 更是界面的核心输出，降级会明显变差。
 - **Skill 模式开关补成本说明**：「开着时每轮都要读 skill 文档、最多跑 30 轮，一次提问可能到 $1；不常用 skill 就关掉」。**默认值没动**（仍是 `skills: true`）——那是使用习惯，留给用户自己决定。
+
+## 用量展示（2026-09-16，左栏底部）
+
+- 起因：用户问"这些处理要消耗多少 token"。量下来后台七个调用点近 7 天加起来不到 $1，大头在派到终端的 Claude Code；但之前**一条都没记过账**——SDK 的 `result` 消息本来就带 `total_cost_usd` / `modelUsage` / `num_turns`，`claude.ts` 只是 `console.log` 掉了。
+- 采集：`AskOptions` 加 `label`（ask / triage / brief / route / continuation / intake / review / handbook / hot / desk），`askStream` 在 `result` 事件把每个模型一行写进 `usage` 表。**一次调用的多行共享 `call_id`**——`modelUsage` 是 `Record<model, …>`，拿时间戳去重会把同一毫秒的两次并发调用（brief 最多 3 个并行）算成一次。
+- `modelUsage` 在一次 `query()` 里是累计值，每个 result 带的是「到此为止的总数」，所以直接落这一条、不跨 result 相加；Friday 的多轮走 `resume` 开新 `query()`，各自独立计数。
+- 接口 `GET /usage?range=today|7d|30d`（`memory/usage.ts` 聚合，按调用点和按模型各一份）。前端 `views/Usage.tsx` 挂在左栏底部：收起是一行「今天 $x · N 次」（每分钟刷一次），点开向右弹出面板——三档分段、总计、按调用点、按模型，底部说明「走的是订阅，这里按 API 标价折算，不是账单」。
+- **终端任务不计在内**：`claude -p` 和 PTY 里的 Claude Code 不走 `askStream`，用量在它自己的 session jsonl 里。用户明确说这版不做。
 
 ## settings.json（记忆库目录下，可选）
 

@@ -4,7 +4,7 @@ import type { MemoryContext } from "../memory/context.js";
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
 const MEMORY_TOOLS =
-  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活；terminal_say 往当前任务的内嵌终端里对正在干活的 Claude Code 说话（转达用户的指令、补充、回答它的提问）；jobs_activity 看终端里的 Claude Code 最近读了改了什么、跑了什么、说了什么；task_update 把会话里聊出来的结论写回当前任务卡（理解 / 方案 / 进展 / 待审的 Slack 回复草稿）；meegle_sync 立刻同步一次 Meegle 工单到任务板；slack_sync 立刻拉一次 Slack 新消息；learn_now 现在自学一题（研究社区做法给手头项目提建议）；close_terminals 关掉在跑的终端（默认只关已收工任务的，说「全部关掉」才全关）。";
+  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活；terminal_say 往当前任务的内嵌终端里对正在干活的 Claude Code 说话（转达用户的指令、补充、回答它的提问）；jobs_activity 看终端里的 Claude Code 最近读了改了什么、跑了什么、说了什么；task_update 把会话里聊出来的结论写回当前任务卡（理解 / 方案 / 进展 / 待审的 Slack 回复草稿）；meegle_sync 立刻同步一次 Meegle 工单到任务板；slack_sync 立刻拉一次 Slack 新消息；review_now 现在复盘一次人工处理（看你怎么处置它起草的回复，重写经验手册）；close_terminals 关掉在跑的终端（默认只关已收工任务的，说「全部关掉」才全关）。";
 
 const ISOLATED = [
   `你的工具：${MEMORY_TOOLS}`,

@@ -67,7 +67,7 @@ export async function route(text: string): Promise<Route> {
   if (!convs.length) return { why: "还没有历史对话" };
   const { system, prompt } = routePrompt(text, convs, loadProjects());
   let out = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: ROUTE_MODEL })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: ROUTE_MODEL, label: "route" })) {
     if (ev.type === "delta") out += ev.text;
     if (ev.type === "reset") out = "";
   }

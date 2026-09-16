@@ -100,7 +100,7 @@ export async function judgeIntake(
   const { system, prompt } = intakePrompt(task, description, projects);
   let text = "";
   try {
-    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL })) {
+    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "intake" })) {
       if (ev.type === "delta") text += ev.text;
       if (ev.type === "reset") text = "";
     }

@@ -75,3 +75,18 @@ describe("自己开工的闸门", () => {
     expect(backoff(95, "rejected")).toBe(100);
   });
 });
+
+describe("负信号按代价抬阈值", () => {
+  it("撤回 20 > 打回 / 忽略 10 > 自己回了 5，封顶 100", () => {
+    expect(backoff(60, "auto_undone")).toBe(80);
+    expect(backoff(60, "rejected")).toBe(70);
+    expect(backoff(60, "ignored")).toBe(70);
+    expect(backoff(60, "done_without_reply")).toBe(65);
+    expect(backoff(95, "auto_undone")).toBe(100);
+  });
+
+  it("正信号不动阈值", () => {
+    expect(backoff(60, "approved")).toBe(60);
+    expect(backoff(60, "edited_approved")).toBe(60);
+  });
+});

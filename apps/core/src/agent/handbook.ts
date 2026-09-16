@@ -1,5 +1,4 @@
 import { askStream } from "./claude.js";
-import { LEARN_MODEL } from "./learn.js";
 import { untrusted, UNTRUSTED_NOTE } from "./fence.js";
 import { groupByProject, scanHistory, type HistoryMessage } from "./history.js";
 import { upsertPerson } from "./autowrite.js";
@@ -12,6 +11,7 @@ import { getCursor, setCursor } from "../memory/inbox.js";
 import { addPending, createTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 
+export const HANDBOOK_MODEL = "claude-sonnet-5";
 export const CURSOR_KEY = "history:at";
 export const RAN_KEY = "history:ran";
 /** 每周学一轮就够：一周攒不满几十条新约定，天天跑只会天天弹一条没内容的待审。 */
@@ -23,7 +23,7 @@ const CLIP = 400;
 export const MIN_CANDIDATES = 8;
 
 /**
- * 该学了没。跟 learnDue 一个思路：不看「是不是周一这一刻」，只看离上次跑过了多久，
+ * 该学了没。跟 reviewDue 一个思路：不看「是不是周一这一刻」，只看离上次跑过了多久，
  * 机器关着也不会整周漏掉。上次时间存在 sync_state 里，重启不会丢。
  */
 export function historyDue(lastRanIso: string | undefined, now = Date.now()): boolean {
@@ -145,7 +145,7 @@ async function distillGroup(project: string, messages: HistoryMessage[]): Promis
   const current = project === GLOBAL ? readHandbook(GLOBAL) : readHandbook(project);
   const { system, prompt } = distillPrompt(project, picked, current);
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: LEARN_MODEL, builtin: [] })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: HANDBOOK_MODEL, builtin: [], label: "handbook" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

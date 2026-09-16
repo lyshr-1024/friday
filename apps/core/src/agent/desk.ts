@@ -50,6 +50,7 @@ export async function buildDesk(): Promise<Desk> {
       ].join("\n"),
       cwd: config.dataDir,
       model: TRIAGE_MODEL,
+      label: "desk",
     })) {
       if (ev.type === "delta") advice += ev.text;
       if (ev.type === "reset") advice = "";

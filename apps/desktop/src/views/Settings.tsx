@@ -164,7 +164,7 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
-        <Row label="每天自学一题" hint="早上 8 点后从你最近的任务、提交、Slack 里挑一个具体问题，上网研究社区做法，建议挂到待办；笔记在记忆库 research/">
+        <Row label="每天复盘人工处理" hint="看你怎么处置它起草的 Slack 回复（改了 / 打回 / 直接忽略 / 自己回的），重写对应类别的经验手册，下次草稿更准">
           <button
             className={`switch ${prefs?.learn ? "switch--on" : ""}`}
             role="switch"

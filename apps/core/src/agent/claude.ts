@@ -1,6 +1,7 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { FRIDAY_TOOL_NAMES, fridayTools } from "./tools.js";
+import { addUsage } from "../memory/usage.js";
 
 export type AskEvent =
   | { type: "delta"; text: string }
@@ -22,6 +23,8 @@ export interface AskOptions {
   conversationId?: string;
   /** 只放行这几个内置工具（如 WebSearch / WebFetch），不挂 Friday 的 MCP 工具；给研究类后台任务用 */
   builtin?: string[];
+  /** 这次调用算在哪个调用点名下（ask / triage / brief …），用量统计按它分组 */
+  label?: string;
 }
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
@@ -78,6 +81,19 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
       yield { type: "error", message: `Claude 返回错误：${msg.error}` };
     } else if (msg.type === "result") {
       console.log(`[claude] model=${Object.keys(msg.modelUsage).join(",") || "?"} cost=$${msg.total_cost_usd.toFixed(4)} turns=${msg.num_turns}`);
+      // modelUsage 在一次 query() 里是累计值，所以直接落这一条，不跨 result 相加
+      addUsage(
+        opts.label ?? "other",
+        msg.num_turns,
+        Object.entries(msg.modelUsage).map(([model, u]) => ({
+          model: u.canonicalModel ?? model,
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cacheRead: u.cacheReadInputTokens,
+          cacheWrite: u.cacheCreationInputTokens,
+          costUsd: u.costUSD,
+        })),
+      );
       if (msg.subtype !== "success") {
         yield { type: "error", message: msg.errors.join("; ") || msg.subtype };
       } else if (msg.is_error) {

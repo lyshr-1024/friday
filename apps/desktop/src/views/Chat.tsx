@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
-import { MODEL_OPTIONS } from "@friday/shared";
+import type { ConversationSummary, HotResponse, ModelId, TaskCategory } from "@friday/shared";
+import { MODEL_OPTIONS, TASK_CATEGORY_LABEL } from "@friday/shared";
 import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
@@ -12,6 +12,7 @@ import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardView } from "./Board";
 import { Icon } from "./Icon";
+import { UsageStrip } from "./Usage";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
 import { applyTheme, onThemeChange } from "../lib/theme";
@@ -35,6 +36,9 @@ const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "hot", label: "AI 热点" },
 ];
 
+/** 左栏待办锚点的顺序，和任务板里的分组一致 */
+const QUEUE_ANCHORS: TaskCategory[] = ["slack", "defect", "story", "other"];
+
 /** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
 type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: string };
 
@@ -44,6 +48,7 @@ export function Chat() {
   // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
   const [railOpen, setRailOpen] = useState(() => { try { return localStorage.getItem("friday:rail") !== "0"; } catch { return true; } });
   const [counts, setCounts] = useState({ decide: 0, doing: 0 });
+  const [queueCounts, setQueueCounts] = useState<Record<TaskCategory, number>>({ slack: 0, defect: 0, story: 0, other: 0 });
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
@@ -215,6 +220,13 @@ export function Chat() {
     }
   }
 
+  /** 左栏待办锚点：回任务板，展开那一组并滚过去 */
+  function jumpGroup(cat: TaskCategory) {
+    setView("queue");
+    // Board 可能是这一帧才挂上的，等它的监听就位再发
+    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("friday:jump-group", { detail: cat })));
+  }
+
   function go(v: View) {
     if (v === "ask") {
       openAsk(askConv ? { kind: "load", id: askConv } : { kind: "reset" });
@@ -284,6 +296,13 @@ export function Chat() {
             {n.kbd && <span className="mono rail__kbd">{n.kbd}</span>}
           </button>
         ))}
+        {/* 待办四组的锚点：点一下回到任务板并展开那一组 */}
+        {QUEUE_ANCHORS.filter((c) => queueCounts[c] > 0 || c === "defect" || c === "story").map((c) => (
+          <button key={c} className="rail__item rail__sub" onClick={() => jumpGroup(c)}>
+            {TASK_CATEGORY_LABEL[c]}
+            <span className="mono">{queueCounts[c]}</span>
+          </button>
+        ))}
         <div className="rail__foot">
           {runningJobs > 0 && (
             closingJobs ? (
@@ -303,6 +322,7 @@ export function Chat() {
               </button>
             )
           )}
+          <UsageStrip />
           <div className="rail__status">
             {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
           </div>
@@ -388,7 +408,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
+          <Board view={view} tools={tools} onCounts={setCounts} onQueueCounts={setQueueCounts} runningConvs={runningConvs} />
         )}
       </div>
       {searching && (

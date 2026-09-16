@@ -55,7 +55,7 @@ export async function isContinuation(
   const { system, prompt } = continuationPrompt(texts, incoming.text, opts);
   let text = "";
   try {
-    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: CONTINUATION_MODEL })) {
+    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: CONTINUATION_MODEL, label: "continuation" })) {
       if (ev.type === "delta") text += ev.text;
       if (ev.type === "reset") text = "";
     }

@@ -59,7 +59,7 @@ export async function triage(items: InboxItem[]): Promise<Map<number, Triage>> {
   if (!items.length) return new Map();
   const { system, prompt } = triagePrompt(items);
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "triage" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

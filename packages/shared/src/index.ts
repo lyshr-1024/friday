@@ -408,7 +408,11 @@ export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
   other: "其他",
 };
 
-export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone";
+/**
+ * 人工处理这条草稿时用户做了什么。approved / edited_approved 是正信号，其余都是负信号：
+ * ignored = Friday 判断要回、你直接忽略；done_without_reply = 你自己回了，草稿没用上。
+ */
+export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone" | "ignored" | "done_without_reply";
 
 export interface Lesson {
   id: string;
@@ -439,8 +443,8 @@ export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack
 
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
-  // Slack 来的没有 meegleType，靠 threadId 认
-  if (source.threadId) return "slack";
+  // Slack 来的没有 meegleType：线程本身靠 threadId 认，情境卡派生的待办靠 fromTaskId
+  if (source.threadId || source.fromTaskId) return "slack";
   const t = source.meegleType;
   if (t === "story") return "story";
   if (t === "issue" || t === "defect" || t === "bug") return "defect";
@@ -536,3 +540,41 @@ export interface TaskBoard {
 }
 
 export const TERMINAL_LABEL: Record<TerminalApp, string> = { embedded: "内嵌终端", ghostty: "Ghostty", terminal: "Terminal" };
+
+/** 用量统计的时间档 */
+export type UsageRange = "today" | "7d" | "30d";
+
+export const USAGE_RANGE_LABEL: Record<UsageRange, string> = { today: "今天", "7d": "近 7 天", "30d": "近 30 天" };
+
+/** 调用点的中文名。key 是 askStream 的 label，模型那一档直接显示模型 id。 */
+export const USAGE_LABELS: Record<string, string> = {
+  ask: "和 Friday 对话",
+  triage: "Slack 消息分类",
+  brief: "情境卡",
+  route: "接哪段会话",
+  continuation: "是不是同一件事",
+  intake: "问工单归属",
+  review: "复盘人工处理",
+  handbook: "从历史学手册",
+  hot: "AI 热点",
+  desk: "首屏建议",
+};
+
+export interface UsageEntry {
+  /** 调用点 label 或模型 id */
+  key: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costUsd: number;
+}
+
+export interface UsageSummary {
+  range: UsageRange;
+  since: string;
+  total: UsageEntry;
+  byLabel: UsageEntry[];
+  byModel: UsageEntry[];
+}
