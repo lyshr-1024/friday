@@ -121,6 +121,15 @@ describe("defaultActions", () => {
 });
 
 describe("buildRules", () => {
+  it("Slack 私聊只显示人名，不带未读数字和后缀", () => {
+    const rules = buildRules({
+      snapshot: snap({ app: { bundleId: "com.tinyspeck.slackmacgap", name: "Slack", title: "拂晓 (2) - Longbridge - Slack" } }),
+      tasks: [],
+      projects,
+    });
+    expect(rules.saw).toBe("Slack · 拂晓");
+  });
+
   it("模型永远跑：有选中文字时 willThink 为 true", () => {
     const rules = buildRules({ snapshot: snap({ selection: "这段报错" }), tasks: [], projects });
     expect(rules.willThink).toBe(true);

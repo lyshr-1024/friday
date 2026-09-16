@@ -14,6 +14,7 @@ export interface Candidate {
   strength: "sure" | "maybe";
 }
 
+const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const SLACK_SUFFIX = /\s*-\s*[^-]*-\s*Slack\s*$/;
 
 export function parseSlackTitle(title: string): { channel?: string; person?: string } {
@@ -98,7 +99,11 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
 
 function describe(snapshot: Snapshot, channel?: string): string {
   const bits = [snapshot.app.name];
+  // 私聊解析出的是人名不是频道，原来会退到原始标题，
+  // 把「(2) - Longbridge - Slack」这串未读数字和后缀也显示出来
+  const slack = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : undefined;
   if (channel) bits.push(channel);
+  else if (slack?.person) bits.push(slack.person);
   else if (snapshot.browser?.title) bits.push(snapshot.browser.title.slice(0, 60));
   else if (snapshot.app.title) bits.push(snapshot.app.title.slice(0, 60));
   if (snapshot.selection) bits.push(`选中了 ${snapshot.selection.length} 个字`);
