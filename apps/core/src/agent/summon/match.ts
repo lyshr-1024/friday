@@ -1,0 +1,118 @@
+import type { Project } from "../../memory/projects.js";
+import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
+
+export interface MatchInput {
+  snapshot: Snapshot;
+  tasks: Task[];
+  projects: Project[];
+  channel?: string;
+}
+
+export interface Candidate {
+  task: Task;
+  why: string;
+  strength: "sure" | "maybe";
+}
+
+const SLACK_SUFFIX = /\s*-\s*[^-]*-\s*Slack\s*$/;
+
+export function parseSlackTitle(title: string): { channel?: string; person?: string } {
+  const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+\s+new items?\)\s*/i, "").trim();
+  if (!head) return {};
+  return head.startsWith("#") ? { channel: head } : { person: head };
+}
+
+export function meegleIdFromUrl(url: string): string | undefined {
+  return /\/(?:issue|story|detail)\/(?:detail\/)?(\d{3,})/.exec(url)?.[1];
+}
+
+export function projectByCwd(cwd: string, projects: Project[]): Project | undefined {
+  let best: Project | undefined;
+  for (const p of projects) {
+    if (!p.dir) continue;
+    if (cwd === p.dir || cwd.startsWith(`${p.dir}/`)) {
+      if (!best || p.dir.length > best.dir.length) best = p;
+    }
+  }
+  return best;
+}
+
+function projectByChannel(channel: string, projects: Project[]): Project | undefined {
+  return projects.find((p) => p.channels.includes(channel));
+}
+
+export function candidates(input: MatchInput): Candidate[] {
+  const { snapshot, tasks, projects, channel } = input;
+  const out: Candidate[] = [];
+  const seen = new Set<string>();
+  const push = (task: Task, why: string, strength: Candidate["strength"]) => {
+    if (seen.has(task.id)) return;
+    seen.add(task.id);
+    out.push({ task, why, strength });
+  };
+
+  const meegleId = snapshot.browser ? meegleIdFromUrl(snapshot.browser.url) : undefined;
+  if (meegleId) for (const t of tasks) if (t.source.meegleId === meegleId) push(t, `你正开着这条工单 #${meegleId}`, "sure");
+
+  if (snapshot.selection) {
+    const id = /\b(\d{4,})\b/.exec(snapshot.selection)?.[1];
+    if (id) for (const t of tasks) if (t.source.meegleId === id) push(t, `选中的文字里有工单号 #${id}`, "sure");
+  }
+
+  if (channel) {
+    const project = projectByChannel(channel, projects);
+    if (project) for (const t of tasks) if (t.project === project.name) push(t, `${channel} 是 ${project.name} 的频道`, "maybe");
+  }
+
+  return out;
+}
+
+export function defaultActions(task: Task | undefined, project: Project | undefined, snapshot: Snapshot): SummonAction[] {
+  if (!task) {
+    const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
+    return title ? [{ kind: "create_task", label: "建成任务", title }] : [];
+  }
+  const pending = task.pending?.[0];
+  if (pending) {
+    return [
+      { kind: "approve_pending", label: pending.type === "slack_reply" ? "看一眼再发…" : "通过并执行", taskId: task.id, actionId: pending.id },
+      { kind: "open_task", label: "打开任务", taskId: task.id },
+    ];
+  }
+  if (task.status === "processing") {
+    return [
+      { kind: "open_task", label: "看进展", taskId: task.id },
+      { kind: "mark_done", label: "标记完成", taskId: task.id },
+    ];
+  }
+  const dir = project?.name ?? task.project;
+  return dir
+    ? [
+        { kind: "start_work", label: "开工", project: dir, prompt: task.title },
+        { kind: "open_task", label: "打开任务", taskId: task.id },
+      ]
+    : [{ kind: "open_task", label: "打开任务", taskId: task.id }];
+}
+
+function describe(snapshot: Snapshot, channel?: string): string {
+  const bits = [snapshot.app.name];
+  if (channel) bits.push(channel);
+  else if (snapshot.browser?.title) bits.push(snapshot.browser.title.slice(0, 60));
+  else if (snapshot.app.title) bits.push(snapshot.app.title.slice(0, 60));
+  if (snapshot.selection) bits.push(`选中了 ${snapshot.selection.length} 个字`);
+  if (snapshot.screenshotPath) bits.push("截了一张图");
+  return bits.join(" · ");
+}
+
+export function buildRules(input: MatchInput): SummonRules {
+  const hits = candidates(input);
+  const top = hits[0];
+  const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
+  const hasText = Boolean(input.snapshot.selection || input.snapshot.browser?.title || input.channel);
+  return {
+    saw: describe(input.snapshot, input.channel),
+    match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
+    actions: defaultActions(top?.task, project, input.snapshot),
+    willThink: hasText,
+  };
+}
