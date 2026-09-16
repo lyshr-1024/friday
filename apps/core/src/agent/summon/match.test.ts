@@ -86,6 +86,16 @@ describe("candidates", () => {
     expect(got[0]!.strength).toBe("maybe");
   });
 
+  it("选中文字带 # 前缀的工单号才算 sure", () => {
+    const got = candidates({ snapshot: snap({ selection: "这个 #1234 帮我看下" }), tasks: [task()], projects });
+    expect(got[0]?.strength).toBe("sure");
+  });
+
+  it("裸数字不匹配工单——年份金额行号都是四位数，撞上就会把无关任务送上按钮", () => {
+    const got = candidates({ snapshot: snap({ selection: "2024 年的预算是 1234 万" }), tasks: [task()], projects });
+    expect(got).toEqual([]);
+  });
+
   it("什么都对不上返回空", () => {
     const got = candidates({ snapshot: snap(), tasks: [task()], projects });
     expect(got).toEqual([]);

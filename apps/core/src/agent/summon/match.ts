@@ -55,7 +55,9 @@ export function candidates(input: MatchInput): Candidate[] {
   if (meegleId) for (const t of tasks) if (t.source.meegleId === meegleId) push(t, `你正开着这条工单 #${meegleId}`, "sure");
 
   if (snapshot.selection) {
-    const id = /\b(\d{4,})\b/.exec(snapshot.selection)?.[1];
+    // 必须带 # 或工单类型前缀：裸的四位数字在日常文本里到处都是（年份、金额、行号），
+    // 撞上某个 meegleId 就会把无关任务的不可逆待审动作送上 HUD 按钮，还标着「确定」
+    const id = /(?:#|Defect|Issue|Story|Bug|工单|需求|缺陷)\s*[#-]?\s*(\d{3,})/i.exec(snapshot.selection)?.[1];
     if (id) for (const t of tasks) if (t.source.meegleId === id) push(t, `选中的文字里有工单号 #${id}`, "sure");
   }
 
