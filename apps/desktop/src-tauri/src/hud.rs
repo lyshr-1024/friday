@@ -48,7 +48,6 @@ fn to_panel(win: &tauri::WebviewWindow) {
         NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
             | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
     );
-    panel.set_becomes_key_only_if_needed(true);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -85,7 +84,9 @@ pub fn toggle(app: &AppHandle) {
 #[cfg(target_os = "macos")]
 fn show(app: &AppHandle, win: &tauri::WebviewWindow) {
     if let Ok(panel) = app.get_webview_panel("hud") {
-        // nspanel 是非激活面板，前台 app 不会变，不需要记录/回切。
+        // show() 内部已经 make_first_responder + make_key_window。
+        // 之前加了 set_becomes_key_only_if_needed(true)，它让面板拒绝成为 key window，
+        // 结果 HUD 弹出来一个字都打不了——那行已删掉。
         panel.show();
         return;
     }
