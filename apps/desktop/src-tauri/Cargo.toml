@@ -27,3 +27,5 @@ objc2 = "0.6.4"
 objc2-foundation = "0.3.2"
 block2 = "0.6.2"
 objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSettings", "UNNotificationSound"] }
+objc2-application-services = { version = "0.3.2", features = ["AXUIElement", "HIServices"] }
+objc2-core-graphics = { version = "0.3.2", features = ["CGWindow"] }

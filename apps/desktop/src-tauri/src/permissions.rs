@@ -1,0 +1,46 @@
+use serde::Serialize;
+
+#[derive(Serialize, Default)]
+pub struct PermissionStatus {
+    pub accessibility: bool,
+    pub automation: bool,
+    pub screen: bool,
+}
+
+pub fn status() -> PermissionStatus {
+    PermissionStatus {
+        accessibility: accessibility_trusted(),
+        automation: automation_ok(),
+        screen: screen_ok(),
+    }
+}
+
+fn accessibility_trusted() -> bool {
+    unsafe { objc2_application_services::AXIsProcessTrusted() }
+}
+
+fn screen_ok() -> bool {
+    objc2_core_graphics::CGPreflightScreenCaptureAccess()
+}
+
+/// 自动化权限没有纯查询 API，只能试调一次最轻的脚本看成功与否；
+/// 首次调用本身可能触发系统授权框，这是 macOS 的行为，无法避免。
+fn automation_ok() -> bool {
+    std::process::Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to return name of first process"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+pub fn open_pane(kind: &str) {
+    let anchor = match kind {
+        "accessibility" => "Privacy_Accessibility",
+        "automation" => "Privacy_Automation",
+        "screen" => "Privacy_ScreenCapture",
+        _ => return,
+    };
+    let _ = std::process::Command::new("open")
+        .arg(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
+        .spawn();
+}

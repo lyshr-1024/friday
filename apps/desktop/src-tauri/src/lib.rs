@@ -1,5 +1,6 @@
 mod env_path;
 mod notify;
+mod permissions;
 mod settings;
 mod sidecar;
 mod tray;
@@ -40,6 +41,16 @@ fn open_settings(app: tauri::AppHandle) {
     window::open_settings(&app);
 }
 
+#[tauri::command]
+fn permission_status() -> permissions::PermissionStatus {
+    permissions::status()
+}
+
+#[tauri::command]
+fn open_permission_pane(kind: String) {
+    permissions::open_pane(&kind);
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| window::show_main(app)))
@@ -56,7 +67,16 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![core_base_url, current_hotkey, hide_main, open_settings, open_chat, take_pending_chat])
+        .invoke_handler(tauri::generate_handler![
+            core_base_url,
+            current_hotkey,
+            hide_main,
+            open_settings,
+            open_chat,
+            take_pending_chat,
+            permission_status,
+            open_permission_pane
+        ])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
             let hotkey = settings::hotkey();
