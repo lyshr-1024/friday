@@ -121,8 +121,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let ("chat", WindowEvent::Destroyed) = (window.label(), event) {
-                window::on_chat_closed(window.app_handle());
+            match (window.label(), event) {
+                ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
+                // 点外面就收起：Raycast 式浮窗的基本手感，不然切回去干活它还浮着挡视线
+                ("hud", WindowEvent::Focused(false)) => hud::hide(window.app_handle()),
+                _ => {}
             }
         })
         .build(tauri::generate_context!())

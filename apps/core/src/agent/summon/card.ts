@@ -5,6 +5,9 @@ import { config } from "../../config.js";
 import type { Candidate } from "./match.js";
 
 export const SUMMON_MODEL = "claude-sonnet-5";
+// 呼出是「随手一按」的场景，模型再慢用户早就走了；不设上限的话
+// 连按几次热键会堆起多个并发 Sonnet 调用，各自烧钱且没人收。
+const SUMMON_TIMEOUT_MS = 20_000;
 
 export interface CardInput {
   snapshot: Snapshot;
@@ -12,6 +15,7 @@ export interface CardInput {
   candidates: Candidate[];
   /** M2 的活动轨迹，M1 恒为 undefined */
   recent?: string;
+  signal?: AbortSignal;
 }
 
 export interface AllowedIds {
@@ -159,10 +163,17 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
   };
   const { system, prompt } = cardPrompt(input);
+  const ctrl = new AbortController();
+  if (input.signal) input.signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+  const timer = setTimeout(() => ctrl.abort(), SUMMON_TIMEOUT_MS);
   let out = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SUMMON_MODEL, label: "summon" })) {
-    if (ev.type === "delta") out += ev.text;
-    if (ev.type === "reset") out = "";
+  try {
+    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SUMMON_MODEL, label: "summon", signal: ctrl.signal })) {
+      if (ev.type === "delta") out += ev.text;
+      if (ev.type === "reset") out = "";
+    }
+  } finally {
+    clearTimeout(timer);
   }
   return parseCard(out, allowed);
 }

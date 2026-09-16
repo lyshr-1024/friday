@@ -6,7 +6,7 @@ vi.mock("./card.js", () => ({ summonCard: cardMock, SUMMON_MODEL: "claude-sonnet
 vi.mock("../../memory/tasks.js", () => ({ listTasks: () => [] }));
 vi.mock("../../memory/projects.js", () => ({ loadProjects: () => [] }));
 
-const { summon } = await import("./index.js");
+const { summon, trimUrl } = await import("./index.js");
 
 function snap(over: Partial<Snapshot> = {}): Snapshot {
   return {
@@ -47,5 +47,29 @@ describe("summon", () => {
     for await (const ev of summon(snap({ selection: "x" }))) events.push(ev);
     expect(events.some((e) => e.type === "error")).toBe(true);
     expect(events.at(-1)!.type).toBe("done");
+  });
+});
+
+describe("trimUrl", () => {
+  const allow = ["meegle.com", "longbridge.sg"];
+
+  it("白名单内的网址原样保留", () => {
+    const sn = snap({ browser: { url: "https://project.meegle.com/x/issue/detail/1234", title: "工单" } });
+    expect(trimUrl(sn, allow).browser).toEqual(sn.browser);
+  });
+
+  it("白名单外只留域名，路径与 query 都丢掉", () => {
+    const sn = snap({ browser: { url: "https://bank.example.com/account?token=secret", title: "我的账户" } });
+    expect(trimUrl(sn, allow).browser).toEqual({ url: "bank.example.com", title: "" });
+  });
+
+  it("子域算命中", () => {
+    const sn = snap({ browser: { url: "https://a.longbridge.sg/p?q=1", title: "t" } });
+    expect(trimUrl(sn, allow).browser?.url).toBe("https://a.longbridge.sg/p?q=1");
+  });
+
+  it("非法 URL 整个清掉", () => {
+    const sn = snap({ browser: { url: "不是网址", title: "t" } });
+    expect(trimUrl(sn, allow).browser).toEqual({ url: "", title: "" });
   });
 });

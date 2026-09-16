@@ -21,7 +21,14 @@ export function Hud() {
   const abortRef = useRef<AbortController | null>(null);
 
   const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
-  const pendingAction = actions.find((a) => a.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
+  // 键盘不代劳不可逆动作：起 Claude Code 干活、标完成都会真的改东西，
+  // 焦点停在 body 时一个回车就执行代价太大，这两类只接受鼠标点击。
+  // approve_pending 不在此列——它只会打开确认区，不直接执行。
+  const keyboardSafe = (a: SummonAction) => a.kind !== "start_work" && a.kind !== "mark_done";
+
+  // 确认区必须锁住进入时的那个动作：actions 会在模型结果到达时整体替换，
+  // 现算的话用户核对的草稿和实际发出的动作会指向不同任务。
+  const [pendingAction, setPendingAction] = useState<(SummonAction & { kind: "approve_pending" }) | null>(null);
 
   function start(snap: Snapshot) {
     abortRef.current?.abort();
@@ -32,6 +39,7 @@ export function Hud() {
     setCard(null);
     setOpen(false);
     setConfirming(false);
+    setPendingAction(null);
     setNote(null);
     void (async () => {
       for await (const ev of summonStream(snap, ctrl.signal)) {
@@ -67,6 +75,7 @@ export function Hud() {
 
   async function act(a: SummonAction) {
     if (a.kind === "approve_pending") {
+      setPendingAction(a);
       setConfirming(true);
       setReplyText(a.pendingType === "slack_reply" ? (card?.reply ?? "") : "");
       return;
@@ -95,6 +104,7 @@ export function Hud() {
       });
       if (!res.ok) throw new Error(`执行失败 ${res.status}`);
       setConfirming(false);
+      setPendingAction(null);
       setNote({ text: "已发出", err: false });
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
@@ -108,7 +118,7 @@ export function Hud() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (confirming) setConfirming(false);
+        if (confirming) { setConfirming(false); setPendingAction(null); }
         else void invoke("hide_hud");
         return;
       }
@@ -121,7 +131,7 @@ export function Hud() {
       if (confirming) return;
       if (e.metaKey && /^[123]$/.test(e.key)) {
         const a = actions[Number(e.key) - 1];
-        if (a) {
+        if (a && keyboardSafe(a)) {
           e.preventDefault();
           void act(a);
         }
@@ -129,7 +139,7 @@ export function Hud() {
       }
       if (e.key === "Enter" && !e.metaKey && !e.shiftKey && !e.altKey && !isEditableFocus()) {
         const a = actions[0];
-        if (a) {
+        if (a && keyboardSafe(a)) {
           e.preventDefault();
           void act(a);
         }
@@ -195,7 +205,7 @@ export function Hud() {
               {pendingAction?.pendingType === "slack_reply" ? "就这么发" : "执行"}
               <kbd>⌘↵</kbd>
             </button>
-            <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
+            <button className="b b--text" onClick={() => { setConfirming(false); setPendingAction(null); }}>先不发</button>
           </div>
         </div>
       ) : (
