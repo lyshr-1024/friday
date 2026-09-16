@@ -1,15 +1,15 @@
 import { Hono } from "hono";
 import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { lessonFromTask, recordLesson, reviewOnce } from "../agent/lessons.js";
+import { recordLesson, reviewOnce } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
-import { cleanupTaskWorktree, closeTaskThread, executePending, startAutonomousJob } from "../agent/pipeline.js";
+import { executePending, finishTask, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
-import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
+import { terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
@@ -218,27 +218,11 @@ export const tasks = new Hono()
     }
   })
   .post("/tasks/:id/done", async (c) => {
-    const before = getTask(c.req.param("id"));
-    const t = updateTask(c.req.param("id"), { status: "done", pending: [], attention: undefined });
-    if (t) {
-      // 收工时还挂着没发的草稿 = 你自己回的，这条没用上。是弱负信号，记下来校准
-      if (before) lessonFromTask(before, "done_without_reply");
-      closeTaskTerminal(t, "你把任务标记完成");
-      closeTaskThread(t, "done");
-      await cleanupTaskWorktree(t, "你把任务标记完成");
-    }
+    const t = await finishTask(c.req.param("id"), "done", "你把任务标记完成");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", async (c) => {
-    const before = getTask(c.req.param("id"));
-    const t = updateTask(c.req.param("id"), { status: "ignored", pending: [], attention: undefined });
-    if (t) {
-      // Friday 判断这条要回、你却直接忽略：最强的「这类消息不该起草回复」信号
-      if (before) lessonFromTask(before, "ignored");
-      closeTaskTerminal(t, "你忽略了这条任务");
-      closeTaskThread(t, "ignored");
-      await cleanupTaskWorktree(t, "你忽略了这条任务");
-    }
+    const t = await finishTask(c.req.param("id"), "ignored", "你忽略了这条任务");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
