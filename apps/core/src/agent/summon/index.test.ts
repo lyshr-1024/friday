@@ -41,6 +41,7 @@ describe("summon", () => {
   });
 
   it("模型抛错时发 error 但仍然 done", async () => {
+    // mockRejectedValue 会被 vitest 4.1.11 的全局 unhandled-rejection 监听器误报，Once 语义等价
     cardMock.mockRejectedValueOnce(new Error("超时"));
     const events = [];
     for await (const ev of summon(snap({ selection: "x" }))) events.push(ev);
