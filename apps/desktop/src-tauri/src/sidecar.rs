@@ -14,11 +14,15 @@ use crate::env_path;
 const MAX_RESTARTS: u32 = 3;
 const STABLE_RUN: Duration = Duration::from_secs(60);
 
+fn is_dev_mode() -> bool {
+    std::env::var("FRIDAY_DEV").is_ok_and(|v| v == "1")
+}
+
 pub fn port() -> u16 {
     std::env::var("FRIDAY_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(7788)
+        .unwrap_or(if is_dev_mode() { 7799 } else { 7788 })
 }
 
 #[derive(Default)]
@@ -127,10 +131,15 @@ fn spawn(node: &PathBuf, core_dir: &PathBuf, path: &str, port: u16) -> std::io::
     } else {
         cmd.arg("dist/index.js");
     }
-    cmd.current_dir(core_dir)
-        .env("PATH", path)
-        .env("FRIDAY_PORT", port.to_string())
-        .stdin(Stdio::null())
+    cmd.current_dir(core_dir).env("PATH", path).env("FRIDAY_PORT", port.to_string());
+    // FRIDAY_DEV=1 时若没显式指定数据目录，强制隔离到 Friday-dev，
+    // 防止漏传环境变量时 dev 实例连上正式版的真实数据。
+    if is_dev_mode() && std::env::var("FRIDAY_DATA_DIR").is_err() {
+        if let Ok(home) = std::env::var("HOME") {
+            cmd.env("FRIDAY_DATA_DIR", PathBuf::from(home).join("Library/Application Support/Friday-dev"));
+        }
+    }
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
