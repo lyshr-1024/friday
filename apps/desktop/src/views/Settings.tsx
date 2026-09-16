@@ -1,7 +1,7 @@
 import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
+import { THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
 import { applyTheme, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
@@ -17,12 +17,18 @@ export function Settings() {
   const [handbooks, setHandbooks] = useState<string[]>([]);
   const [learning, setLearning] = useState(false);
   const [learnNote, setLearnNote] = useState("");
+  const [perms, setPerms] = useState<PermissionStatus | null>(null);
+
+  function refreshPerms() {
+    void invoke<PermissionStatus>("permission_status").then(setPerms);
+  }
 
   useEffect(() => {
     void isEnabled().then(setAutostart);
     void listHandbooks().then(setHandbooks).catch(() => {});
     void invoke<string>("current_hotkey").then(setHotkey);
     void settings().then((p) => { setPrefs(p); applyTheme(p.theme); }).catch(() => setPrefs(null));
+    refreshPerms();
     void (async () => {
       const url = await coreBaseUrl();
       try {
@@ -213,15 +219,43 @@ export function Settings() {
         <Row label="系统通知" hint={notified ? "已发出，20 秒内应弹出；没弹就去 系统设置 › 通知 里允许 Friday" : "Slack 待回复消息靠它提醒"}>
           <button className="btn" onClick={() => void testNotification().then(() => setNotified(true))}>测试通知</button>
         </Row>
-        <Row label="自动化" hint="控制其他应用。第一版不需要">
-          <span className="mono muted">未申请</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>呼出模式</h2>
+        <div className="group">
+        <Row label="辅助功能" hint="读取浏览器地址栏与选中文字要用到">
+          <PermissionRow granted={perms?.accessibility} onGrant={() => { void invoke("open_permission_pane", { kind: "accessibility" }); }} />
         </Row>
-        <Row label="辅助功能" hint="模拟键盘输入。第一版不需要">
-          <span className="mono muted">未申请</span>
+        <Row label="自动化" hint="向浏览器 / Finder 询问当前标签页或选中内容">
+          <PermissionRow granted={perms?.automation} onGrant={() => { void invoke("open_permission_pane", { kind: "automation" }); }} />
+        </Row>
+        <Row label="屏幕录制" hint="拿不到窗口信息时兜底截图">
+          <PermissionRow granted={perms?.screen} onGrant={() => { void invoke("open_permission_pane", { kind: "screen" }); }} />
+        </Row>
+        <Row label="没拿到内容时截图兜底" hint="辅助功能/自动化都拿不到 URL 或选中文字时，退而截一张前台窗口给 Friday 看">
+          <button
+            className={`switch ${prefs?.summon.screenshotFallback ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.summon.screenshotFallback}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ summon: { screenshotFallback: !prefs.summon.screenshotFallback } }).then(setPrefs)}
+          />
         </Row>
         </div>
       </section>
     </div>
+  );
+}
+
+function PermissionRow({ granted, onGrant }: { granted: boolean | undefined; onGrant: () => void }) {
+  return (
+    <span className="mono" style={{ display: "inline-flex", alignItems: "center", gap: "var(--s-2)" }}>
+      <span className={`dot dot--${granted ? "ok" : "down"}`} />
+      {granted === undefined ? "检测中" : granted ? "已授权" : "未授权"}
+      {!granted && <button className="btn" onClick={onGrant}>去授权</button>}
+    </span>
   );
 }
 

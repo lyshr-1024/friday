@@ -1,0 +1,209 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import type { Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
+import { coreBaseUrl } from "../lib/core";
+import { runAction, summonStream } from "../lib/summon";
+
+const HUD_WIDTH = 560;
+
+export function Hud() {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [rules, setRules] = useState<SummonRules | null>(null);
+  const [card, setCard] = useState<SummonCard | null>(null);
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [note, setNote] = useState<{ text: string; err: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
+
+  function start(snap: Snapshot) {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setSnapshot(snap);
+    setRules(null);
+    setCard(null);
+    setOpen(false);
+    setConfirming(false);
+    setNote(null);
+    void (async () => {
+      for await (const ev of summonStream(snap, ctrl.signal)) {
+        if (ctrl.signal.aborted) return;
+        if (ev.type === "rules") setRules(ev.rules);
+        else if (ev.type === "card") setCard(ev.card);
+        else if (ev.type === "error") setNote({ text: ev.message, err: true });
+      }
+    })();
+  }
+
+  useEffect(() => {
+    void invoke<Snapshot | null>("take_pending_summon").then((s) => {
+      if (s) start(s);
+    });
+    const unlisten = listen<Snapshot>("friday://summon", (e) => start(e.payload));
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  useLayoutEffect(() => {
+    const h = rootRef.current?.scrollHeight;
+    if (!h) return;
+    void getCurrentWindow().setSize(new LogicalSize(HUD_WIDTH, h));
+  }, [rules, card, open, confirming, note]);
+
+  function isEditableFocus(): boolean {
+    const el = document.activeElement;
+    if (!el || el === document.body) return false;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;
+    if (el.closest(".hud__confirm")) return true;
+    return el.tagName === "BUTTON" || el.tagName === "A" || el.hasAttribute("tabindex");
+  }
+
+  async function act(a: SummonAction) {
+    if (a.kind === "approve_pending") {
+      setConfirming(true);
+      setReplyText(card?.reply ?? "");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      const text = await runAction(a);
+      setNote({ text, err: false });
+      setTimeout(() => void invoke("hide_hud"), 1500);
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : "执行失败", err: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendReply(a: SummonAction & { kind: "approve_pending" }) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch(`${await coreBaseUrl()}/tasks/${a.taskId}/approve/${a.actionId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: replyText }),
+      });
+      if (!res.ok) throw new Error(`执行失败 ${res.status}`);
+      setConfirming(false);
+      setNote({ text: "已发出", err: false });
+      setTimeout(() => void invoke("hide_hud"), 1500);
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : "执行失败", err: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (confirming) setConfirming(false);
+        else void invoke("hide_hud");
+        return;
+      }
+      if (e.key === "Enter" && e.metaKey) {
+        e.preventDefault();
+        const pending = actions.find((a) => a.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
+        if (confirming && pending) void sendReply(pending);
+        else void invoke("open_chat", { conversationId: null, initialPrompt: null });
+        return;
+      }
+      if (confirming) return;
+      if (e.metaKey && /^[123]$/.test(e.key)) {
+        const a = actions[Number(e.key) - 1];
+        if (a) {
+          e.preventDefault();
+          void act(a);
+        }
+        return;
+      }
+      if (e.key === "Enter" && !e.metaKey && !e.shiftKey && !e.altKey && !isEditableFocus()) {
+        const a = actions[0];
+        if (a) {
+          e.preventDefault();
+          void act(a);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [actions, confirming, replyText]);
+
+  function statusDot(status: string): string {
+    return ["review", "blocked", "processing", "done"].includes(status) ? status : "processing";
+  }
+
+  return (
+    <div className="hud" ref={rootRef}>
+      <button className="hud__saw" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {rules?.saw ?? "看看你在做什么…"}
+      </button>
+      {open && snapshot && (
+        <div className="hud__raw">
+          {snapshot.browser && <div className="hud__raw-row">{snapshot.browser.title || snapshot.browser.url}</div>}
+          {snapshot.selection && <div className="hud__raw-row hud__raw-selection">{snapshot.selection}</div>}
+          {snapshot.screenshotPath && <img className="hud__shot" src={convertFileSrc(snapshot.screenshotPath)} alt="当前屏幕截图" />}
+        </div>
+      )}
+      {rules?.match && (
+        <div className="hud__match">
+          <span className={`dot dot--${statusDot(rules.match.status)}`} />
+          {rules.match.title}
+          <span className="hud__why">{rules.match.why}</span>
+        </div>
+      )}
+      {card?.verdict ? (
+        <p className="hud__verdict">{card.verdict}</p>
+      ) : (
+        rules?.willThink && <p className="hud__verdict hud__verdict--think">正在判断…</p>
+      )}
+      {card?.reply && !confirming && <pre className="hud__reply">{card.reply}</pre>}
+      {confirming ? (
+        <div className="hud__confirm">
+          <div className="hud__confirm-head">
+            <span className="hud__confirm-hint mono">⌘↵ 就这么发 · Esc 取消</span>
+          </div>
+          <textarea
+            className="hud__confirm-text"
+            autoFocus
+            rows={4}
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+          />
+          <div className="hud__actions">
+            <button
+              className="b b--primary"
+              disabled={busy || !replyText.trim()}
+              onClick={() => {
+                const a = actions.find((x) => x.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
+                if (a) void sendReply(a);
+              }}
+            >
+              就这么发<kbd>⌘↵</kbd>
+            </button>
+            <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
+          </div>
+        </div>
+      ) : (
+        <div className="hud__actions">
+          {actions.map((a, i) => (
+            <button key={i} className={i === 0 ? "b b--primary" : "b"} disabled={busy} onClick={() => void act(a)}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {note && <div className={`hud__note ${note.err ? "hud__note--err" : ""}`}>{note.text}</div>}
+    </div>
+  );
+}
