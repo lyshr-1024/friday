@@ -16,7 +16,8 @@ export interface CardInput {
 
 export interface AllowedIds {
   taskIds: string[];
-  actionIds: string[];
+  /** key 是 taskId，值是该任务下允许的 pending actionId */
+  actionIds: Record<string, string[]>;
   projects: string[];
 }
 
@@ -33,13 +34,17 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     'Slack 场景可以给 reply 草稿（用户身份，中文，不要承诺工期和人力）。只输出一个 JSON 对象：{"verdict":"","reply":"","actions":[],"matchTaskId":""}。',
   ].join("\n");
 
-  const prompt = [
-    `他此刻在：${snapshot.app.name}${snapshot.app.title ? `（${snapshot.app.title}）` : ""}`,
-    snapshot.browser ? `网址：${snapshot.browser.url}` : "",
-    snapshot.selection ? untrusted("用户选中的文字", snapshot.selection.slice(0, 4000)) : "",
-    recent ? `最近的活动：\n${recent}` : "",
-    candidates.length ? "可能相关的任务：" : "没有对上任何任务。",
-    ...candidates.slice(0, 5).map((c) => {
+  const context = [
+    `app：${snapshot.app.name}${snapshot.app.title ? `，标题：${snapshot.app.title}` : ""}`,
+    snapshot.browser ? `网址：${snapshot.browser.url}，标题：${snapshot.browser.title}` : "",
+    snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const taskList = candidates
+    .slice(0, 5)
+    .map((c) => {
       const t = c.task;
       const pending = t.pending?.map((p) => `待审动作 ${p.id}：${p.label}`).join("；") ?? "";
       return [
@@ -49,7 +54,13 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
       ]
         .filter(Boolean)
         .join("\n");
-    }),
+    })
+    .join("\n");
+
+  const prompt = [
+    untrusted("用户此刻在做什么", context),
+    recent ? `最近的活动：\n${recent}` : "",
+    candidates.length ? untrusted("可能相关的任务", taskList) : "没有对上任何任务。",
   ]
     .filter(Boolean)
     .join("\n");
@@ -71,7 +82,7 @@ function clampAction(raw: unknown, allowed: AllowedIds): SummonAction | undefine
       return allowed.taskIds.includes(taskId) ? ({ kind, label, taskId } as SummonAction) : undefined;
     case "approve_pending": {
       const actionId = typeof a.actionId === "string" ? a.actionId : "";
-      return allowed.taskIds.includes(taskId) && allowed.actionIds.includes(actionId) ? { kind, label, taskId, actionId } : undefined;
+      return allowed.actionIds[taskId]?.includes(actionId) ? { kind, label, taskId, actionId } : undefined;
     }
     case "start_work": {
       const project = typeof a.project === "string" ? a.project : "";
@@ -91,8 +102,31 @@ function clampAction(raw: unknown, allowed: AllowedIds): SummonAction | undefine
   }
 }
 
+/** 从第一个 { 开始数括号深度，找到与它配对的 }；比贪婪正则更抗「JSON 后面还有花括号说明文字」 */
+function firstBalancedObject(text: string): string | undefined {
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return undefined;
+}
+
+function extractJson(text: string): string | undefined {
+  const trimmed = text.trim();
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    // 模型输出常带 markdown 围栏或前后解释文字，退到括号配对兜底
+  }
+  return firstBalancedObject(trimmed);
+}
+
 export function parseCard(text: string, allowed: AllowedIds): SummonCard {
-  const json = /\{[\s\S]*\}/.exec(text)?.[0];
+  const json = extractJson(text);
   if (!json) return { verdict: "", actions: [] };
   try {
     const row = JSON.parse(json) as Record<string, unknown>;
@@ -118,7 +152,7 @@ export function parseCard(text: string, allowed: AllowedIds): SummonCard {
 export async function summonCard(input: CardInput): Promise<SummonCard> {
   const allowed: AllowedIds = {
     taskIds: input.candidates.map((c) => c.task.id),
-    actionIds: input.candidates.flatMap((c) => c.task.pending?.map((p) => p.id) ?? []),
+    actionIds: Object.fromEntries(input.candidates.map((c) => [c.task.id, c.task.pending?.map((p) => p.id) ?? []])),
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
   };
   const { system, prompt } = cardPrompt(input);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Snapshot, SummonRules } from "@friday/shared";
 import { cardPrompt, parseCard } from "./card.js";
 
-const allowed = { taskIds: ["t1"], actionIds: ["a1"], projects: ["whale-console"] };
+const allowed = { taskIds: ["t1", "t2"], actionIds: { t1: ["a1"], t2: ["a2"] }, projects: ["whale-console"] };
 
 const snapshot: Snapshot = {
   at: 0,
@@ -47,18 +47,37 @@ describe("parseCard", () => {
   it("不是 JSON 时返回空判断而不是抛", () => {
     expect(parseCard("模型今天不想说话", allowed)).toEqual({ verdict: "", actions: [] });
   });
+
+  it("taskId 和 actionId 分属不同任务时钳掉", () => {
+    const card = parseCard('{"verdict":"x","actions":[{"kind":"approve_pending","label":"通过","taskId":"t1","actionId":"a2"}]}', allowed);
+    expect(card.actions).toEqual([]);
+  });
+
+  it("markdown 围栏加后缀说明文字仍能解析", () => {
+    const text = '```json\n{"verdict":"拂晓在催验收","actions":[]}\n```\n补充说明 {还有花括号}';
+    const card = parseCard(text, allowed);
+    expect(card.verdict).toBe("拂晓在催验收");
+    expect(card.actions).toEqual([]);
+  });
 });
 
 describe("cardPrompt", () => {
   it("外部文字被定界符包住", () => {
     const { prompt } = cardPrompt({ snapshot, rules, candidates: [] });
     expect(prompt).toContain("养牛活动验收问题抽空改一改");
-    expect(prompt).toContain('<untrusted source="用户选中的文字">');
+    expect(prompt).toContain('<untrusted source="用户此刻在做什么">');
   });
 
   it("system 里写明只能用给定的动作类型", () => {
     const { system } = cardPrompt({ snapshot, rules, candidates: [] });
     expect(system).toContain("open_task");
     expect(system).toContain("start_work");
+  });
+
+  it("候选任务的标题在定界符内", () => {
+    const candidates = [{ task: { id: "t1", title: "养牛活动验收", status: "review" } as any, why: "同一件事", strength: "sure" as const }];
+    const { prompt } = cardPrompt({ snapshot, rules, candidates });
+    const block = /<untrusted source="可能相关的任务">([\s\S]*?)<\/untrusted>/.exec(prompt)?.[1] ?? "";
+    expect(block).toContain("养牛活动验收");
   });
 });
