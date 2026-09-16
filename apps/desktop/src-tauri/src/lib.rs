@@ -3,6 +3,7 @@ mod notify;
 mod permissions;
 mod settings;
 mod sidecar;
+mod snapshot;
 mod tray;
 mod window;
 
@@ -51,6 +52,11 @@ fn open_permission_pane(kind: String) {
     permissions::open_pane(&kind);
 }
 
+#[tauri::command]
+fn capture_snapshot(screenshot_fallback: bool) -> serde_json::Value {
+    snapshot::capture(screenshot_fallback)
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| window::show_main(app)))
@@ -75,7 +81,8 @@ pub fn run() {
             open_chat,
             take_pending_chat,
             permission_status,
-            open_permission_pane
+            open_permission_pane,
+            capture_snapshot
         ])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
