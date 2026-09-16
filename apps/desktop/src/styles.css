@@ -4162,3 +4162,170 @@ a.fx__source-where:hover {
   color: var(--fg-4);
   font-size: var(--t-xs);
 }
+
+/* ---------- 呼出模式 HUD ---------- */
+
+.hud {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--t-body);
+  color: var(--fg-1);
+}
+
+/* 「我看到了」永远在最上面：读错了要能一眼核对出来 */
+.hud__saw {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-aux);
+  color: var(--fg-3);
+  text-align: left;
+  cursor: default;
+  transition: color var(--dur) var(--ease);
+}
+
+.hud__saw:hover {
+  color: var(--fg-2);
+}
+
+.hud__raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--bg-1);
+  border-radius: var(--r-sm);
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+}
+
+.hud__raw-row {
+  word-break: break-all;
+}
+
+.hud__raw-selection {
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.hud__shot {
+  max-width: 100%;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-1);
+}
+
+.hud__match {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-body);
+  color: var(--fg-1);
+}
+
+.hud__why {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+}
+
+.hud__verdict {
+  margin: 0;
+  font-size: var(--t-body);
+  color: var(--fg-1);
+  line-height: 1.5;
+}
+
+.hud__verdict--think {
+  color: var(--live);
+  animation: hud-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes hud-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.hud__reply {
+  margin: 0;
+  padding: var(--s-3);
+  background: var(--bg-1);
+  border-radius: var(--r-sm);
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.hud__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.hud__confirm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud__confirm-hint {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+  letter-spacing: 0.05em;
+}
+
+.hud__confirm-text {
+  width: 100%;
+  padding: var(--s-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--t-aux);
+  color: var(--fg-1);
+  resize: vertical;
+}
+
+.hud__confirm-what {
+  margin: 0;
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+}
+
+.hud__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.hud__note {
+  font-size: var(--t-aux);
+  color: var(--fg-3);
+}
+
+.hud__note--err {
+  color: var(--bad);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud__verdict--think {
+    animation: none;
+    opacity: 0.75;
+  }
+}

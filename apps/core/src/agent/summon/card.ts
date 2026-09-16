@@ -1,4 +1,4 @@
-import type { Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
+import type { PendingActionType, Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
 import { askStream } from "../claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "../fence.js";
 import { config } from "../../config.js";
@@ -16,8 +16,8 @@ export interface CardInput {
 
 export interface AllowedIds {
   taskIds: string[];
-  /** key 是 taskId，值是该任务下允许的 pending actionId */
-  actionIds: Record<string, string[]>;
+  /** key 是 taskId，值是该任务下允许的 pending：actionId → 类型。类型取自真实任务数据，模型伪造不了 */
+  actionIds: Record<string, Record<string, PendingActionType>>;
   projects: string[];
 }
 
@@ -82,7 +82,8 @@ function clampAction(raw: unknown, allowed: AllowedIds): SummonAction | undefine
       return allowed.taskIds.includes(taskId) ? ({ kind, label, taskId } as SummonAction) : undefined;
     case "approve_pending": {
       const actionId = typeof a.actionId === "string" ? a.actionId : "";
-      return allowed.actionIds[taskId]?.includes(actionId) ? { kind, label, taskId, actionId } : undefined;
+      const pendingType = allowed.actionIds[taskId]?.[actionId];
+      return pendingType ? { kind, label, taskId, actionId, pendingType } : undefined;
     }
     case "start_work": {
       const project = typeof a.project === "string" ? a.project : "";
@@ -152,7 +153,9 @@ export function parseCard(text: string, allowed: AllowedIds): SummonCard {
 export async function summonCard(input: CardInput): Promise<SummonCard> {
   const allowed: AllowedIds = {
     taskIds: input.candidates.map((c) => c.task.id),
-    actionIds: Object.fromEntries(input.candidates.map((c) => [c.task.id, c.task.pending?.map((p) => p.id) ?? []])),
+    actionIds: Object.fromEntries(
+      input.candidates.map((c) => [c.task.id, Object.fromEntries((c.task.pending ?? []).map((p) => [p.id, p.type]))]),
+    ),
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
   };
   const { system, prompt } = cardPrompt(input);

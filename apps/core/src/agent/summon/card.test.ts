@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot, SummonRules } from "@friday/shared";
-import { cardPrompt, parseCard } from "./card.js";
+import { type AllowedIds, cardPrompt, parseCard } from "./card.js";
 
-const allowed = { taskIds: ["t1", "t2"], actionIds: { t1: ["a1"], t2: ["a2"] }, projects: ["whale-console"] };
+const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "slack_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"] };
 
 const snapshot: Snapshot = {
   at: 0,

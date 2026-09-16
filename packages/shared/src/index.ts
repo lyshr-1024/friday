@@ -606,7 +606,7 @@ export interface PermissionStatus {
 
 export type SummonAction =
   | { kind: "open_task"; label: string; taskId: string }
-  | { kind: "approve_pending"; label: string; taskId: string; actionId: string }
+  | { kind: "approve_pending"; label: string; taskId: string; actionId: string; pendingType: PendingActionType }
   | { kind: "start_work"; label: string; project: string; prompt: string }
   | { kind: "create_task"; label: string; title: string }
   | { kind: "mark_done"; label: string; taskId: string }

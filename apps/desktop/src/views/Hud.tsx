@@ -21,6 +21,7 @@ export function Hud() {
   const abortRef = useRef<AbortController | null>(null);
 
   const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
+  const pendingAction = actions.find((a) => a.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
 
   function start(snap: Snapshot) {
     abortRef.current?.abort();
@@ -67,7 +68,7 @@ export function Hud() {
   async function act(a: SummonAction) {
     if (a.kind === "approve_pending") {
       setConfirming(true);
-      setReplyText(card?.reply ?? "");
+      setReplyText(a.pendingType === "slack_reply" ? (card?.reply ?? "") : "");
       return;
     }
     setBusy(true);
@@ -90,7 +91,7 @@ export function Hud() {
       const res = await fetch(`${await coreBaseUrl()}/tasks/${a.taskId}/approve/${a.actionId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: replyText }),
+        body: JSON.stringify(a.pendingType === "slack_reply" ? { text: replyText } : {}),
       });
       if (!res.ok) throw new Error(`执行失败 ${res.status}`);
       setConfirming(false);
@@ -113,8 +114,7 @@ export function Hud() {
       }
       if (e.key === "Enter" && e.metaKey) {
         e.preventDefault();
-        const pending = actions.find((a) => a.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
-        if (confirming && pending) void sendReply(pending);
+        if (confirming && pendingAction) void sendReply(pendingAction);
         else void invoke("open_chat", { conversationId: null, initialPrompt: null });
         return;
       }
@@ -137,7 +137,7 @@ export function Hud() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [actions, confirming, replyText]);
+  }, [actions, pendingAction, confirming, replyText]);
 
   function statusDot(status: string): string {
     return ["review", "blocked", "processing", "done"].includes(status) ? status : "processing";
@@ -173,23 +173,27 @@ export function Hud() {
           <div className="hud__confirm-head">
             <span className="hud__confirm-hint mono">⌘↵ 就这么发 · Esc 取消</span>
           </div>
-          <textarea
-            className="hud__confirm-text"
-            autoFocus
-            rows={4}
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-          />
+          {pendingAction?.pendingType === "slack_reply" ? (
+            <textarea
+              className="hud__confirm-text"
+              autoFocus
+              rows={4}
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+            />
+          ) : (
+            <p className="hud__confirm-what">{pendingAction?.label ?? "执行这个动作"}</p>
+          )}
           <div className="hud__actions">
             <button
               className="b b--primary"
-              disabled={busy || !replyText.trim()}
+              disabled={busy || (pendingAction?.pendingType === "slack_reply" && !replyText.trim())}
               onClick={() => {
-                const a = actions.find((x) => x.kind === "approve_pending") as (SummonAction & { kind: "approve_pending" }) | undefined;
-                if (a) void sendReply(a);
+                if (pendingAction) void sendReply(pendingAction);
               }}
             >
-              就这么发<kbd>⌘↵</kbd>
+              {pendingAction?.pendingType === "slack_reply" ? "就这么发" : "执行"}
+              <kbd>⌘↵</kbd>
             </button>
             <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
           </div>

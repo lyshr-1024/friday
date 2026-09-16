@@ -75,7 +75,7 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
   const pending = task.pending?.[0];
   if (pending) {
     return [
-      { kind: "approve_pending", label: pending.type === "slack_reply" ? "看一眼再发…" : "通过并执行", taskId: task.id, actionId: pending.id },
+      { kind: "approve_pending", label: pending.type === "slack_reply" ? "看一眼再发…" : "通过并执行", taskId: task.id, actionId: pending.id, pendingType: pending.type },
       { kind: "open_task", label: "打开任务", taskId: task.id },
     ];
   }
