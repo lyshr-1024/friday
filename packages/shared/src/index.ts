@@ -110,6 +110,7 @@ export interface SettingsResponse {
   theme: ThemeId;
   learn: boolean;
   learnHistory: boolean;
+  summon: SummonSettings;
   dataDir: string;
   projects: string[];
 }
@@ -122,6 +123,7 @@ export interface SettingsUpdate {
   theme?: ThemeId;
   learn?: boolean;
   learnHistory?: boolean;
+  summon?: Partial<SummonSettings>;
 }
 
 /** 工作台首屏：Friday 自动拉好的“现在该做什么” */
@@ -316,6 +318,8 @@ export interface TaskSource {
   feDue?: string;
   /** 服务端开发节点排期结束日 */
   beDue?: string;
+  /** 从呼出模式建的任务 */
+  summon?: boolean;
   reporter?: string;
   description?: string;
   /** 需求文档 / 技术文档 / 设计稿，没填的键不出现 */
@@ -578,3 +582,68 @@ export interface UsageSummary {
   byLabel: UsageEntry[];
   byModel: UsageEntry[];
 }
+
+/* ---------- 呼出模式（Summon HUD） ---------- */
+
+/** 壳在显示 HUD 之前抓的一份环境快照 */
+export interface Snapshot {
+  at: number;
+  app: { bundleId: string; name: string; title: string };
+  /** 浏览器当前 tab，AppleScript 拿的 */
+  browser?: { url: string; title: string };
+  /** 选中文字，最多 8000 字 */
+  selection?: string;
+  /** 兜底截图的本地绝对路径，前端用 convertFileSrc 显示 */
+  screenshotPath?: string;
+  permissions: PermissionStatus;
+}
+
+export interface PermissionStatus {
+  accessibility: boolean;
+  automation: boolean;
+  screen: boolean;
+}
+
+export type SummonAction =
+  | { kind: "open_task"; label: string; taskId: string }
+  | { kind: "approve_pending"; label: string; taskId: string; actionId: string }
+  | { kind: "start_work"; label: string; project: string; prompt: string }
+  | { kind: "create_task"; label: string; title: string }
+  | { kind: "mark_done"; label: string; taskId: string }
+  | { kind: "note"; label: string; text: string }
+  | { kind: "copy"; label: string; text: string };
+
+/** 规则层的产出：不调模型也能渲染的那部分 */
+export interface SummonRules {
+  saw: string;
+  match?: { taskId: string; title: string; status: TaskStatus; why: string; strength: "sure" | "maybe" };
+  actions: SummonAction[];
+  /** 这次会不会调模型，前端据此决定要不要显示「正在判断」 */
+  willThink: boolean;
+}
+
+/** 模型层的产出 */
+export interface SummonCard {
+  verdict: string;
+  reply?: string;
+  actions: SummonAction[];
+  matchTaskId?: string;
+}
+
+export type SummonEvent =
+  | { type: "rules"; rules: SummonRules }
+  | { type: "card"; card: SummonCard }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+export interface SummonSettings {
+  /** 没有 URL / 选中文字时兜底截前台窗口 */
+  screenshotFallback: boolean;
+  /** 只有这些域名前缀的 URL 会被记录与使用 */
+  urlAllowlist: string[];
+}
+
+export const DEFAULT_SUMMON_SETTINGS: SummonSettings = {
+  screenshotFallback: true,
+  urlAllowlist: ["meegle.com", "project.feishu.cn", "longbridge.sg", "longbridge-inc.com"],
+};

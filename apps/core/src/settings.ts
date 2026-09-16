@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type ThemeId } from "@friday/shared";
+import { DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
 
 export type TerminalApp = "embedded" | "ghostty" | "terminal";
@@ -15,9 +15,10 @@ export interface UserSettings {
   learn: boolean;
   /** 每周从 Claude Code 历史提炼项目手册 */
   learnHistory: boolean;
+  summon: SummonSettings;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true, learnHistory: true };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true, learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -42,6 +43,7 @@ export function userSettings(): UserSettings {
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
     learn: typeof raw.learn === "boolean" ? raw.learn : DEFAULTS.learn,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
+    summon: { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}) },
   };
 }
 
@@ -54,6 +56,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.theme !== undefined) raw.theme = patch.theme;
   if (patch.learn !== undefined) raw.learn = patch.learn;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
+  if (patch.summon !== undefined) raw.summon = { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();
