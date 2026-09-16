@@ -87,8 +87,8 @@ export interface Snapshot {
   browser?: { url: string; title: string };
   /** 选中文字，最多 8000 字 */
   selection?: string;
-  /** 兜底截图，attachments 表的 id */
-  screenshotId?: string;
+  /** 兜底截图的本地绝对路径，前端用 convertFileSrc 显示 */
+  screenshotPath?: string;
   permissions: PermissionStatus;
 }
 
@@ -495,7 +495,7 @@ function describe(snapshot: Snapshot, channel?: string): string {
   else if (snapshot.browser?.title) bits.push(snapshot.browser.title.slice(0, 60));
   else if (snapshot.app.title) bits.push(snapshot.app.title.slice(0, 60));
   if (snapshot.selection) bits.push(`选中了 ${snapshot.selection.length} 个字`);
-  if (snapshot.screenshotId) bits.push("截了一张图");
+  if (snapshot.screenshotPath) bits.push("截了一张图");
   return bits.join(" · ");
 }
 
@@ -984,13 +984,19 @@ export const summonApi = new Hono()
         updateTask(action.taskId, { status: "done", attention: undefined, pending: [] });
         return c.json({ ok: true, taskId: action.taskId, message: "已标完成" });
       }
+      case "note": {
+        appendMemory("decisions", action.text);
+        return c.json({ ok: true, message: "已记进记忆库" });
+      }
       default:
         return c.json({ error: `不支持的动作 ${action.kind}` }, 400);
     }
   });
 ```
 
-`open_task` / `approve_pending` / `start_work` / `note` / `copy` 由前端直接打各自已有的接口（`/tasks/:id/approve/:actionId`、`/run`、剪贴板），不走 `/summon/act`；`/summon/act` 只兜这两个没有现成入口的。
+`appendMemory` 按 `apps/core/src/memory/memory.ts` 里已有的追加写法实现（读全文 + 追加一行 + 写回），函数名以该文件实际导出为准；没有现成的就在 `api/summon.ts` 里就地写五行。
+
+`open_task` / `approve_pending` / `start_work` / `copy` 由前端直接打各自已有的接口（`/tasks/:id/approve/:actionId`、`/run`、剪贴板），不走 `/summon/act`；`/summon/act` 只兜这两个没有现成入口的。
 
 `addNoteTask` 的签名是 `addNoteTask(input: { text: string; due?: string; source?: TaskSource; kind?: "verbal" | "slack" }): Task`（`apps/core/src/memory/noteTask.ts:13`）。`source.summon` 是新字段，需要在 Task 1 的 `TaskSource` 里补一行 `/** 从呼出模式建的 */ summon?: boolean;`。
 
@@ -1141,7 +1147,7 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
     let title = front_window_title();
     let browser = if BROWSERS.contains(&bundle_id.as_str()) { browser_tab(&bundle_id) } else { None };
     let selection = if perms.accessibility { selected_text() } else { None };
-    let screenshot_id = if screenshot_fallback && browser.is_none() && selection.is_none() && perms.screen {
+    let screenshot_path = if screenshot_fallback && browser.is_none() && selection.is_none() && perms.screen {
         capture_window()
     } else {
         None
@@ -1151,7 +1157,7 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
         "app": { "bundleId": bundle_id, "name": name, "title": title },
         "browser": browser,
         "selection": selection,
-        "screenshotId": screenshot_id,
+        "screenshotPath": screenshot_path,
         "permissions": perms,
     })
 }
@@ -1161,7 +1167,7 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
 - `front_window_title()`：走 AX —— `AXUIElementCreateApplication(pid)` → `AXFocusedWindow` → `AXTitle`。没有辅助功能权限时返回空串。
 - `browser_tab(bundle_id)`：`osascript -e 'tell application "Google Chrome" to return URL of active tab of front window & "\n" & title of active tab of front window'`，Safari 用 `URL of front document` / `name of front document`，Arc 与 Edge 按 Chrome 的语法。输出按第一个换行拆成 url 与 title。超时用 `--max-time` 不可用（osascript 没有），改成子进程加 2 秒看门狗：起线程 `wait_timeout` 拿不到就 kill。
 - `selected_text()`：`AXUIElementCreateSystemWide()` → `AXFocusedUIElement` → `AXSelectedText`，截断到 8000 字。**不要模拟 ⌘C。**
-- `capture_window()`：先用 `CGWindowListCopyWindowInfo` 找前台 app 的 window id，再 `screencapture -x -o -l <id> <path>`，`path` 为 `<dataDir>/attachments/<uuid>.png`；`dataDir` 从环境变量 `FRIDAY_DATA_DIR` 读，缺省 `~/Library/Application Support/Friday`。返回文件名去掉扩展名当 id。写不成功返回 `None`。
+- `capture_window()`：先用 `CGWindowListCopyWindowInfo` 找前台 app 的 window id，再 `screencapture -x -o -l <id> <path>`，`path` 为 `<dataDir>/summon-shots/<uuid>.png`（目录不存在就建）；`dataDir` 从环境变量 `FRIDAY_DATA_DIR` 读，缺省 `~/Library/Application Support/Friday`。**返回文件的绝对路径**（不是 id，M1 不入 attachments 表）。写不成功返回 `None`。同目录下超过 20 张时删最旧的，避免无限堆积。
 
 **注意**：`capture()` 必须在毫秒级返回，osascript 那段是唯一可能慢的，务必带看门狗。
 
@@ -1344,9 +1350,9 @@ export async function runAction(action: SummonAction): Promise<string> {
   const base = await coreBaseUrl();
   switch (action.kind) {
     case "open_task":
+      // 工作台没有按 taskId 聚焦的现成入口，M1 只负责打开它，不新造事件
       await invoke("open_chat", { conversationId: null, initialPrompt: null });
-      window.dispatchEvent(new CustomEvent("friday:focus-task", { detail: action.taskId }));
-      return "已在工作台打开";
+      return "已打开工作台";
     case "approve_pending": {
       const res = await fetch(`${base}/tasks/${action.taskId}/approve/${action.actionId}`, { method: "POST" });
       if (!res.ok) throw new Error(`执行失败 ${res.status}`);
@@ -1390,7 +1396,7 @@ export async function runAction(action: SummonAction): Promise<string> {
   ```tsx
   <div className="hud">
     <button className="hud__saw" onClick={() => setOpen(!open)}>{rules?.saw ?? "看看你在做什么…"}</button>
-    {open && <div className="hud__raw">{/* URL、选中文字原文、截图 <img src={`${base}/attachments/${id}`} /> */}</div>}
+    {open && <div className="hud__raw">{/* URL、选中文字原文、截图 <img src={convertFileSrc(snapshot.screenshotPath)} />（`convertFileSrc` 来自 `@tauri-apps/api/core`） */}</div>}
     {rules?.match && <div className="hud__match"><span className={`dot dot--${statusDot(rules.match.status)}`} />{rules.match.title}<span className="hud__why">{rules.match.why}</span></div>}
     {card?.verdict ? <p className="hud__verdict">{card.verdict}</p> : rules?.willThink && <p className="hud__verdict hud__verdict--think">正在判断…</p>}
     {card?.reply && <pre className="hud__reply">{card.reply}</pre>}
@@ -1483,4 +1489,4 @@ git merge --no-ff feat/summon -m "合并呼出模式 M1"
 
 **未覆盖且有意为之**：spec 5.6 的「HUD 输入框走 /ask」在 M1 里没排任务——HUD 第一版只有动作按钮，输入框留到 M1 验收后按真实手感再定（若届时要做，是一个独立的小任务：把 `Thread` 的 compact 版挂进 `Hud.tsx`）。spec 第 4 节 activity 全部属于 M2。
 
-**类型一致性**：`SummonRules.match` 在 Task 2 产出、Task 8 消费，字段名一致；`SummonAction` 七种 kind 在 Task 1 定义、Task 2 生成、Task 3 钳制、Task 4/8 执行，四处的 `kind` 字面量相同；`Snapshot` 的 `screenshotId` 在 Task 6 产出、Task 8 用它拼 `/attachments/:id`。
+**类型一致性**：`SummonRules.match` 在 Task 2 产出、Task 8 消费，字段名一致；`SummonAction` 七种 kind 在 Task 1 定义、Task 2 生成、Task 3 钳制、Task 4/8 执行，四处的 `kind` 字面量相同；`Snapshot` 的 `screenshotPath` 在 Task 6 产出绝对路径、Task 8 用 `convertFileSrc` 显示。
