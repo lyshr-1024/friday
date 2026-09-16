@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepWorkItem, nodeKeyOf, pickDocs, pickLinkedStory, pickNodeSchedules, pickTransitions, toTodo } from "./meegle.js";
+import { keepWorkItem, nodeKeyOf, pickDocs, pickLinkedStory, pickNodeSchedules, pickDueNodes, pickTransitions, scheduleDue, toTodo } from "./meegle.js";
 
 describe("Meegle 工作项转待办", () => {
   it("拼出标签、状态与详情链接", () => {
@@ -138,5 +138,95 @@ describe("关联需求", () => {
     expect(pickLinkedStory([{ key: "_field_linked_story", value: null }])).toBeUndefined();
     expect(pickLinkedStory([{ key: "_field_linked_story", value: { id: 1 } }])).toBeUndefined();
     expect(pickLinkedStory([{ key: "_field_linked_story", value: { name: "只有名字" } }])).toBeUndefined();
+  });
+});
+
+// 用户的诉求：别人常常不更新需求状态，但我的开发时间已经到了。
+// 原来只取 mywork todo 默认的 in_progress（11 条，且大多没排期），
+// 排期已到但节点还没流转到我的那些一条都拉不到——实测 24440539（09-14~09-16 正在进行）、
+// 23659611 / 24157329（09-16 今天开始）全都漏了。改成按排期判断。
+describe("按我的排期决定要不要接", () => {
+  const today = "2026-09-16";
+
+  it("开始时间已到就接，不管节点流转到哪", () => {
+    expect(scheduleDue({ start_time: "2026-09-16", end_time: "2026-09-18" }, today)).toBe(true);
+    expect(scheduleDue({ start_time: "2026-09-14", end_time: "2026-09-16" }, today)).toBe(true);
+  });
+
+  it("排期已经过了照样接：过期没做才更该提醒", () => {
+    expect(scheduleDue({ start_time: "2026-06-30", end_time: "2026-08-19" }, today)).toBe(true);
+  });
+
+  it("还没到开始时间的不接", () => {
+    expect(scheduleDue({ start_time: "2026-09-17", end_time: "2026-09-18" }, today)).toBe(false);
+  });
+
+  it("没排期的不接：那是还没排到我头上的", () => {
+    expect(scheduleDue({}, today)).toBe(false);
+    expect(scheduleDue({ start_time: "", end_time: "" }, today)).toBe(false);
+    expect(scheduleDue(undefined, today)).toBe(false);
+  });
+
+  it("只有结束时间也算：给了截止日就是有时间要求", () => {
+    expect(scheduleDue({ end_time: "2026-09-18" }, today)).toBe(true);
+  });
+});
+
+// todo-scope=all 会把同一个工单的每个节点各返回一条（实测 23683694 出现 4 次）。
+// 挑「最该做的那个节点」：排期已到的里面取开始时间最晚的，那是当前该推进的一段。
+describe("同一工单多个节点时挑一个", () => {
+  const today = "2026-09-16";
+  const mk = (id: string, node: string, start: string, end = "") => ({
+    work_item_info: { work_item_id: id, work_item_type_key: "story" },
+    node_info: { node_name: node },
+    schedule: { start_time: start, end_time: end },
+  });
+
+  it("按工单去重，留排期已到里最晚开始的那个节点", () => {
+    const out = pickDueNodes(
+      [
+        mk("1", "技术方案", "2026-09-10", "2026-09-11"),
+        mk("1", "前端开发", "2026-09-14", "2026-09-16"),
+        mk("1", "发布", "2026-09-20"),
+        mk("2", "前端开发", "2026-09-16", "2026-09-18"),
+      ],
+      today,
+    );
+    expect(out.map((i) => [i.work_item_info.work_item_id, i.node_info.node_name])).toEqual([
+      ["1", "前端开发"],
+      ["2", "前端开发"],
+    ]);
+  });
+
+  it("整条工单都没到时间就不要", () => {
+    expect(pickDueNodes([mk("3", "前端开发", "2026-09-20", "2026-09-21")], today)).toEqual([]);
+  });
+
+  it("没排期的节点不参与，也不会把工单带进来", () => {
+    expect(pickDueNodes([mk("4", "发布", "", "")], today)).toEqual([]);
+  });
+});
+
+// 缺陷没有「排期」这个概念（实测 6 个缺陷 schedule 全空），它是分派给我就该修。
+// 只有需求走排期判断，否则按排期过滤会把缺陷全筛掉。
+describe("缺陷不看排期", () => {
+  const today = "2026-09-16";
+  const mk = (id: string, type: string, start = "", end = "") => ({
+    work_item_info: { work_item_id: id, work_item_type_key: type },
+    node_info: { node_name: "n" },
+    schedule: { start_time: start, end_time: end },
+  });
+
+  it("缺陷没排期照样接", () => {
+    expect(pickDueNodes([mk("1", "issue")], today).map((i) => i.work_item_info.work_item_id)).toEqual(["1"]);
+  });
+
+  it("需求没排期不接", () => {
+    expect(pickDueNodes([mk("2", "story")], today)).toEqual([]);
+  });
+
+  it("缺陷只出现一次，不受多节点去重影响", () => {
+    const out = pickDueNodes([mk("3", "issue"), mk("3", "issue")], today);
+    expect(out).toHaveLength(1);
   });
 });

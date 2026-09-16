@@ -5,7 +5,14 @@ vi.mock("./exec.js", async (orig) => ({ ...(await orig<typeof import("./exec.js"
 
 const { MeegleConnector } = await import("./meegle.js");
 
-const todoItem = (id: number, type: string) => ({ project_key: "pk", project_name: "P", work_item_info: { work_item_id: id, work_item_type_key: type } });
+// 需求现在按排期接（缺陷不看排期），所以 mock 的 story 要带一个已到期的 schedule，
+// 否则在进 workitem get 之前就被筛掉了。
+const todoItem = (id: number, type: string) => ({
+  project_key: "pk",
+  project_name: "P",
+  work_item_info: { work_item_id: id, work_item_type_key: type },
+  ...(type === "story" ? { schedule: { start_time: "2020-01-01", end_time: "2020-01-02" } } : {}),
+});
 const detail = (id: number, type: string, statusKey: string) => ({
   work_item_attribute: {
     work_item_id: String(id),

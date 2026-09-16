@@ -80,6 +80,41 @@ export function keepWorkItem(typeKey: string, statusKey: string): boolean {
   return typeKey !== "issue" || ISSUE_OPEN_STATES.includes(statusKey);
 }
 
+/**
+ * 这条节点的排期是不是已经轮到我做了。
+ * 按排期而不是按节点状态判断：别人常常不更新需求状态，等他流转过来我的开发时间早过了。
+ * 已经过期的照样算——过期没做才更该提醒。没排期的不算，那是还没排到我头上。
+ */
+export function scheduleDue(schedule: { start_time?: string; end_time?: string } | undefined, today: string): boolean {
+  const start = schedule?.start_time?.trim();
+  const end = schedule?.end_time?.trim();
+  if (!start && !end) return false;
+  // 有开始时间就等它到；只给了截止日说明时间要求已经压下来了，直接接。
+  return start ? start <= today : true;
+}
+
+/**
+ * todo-scope=all 会把同一工单的每个节点各返回一条，挑出当前该做的那一个。
+ * 排期已到的里面取开始时间最晚的：那是已经推进到的最新一段，早于它的要么做完了要么被跳过。
+ */
+export function pickDueNodes<T extends { work_item_info?: { work_item_id?: string | number; work_item_type_key?: string }; schedule?: { start_time?: string; end_time?: string } }>(
+  items: T[],
+  today: string,
+): T[] {
+  const best = new Map<string, T>();
+  for (const it of items) {
+    // 缺陷没有排期这回事（实测分派给我的 6 个 schedule 全空），分派了就该修。
+    const isIssue = it.work_item_info?.work_item_type_key === "issue";
+    if (!isIssue && !scheduleDue(it.schedule, today)) continue;
+    const id = String(it.work_item_info?.work_item_id ?? "");
+    if (!id) continue;
+    const cur = best.get(id);
+    const at = (x: T) => (x.schedule?.start_time || x.schedule?.end_time || "").trim();
+    if (!cur || at(it) > at(cur)) best.set(id, it);
+  }
+  return [...best.values()];
+}
+
 /** node_state_key 形如 node_state_16_24333723，中间那段才是流转要用的 node_key */
 export function nodeKeyOf(nodeStateKey: string | undefined, workItemId: number | string): string | undefined {
   const tail = `_${workItemId}`;
@@ -401,13 +436,17 @@ export class MeegleConnector implements Connector {
     const auth = await runJson<AuthStatus>(this.bin, ["auth", "status", "--format", "json"]);
     if (!auth.authenticated || !auth.host) throw new Error("Meegle 未登录，请在终端执行 meegle auth login");
 
-    const items: TodoItem[] = [];
+    // todo-scope=all 而不是默认的 in_progress：别人不更新需求状态时，节点还没流转到我，
+    // 但我的开发排期已经到了——只取 in_progress 那些一条都拉不到（实测漏掉 4 个已到期的需求）。
+    const all: TodoItem[] = [];
     for (let page = 1; ; page++) {
-      const res = await runJson<TodoPage>(this.bin, ["mywork", "todo", "--action", "todo", "--page-num", String(page), "--format", "json"]);
+      const res = await runJson<TodoPage>(this.bin, ["mywork", "todo", "--action", "todo", "--todo-scope", "all", "--page-num", String(page), "--format", "json"]);
       const list = res.list ?? [];
-      items.push(...list);
-      if (list.length === 0 || items.length >= res.total) break;
+      all.push(...list);
+      if (list.length === 0 || all.length >= res.total) break;
     }
+    // 有排期且已经到时间的才接；all 会把同一工单的每个节点各返回一条，按工单挑一个。
+    const items = pickDueNodes(all, new Date().toISOString().slice(0, 10));
 
     const details = await mapLimit(items, 3, (it) =>
       runJson<WorkItem>(this.bin, [
