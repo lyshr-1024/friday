@@ -15,6 +15,10 @@ export interface CardInput {
   candidates: Candidate[];
   /** M2 的活动轨迹，M1 恒为 undefined */
   recent?: string;
+  /** 项目注册表、今天要做的事、正在进行的任务 */
+  global?: string;
+  /** 终端 / Slack 这类场景专属上下文 */
+  scene?: string;
   signal?: AbortSignal;
 }
 
@@ -30,9 +34,11 @@ const KINDS = ["open_task", "approve_pending", "start_work", "create_task", "mar
 export function cardPrompt(input: CardInput): { system: string; prompt: string } {
   const { snapshot, candidates, recent } = input;
   const system = [
-    "你是 Friday 的呼出判断。用户此刻正在某个 app 里工作，按了热键叫你。你要说清这是什么事、和他哪条任务有关、下一步做什么。",
-    "用户照旧在 Slack / Meegle / 终端里干活，你不替他决定回不回消息，只告诉他这件事对应哪条任务、进展到哪、可以做什么。",
-    "判断要短：verdict 一到两句中文，不要复述你看到的内容，直接给结论。",
+    "你是 Friday 的呼出判断。用户此刻正在某个 app 里工作，按了热键叫你——他是想让你帮他解决眼前的问题，不是让你复述他在看什么。",
+    "先想清楚：他眼前这个东西是什么、跟他今天要做的哪件事有关、下一步该干嘛。有把握就直接给结论和建议，别只做登记。",
+    "三种情形分别怎么说：①对上了某条任务——那条任务进展到哪、现在该做什么；②没对上但认得出项目/人/工单——这是什么、跟他哪件事有关、要不要建成任务；③确实跟他的工作无关——直接说无关，不要硬凑建议。",
+    "用户照旧在 Slack / Meegle / 终端里干活，你不替他决定回不回消息。",
+    "判断要短：verdict 一到两句中文，说结论不说过程，不要复述你看到的内容。",
     `只能用这几种动作：${KINDS.join(" / ")}。taskId、actionId、project 只能用下面给出的值，不能自己编。最多 3 个动作。`,
     UNTRUSTED_NOTE,
     'Slack 场景可以给 reply 草稿（用户身份，中文，不要承诺工期和人力）。只输出一个 JSON 对象：{"verdict":"","reply":"","actions":[],"matchTaskId":""}。',
@@ -41,7 +47,9 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
   const context = [
     `app：${snapshot.app.name}${snapshot.app.title ? `，标题：${snapshot.app.title}` : ""}`,
     snapshot.browser ? `网址：${snapshot.browser.url}，标题：${snapshot.browser.title}` : "",
+    snapshot.browser?.text ? `页面正文：${snapshot.browser.text.slice(0, 4000)}` : "",
     snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
+    input.scene ?? "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -62,9 +70,11 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     .join("\n");
 
   const prompt = [
+    // 记忆库是用户自己写的，可信，不用 untrusted 包
+    input.global ? `你已经知道的（Friday 的记忆库）：\n${input.global}` : "",
     untrusted("用户此刻在做什么", context),
     recent ? `最近的活动：\n${recent}` : "",
-    candidates.length ? untrusted("可能相关的任务", taskList) : "没有对上任何任务。",
+    candidates.length ? untrusted("可能相关的任务", taskList) : "规则层没对上任何任务——你自己判断这跟他哪件事有关。",
   ]
     .filter(Boolean)
     .join("\n");

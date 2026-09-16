@@ -24,7 +24,7 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
     } else {
         None
     };
-    let browser = browser.map(|(url, title)| json!({ "url": url, "title": title }));
+    let browser = browser.map(|(url, title, text)| json!({ "url": url, "title": title, "text": text }));
     json!({
         "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
         "app": { "bundleId": bundle_id, "name": name, "title": title },
@@ -83,7 +83,7 @@ fn ax_attribute(element: &AXUIElement, attribute: &str) -> Option<CFRetained<CFT
     Some(unsafe { CFRetained::from_raw(std::ptr::NonNull::new(value.cast_mut())?) })
 }
 
-fn browser_tab(bundle_id: &str) -> Option<(String, String)> {
+fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>)> {
     let app_name = match bundle_id {
         "com.apple.Safari" => "Safari",
         "com.google.Chrome" => "Google Chrome",
@@ -103,7 +103,22 @@ fn browser_tab(bundle_id: &str) -> Option<(String, String)> {
     if url.is_empty() {
         return None;
     }
-    Some((url, title))
+    let text = browser_page_text(app_name);
+    Some((url, title, text))
+}
+
+fn browser_page_text(app_name: &str) -> Option<String> {
+    let script = if app_name == "Safari" {
+        format!(r#"tell application "{app_name}" to do JavaScript "document.body.innerText" in front document"#)
+    } else {
+        format!(r#"tell application "{app_name}" to execute active tab of front window javascript "document.body.innerText""#)
+    };
+    let output = run_with_watchdog("osascript", &["-e", &script], Duration::from_secs(2))?;
+    let collapsed = output.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    Some(collapsed.chars().take(4000).collect())
 }
 
 fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<String> {

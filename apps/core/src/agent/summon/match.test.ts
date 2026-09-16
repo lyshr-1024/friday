@@ -121,18 +121,18 @@ describe("defaultActions", () => {
 });
 
 describe("buildRules", () => {
-  it("有选中文字时 willThink 为 true", () => {
+  it("模型永远跑：有选中文字时 willThink 为 true", () => {
     const rules = buildRules({ snapshot: snap({ selection: "这段报错" }), tasks: [], projects });
     expect(rules.willThink).toBe(true);
   });
 
-  it("只有 URL 没有文字时不调模型", () => {
+  it("只有 URL 没有文字也照样调模型——那正是最需要它动脑的时候", () => {
     const rules = buildRules({
       snapshot: snap({ browser: { url: "https://project.feishu.cn/x/issue/detail/1234", title: "" } }),
       tasks: [task()],
       projects,
     });
-    expect(rules.willThink).toBe(false);
+    expect(rules.willThink).toBe(true);
     expect(rules.match?.taskId).toBe("t1");
   });
 

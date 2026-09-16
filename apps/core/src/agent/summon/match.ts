@@ -110,11 +110,12 @@ export function buildRules(input: MatchInput): SummonRules {
   const hits = candidates(input);
   const top = hits[0];
   const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
-  const hasText = Boolean(input.snapshot.selection || input.snapshot.browser?.title || input.channel);
   return {
     saw: describe(input.snapshot, input.channel),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
     actions: defaultActions(top?.task, project, input.snapshot),
-    willThink: hasText,
+    // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。
+    // 以前没命中就闭嘴，用户只看到「我看到了 Chrome」加一个建任务按钮，那是登记表不是助理。
+    willThink: true,
   };
 }

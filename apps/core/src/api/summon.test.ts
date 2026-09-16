@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { app } from "./index.js";
-import { addPending, createTask, getTask } from "../memory/tasks.js";
+import { describe, expect, it, vi } from "vitest";
+
+// 以前靠「没文字就不调模型」侥幸没打到真实 API，现在模型永远跑，必须显式拦住
+vi.mock("../agent/summon/card.js", () => ({
+  summonCard: vi.fn().mockResolvedValue({ verdict: "", actions: [] }),
+  SUMMON_MODEL: "claude-sonnet-5",
+}));
+
+const { app } = await import("./index.js");
+const { addPending, createTask, getTask } = await import("../memory/tasks.js");
 
 const snapshot = {
   at: Date.now(),

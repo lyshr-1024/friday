@@ -590,7 +590,7 @@ export interface Snapshot {
   at: number;
   app: { bundleId: string; name: string; title: string };
   /** 浏览器当前 tab，AppleScript 拿的 */
-  browser?: { url: string; title: string };
+  browser?: { url: string; title: string; text?: string };
   /** 选中文字，最多 8000 字 */
   selection?: string;
   /** 兜底截图的本地绝对路径，前端用 convertFileSrc 显示 */

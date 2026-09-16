@@ -1,11 +1,27 @@
 import type { Snapshot, SummonEvent } from "@friday/shared";
 import { listTasks } from "../../memory/tasks.js";
 import { loadProjects } from "../../memory/projects.js";
+import { loadMemoryContext } from "../../memory/context.js";
 import { userSettings } from "../../settings.js";
 import { buildRules, candidates, parseSlackTitle } from "./match.js";
 import { summonCard } from "./card.js";
 
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
+
+/** Friday 本来就有这些，只是一直没往呼出这条链路送 */
+function globalContext(): string {
+  const mem = loadMemoryContext();
+  const doing = listTasks(["processing", "review", "blocked"], 20);
+  return [
+    mem.projects ? `项目注册表：\n${mem.projects}` : "",
+    mem.todos ? `今天要做的事：\n${mem.todos}` : "",
+    doing.length
+      ? `正在进行的：\n${doing.map((t) => `- ${t.title}（${t.status}${t.project ? ` · ${t.project}` : ""}）`).join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
 /**
  * 白名单外的网址只留域名：设置页写着「只有这些域名会被记录与使用」，
@@ -32,13 +48,8 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const rules = buildRules(input);
   yield { type: "rules", rules };
 
-  if (!rules.willThink) {
-    yield { type: "done" };
-    return;
-  }
-
   try {
-    const card = await summonCard({ snapshot, rules, candidates: candidates(input) });
+    const card = await summonCard({ snapshot, rules, candidates: candidates(input), global: globalContext() });
     yield { type: "card", card };
   } catch (e) {
     yield { type: "error", message: e instanceof Error ? e.message : String(e) };

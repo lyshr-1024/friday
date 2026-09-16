@@ -27,9 +27,10 @@ describe("summon", () => {
     expect(events.at(-1)!.type).toBe("done");
   });
 
-  it("没有任何文字时不调模型", async () => {
+  it("没有任何文字也照样调模型——那正是最该动脑的时候", async () => {
+    cardMock.mockResolvedValue({ verdict: "这跟你的工作没关系", actions: [] });
     for await (const _ of summon(snap())) void _;
-    expect(cardMock).not.toHaveBeenCalled();
+    expect(cardMock).toHaveBeenCalledOnce();
   });
 
   it("有选中文字时调模型并发 card", async () => {
