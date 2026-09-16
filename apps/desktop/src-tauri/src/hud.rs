@@ -5,7 +5,8 @@ pub struct PendingSummon(pub std::sync::Mutex<Option<serde_json::Value>>);
 
 const WIDTH: f64 = 560.0;
 const HEIGHT: f64 = 420.0;
-const TOP_MARGIN: f64 = 120.0;
+const CURSOR_GAP: f64 = 16.0;
+const EDGE_MARGIN: f64 = 12.0;
 
 #[cfg(target_os = "macos")]
 struct PriorApp(std::sync::Mutex<Option<objc2::rc::Retained<objc2_app_kit::NSRunningApplication>>>);
@@ -28,7 +29,7 @@ pub fn prebuild(app: &AppHandle) {
     if let Ok(win) = built {
         #[cfg(target_os = "macos")]
         to_panel(&win);
-        position_top_center(&win);
+        position_near_cursor(&win);
     }
 }
 
@@ -53,13 +54,32 @@ fn to_panel(win: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn to_panel(_win: &tauri::WebviewWindow) {}
 
-fn position_top_center(win: &tauri::WebviewWindow) {
+fn position_near_cursor(win: &tauri::WebviewWindow) {
     let Ok(Some(monitor)) = win.primary_monitor() else { return };
     let scale = monitor.scale_factor();
     let size = monitor.size().to_logical::<f64>(scale);
-    let pos = monitor.position().to_logical::<f64>(scale);
-    let x = pos.x + (size.width - WIDTH) / 2.0;
-    let y = pos.y + TOP_MARGIN;
+    let origin = monitor.position().to_logical::<f64>(scale);
+
+    // 跟着鼠标弹，不用移动目光去屏幕中央找它
+    let cursor = win
+        .cursor_position()
+        .map(|p| p.to_logical::<f64>(scale))
+        .unwrap_or(tauri::LogicalPosition::new(origin.x + size.width / 2.0, origin.y + size.height / 2.0));
+
+    // 稍微偏右下，别让面板压住光标本身
+    let mut x = cursor.x + CURSOR_GAP;
+    let mut y = cursor.y + CURSOR_GAP;
+
+    // 贴边时翻到另一侧，不让面板跑出屏幕
+    if x + WIDTH > origin.x + size.width - EDGE_MARGIN {
+        x = cursor.x - WIDTH - CURSOR_GAP;
+    }
+    if y + HEIGHT > origin.y + size.height - EDGE_MARGIN {
+        y = cursor.y - HEIGHT - CURSOR_GAP;
+    }
+    x = x.max(origin.x + EDGE_MARGIN);
+    y = y.max(origin.y + EDGE_MARGIN);
+
     let _ = win.set_position(tauri::LogicalPosition::new(x, y));
 }
 
@@ -76,7 +96,7 @@ pub fn toggle(app: &AppHandle) {
     if let Ok(mut pending) = app.state::<PendingSummon>().0.lock() {
         *pending = Some(snap.clone());
     }
-    position_top_center(&win);
+    position_near_cursor(&win);
     show(app, &win);
     let _ = win.emit("friday://summon", snap);
 }

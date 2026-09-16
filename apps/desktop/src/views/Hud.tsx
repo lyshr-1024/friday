@@ -3,7 +3,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
-import { coreBaseUrl } from "../lib/core";
+import { ask as askCore, coreBaseUrl } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 
 const HUD_WIDTH = 560;
@@ -17,8 +17,13 @@ export function Hud() {
   const [replyText, setReplyText] = useState("");
   const [note, setNote] = useState<{ text: string; err: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ask, setAsk] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [asking, setAsking] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const askAbortRef = useRef<AbortController | null>(null);
 
   const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
   // 键盘不代劳不可逆动作：起 Claude Code 干活、标完成都会真的改东西，
@@ -63,7 +68,7 @@ export function Hud() {
     const h = rootRef.current?.scrollHeight;
     if (!h) return;
     void getCurrentWindow().setSize(new LogicalSize(HUD_WIDTH, h));
-  }, [rules, card, open, confirming, note]);
+  }, [rules, card, open, confirming, note, answer, ask]);
 
   function isEditableFocus(): boolean {
     const el = document.activeElement;
@@ -149,6 +154,41 @@ export function Hud() {
     return () => window.removeEventListener("keydown", onKey);
   }, [actions, pendingAction, confirming, replyText]);
 
+  async function sendAsk() {
+    const text = ask.trim();
+    if (!text || asking) return;
+    askAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    askAbortRef.current = ctrl;
+    setAsking(true);
+    setAnswer("");
+    setAsk("");
+    // 带上此刻的环境，否则 Friday 不知道「这个」「这条」指的是什么
+    const ctx = [
+      snapshot ? `我此刻在 ${snapshot.app.name}${snapshot.app.title ? `（${snapshot.app.title}）` : ""}` : "",
+      snapshot?.browser?.url ? `网址 ${snapshot.browser.url}` : "",
+      snapshot?.selection ? `选中的文字：${snapshot.selection.slice(0, 2000)}` : "",
+      rules?.match ? `相关任务：${rules.match.title}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    try {
+      for await (const ev of askCore({ prompt: ctx ? `${ctx}\n\n${text}` : text }, ctrl.signal)) {
+        if (ctrl.signal.aborted) return;
+        if (ev.type === "delta") setAnswer((v) => v + ev.text);
+        if (ev.type === "reset") setAnswer("");
+        if (ev.type === "error") setAnswer(ev.message);
+      }
+    } finally {
+      if (!ctrl.signal.aborted) setAsking(false);
+    }
+  }
+
+  // 呼出即可打字，不用先点一下输入框
+  useEffect(() => {
+    if (snapshot && !confirming) inputRef.current?.focus();
+  }, [snapshot, confirming]);
+
   function statusDot(status: string): string {
     return ["review", "blocked", "processing", "done"].includes(status) ? status : "processing";
   }
@@ -218,6 +258,27 @@ export function Hud() {
         </div>
       )}
       {note && <div className={`hud__note ${note.err ? "hud__note--err" : ""}`}>{note.text}</div>}
+      {answer && <p className="hud__answer">{answer}</p>}
+      {!confirming && (
+        <div className="hud__ask">
+          <textarea
+            ref={inputRef}
+            className="hud__ask-input"
+            rows={1}
+            placeholder={asking ? "Friday 在想…" : "跟 Friday 说点什么"}
+            value={ask}
+            disabled={asking}
+            onChange={(e) => setAsk(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                void sendAsk();
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
