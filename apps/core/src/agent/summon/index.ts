@@ -1,12 +1,22 @@
 import type { Snapshot, SummonEvent } from "@friday/shared";
 import { listTasks } from "../../memory/tasks.js";
-import { loadProjects } from "../../memory/projects.js";
+import { loadProjects, type Project } from "../../memory/projects.js";
 import { loadMemoryContext } from "../../memory/context.js";
 import { userSettings } from "../../settings.js";
 import { buildRules, candidates, parseSlackTitle } from "./match.js";
 import { summonCard } from "./card.js";
+import { slackContext } from "./slack.js";
+import { terminalContext } from "./terminal.js";
 
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
+const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
+
+/** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */
+function sceneContext(snapshot: Snapshot, projects: Project[], channel?: string, person?: string): string | undefined {
+  if (TERMINAL_BUNDLES.has(snapshot.app.bundleId)) return terminalContext(snapshot, projects);
+  if (snapshot.app.bundleId === SLACK_BUNDLE) return slackContext(channel, person);
+  return undefined;
+}
 
 /** Friday 本来就有这些，只是一直没往呼出这条链路送 */
 function globalContext(): string {
@@ -43,13 +53,14 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const snapshot = trimUrl(raw, userSettings().summon.urlAllowlist);
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
-  const { channel } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
+  const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
   const input = { snapshot, tasks, projects, channel };
   const rules = buildRules(input);
   yield { type: "rules", rules };
 
   try {
-    const card = await summonCard({ snapshot, rules, candidates: candidates(input), global: globalContext() });
+    const scene = sceneContext(snapshot, projects, channel, person);
+    const card = await summonCard({ snapshot, rules, candidates: candidates(input), global: globalContext(), ...(scene ? { scene } : {}) });
     yield { type: "card", card };
   } catch (e) {
     yield { type: "error", message: e instanceof Error ? e.message : String(e) };
