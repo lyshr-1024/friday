@@ -17,7 +17,7 @@ export interface Candidate {
 const SLACK_SUFFIX = /\s*-\s*[^-]*-\s*Slack\s*$/;
 
 export function parseSlackTitle(title: string): { channel?: string; person?: string } {
-  const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+\s+new items?\)\s*/i, "").trim();
+  const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+(?:\s+new items?)?\)\s*/i, "").trim();
   if (!head) return {};
   return head.startsWith("#") ? { channel: head } : { person: head };
 }

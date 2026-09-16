@@ -40,6 +40,14 @@ describe("parseSlackTitle", () => {
   it("私聊标题取人名", () => {
     expect(parseSlackTitle("拂晓 - Longbridge - Slack")).toEqual({ person: "拂晓" });
   });
+
+  it("私聊未读徽标是纯数字也取人名", () => {
+    expect(parseSlackTitle("拂晓 (2) - Longbridge - Slack")).toEqual({ person: "拂晓" });
+  });
+
+  it("频道未读徽标是纯数字也取频道", () => {
+    expect(parseSlackTitle("#wealth-fe (12) - Longbridge - Slack")).toEqual({ channel: "#wealth-fe" });
+  });
 });
 
 describe("meegleIdFromUrl", () => {
