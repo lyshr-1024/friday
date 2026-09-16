@@ -95,49 +95,64 @@ export interface SlackFetchResult {
  */
 const COLD_START_MS = 24 * 3600 * 1000;
 
+/**
+ * 频道 @ 之后多久内我出声才算「回了这条」。频道里对话是连续的，
+ * 隔太久说的多半是别的事——不限窗会把「我在频道聊别的」误判成回复。
+ */
+export const REPLY_WINDOW_MS = 30 * 60 * 1000;
+
 /** chat.getPermalink 对部分私聊拿不到链接时，用团队域名手动拼一个官方格式的 permalink。 */
 export function permalinkFor(teamUrl: string | undefined, channelId: string, ts: string): string {
   if (!teamUrl) return "";
   return `${teamUrl.replace(/\/$/, "")}/archives/${channelId}/p${ts.replace(".", "")}`;
 }
 
-/**
- * 这条 @ 我的消息，我后来在它所在的 thread 里回过没有。
- * 只看同一条 thread：频道里我在别处说过话不等于回了这件事。
- * 没有 thread 的独立消息无从判断，一律当没回（宁可多提醒，不可漏事）。
- */
-async function repliedInThread(call: Call, me: string, m: SearchMatch): Promise<boolean> {
-  // 同 repliedSince：不在 thread 里的就别查，拿自身 ts 当 root 会把频道后续也带回来当成回复。
-  if (!m.channel || !m.thread_ts) return false;
-  try {
-    const res = (await call("conversations.replies", { channel: m.channel.id, ts: m.thread_ts, limit: "50" })) as {
-      messages?: Array<{ ts?: string; user?: string }>;
-    };
-    return (res.messages ?? []).some((r) => r.user === me && Number(r.ts) > Number(m.ts));
-  } catch {
-    return false;
+export async function repliedSince(call: Call, me: string, item: Pick<InboxItem, "kind" | "channelId" | "ts" | "threadTs">): Promise<boolean> {
+  const mine = (msgs: Array<{ ts?: string; user?: string }> | undefined, within?: number) =>
+    (msgs ?? []).some((r) => r.user === me && Number(r.ts) > Number(item.ts) && (!within || Number(r.ts) - Number(item.ts) <= within / 1000));
+  // 这是判「要不要打扰用户」的辅助信号，任何一次查询失败都只当作「不知道」，
+  // 不能让它掀掉整轮同步——真拉不到就照常提醒，宁可多提醒不可漏事。
+  const ask = async (method: string, params: Record<string, string>) => {
+    try {
+      const res = (await call(method, params)) as { messages?: Array<{ ts?: string; user?: string }> } | undefined;
+      return res?.messages;
+    } catch {
+      return undefined;
+    }
+  };
+
+  if (item.kind === "mention") {
+    // 在 thread 里回的最明确，隔多久都算。
+    if (item.threadTs && mine(await ask("conversations.replies", { channel: item.channelId, ts: item.threadTs, limit: "50" }))) return true;
+    // search.messages 不返回 thread_ts，所以绝大多数频道 @ 走这里：看这条之后
+    // REPLY_WINDOW_MS 内我在频道里有没有出声。不限时间窗会把「我在频道聊别的」当成回复。
+    return mine(await ask("conversations.history", { channel: item.channelId, oldest: item.ts, limit: "50" }), REPLY_WINDOW_MS);
   }
+  // 私聊不设窗：一对一的对话里我接了话就是处理了，隔多久都算。
+  return mine(await ask("conversations.history", { channel: item.channelId, oldest: item.ts, limit: "50" }));
 }
 
 /**
- * 一条已入库的消息，我后来在 Slack 里回过没有。给存量清理用。
- * 私聊：那之后我在这个会话里发过话就算回了。
- * 频道 @：只看同一条 thread，我在频道别处说话不算回了这条。
+ * 每个会话我读到哪了。client.counts 把它分在 channels / mpims / ims 三处，字段都叫 last_read。
+ * 拿不到就返回空表——调用方按「不知道」处理，不会因此误标。
  */
-export async function repliedSince(call: Call, me: string, item: Pick<InboxItem, "kind" | "channelId" | "ts" | "threadTs">): Promise<boolean> {
-  if (item.kind === "mention") {
-    // 不在 thread 里的频道 @ 无从判断：拿它自己的 ts 当 root 查 replies，Slack 会把
-    // 这条之后频道里的消息一并带回来，我在频道别处说的话会被当成回了这条（实测误标过两条真事）。
-    if (!item.threadTs) return false;
-    const res = (await call("conversations.replies", { channel: item.channelId, ts: item.threadTs, limit: "50" })) as {
-      messages?: Array<{ ts?: string; user?: string }>;
-    };
-    return (res.messages ?? []).some((r) => r.user === me && Number(r.ts) > Number(item.ts));
+export async function fetchLastRead(call: Call): Promise<Record<string, string>> {
+  try {
+    const res = (await call("client.counts", {})) as Record<string, Array<{ id?: string; last_read?: string }> | undefined>;
+    const out: Record<string, string> = {};
+    for (const group of ["channels", "mpims", "ims"]) {
+      for (const c of res[group] ?? []) if (c.id && c.last_read) out[c.id] = c.last_read;
+    }
+    return out;
+  } catch {
+    return {};
   }
-  const res = (await call("conversations.history", { channel: item.channelId, oldest: item.ts, limit: "50" })) as {
-    messages?: Array<{ ts?: string; user?: string }>;
-  };
-  return (res.messages ?? []).some((r) => r.user === me && Number(r.ts) > Number(item.ts));
+}
+
+/** 我在 Slack 里已经读到这条之后了。比「回过」弱但独立：读过的就不用 Friday 再提醒。 */
+export function isRead(item: Pick<InboxItem, "ts">, lastRead: Record<string, string>, channelId: string): boolean {
+  const mark = lastRead[channelId];
+  return Boolean(mark) && Number(item.ts) <= Number(mark);
 }
 
 export async function fetchSlack(
@@ -202,9 +217,9 @@ export async function fetchSlack(
       console.log(`[slack] 跳过：${verdict.why}（${m.channel.name ?? m.channel.id}）`);
       continue;
     }
-    // 我已经在那条 thread 里回过了就是处理完了，别再挂成待办。
-    if (await repliedInThread(call, me, m)) {
-      console.log(`[slack] 跳过：我已在 thread 里回过（${m.channel.name ?? m.channel.id}）`);
+    // 我已经回过了就是处理完了，别再挂成待办。thread 里回的、频道里紧接着回的都算。
+    if (await repliedSince(call, me, { kind: "mention", channelId: m.channel.id, ts: m.ts, ...(m.thread_ts ? { threadTs: m.thread_ts } : {}) })) {
+      console.log(`[slack] 跳过：我已经回过了（${m.channel.name ?? m.channel.id}）`);
       continue;
     }
     out.push({

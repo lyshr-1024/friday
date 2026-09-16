@@ -9,7 +9,7 @@ import { learnDue, learnOnce, researchFiles } from "../agent/learn.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
 import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
-import { fetchSlack, loadSlackCreds, postMessage, repliedSince, slackCaller, type SlackCreds } from "../connectors/slack.js";
+import { fetchLastRead, fetchSlack, isRead, loadSlackCreds, postMessage, repliedSince, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
@@ -42,7 +42,6 @@ export const state = {
 };
 
 let me = "";
-let sweptReplied = false;
 let creds: SlackCreds | undefined;
 
 export async function syncSlackOnce(): Promise<number> {
@@ -62,17 +61,20 @@ export async function syncSlackOnce(): Promise<number> {
       if (auth.team_id) setSlackTeam(auth.team_id);
       if (auth.url) setCursor("slack:url", auth.url);
     }
-    // 存量清理只跑一次：入口拦截是后加的，之前进来的那批里有一大半我早在 Slack 里回过了。
-    if (!sweptReplied && me) {
-      sweptReplied = true;
+    // 每轮同步都扫一遍收件箱：我随时会直接在 Slack 里读掉或回掉，Friday 得跟着收，
+    // 否则界面上一直挂着我已经处理完的事（这正是「回复了还是有待办」的由来）。
+    if (me) {
       try {
-        const swept = await sweepRepliedInbox((item) => repliedSince(call, me, item));
+        const lastRead = await fetchLastRead(call);
+        const swept = await sweepRepliedInbox(async (item) =>
+          isRead(item, lastRead, item.channelId) || (await repliedSince(call, me, item)),
+        );
         if (swept) {
-          console.log(`把 ${swept} 条我已在 Slack 回过的消息标成已处理`);
+          console.log(`把 ${swept} 条我已在 Slack 读过或回过的消息标成已处理`);
           closeSettledThreads();
         }
       } catch (e) {
-        console.error(`[slack] 存量清理失败：${e instanceof Error ? e.message : String(e)}`);
+        console.error(`[slack] 收件箱对齐失败：${e instanceof Error ? e.message : String(e)}`);
       }
     }
     const keys = ["slack:mentions"];

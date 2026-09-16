@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksText, fetchContext, fetchSlack, permalinkFor, repliedSince } from "./slack.js";
+import { blocksText, fetchContext, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -38,7 +38,8 @@ describe("Slack 拉取", () => {
     expect(res.items[0]!.channelName).toBe("#fe-dev");
     expect(res.items[1]!.permalink).toBe("https://s/dm1");
     expect(res.cursors).toEqual({ "slack:mentions": "1757000300.000100", "slack:im:D1": "1757000500.000100" });
-    expect(calls.filter((m) => m === "conversations.history")).toHaveLength(1);
+    // 私聊拉消息 1 次 + 频道 @ 查「我回过没」1 次。原来只有前者。
+    expect(calls.filter((m) => m === "conversations.history")).toHaveLength(2);
   });
 });
 
@@ -313,22 +314,73 @@ describe("我在 Slack 里回过的就不算待办", () => {
 // 实测抓到的误标：频道里不在 thread 里的 @，用它自己的 ts 当 root 调 conversations.replies，
 // Slack 会把这条消息之后频道里的内容也带回来，于是「我在频道别处说过话」被当成回了这条。
 // 两条真事因此被误标已处理（「浩然帮忙看看这个问题」「渠道系统的前端后续由…」）。
-describe("repliedSince 对不在 thread 里的频道消息", () => {
-  it("没有 threadTs 的频道 @ 一律算没回，不去查 replies", async () => {
-    const calls: string[] = [];
-    const call = async (m: string) => {
-      calls.push(m);
-      // 真实 API 的行为：拿非 thread 根消息去查 replies，会带回这条自己 + 频道后续
-      return { messages: [{ ts: "1757000400.000100", user: "U3" }, { ts: "1757000900.000100", user: "U1" }] } as Record<string, unknown>;
-    };
-    const replied = await repliedSince(call, "U1", { kind: "mention", channelId: "C1", ts: "1757000400.000100" });
-    expect(replied).toBe(false);
-    expect(calls).toEqual([]);
+// search.messages 根本不返回 thread_ts（实测 key 列表里没有它），库里 299 条消息该列全空，
+// 所以「只看 thread」等于把频道那半边判死了：实测当前挂着的 12 条频道 @ 里有 5 条我已在频道回过。
+// 用户在频道里是直接回的，不是回在 thread 里。改成看这条之后 REPLY_WINDOW_MS 内我有没有发话——
+// 对话是连续的，隔太久说的多半是别的事（不限时间窗会把「我在频道聊别的」误判成回复，昨天误标过两条）。
+describe("频道 @ 按时间窗判断我回没回", () => {
+  const item = { kind: "mention" as const, channelId: "C1", ts: "1757000400.000000" };
+
+  it("我在窗口内于频道里发过话就算回了，哪怕不在 thread 里", async () => {
+    const call = async () => ({ messages: [{ ts: "1757000500.000000", user: "U1" }] }) as Record<string, unknown>;
+    expect(await repliedSince(call, "U1", item)).toBe(true);
   });
 
-  it("在 thread 里的 @ 仍照常按 thread 判断", async () => {
-    const call = async () => ({ messages: [{ ts: "1757000400.000100", user: "U3" }, { ts: "1757000500.000100", user: "U1" }] }) as Record<string, unknown>;
-    const replied = await repliedSince(call, "U1", { kind: "mention", channelId: "C1", ts: "1757000400.000100", threadTs: "1757000400.000100" });
-    expect(replied).toBe(true);
+  it("隔了很久才在频道说话不算回这条", async () => {
+    const late = String(Number(item.ts) + REPLY_WINDOW_MS / 1000 + 60);
+    const call = async () => ({ messages: [{ ts: late, user: "U1" }] }) as Record<string, unknown>;
+    expect(await repliedSince(call, "U1", item)).toBe(false);
+  });
+
+  it("窗口内只有别人说话，我没出声，不算回", async () => {
+    const call = async () => ({ messages: [{ ts: "1757000500.000000", user: "U3" }] }) as Record<string, unknown>;
+    expect(await repliedSince(call, "U1", item)).toBe(false);
+  });
+
+  it("在 thread 里回的同样认，不受时间窗限制", async () => {
+    const late = String(Number(item.ts) + REPLY_WINDOW_MS / 1000 + 3600);
+    const call = async (m: string) =>
+      (m === "conversations.replies"
+        ? { messages: [{ ts: late, user: "U1" }] }
+        : { messages: [] }) as Record<string, unknown>;
+    expect(await repliedSince(call, "U1", { ...item, threadTs: item.ts })).toBe(true);
+  });
+
+  it("私聊不设时间窗：我接了话就是处理了，隔多久都算", async () => {
+    const late = String(Number(item.ts) + REPLY_WINDOW_MS / 1000 + 86400);
+    const call = async () => ({ messages: [{ ts: late, user: "U1" }] }) as Record<string, unknown>;
+    expect(await repliedSince(call, "U1", { ...item, kind: "dm" })).toBe(true);
+  });
+});
+
+// 已读是比回复更弱但独立的信号：我在 Slack 里读过的就不用 Friday 再提醒。
+describe("Slack 已读位置", () => {
+  it("消息在已读线之前算处理完了", () => {
+    expect(isRead({ ts: "1757000400.000000" }, { C1: "1757000500.000000" }, "C1")).toBe(true);
+  });
+
+  it("已读线之后的还没读，要留着", () => {
+    expect(isRead({ ts: "1757000600.000000" }, { C1: "1757000500.000000" }, "C1")).toBe(false);
+  });
+
+  it("没有该会话的已读信息时不做判断", () => {
+    expect(isRead({ ts: "1757000400.000000" }, {}, "C1")).toBe(false);
+  });
+});
+
+// client.counts 把已读位置分在三处：channels（156 个）、mpims、ims，字段都叫 last_read。
+describe("取全部会话的已读位置", () => {
+  it("频道、群聊、私聊的 last_read 合到一张表", async () => {
+    const call = async () => ({
+      channels: [{ id: "C1", last_read: "1757000500.000000" }, { id: "C2" }],
+      mpims: [{ id: "G1", last_read: "1757000600.000000" }],
+      ims: [{ id: "D1", last_read: "1757000700.000000" }],
+    }) as Record<string, unknown>;
+    expect(await fetchLastRead(call)).toEqual({ C1: "1757000500.000000", G1: "1757000600.000000", D1: "1757000700.000000" });
+  });
+
+  it("接口报错时返回空表，调用方按「不知道」处理", async () => {
+    const call = async () => { throw new Error("token 过期"); };
+    expect(await fetchLastRead(call)).toEqual({});
   });
 });
