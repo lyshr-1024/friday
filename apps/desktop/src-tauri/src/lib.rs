@@ -44,7 +44,7 @@ fn open_settings(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn permission_status() -> permissions::PermissionStatus {
-    permissions::status()
+    permissions::status_fresh()
 }
 
 #[tauri::command]

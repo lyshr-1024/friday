@@ -1,19 +1,41 @@
 use serde::Serialize;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Clone, Copy)]
 pub struct PermissionStatus {
     pub accessibility: bool,
     pub automation: bool,
     pub screen: bool,
 }
 
+const CACHE_TTL: Duration = Duration::from_secs(5);
+
+fn cache() -> &'static Mutex<Option<(PermissionStatus, Instant)>> {
+    static CACHE: OnceLock<Mutex<Option<(PermissionStatus, Instant)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// `automation_ok()` 每次都要 spawn osascript（约 120ms），挡在热键按下和 HUD 出现之间会明显卡顿；
+/// 权限状态几秒内不会变（去系统设置授权需要好几秒，且授权后 HUD 通常已经关了再重开），缓存 5 秒足够。
 pub fn status() -> PermissionStatus {
-    PermissionStatus {
+    if let Some((cached, at)) = *cache().lock().unwrap() {
+        if at.elapsed() < CACHE_TTL {
+            return cached;
+        }
+    }
+    status_fresh()
+}
+
+/// 绕过缓存强制重查，给设置页「检查权限」按钮用——用户刚去授权完回来要立刻看到最新状态。
+pub fn status_fresh() -> PermissionStatus {
+    let fresh = PermissionStatus {
         accessibility: accessibility_trusted(),
         automation: automation_ok(),
         screen: screen_ok(),
-    }
+    };
+    *cache().lock().unwrap() = Some((fresh, Instant::now()));
+    fresh
 }
 
 fn accessibility_trusted() -> bool {
