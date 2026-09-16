@@ -91,34 +91,46 @@ fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>)> {
         "com.microsoft.edgemac" => "Microsoft Edge",
         _ => return None,
     };
+    // url / title / 正文一次取完：osascript 启动一次就要一两百毫秒，
+    // 分两次调用会让呼出从 300ms 掉到 430ms，而这段挡在按键与 HUD 之间。
+    // 正文那句用 try 兜住——没开「允许 JavaScript from Apple Events」时它会报错，
+    // 那是常态，不该连带把 url 和 title 也弄丢。
     let script = if app_name == "Safari" {
-        format!(r#"tell application "{app_name}" to return URL of front document & "\n" & name of front document"#)
+        format!(
+            r#"tell application "{app_name}"
+  set u to URL of front document
+  set t to name of front document
+  set b to ""
+  try
+    set b to (do JavaScript "document.body.innerText" in front document)
+  end try
+  return u & "\n" & t & "\n---BODY---\n" & b
+end tell"#
+        )
     } else {
-        format!(r#"tell application "{app_name}" to return URL of active tab of front window & "\n" & title of active tab of front window"#)
+        format!(
+            r#"tell application "{app_name}"
+  set u to URL of active tab of front window
+  set t to title of active tab of front window
+  set b to ""
+  try
+    set b to (execute active tab of front window javascript "document.body.innerText")
+  end try
+  return u & "\n" & t & "\n---BODY---\n" & b
+end tell"#
+        )
     };
     let output = run_with_watchdog("osascript", &["-e", &script], Duration::from_secs(2))?;
-    let mut lines = output.lines();
+    let (head, body) = output.split_once("---BODY---").unwrap_or((output.as_str(), ""));
+    let mut lines = head.lines();
     let url = lines.next()?.trim().to_string();
     let title = lines.next().unwrap_or("").trim().to_string();
     if url.is_empty() {
         return None;
     }
-    let text = browser_page_text(app_name);
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = if collapsed.is_empty() { None } else { Some(collapsed.chars().take(4000).collect()) };
     Some((url, title, text))
-}
-
-fn browser_page_text(app_name: &str) -> Option<String> {
-    let script = if app_name == "Safari" {
-        format!(r#"tell application "{app_name}" to do JavaScript "document.body.innerText" in front document"#)
-    } else {
-        format!(r#"tell application "{app_name}" to execute active tab of front window javascript "document.body.innerText""#)
-    };
-    let output = run_with_watchdog("osascript", &["-e", &script], Duration::from_secs(2))?;
-    let collapsed = output.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.is_empty() {
-        return None;
-    }
-    Some(collapsed.chars().take(4000).collect())
 }
 
 fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<String> {

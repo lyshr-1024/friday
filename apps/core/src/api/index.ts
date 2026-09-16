@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { activity } from "./activity.js";
 import { ask } from "./ask.js";
 import { attachments } from "./attachments.js";
 import { conversation } from "./conversation.js";
@@ -50,4 +51,5 @@ export const app = new Hono()
   .route("/", pty)
   .route("/", learn)
   .route("/", usage)
+  .route("/", activity)
   .route("/", summonApi);
