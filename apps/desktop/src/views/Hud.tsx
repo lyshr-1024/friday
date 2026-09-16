@@ -206,11 +206,13 @@ export function Hud() {
         </div>
       )}
       {rules?.match && (
-        <div className="hud__match">
-          <span className={`dot dot--${statusDot(rules.match.status)}`} />
-          {rules.match.title}
-          <span className="hud__why">{rules.match.why}</span>
-        </div>
+        <>
+          <div className="hud__match">
+            <span className={`dot dot--${statusDot(rules.match.status)}`} />
+            {rules.match.title}
+          </div>
+          <div className="hud__why">{rules.match.why}</div>
+        </>
       )}
       {card?.verdict ? (
         <p className="hud__verdict">{card.verdict}</p>

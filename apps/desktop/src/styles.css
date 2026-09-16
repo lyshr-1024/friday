@@ -4181,9 +4181,6 @@ a.fx__source-where:hover {
     0 24px 60px rgba(0, 0, 0, 0.52);
   color: var(--fg-1);
   font-size: var(--t-body);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
 }
 
 /* 四角定位标记 */
@@ -4219,7 +4216,11 @@ a.fx__source-where:hover {
   gap: var(--s-2);
   width: 100%;
   padding: 0;
+  /* 不清掉原生外观的话 macOS 会把它渲染成圆角胶囊 */
+  -webkit-appearance: none;
+  appearance: none;
   border: 0;
+  border-radius: 0;
   background: none;
   font: inherit;
   font-size: var(--t-micro);
@@ -4228,6 +4229,7 @@ a.fx__source-where:hover {
   color: rgba(56, 214, 255, 0.7);
   text-align: left;
   cursor: default;
+  margin-bottom: 15px;
   transition: color var(--dur) var(--ease);
 }
 
@@ -4283,6 +4285,8 @@ a.fx__source-where:hover {
   font-weight: 500;
   letter-spacing: -0.01em;
   text-shadow: 0 0 24px rgba(56, 214, 255, 0.26);
+  display: block;
+  margin-bottom: 6px;
 }
 
 .hud__why {
@@ -4291,6 +4295,8 @@ a.fx__source-where:hover {
   letter-spacing: 0.02em;
   color: rgba(56, 214, 255, 0.5);
   text-shadow: none;
+  display: block;
+  margin-bottom: 16px;
 }
 
 .hud__verdict {
@@ -4299,6 +4305,7 @@ a.fx__source-where:hover {
   font-size: var(--t-body);
   line-height: 1.65;
   color: rgba(255, 255, 255, 0.88);
+  margin-bottom: 20px;
 }
 
 .hud__verdict--think {
@@ -4509,4 +4516,14 @@ a.fx__source-where:hover {
 
 .hud__ask-input:disabled {
   opacity: var(--o-disabled);
+}
+
+/* HUD 窗口高度由内容决定：根容器若是 height:100% + overflow:hidden，
+   测到的 scrollHeight 恒等于当前窗口高度，会锁死在初始高度把内容裁掉 */
+html:has(.hud),
+body:has(.hud),
+#root:has(.hud) {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
 }
