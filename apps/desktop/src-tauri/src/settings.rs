@@ -19,3 +19,12 @@ pub fn hotkey() -> String {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_HOTKEY.to_string())
 }
+
+/// 读 <data_dir>/settings.json 的 "summon.screenshotFallback"，缺省 true。
+pub fn screenshot_fallback() -> bool {
+    std::fs::read_to_string(data_dir().join("settings.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("summon")?.get("screenshotFallback")?.as_bool())
+        .unwrap_or(true)
+}

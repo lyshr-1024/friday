@@ -1,4 +1,5 @@
 mod env_path;
+mod hud;
 mod notify;
 mod permissions;
 mod settings;
@@ -57,6 +58,17 @@ fn capture_snapshot(screenshot_fallback: bool) -> serde_json::Value {
     snapshot::capture(screenshot_fallback)
 }
 
+/// HUD 前端就位后调用，取回 toggle 时暂存的快照（窗口刚建时 emit 会丢）。
+#[tauri::command]
+fn take_pending_summon(app: tauri::AppHandle) -> Option<serde_json::Value> {
+    app.try_state::<hud::PendingSummon>().and_then(|p| p.0.lock().ok()?.take())
+}
+
+#[tauri::command]
+fn hide_hud(app: tauri::AppHandle) {
+    hud::hide(&app);
+}
+
 fn is_dev_mode() -> bool {
     std::env::var("FRIDAY_DEV").is_ok_and(|v| v == "1")
 }
@@ -70,14 +82,16 @@ pub fn run() {
     }
     let app = builder
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::new().with_denylist(&["main", "settings"]).build())
+        .plugin(tauri_plugin_window_state::Builder::new().with_denylist(&["main", "settings", "hud"]).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_nspanel::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        window::toggle_main(app);
+                        hud::toggle(app);
                     }
                 })
                 .build(),
@@ -91,7 +105,9 @@ pub fn run() {
             take_pending_chat,
             permission_status,
             open_permission_pane,
-            capture_snapshot
+            capture_snapshot,
+            take_pending_summon,
+            hide_hud
         ])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
@@ -101,7 +117,9 @@ pub fn run() {
                 eprintln!("[friday] 注册热键 {hotkey} 失败：{e}");
             }
             app.manage(window::PendingChat(std::sync::Mutex::new(None)));
+            app.manage(hud::PendingSummon(std::sync::Mutex::new(None)));
             window::open_chat(app.handle(), None, None);
+            hud::prebuild(app.handle());
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
             notify::start(app.handle().clone(), sidecar::port());
             Ok(())
