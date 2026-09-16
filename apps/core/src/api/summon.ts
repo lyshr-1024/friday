@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { Snapshot, SummonAction } from "@friday/shared";
 import { summon } from "../agent/summon/index.js";
+import { finishTask } from "../agent/pipeline.js";
 import { addNoteTask } from "../memory/noteTask.js";
-import { getTask, updateTask } from "../memory/tasks.js";
+import { getTask } from "../memory/tasks.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 
 export const summonApi = new Hono()
@@ -24,7 +25,7 @@ export const summonApi = new Hono()
       }
       case "mark_done": {
         if (!getTask(action.taskId)) return c.json({ error: "任务不存在" }, 404);
-        updateTask(action.taskId, { status: "done", attention: undefined, pending: [] });
+        await finishTask(action.taskId, "done", "在呼出模式里标记完成");
         return c.json({ ok: true, taskId: action.taskId, message: "已标完成" });
       }
       case "note": {

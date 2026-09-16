@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { app } from "./index.js";
+import { addPending, createTask, getTask } from "../memory/tasks.js";
 
 const snapshot = {
   at: Date.now(),
@@ -38,6 +39,24 @@ describe("POST /summon/act", () => {
     const body = (await res.json()) as { ok: boolean; taskId?: string };
     expect(body.ok).toBe(true);
     expect(body.taskId).toBeTruthy();
+  });
+
+  it("mark_done 对挂着 pending 动作的任务收工：状态变 done 且 pending 清空", async () => {
+    const task = createTask({ title: "呼出模式标完成", kind: "verbal", source: {} });
+    addPending(task.id, { type: "slack_reply", label: "回复拂晓", detail: "草稿", payload: { text: "好的" } });
+
+    const res = await app.request("/summon/act", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: { kind: "mark_done", label: "标记完成", taskId: task.id } }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+
+    const after = getTask(task.id);
+    expect(after?.status).toBe("done");
+    expect(after?.pending ?? []).toEqual([]);
   });
 
   it("不认识的动作返回 400", async () => {
