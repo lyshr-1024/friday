@@ -76,6 +76,8 @@ fn automation_ok() -> bool {
     }
 }
 
+// Ventura 之后系统设置改版，旧的 com.apple.preference.security 域在 macOS 26 上
+// 只能落到通用页；新域名才跳得进子面板，跳不动时回退旧的总比什么都不打开强。
 pub fn open_pane(kind: &str) {
     let anchor = match kind {
         "accessibility" => "Privacy_Accessibility",
@@ -83,7 +85,13 @@ pub fn open_pane(kind: &str) {
         "screen" => "Privacy_ScreenCapture",
         _ => return,
     };
-    let _ = std::process::Command::new("open")
-        .arg(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
-        .spawn();
+    let opened = std::process::Command::new("open")
+        .arg(format!("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}"))
+        .status()
+        .is_ok_and(|s| s.success());
+    if !opened {
+        let _ = std::process::Command::new("open")
+            .arg(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
+            .spawn();
+    }
 }

@@ -2,12 +2,19 @@ use std::path::PathBuf;
 
 pub const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 
+pub fn is_dev_mode() -> bool {
+    std::env::var("FRIDAY_DEV").is_ok_and(|v| v == "1")
+}
+
+// FRIDAY_DEV=1 时隔离到 Friday-dev，壳与 sidecar 共用这一处判断：
+// 两边各写一份的话，漏了哪边就会一半读 dev 目录一半读生产目录。
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("FRIDAY_DATA_DIR") {
         return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join("Library/Application Support/Friday")
+    let name = if is_dev_mode() { "Friday-dev" } else { "Friday" };
+    PathBuf::from(home).join("Library/Application Support").join(name)
 }
 
 /// 读 <data_dir>/settings.json 的 "hotkey"，缺失或非法时回退默认值。

@@ -3,30 +3,37 @@ import type { RunResponse, Snapshot, SummonAction, SummonEvent } from "@friday/s
 import { coreBaseUrl } from "./core";
 
 export async function* summonStream(snapshot: Snapshot, signal: AbortSignal): AsyncGenerator<SummonEvent> {
-  const res = await fetch(`${await coreBaseUrl()}/summon`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
-    body: JSON.stringify({ snapshot }),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    yield { type: "error", message: `core 返回 ${res.status}` };
-    yield { type: "done" };
-    return;
-  }
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += value;
-    let idx: number;
-    while ((idx = buffer.indexOf("\n\n")) >= 0) {
-      const frame = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const data = frame.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
-      if (data) yield JSON.parse(data) as SummonEvent;
+  // core 连不上或中途断流时必须吐 error + done，否则界面永远停在「正在判断」
+  try {
+    const res = await fetch(`${await coreBaseUrl()}/summon`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({ snapshot }),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      yield { type: "error", message: `core 返回 ${res.status}` };
+      yield { type: "done" };
+      return;
     }
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const data = frame.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
+        if (data) yield JSON.parse(data) as SummonEvent;
+      }
+    }
+  } catch (e) {
+    if (signal.aborted) return;
+    yield { type: "error", message: e instanceof Error ? e.message : "连不上 Friday" };
+    yield { type: "done" };
   }
 }
 

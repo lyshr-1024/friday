@@ -69,15 +69,11 @@ fn hide_hud(app: tauri::AppHandle) {
     hud::hide(&app);
 }
 
-fn is_dev_mode() -> bool {
-    std::env::var("FRIDAY_DEV").is_ok_and(|v| v == "1")
-}
-
 pub fn run() {
     let mut builder = tauri::Builder::default();
     // dev 实例与正式版共用 bundle id，单实例插件会把焦点转给已运行的正式版；
     // FRIDAY_DEV=1 时跳过它，让两者可以同时跑而不互相抢占。
-    if !is_dev_mode() {
+    if !settings::is_dev_mode() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| window::show_main(app)));
     }
     let app = builder
