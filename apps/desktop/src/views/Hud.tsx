@@ -198,10 +198,18 @@ export function Hud() {
 
   return (
     <div className="hud" ref={rootRef}>
-      <div className="hud__bar" data-tauri-drag-region>
+      <div
+        className="hud__bar"
+        onMouseDown={(e) => {
+          // HUD 转成了 NSPanel，原生的 data-tauri-drag-region 对它不生效
+          if ((e.target as HTMLElement).closest(".hud__tool, .hud__saw")) return;
+          void getCurrentWindow().startDragging();
+        }}
+      >
         <button className="hud__saw" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
           {rules?.saw ?? "看看你在做什么…"}
         </button>
+        <span className="hud__rule" />
         <button
           className="hud__tool"
           title="重新分析当前窗口"

@@ -4216,7 +4216,7 @@ a.fx__source-where:hover {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  width: 100%;
+  flex-shrink: 0;
   padding: 0;
   /* 不清掉原生外观的话 macOS 会把它渲染成圆角胶囊 */
   -webkit-appearance: none;
@@ -4234,10 +4234,11 @@ a.fx__source-where:hover {
   transition: color var(--dur) var(--ease);
 }
 
-.hud__saw::after {
-  content: "";
+/* 线独立出来：它占的那段空白正好当拖动区，点文字才是展开 */
+.hud__rule {
   flex: 1;
   height: 1px;
+  min-width: 24px;
   background: linear-gradient(90deg, rgba(56, 214, 255, 0.4), transparent);
 }
 
@@ -4551,6 +4552,12 @@ body:has(.hud)::-webkit-scrollbar {
   align-items: center;
   gap: var(--s-2);
   margin-bottom: 15px;
+  /* 整条可拖，按钮和标题行自己拦截 */
+  cursor: grab;
+}
+
+.hud__bar:active {
+  cursor: grabbing;
 }
 
 .hud__tool {
