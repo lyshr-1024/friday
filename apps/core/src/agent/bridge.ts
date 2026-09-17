@@ -28,7 +28,7 @@ const list = (description: string) => ({ type: "array", items: { type: "string" 
 export const BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: "friday_context",
-    description: "拿这条任务的背景：用户的理解与方案、交代的原话、Slack 原文、关联项目与人物、等用户点头的动作。开工前先调一次。",
+    description: "拿这条任务的背景：交代的原话、Slack 原文、关联工单、项目与人物、等用户点头的动作。都是 Friday 收集的事实，不含技术方案——改哪里怎么改由你看代码定。开工前先调一次。",
     inputSchema: { type: "object", properties: {} },
   },
   {
