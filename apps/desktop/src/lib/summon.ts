@@ -31,8 +31,11 @@ export async function* summonStream(snapshot: Snapshot, signal: AbortSignal): As
       }
     }
   } catch (e) {
-    if (signal.aborted) return;
-    yield { type: "error", message: e instanceof Error ? e.message : "连不上 Friday" };
+    // 取消是正常结果不是故障：signal.aborted 有时滞后，名字和 Tauri 的
+    // 「Operation aborted」一起判，免得把取消当错误显示给用户
+    const msg = e instanceof Error ? e.message : String(e);
+    if (signal.aborted || (e instanceof Error && e.name === "AbortError") || /abort/i.test(msg)) return;
+    yield { type: "error", message: msg || "连不上 Friday" };
     yield { type: "done" };
   }
 }

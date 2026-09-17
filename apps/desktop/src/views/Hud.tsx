@@ -59,10 +59,18 @@ export function Hud() {
   }
 
   useEffect(() => {
+    // 壳每次呼出既暂存快照又发事件，两条路径都跑的话后一条会取消前一条，
+    // 留下「Operation aborted」并卡在「正在判断」。用时间戳去重，同一份快照只分析一次。
+    let lastAt = 0;
+    const once = (snap: Snapshot) => {
+      if (snap.at && snap.at === lastAt) return;
+      lastAt = snap.at;
+      start(snap);
+    };
     void invoke<Snapshot | null>("take_pending_summon").then((s) => {
-      if (s) start(s);
+      if (s) once(s);
     });
-    const unlisten = listen<Snapshot>("friday://summon", (e) => start(e.payload));
+    const unlisten = listen<Snapshot>("friday://summon", (e) => once(e.payload));
     return () => void unlisten.then((f) => f());
   }, []);
 
