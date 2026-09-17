@@ -64,6 +64,18 @@ fn take_pending_summon(app: tauri::AppHandle) -> Option<serde_json::Value> {
     app.try_state::<hud::PendingSummon>().and_then(|p| p.0.lock().ok()?.take())
 }
 
+/// 重新分析：HUD 开着时前台是 Friday 自己，必须先回到上一个 app 再抓，
+/// 否则「我看到了」会变成 Friday 自己的窗口。
+#[tauri::command]
+fn resummon(app: tauri::AppHandle) {
+    hud::resummon(&app);
+}
+
+#[tauri::command]
+fn set_hud_pinned(app: tauri::AppHandle, pinned: bool) {
+    hud::set_pinned(&app, pinned);
+}
+
 #[tauri::command]
 fn hide_hud(app: tauri::AppHandle) {
     hud::hide(&app);
@@ -103,7 +115,9 @@ pub fn run() {
             open_permission_pane,
             capture_snapshot,
             take_pending_summon,
-            hide_hud
+            hide_hud,
+            set_hud_pinned,
+            resummon
         ])
         .setup(|app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
@@ -114,6 +128,7 @@ pub fn run() {
             }
             app.manage(window::PendingChat(std::sync::Mutex::new(None)));
             app.manage(hud::PendingSummon(std::sync::Mutex::new(None)));
+            app.manage(hud::Pinned(std::sync::atomic::AtomicBool::new(false)));
             window::open_chat(app.handle(), None, None);
             hud::prebuild(app.handle());
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
@@ -124,7 +139,11 @@ pub fn run() {
             match (window.label(), event) {
                 ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
                 // 点外面就收起：Raycast 式浮窗的基本手感，不然切回去干活它还浮着挡视线
-                ("hud", WindowEvent::Focused(false)) => hud::hide(window.app_handle()),
+                ("hud", WindowEvent::Focused(false)) => {
+                    if !hud::is_pinned(window.app_handle()) {
+                        hud::hide(window.app_handle());
+                    }
+                }
                 _ => {}
             }
         })

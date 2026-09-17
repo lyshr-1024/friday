@@ -4231,7 +4231,6 @@ a.fx__source-where:hover {
   color: rgba(56, 214, 255, 0.7);
   text-align: left;
   cursor: default;
-  margin-bottom: 15px;
   transition: color var(--dur) var(--ease);
 }
 
@@ -4543,4 +4542,50 @@ body:has(.hud) {
 html:has(.hud)::-webkit-scrollbar,
 body:has(.hud)::-webkit-scrollbar {
   display: none;
+}
+
+/* 顶栏整条可拖动，工具按钮排在右侧 */
+.hud__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: 15px;
+}
+
+.hud__tool {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid rgba(56, 214, 255, 0.22);
+  border-radius: 0;
+  background: rgba(56, 214, 255, 0.05);
+  color: rgba(56, 214, 255, 0.7);
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+  transition: all var(--dur) var(--ease);
+  /* 顶栏是拖动区，按钮本身不能被拖走 */
+  -webkit-app-region: no-drag;
+}
+
+.hud__tool:hover {
+  border-color: rgba(56, 214, 255, 0.5);
+  background: rgba(56, 214, 255, 0.14);
+  color: #d6f4ff;
+}
+
+.hud__tool--on {
+  border-color: var(--live);
+  background: rgba(56, 214, 255, 0.2);
+  color: #d6f4ff;
+  box-shadow: 0 0 14px rgba(56, 214, 255, 0.24);
+}
+
+.hud__tool:focus-visible {
+  outline: 1px solid var(--live);
+  outline-offset: 2px;
 }

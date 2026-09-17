@@ -20,6 +20,7 @@ export function Hud() {
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -196,9 +197,32 @@ export function Hud() {
 
   return (
     <div className="hud" ref={rootRef}>
-      <button className="hud__saw" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {rules?.saw ?? "看看你在做什么…"}
-      </button>
+      <div className="hud__bar" data-tauri-drag-region>
+        <button className="hud__saw" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {rules?.saw ?? "看看你在做什么…"}
+        </button>
+        <button
+          className="hud__tool"
+          title="重新分析当前窗口"
+          aria-label="重新分析当前窗口"
+          onClick={() => void invoke("resummon")}
+        >
+          ↻
+        </button>
+        <button
+          className={`hud__tool ${pinned ? "hud__tool--on" : ""}`}
+          title={pinned ? "已固定，点外面不会收起" : "固定住，点外面不收起"}
+          aria-label="固定 HUD"
+          aria-pressed={pinned}
+          onClick={() => {
+            const next = !pinned;
+            setPinned(next);
+            void invoke("set_hud_pinned", { pinned: next });
+          }}
+        >
+          {pinned ? "◆" : "◇"}
+        </button>
+      </div>
       {open && snapshot && (snapshot.browser?.url || snapshot.selection || snapshot.screenshotPath) && (
         <div className="hud__raw">
           {snapshot.browser?.url && <div className="hud__raw-row">{snapshot.browser.url}</div>}

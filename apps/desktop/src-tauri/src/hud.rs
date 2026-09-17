@@ -3,6 +3,21 @@ use tauri_nspanel::ManagerExt;
 
 pub struct PendingSummon(pub std::sync::Mutex<Option<serde_json::Value>>);
 
+/// 钉住：失焦不收、再次呼出不挪位置。用户要对着 HUD 干活时需要它待着不动。
+pub struct Pinned(pub std::sync::atomic::AtomicBool);
+
+pub fn is_pinned(app: &AppHandle) -> bool {
+    app.try_state::<Pinned>()
+        .map(|p| p.0.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+pub fn set_pinned(app: &AppHandle, on: bool) {
+    if let Some(p) = app.try_state::<Pinned>() {
+        p.0.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 const WIDTH: f64 = 560.0;
 const HEIGHT: f64 = 420.0;
 const CURSOR_GAP: f64 = 16.0;
@@ -83,6 +98,17 @@ fn position_near_cursor(win: &tauri::WebviewWindow) {
     let _ = win.set_position(tauri::LogicalPosition::new(x, y));
 }
 
+/// 重新分析当前聚焦的窗口。HUD 是非激活面板，前台一直是用户原来那个 app，
+/// 所以直接抓就是对的，不用先隐藏自己。
+pub fn resummon(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("hud") else { return };
+    let snap = crate::snapshot::capture(crate::settings::screenshot_fallback());
+    if let Ok(mut pending) = app.state::<PendingSummon>().0.lock() {
+        *pending = Some(snap.clone());
+    }
+    let _ = win.emit("friday://summon", snap);
+}
+
 pub fn toggle(app: &AppHandle) {
     let Some(win) = app.get_webview_window("hud") else { return };
     if win.is_visible().unwrap_or(false) {
@@ -96,7 +122,9 @@ pub fn toggle(app: &AppHandle) {
     if let Ok(mut pending) = app.state::<PendingSummon>().0.lock() {
         *pending = Some(snap.clone());
     }
-    position_near_cursor(&win);
+    if !is_pinned(app) {
+        position_near_cursor(&win);
+    }
     show(app, &win);
     let _ = win.emit("friday://summon", snap);
 }
