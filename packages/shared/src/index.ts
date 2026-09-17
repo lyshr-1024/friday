@@ -386,8 +386,20 @@ export const REPLY_CATEGORIES: ReplyCategory[] = ["question", "status_ask", "cod
  */
 export const AUTOSTART_CATEGORY = "autostart";
 
-/** 阈值与 lessons 的键：回复类别 + 开工 */
-export type GateCategory = ReplyCategory | typeof AUTOSTART_CATEGORY;
+/**
+ * 「转给终端」的闸门类别。Friday 在项目明确之后只做决定和转发，
+ * 学的是转得对不对（原话有没有丢、该不该转、时机对不对），
+ * 不是学怎么改代码——那是终端的事，Friday 没有项目 skill 和代码上下文。
+ */
+export const RELAY_CATEGORY = "relay";
+
+/** 阈值与 lessons 的键：回复类别 + 开工 + 转给终端 */
+export type GateCategory = ReplyCategory | typeof AUTOSTART_CATEGORY | typeof RELAY_CATEGORY;
+
+/** 有手册可写的类别：回复各类 + 转给终端。开工（autostart）只有阈值，没有手册。 */
+export type PlaybookCategory = ReplyCategory | typeof RELAY_CATEGORY;
+
+export const PLAYBOOK_CATEGORIES: PlaybookCategory[] = [...REPLY_CATEGORIES, RELAY_CATEGORY];
 
 export const GATE_CATEGORY_LABEL: Record<GateCategory, string> = {
   question: "问你一件事",
@@ -397,6 +409,7 @@ export const GATE_CATEGORY_LABEL: Record<GateCategory, string> = {
   notice: "通知",
   other: "其他",
   autostart: "自己开工改代码",
+  relay: "转给终端",
 };
 
 export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
@@ -410,9 +423,10 @@ export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
 
 /**
  * 人工处理这条草稿时用户做了什么。approved / edited_approved 是正信号，其余都是负信号：
- * ignored = Friday 判断要回、你直接忽略；done_without_reply = 你自己回了，草稿没用上。
+ * ignored = Friday 判断要回、你直接忽略；done_without_reply = 你自己回了，草稿没用上；
+ * relayed_direct = 该转给终端的话你自己敲进去了，说明 Friday 转达得不对或不够快。
  */
-export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone" | "ignored" | "done_without_reply";
+export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone" | "ignored" | "done_without_reply" | "relayed_direct";
 
 export interface Lesson {
   id: string;

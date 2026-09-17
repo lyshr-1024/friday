@@ -3,7 +3,9 @@ import { app } from "../api/index.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
-import { describeQuestion, setVerified, turnFinished } from "./bridge.js";
+import { contextFor, describeQuestion, setVerified, turnFinished, userTyped } from "./bridge.js";
+import { listLessons } from "../memory/lessons.js";
+import { RELAY_CATEGORY } from "@friday/shared";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>
@@ -120,5 +122,61 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(getTask(task.id)!.progress).toContain("用哪个方案");
     await app.request("/jobs/job-q/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "PostToolUse", toolName: "AskUserQuestion", toolInput: input }) });
     expect(getTask(task.id)!.attention).toBeUndefined();
+  });
+});
+
+describe("项目明确之后只做决定和转发", () => {
+  it("给终端的背景不带 Friday 的方案，给 Friday 自己的带", () => {
+    const task = createTask({
+      title: "whale：改导出",
+      kind: "code",
+      source: { jobId: "job-ctx" },
+      project: "whale",
+      status: "processing",
+      understanding: "拂晓说导出的日期筛选不对",
+      plan: "改 ExportPanel.tsx 的 dayjs 时区",
+    });
+    const toTerminal = contextFor(getTask(task.id)!);
+    expect(toTerminal).toContain("拂晓说导出的日期筛选不对");
+    expect(toTerminal).not.toContain("ExportPanel.tsx");
+    expect(toTerminal).toContain("没读过这个项目的代码");
+
+    // 会话里 Friday 自己要记得你俩聊定的结论，否则下一轮就忘了你已经拍过板
+    const toFriday = contextFor(getTask(task.id)!, undefined, "friday");
+    expect(toFriday).toContain("ExportPanel.tsx");
+    expect(toFriday).not.toContain("没读过这个项目的代码");
+  });
+
+  it("用户自己往终端敲整句 = 一条 relay 经验；应答键和空行不算", () => {
+    createJob({ id: "job-typed", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：转发", kind: "code", source: { jobId: "job-typed" }, project: "demo", status: "processing" });
+    const before = listLessons(RELAY_CATEGORY, 100).length;
+
+    // 前端每键一个 POST，攒到回车算一句
+    for (const ch of "先看 apps/core 里的 fence.ts") userTyped("job-typed", ch);
+    userTyped("job-typed", "\r");
+    const after = listLessons(RELAY_CATEGORY, 100);
+    expect(after.length).toBe(before + 1);
+    expect(after[0]!.final).toBe("先看 apps/core 里的 fence.ts");
+    expect(after[0]!.kind).toBe("relayed_direct");
+    expect(after[0]!.taskId).toBe(task.id);
+
+    // y / 回车这类应答键学不出东西
+    userTyped("job-typed", "y");
+    userTyped("job-typed", "\r");
+    userTyped("job-typed", "\r");
+    expect(listLessons(RELAY_CATEGORY, 100).length).toBe(before + 1);
+  });
+
+  it("退格跟着删，不把删掉的那版一起攒进去", () => {
+    createJob({ id: "job-bs", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
+    createTask({ title: "demo：退格", kind: "code", source: { jobId: "job-bs" }, project: "demo", status: "processing" });
+    const before = listLessons(RELAY_CATEGORY, 100).length;
+    for (const ch of "改成 exclusiveX") userTyped("job-bs", ch);
+    userTyped("job-bs", "\x7f");
+    userTyped("job-bs", "\r");
+    const l = listLessons(RELAY_CATEGORY, 100);
+    expect(l.length).toBe(before + 1);
+    expect(l[0]!.final).toBe("改成 exclusive");
   });
 });

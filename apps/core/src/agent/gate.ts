@@ -19,8 +19,8 @@ export function decideStart(confidence: number, threshold: number): "auto" | "qu
   return confidence >= threshold ? "auto" : "queue";
 }
 
-/** 负信号按代价大小抬阈值：已发出去要撤回最重，你自己回了最轻 */
-const BACKOFF: Record<string, number> = { auto_undone: 20, rejected: 10, ignored: 10, done_without_reply: 5 };
+/** 负信号按代价大小抬阈值：已发出去要撤回最重，你自己回了 / 自己敲进终端最轻 */
+const BACKOFF: Record<string, number> = { auto_undone: 20, rejected: 10, ignored: 10, done_without_reply: 5, relayed_direct: 5 };
 
 export function backoff(threshold: number, kind: LessonKind): number {
   return Math.min(100, threshold + (BACKOFF[kind] ?? 0));

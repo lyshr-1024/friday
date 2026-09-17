@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS lessons (
   id TEXT PRIMARY KEY,
   task_id TEXT,
   category TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone','ignored','done_without_reply')),
+  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone','ignored','done_without_reply','relayed_direct')),
   draft TEXT,
   final TEXT,
   feedback TEXT,

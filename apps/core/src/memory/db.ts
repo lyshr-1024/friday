@@ -26,9 +26,10 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
 
 // 增量列：CREATE TABLE IF NOT EXISTS 不会给老库加列，这里按需补。
 export function migrate(d: DatabaseSync): void {
-  // lessons.kind 的取值范围写死在 CHECK 里，加了新类别只能重建表（SQLite 改不了 CHECK）
+  // lessons.kind 的取值范围写死在 CHECK 里，加了新类别只能重建表（SQLite 改不了 CHECK）。
+  // 判据用最新加的那个类别：再加新类别时把它换成新的，老库才会重建。
   const lessonsSql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'lessons'").get() as { sql?: string } | undefined)?.sql ?? "";
-  if (lessonsSql && !lessonsSql.includes("done_without_reply")) {
+  if (lessonsSql && !lessonsSql.includes("relayed_direct")) {
     d.exec("ALTER TABLE lessons RENAME TO lessons_old");
     d.exec(SCHEMA);
     d.exec("INSERT INTO lessons SELECT id, task_id, category, kind, draft, final, feedback, confidence, created_at FROM lessons_old");
