@@ -129,6 +129,7 @@ end tell"#
         return None;
     }
     let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    eprintln!("[friday] 浏览器抓取：url={} title={} 正文={}字", url.len(), title.len(), collapsed.chars().count());
     let text = if collapsed.is_empty() { None } else { Some(collapsed.chars().take(4000).collect()) };
     Some((url, title, text))
 }
