@@ -288,13 +288,8 @@ describe("Slack 线程要自己开工改代码时的闸门", () => {
 describe("reportBackToOrigin", () => {
   it("干完活把结果写回来源任务并标成待你看", () => {
     const origin = createTask({ title: "拂晓：改一下文案", kind: "slack", source: {}, status: "processing" });
-    const done = createTask({
-      title: "whale-console：改文案",
-      kind: "code",
-      source: { fromTaskId: origin.id },
-      status: "review",
-      progress: "改完了，跑过测试",
-    });
+    const created = createTask({ title: "whale-console：改文案", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
+    const done = updateTask(created.id, { progress: "改完了，跑过测试" })!;
     reportBackToOrigin(done);
     const after = getTask(origin.id)!;
     expect(after.status).toBe("review");
