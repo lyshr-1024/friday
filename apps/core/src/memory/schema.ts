@@ -174,6 +174,17 @@ CREATE TABLE IF NOT EXISTS usage (
   turns INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage (at);
+
+CREATE TABLE IF NOT EXISTS activity (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('shell')),
+  cwd TEXT NOT NULL,
+  branch TEXT,
+  cmd TEXT,
+  exit_code INTEGER
+);
+CREATE INDEX IF NOT EXISTS activity_ts ON activity (ts);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

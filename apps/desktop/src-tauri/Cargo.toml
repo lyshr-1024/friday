@@ -19,6 +19,8 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 window-vibrancy = "0.8.0"
@@ -27,3 +29,8 @@ objc2 = "0.6.4"
 objc2-foundation = "0.3.2"
 block2 = "0.6.2"
 objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSettings", "UNNotificationSound"] }
+objc2-application-services = { version = "0.3.2", features = ["AXUIElement", "AXError", "HIServices", "libc"] }
+objc2-core-graphics = { version = "0.3.2", features = ["CGWindow"] }
+objc2-core-foundation = { version = "0.3.2", features = ["CFArray", "CFDictionary", "CFNumber", "CFString"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSWorkspace", "NSRunningApplication"] }
+uuid = { version = "1", features = ["v4"] }

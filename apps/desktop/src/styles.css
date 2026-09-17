@@ -4184,3 +4184,437 @@ a.fx__source-where:hover {
   color: var(--fg-4);
   font-size: var(--t-xs);
 }
+/* ---------- 呼出模式 HUD ---------- */
+
+/* 投影感靠三样：毛玻璃透出底下的桌面、四角定位标记、青色发光边框。
+   不用 --bg-* 那套实体卡片的 token——它们是为填满屏幕的密集列表做的，
+   套在浮窗上就是一块灰方块。 */
+.hud {
+  position: relative;
+  padding: var(--s-6) var(--s-6) var(--s-5);
+  /* 设计稿是在固定深色背景上调的，实际 HUD 浮在任意桌面上，
+     底色太透会让青色被下面的亮色冲淡。加深到 0.72 保住对比度。 */
+  background:
+    linear-gradient(180deg, rgba(56, 214, 255, 0.05) 0%, transparent 40%),
+    rgba(4, 12, 18, 0.72);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border: 1px solid rgba(56, 214, 255, 0.24);
+  box-shadow:
+    0 0 30px rgba(56, 214, 255, 0.1),
+    0 24px 60px rgba(0, 0, 0, 0.52);
+  color: var(--fg-1);
+  font-size: var(--t-body);
+}
+
+/* 四角定位标记 */
+.hud::before,
+.hud::after {
+  content: "";
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--live);
+  pointer-events: none;
+}
+
+.hud::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.hud::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* 「我看到了」：读错了要能一眼核对出来，所以永远在最上面 */
+.hud__saw {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  padding: 0;
+  /* 不清掉原生外观的话 macOS 会把它渲染成圆角胶囊 */
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(56, 214, 255, 0.7);
+  text-align: left;
+  cursor: default;
+  transition: color var(--dur) var(--ease);
+}
+
+/* 线独立出来：它占的那段空白正好当拖动区，点文字才是展开 */
+.hud__rule {
+  flex: 1;
+  height: 1px;
+  min-width: 24px;
+  background: linear-gradient(90deg, rgba(56, 214, 255, 0.4), transparent);
+}
+
+.hud__saw:hover {
+  color: rgba(56, 214, 255, 0.95);
+}
+
+.hud__saw:focus-visible {
+  outline: 1px solid var(--live);
+  outline-offset: 3px;
+}
+
+.hud__raw {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 1px solid rgba(56, 214, 255, 0.28);
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+}
+
+.hud__raw-row {
+  word-break: break-all;
+}
+
+.hud__raw-selection {
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.hud__shot {
+  max-width: 100%;
+  border: 1px solid rgba(56, 214, 255, 0.2);
+}
+
+.hud__match {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-title);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-shadow: 0 0 24px rgba(56, 214, 255, 0.26);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.hud__why {
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: rgba(56, 214, 255, 0.5);
+  text-shadow: none;
+  display: block;
+  margin-bottom: 16px;
+}
+
+.hud__verdict {
+  position: relative;
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.88);
+  margin-bottom: 20px;
+}
+
+.hud__verdict--think {
+  color: var(--live);
+  animation: hud-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes hud-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.hud__reply {
+  position: relative;
+  margin: 0;
+  padding: var(--s-3);
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 1px solid rgba(56, 214, 255, 0.28);
+  font-family: inherit;
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+}
+
+.hud__confirm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(56, 214, 255, 0.32);
+}
+
+.hud__confirm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud__confirm-hint {
+  font-size: var(--t-micro);
+  letter-spacing: 0.1em;
+  color: rgba(56, 214, 255, 0.55);
+}
+
+.hud__confirm-text {
+  width: 100%;
+  padding: var(--s-2);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(56, 214, 255, 0.22);
+  font: inherit;
+  font-size: var(--t-aux);
+  color: var(--fg-1);
+  resize: vertical;
+}
+
+.hud__confirm-text:focus-visible {
+  outline: 0;
+  border-color: var(--live);
+  box-shadow: 0 0 14px rgba(56, 214, 255, 0.2);
+}
+
+.hud__confirm-what {
+  margin: 0;
+  font-size: var(--t-aux);
+  color: var(--fg-2);
+}
+
+.hud__actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+/* 切角按钮：投影界面不用圆角 */
+.hud .b {
+  font-size: 12.5px;
+  height: auto;
+  padding: 7px 16px;
+  border: 1px solid rgba(56, 214, 255, 0.26);
+  border-radius: 0;
+  background: rgba(56, 214, 255, 0.06);
+  color: rgba(255, 255, 255, 0.86);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+.hud .b:hover:not(:disabled) {
+  background: rgba(56, 214, 255, 0.12);
+  border-color: rgba(56, 214, 255, 0.45);
+}
+
+.hud .b--primary {
+  border-color: rgba(56, 214, 255, 0.6);
+  background: rgba(56, 214, 255, 0.17);
+  color: #d6f4ff;
+  box-shadow: 0 0 22px rgba(56, 214, 255, 0.24);
+}
+
+.hud .b--primary:hover:not(:disabled) {
+  background: rgba(56, 214, 255, 0.26);
+  border-color: var(--live);
+}
+
+.hud .b--text {
+  border-color: transparent;
+  background: none;
+  color: var(--fg-3);
+}
+
+.hud__note {
+  position: relative;
+  font-size: var(--t-aux);
+  color: rgba(56, 214, 255, 0.7);
+}
+
+.hud__note--err {
+  color: var(--bad);
+}
+
+/* 投影是「长出来的」不是「啪一下出现的」：边框先亮，内容再浮上来 */
+.hud {
+  animation: hud-in 220ms var(--ease) both;
+}
+
+.hud > * {
+  animation: hud-content-in 260ms var(--ease) both;
+  animation-delay: 90ms;
+}
+
+@keyframes hud-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hud-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud,
+  .hud > * {
+    animation: none;
+  }
+
+  .hud__verdict--think {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+.hud__answer {
+  position: relative;
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.9);
+  padding-left: var(--s-3);
+  border-left: 1px solid rgba(56, 214, 255, 0.4);
+}
+
+.hud__ask {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-top: var(--s-3);
+  border-top: 1px solid rgba(56, 214, 255, 0.16);
+}
+
+.hud__ask-input {
+  flex: 1;
+  padding: var(--s-2) 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--t-body);
+  color: var(--fg-1);
+  resize: none;
+  line-height: 1.5;
+  max-height: 96px;
+}
+
+.hud__ask-input::placeholder {
+  color: rgba(56, 214, 255, 0.4);
+}
+
+.hud__ask-input:focus {
+  outline: 0;
+}
+
+.hud__ask-input:disabled {
+  opacity: var(--o-disabled);
+}
+
+/* HUD 窗口高度由内容决定：根容器若是 height:100% + overflow:hidden，
+   测到的 scrollHeight 恒等于当前窗口高度，会锁死在初始高度把内容裁掉 */
+html:has(.hud),
+body:has(.hud),
+#root:has(.hud) {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* 窗口高度跟着内容走，滚动条不该出现在浮窗上；
+   高度差一两像素就会冒出来，直接藏掉 */
+html:has(.hud),
+body:has(.hud) {
+  scrollbar-width: none;
+}
+
+html:has(.hud)::-webkit-scrollbar,
+body:has(.hud)::-webkit-scrollbar {
+  display: none;
+}
+
+/* 顶栏整条可拖动，工具按钮排在右侧 */
+.hud__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: 15px;
+  /* 整条可拖，按钮和标题行自己拦截 */
+  cursor: grab;
+}
+
+.hud__bar:active {
+  cursor: grabbing;
+}
+
+.hud__tool {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid rgba(56, 214, 255, 0.22);
+  border-radius: 0;
+  background: rgba(56, 214, 255, 0.05);
+  color: rgba(56, 214, 255, 0.7);
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+  transition: all var(--dur) var(--ease);
+  /* 顶栏是拖动区，按钮本身不能被拖走 */
+  -webkit-app-region: no-drag;
+}
+
+.hud__tool:hover {
+  border-color: rgba(56, 214, 255, 0.5);
+  background: rgba(56, 214, 255, 0.14);
+  color: #d6f4ff;
+}
+
+.hud__tool--on {
+  border-color: var(--live);
+  background: rgba(56, 214, 255, 0.2);
+  color: #d6f4ff;
+  box-shadow: 0 0 14px rgba(56, 214, 255, 0.24);
+}
+
+.hud__tool:focus-visible {
+  outline: 1px solid var(--live);
+  outline-offset: 2px;
+}

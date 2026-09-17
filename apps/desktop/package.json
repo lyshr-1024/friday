@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:isolated": "FRIDAY_DEV=1 arch -arm64 tauri dev",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri"

@@ -1,16 +1,5 @@
 use tauri::{ActivationPolicy, AppHandle, Emitter, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 
-/// 热键：工作台开着且聚焦 → 隐藏；否则打开并聚焦。
-pub fn toggle_main(app: &AppHandle) {
-    if let Some(chat) = app.get_webview_window("chat") {
-        if chat.is_visible().unwrap_or(false) && chat.is_focused().unwrap_or(false) {
-            let _ = chat.hide();
-            return;
-        }
-    }
-    open_chat(app, None, None);
-}
-
 pub fn show_main(app: &AppHandle) {
     open_chat(app, None, None);
 }

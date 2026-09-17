@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
+import { lessonFromTask } from "./lessons.js";
 import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
@@ -50,6 +51,23 @@ export interface ThreadDeps {
  */
 export function closeTaskThread(task: Task, status: "done" | "ignored" = "done"): void {
   if (task.source.threadId) setThreadStatus(task.source.threadId, status);
+}
+
+/**
+ * 任务收工的完整动作：标状态 + 记 lesson + 关终端 + 关线程 + 收 worktree。
+ * `/tasks/:id/done`、`/tasks/:id/ignore`、呼出模式 mark_done 都是这同一件事，
+ * 不能有两套语义——漏关终端会留下孤儿 claude 进程（2026-09-14 已经踩过一次）。
+ */
+export async function finishTask(id: string, status: "done" | "ignored", why: string): Promise<Task | undefined> {
+  const before = getTask(id);
+  const t = updateTask(id, { status, pending: [], attention: undefined });
+  if (t) {
+    if (before) lessonFromTask(before, status === "done" ? "done_without_reply" : "ignored");
+    closeTaskTerminal(t, why);
+    closeTaskThread(t, status);
+    await cleanupTaskWorktree(t, why);
+  }
+  return t;
 }
 
 export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps = {}): Promise<Task> {

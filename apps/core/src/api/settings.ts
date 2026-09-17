@@ -13,6 +13,10 @@ const patch = z.object({
   theme: z.enum(THEME_OPTIONS.map((t) => t.id) as [string, ...string[]]).optional(),
   learn: z.boolean().optional(),
   learnHistory: z.boolean().optional(),
+  summon: z.object({
+    screenshotFallback: z.boolean().optional(),
+    urlAllowlist: z.array(z.string()).optional(),
+  }).optional(),
 });
 
 function respond(): SettingsResponse {

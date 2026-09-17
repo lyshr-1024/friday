@@ -18,7 +18,7 @@ pub fn port() -> u16 {
     std::env::var("FRIDAY_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(7788)
+        .unwrap_or(if crate::settings::is_dev_mode() { 7799 } else { 7788 })
 }
 
 #[derive(Default)]
@@ -127,10 +127,9 @@ fn spawn(node: &PathBuf, core_dir: &PathBuf, path: &str, port: u16) -> std::io::
     } else {
         cmd.arg("dist/index.js");
     }
-    cmd.current_dir(core_dir)
-        .env("PATH", path)
-        .env("FRIDAY_PORT", port.to_string())
-        .stdin(Stdio::null())
+    cmd.current_dir(core_dir).env("PATH", path).env("FRIDAY_PORT", port.to_string());
+    cmd.env("FRIDAY_DATA_DIR", crate::settings::data_dir());
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()

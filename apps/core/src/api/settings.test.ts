@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SUMMON_SETTINGS, type SettingsResponse } from "@friday/shared";
 import { app } from "./index.js";
 
 describe("settings", () => {
@@ -23,5 +24,19 @@ describe("settings", () => {
   it("拒绝未知模型", async () => {
     const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-9" }) });
     expect(res.status).toBe(400);
+  });
+
+  it("summon 设置有默认值，PUT 只合并传进来的字段", async () => {
+    const before = await app.request("/settings");
+    expect(((await before.json()) as SettingsResponse).summon).toEqual(DEFAULT_SUMMON_SETTINGS);
+
+    const res = await app.request("/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ summon: { screenshotFallback: false } }),
+    });
+    const after = (await res.json()) as SettingsResponse;
+    expect(after.summon.screenshotFallback).toBe(false);
+    expect(after.summon.urlAllowlist).toEqual(DEFAULT_SUMMON_SETTINGS.urlAllowlist);
   });
 });
