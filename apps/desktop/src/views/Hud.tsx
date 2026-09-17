@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
 import { ask as askCore, coreBaseUrl } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
+import { Icon } from "./Icon";
 
 const HUD_WIDTH = 560;
 
@@ -207,7 +208,7 @@ export function Hud() {
           aria-label="重新分析当前窗口"
           onClick={() => void invoke("resummon")}
         >
-          ↻
+          <Icon name="refresh" />
         </button>
         <button
           className={`hud__tool ${pinned ? "hud__tool--on" : ""}`}
@@ -220,7 +221,7 @@ export function Hud() {
             void invoke("set_hud_pinned", { pinned: next });
           }}
         >
-          {pinned ? "◆" : "◇"}
+          <Icon name="pin" filled={pinned} />
         </button>
       </div>
       {open && snapshot && (snapshot.browser?.url || snapshot.selection || snapshot.screenshotPath) && (
