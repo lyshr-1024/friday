@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { getSession, kill, listSessions, resize, subscribe, write } from "../agent/pty.js";
+import { getSession, kill, listSessions, repaint, resize, subscribe, write } from "../agent/pty.js";
 import { reopenClaude } from "../agent/runner.js";
 import { clearAttention } from "../agent/bridge.js";
 
@@ -16,6 +16,8 @@ export const pty = new Hono()
           void stream.writeSSE({ data: JSON.stringify({ d: chunk }) }).catch(() => {});
         });
         if (!unsubscribe) return resolve();
+        // 回放完再让终端里的 Ink 整屏重画一次，否则它的增量重绘会接着落在错行上
+        repaint(id);
         const ping = setInterval(() => void stream.writeSSE({ data: JSON.stringify({ ping: 1 }) }).catch(() => {}), 15_000);
         stream.onAbort(() => {
           unsubscribe();

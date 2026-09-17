@@ -16,6 +16,8 @@ interface Session {
   lastOutputAt?: number;
   /** resize 会让 Ink 整屏重绘，那不是"在干活"：这段时间内的输出不计 */
   suppressUntil?: number;
+  cols: number;
+  rows: number;
 }
 
 const MAX_BUFFER = 400_000;
@@ -39,7 +41,7 @@ export function spawnSession(id: string, script: string, cwd: string, replay = "
     cwd,
     env: { ...cleanEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8", FRIDAY_EMBEDDED: "1" } as Record<string, string>,
   });
-  const s: Session = { id, pty, buffer: replay, listeners: new Set() };
+  const s: Session = { id, pty, buffer: replay, listeners: new Set(), cols: 120, rows: 34 };
   pty.onData((d) => {
     if (!s.suppressUntil || Date.now() >= s.suppressUntil) s.lastOutputAt = Date.now();
     s.buffer = (s.buffer + d).slice(-MAX_BUFFER);
@@ -74,8 +76,27 @@ export function resize(id: string, cols: number, rows: number): boolean {
   const s = sessions.get(id);
   if (!s || s.exited !== undefined) return false;
   s.suppressUntil = Date.now() + 1500;
-  s.pty.resize(Math.max(20, Math.min(400, cols)), Math.max(5, Math.min(200, rows)));
+  s.cols = Math.max(20, Math.min(400, cols));
+  s.rows = Math.max(5, Math.min(200, rows));
+  s.pty.resize(s.cols, s.rows);
   return true;
+}
+
+/**
+ * 回放只是把旧字节重放一遍，而 Ink 是靠「光标上移 N 行 → 擦行 → 重写」做增量重绘的：
+ * 回放的起点落在某次重绘周期中间、宽度也可能跟当时不一样，屏幕状态就此和 Ink 自己的
+ * 模型错开，之后每次增量重绘都落在错行上，不会自愈（看着就是字符逐个交织）。
+ * 抖一下宽度让 Ink 收到 SIGWINCH 整屏重画，屏幕才和前端对齐。
+ */
+export function repaint(id: string): void {
+  const s = sessions.get(id);
+  if (!s || s.exited !== undefined) return;
+  const { cols, rows } = s;
+  s.suppressUntil = Date.now() + 1500;
+  s.pty.resize(Math.max(20, cols - 1), rows);
+  setTimeout(() => {
+    if (sessions.get(id) === s && s.exited === undefined) s.pty.resize(cols, rows);
+  }, 120);
 }
 
 export function kill(id: string): boolean {

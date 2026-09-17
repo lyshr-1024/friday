@@ -2855,7 +2855,9 @@ body,
 /* ── 终端配色
    ANSI 16 色必须给全：缺的会落到 xterm.js 内置的 Tango 默认值，那套是给紫底
    (#300a24) 配的，放在深灰底上 blue(#3465a4)、magenta(#75507b) 对比度只有 2:1。
-   Claude Code 的 Ink 界面恰好大量用这些色（diff 红绿、工具名青、dim 灰）。 */
+   Claude Code 的 Ink 界面恰好大量用这些色（diff 红绿、工具名青、dim 灰）。
+   这组不随主题走：终端里跑的 Claude Code 自带深色 diff 底和高亮块，浅底配上去
+   会和它自己的底色插花，整块看着是花的。 */
 :root {
   --term-bg: #0e0f12;
   --term-fg: #e8eaee;
@@ -2908,27 +2910,6 @@ body,
   --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.06);
   color-scheme: light;
-  --term-bg: #fbfcfd;
-  --term-fg: #1b1f24;
-  --term-cursor: #0b7a96;
-  --term-sel: rgba(14, 143, 176, 0.2);
-  --term-veil: rgba(250, 251, 253, 0.72);
-  --term-black: #1b1f24;
-  --term-red: #c0392b;
-  --term-green: #1f7a4d;
-  --term-yellow: #8a6000;
-  --term-blue: #2060c0;
-  --term-magenta: #8e44ad;
-  --term-cyan: #00707f;
-  --term-white: #6b727c;
-  --term-bright-black: #8a919b;
-  --term-bright-red: #d64545;
-  --term-bright-green: #1f9d5a;
-  --term-bright-yellow: #a37200;
-  --term-bright-blue: #2b74d8;
-  --term-bright-magenta: #a259c6;
-  --term-bright-cyan: #0e8fb0;
-  --term-bright-white: #4a515b;
 }
 
 /* 设置页：分段选择 */
@@ -3496,6 +3477,47 @@ body,
 }
 .grp__act:disabled {
   color: var(--fg-4);
+}
+
+/* 一包缺陷：同一个需求下的几条收在一行里，展开才看到，一次能全部开工 */
+.pack {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  transition: background var(--dur) var(--ease);
+}
+.pack:hover {
+  background: var(--bg-2);
+}
+.pack__head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-aux);
+  text-align: left;
+  cursor: default;
+}
+.pack__head:hover {
+  color: var(--fg-1);
+}
+.pack__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 包里的条目缩进一级，看得出是挂在上面那行下面的 */
+.li--sub {
+  padding-left: var(--s-6);
 }
 
 /* 自学任务的研究笔记全文：markdown 原文，保留换行可选中 */

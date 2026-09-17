@@ -387,13 +387,13 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
   }
 
   // 阈值没到：挂成待审动作等用户点。用户点通过 / 打回的记录会回流成 lessons，阈值自己校准。
-  updateTask(task.id, { status: "review" });
+  // 状态留在待办里：一条还没开工的工单不是「阻塞你的事」，不该进「待我决定」。
   addPending(task.id, {
     type: "start_job",
     label: `开工：${dir.project.name}`,
     detail: verdict.detail,
     payload,
-  });
+  }, { keepStatus: true });
   record({
     taskId: task.id,
     action: "intake_start_pending",

@@ -131,10 +131,15 @@ export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured
   return { tasks: tasks.filter((t) => t.status !== "ignored"), counts };
 }
 
-export function addPending(id: string, action: Omit<PendingAction, "id">): Task | undefined {
+/**
+ * keepStatus：待审动作不一定意味着「阻塞你」。开工提案就是这样——工单还在排队，
+ * 它该留在待办里等你安排，而不是挤进「待我决定」把真正卡住的事淹掉。
+ */
+export function addPending(id: string, action: Omit<PendingAction, "id">, opts?: { keepStatus?: boolean }): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
-  return updateTask(id, { pending: [...(cur.pending ?? []), { id: randomUUID(), ...action }], status: "review" });
+  const pending = [...(cur.pending ?? []), { id: randomUUID(), ...action }];
+  return updateTask(id, opts?.keepStatus ? { pending } : { pending, status: "review" });
 }
 
 export function updatePending(id: string, actionId: string, patch: Partial<Pick<PendingAction, "detail" | "payload" | "label">>): Task | undefined {

@@ -48,6 +48,14 @@ export function migrate(d: DatabaseSync): void {
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!taskCols.includes("attention")) d.exec("ALTER TABLE tasks ADD COLUMN attention TEXT");
   if (!taskCols.includes("pinned")) d.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  // 开工提案曾经会把工单推进 review，于是「待我决定」里堆的全是还没开工的工单，
+  // 而「缺陷」分组反而是空的。挂着开工提案、没有别的待审动作的，放回待办里。
+  d.exec(`UPDATE tasks SET status = 'understood'
+          WHERE status = 'review'
+            AND pending LIKE '%"start_job"%'
+            AND pending NOT LIKE '%"slack_reply"%'
+            AND pending NOT LIKE '%"git_merge"%'
+            AND pending NOT LIKE '%"handbook_apply"%'`);
 }
 
 export function db(): DatabaseSync {

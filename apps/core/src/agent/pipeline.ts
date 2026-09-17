@@ -144,8 +144,8 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
     if (decideStart(brief.confidence, startThreshold) === "auto") {
       task = await startAutonomousJob(task, dir.project.name, dir.project.dir, detail);
     } else {
-      updateTask(task.id, { status: "review" });
-      task = addPending(task.id, { type: "start_job", label: `开工：${dir.project.name}`, detail: what, payload })!;
+      // 状态不动：开工提案是「可以安排」，不是「卡住了等你」，别挤进「待我决定」
+      task = addPending(task.id, { type: "start_job", label: `开工：${dir.project.name}`, detail: what, payload }, { keepStatus: true })!;
       record({
         taskId: task.id,
         action: "intake_start_pending",

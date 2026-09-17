@@ -256,8 +256,15 @@ describe("Slack 线程要自己开工改代码时的闸门", () => {
     setThreshold("autostart", 80);
     const task = await threadToTask(mkRealThread("th-code-low"), mkCodeBrief(45), "demo-proj");
     expect(task.source.jobId).toBeUndefined();
-    expect(task.status).toBe("review");
     expect((task.pending ?? []).map((p) => p.type)).toContain("start_job");
+  });
+
+  it("挂了开工提案不改状态：还没开工的活留在待办里，不占「待我决定」", async () => {
+    mkProject();
+    setThreshold("autostart", 80);
+    const task = await threadToTask(mkRealThread("th-code-stay"), mkCodeBrief(45), "demo-proj");
+    expect(task.status).not.toBe("review");
+    expect(task.status).not.toBe("blocked");
   });
 
   it("阈值 100（默认）等于关掉自动开工，置信度满分也只是挂起", async () => {

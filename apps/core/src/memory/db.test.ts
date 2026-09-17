@@ -34,4 +34,21 @@ describe("老库迁移", () => {
     expect((d.prepare("SELECT kind FROM lessons WHERE id = 'old1'").get() as { kind: string }).kind).toBe("approved");
     expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'lessons_old'").get() as { n: number }).n).toBe(0);
   });
+
+  it("只挂着开工提案的工单放回待办，带真待审动作的留在「待我决定」", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    const add = (id: string, pending: string) =>
+      d.prepare("INSERT INTO tasks (id, title, kind, source, status, pending, created_at, updated_at) VALUES (?, ?, ?, ?, 'review', ?, ?, ?)")
+        .run(id, id, "meegle", "{}", pending, "2026-09-16T00:00:00Z", "2026-09-16T00:00:00Z");
+    add("only-start", JSON.stringify([{ id: "a", type: "start_job", label: "开工", payload: {} }]));
+    add("has-reply", JSON.stringify([{ id: "b", type: "start_job", label: "开工", payload: {} }, { id: "c", type: "slack_reply", label: "回复", payload: {} }]));
+    add("has-merge", JSON.stringify([{ id: "d", type: "git_merge", label: "合并", payload: {} }]));
+    migrate(d);
+
+    const statusOf = (id: string) => (d.prepare("SELECT status FROM tasks WHERE id = ?").get(id) as { status: string }).status;
+    expect(statusOf("only-start")).toBe("understood");
+    expect(statusOf("has-reply")).toBe("review");
+    expect(statusOf("has-merge")).toBe("review");
+  });
 });
