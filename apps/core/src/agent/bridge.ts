@@ -11,6 +11,7 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "./enrich.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
+import { lessonFromRelay } from "./lessons.js";
 
 const execFileP = promisify(execFile);
 
@@ -83,14 +84,22 @@ async function currentBranch(dir: string): Promise<string> {
   return stdout.trim();
 }
 
-export function contextFor(task: Task, job?: Job): string {
+/**
+ * 任务背景。两个去处，给的东西不一样：
+ * - 终端（friday_context，默认）：只给事实和 Friday 查到的关联（原话、Slack 全文、工单、项目、人物）。
+ *   不给 plan——Friday 没有这个项目的 skill 和代码上下文，它的「方案」是猜的，
+ *   塞给真正看得到代码的那一边只会把它带偏。
+ * - Friday 自己在会话里（taskBlock，audience: "friday"）：要带 plan。
+ *   那是你和它在前几轮聊定的结论（task_update 写进去的），丢了它就忘了你已经拍过的板。
+ */
+export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday" = "terminal"): string {
   const thread = task.source.threadId ? listThreads("all", 300).find((t) => t.id === task.source.threadId) : undefined;
   const project = loadProjects().find((p) => p.name === (task.project ?? job?.project));
   const person = thread ? personNote(thread.userName) : undefined;
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
-    task.understanding ? `Friday 的理解：${task.understanding}` : "",
-    task.plan ? `Friday 的方案：${task.plan}` : "",
+    task.understanding ? `这件事是什么：${task.understanding}` : "",
+    audience === "friday" && task.plan ? `和用户聊定的方案：${task.plan}` : "",
     task.progress ? `目前进展：${task.progress}` : "",
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",
@@ -100,6 +109,7 @@ export function contextFor(task: Task, job?: Job): string {
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${project.note ? `，说明：${project.note}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
     person ? `人物：${thread!.userName} — ${person}` : "",
     task.pending?.length ? `等用户点头的动作：${task.pending.map((p) => p.label).join("、")}` : "",
+    audience === "terminal" ? "\n以上都是 Friday 收集到的事实，它没读过这个项目的代码，也没有项目的 skill。改哪里、怎么改、分几步由你自己看代码判断。" : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -109,6 +119,30 @@ export function contextFor(task: Task, job?: Job): string {
 export function clearAttention(jobId: string): void {
   const t = findTaskBySource((s) => s.jobId === jobId);
   if (t?.attention) updateTask(t.id, { attention: undefined });
+}
+
+/**
+ * 用户自己在终端里敲字（前端是每键一个 POST），攒到回车算一句。
+ * 敲完的整句记一条 relay 经验：本该由 Friday 转达的话你自己说了，说明它没转到位。
+ *
+ * Friday 自己 terminal_say 写进去的不走这条路（那是 pty.write，不经 HTTP 输入接口），
+ * 所以这里攒到的一定是用户亲手敲的。
+ */
+const typed = new Map<string, string>();
+
+export function userTyped(jobId: string, data: string): void {
+  if (!data.includes("\r")) {
+    // 退格键：跟着删，否则「删掉重写」会把两版都攒进去
+    const next = data === "\x7f" || data === "\b" ? (typed.get(jobId) ?? "").slice(0, -1) : (typed.get(jobId) ?? "") + data;
+    typed.set(jobId, next.slice(-2000));
+    return;
+  }
+  const line = ((typed.get(jobId) ?? "") + data.slice(0, data.indexOf("\r"))).trim();
+  typed.delete(jobId);
+  clearAttention(jobId);
+  if (!line) return;
+  const task = findTaskBySource((s) => s.jobId === jobId);
+  lessonFromRelay(task?.id, line);
 }
 
 /** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */

@@ -30,7 +30,8 @@ describe("老库迁移", () => {
 
     d.prepare("INSERT INTO lessons (id, category, kind, confidence, created_at) VALUES (?, ?, ?, ?, ?)").run("new1", "other", "ignored", 50, "2026-09-16T00:00:00Z");
     d.prepare("INSERT INTO lessons (id, category, kind, confidence, created_at) VALUES (?, ?, ?, ?, ?)").run("new2", "other", "done_without_reply", 50, "2026-09-16T00:00:00Z");
-    expect((d.prepare("SELECT COUNT(*) AS n FROM lessons").get() as { n: number }).n).toBe(3);
+    d.prepare("INSERT INTO lessons (id, category, kind, confidence, created_at) VALUES (?, ?, ?, ?, ?)").run("new3", "relay", "relayed_direct", 0, "2026-09-17T00:00:00Z");
+    expect((d.prepare("SELECT COUNT(*) AS n FROM lessons").get() as { n: number }).n).toBe(4);
     expect((d.prepare("SELECT kind FROM lessons WHERE id = 'old1'").get() as { kind: string }).kind).toBe("approved");
     expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'lessons_old'").get() as { n: number }).n).toBe(0);
   });

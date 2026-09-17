@@ -31,7 +31,8 @@ export function autonomousPrompt(id: string, task: string, project: string): str
   const handbook = handbookBlock(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
-    `任务：${task}`,
+    `用户的诉求（Friday 转达的原话，它没读过这个项目的代码，也没有项目的 skill）：${task}`,
+    "开工前先调 friday_context 拿完整背景（原话、Slack 全文、关联工单、人物）。改哪里、怎么改、分几步由你自己看代码判断，别照搬转述。",
     "",
     "规则：",
     "1. 你已经在一个专门给这次任务开的 git worktree 里（detached HEAD），主仓不受影响。",
