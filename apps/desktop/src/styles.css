@@ -4527,3 +4527,15 @@ body:has(.hud),
   min-height: 0;
   overflow: visible;
 }
+
+/* 窗口高度跟着内容走，滚动条不该出现在浮窗上；
+   高度差一两像素就会冒出来，直接藏掉 */
+html:has(.hud),
+body:has(.hud) {
+  scrollbar-width: none;
+}
+
+html:has(.hud)::-webkit-scrollbar,
+body:has(.hud)::-webkit-scrollbar {
+  display: none;
+}

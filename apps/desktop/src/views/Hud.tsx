@@ -65,9 +65,10 @@ export function Hud() {
   }, []);
 
   useLayoutEffect(() => {
-    const h = rootRef.current?.scrollHeight;
+    const h = rootRef.current?.getBoundingClientRect().height;
     if (!h) return;
-    void getCurrentWindow().setSize(new LogicalSize(HUD_WIDTH, h));
+    // 进位：差一两像素就会冒出滚动条
+    void getCurrentWindow().setSize(new LogicalSize(HUD_WIDTH, Math.ceil(h) + 2));
   }, [rules, card, open, confirming, note, answer, ask]);
 
   function isEditableFocus(): boolean {

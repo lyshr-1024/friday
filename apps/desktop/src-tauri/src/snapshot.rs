@@ -137,7 +137,7 @@ fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<
     let mut child = Command::new(program)
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .ok()?;
     let start = Instant::now();
@@ -145,6 +145,15 @@ fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
+                    // 自动化权限被拒最常见，静默失败会让用户完全不知道该去点哪
+                    if let Some(mut err) = child.stderr.take() {
+                        let mut msg = String::new();
+                        use std::io::Read;
+                        let _ = err.read_to_string(&mut msg);
+                        if !msg.trim().is_empty() {
+                            eprintln!("[friday] {program} 失败：{}", msg.trim());
+                        }
+                    }
                     return None;
                 }
                 let mut out = String::new();
