@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask } from "./pipeline.js";
-import { createTask, listTasks, updateTask } from "../memory/tasks.js";
+import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask, reportBackToOrigin } from "./pipeline.js";
+import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { setThreshold } from "../memory/thresholds.js";
 import { attachToThread, getThread } from "../memory/threads.js";
@@ -275,5 +275,35 @@ describe("Slack 线程要自己开工改代码时的闸门", () => {
     const p = (task.pending ?? []).find((x) => x.type === "start_job")!;
     expect(p.label).toContain("demo-proj");
     expect(p.payload).toMatchObject({ project: "demo-proj", dir, confidence: 45 });
+  });
+});
+
+describe("reportBackToOrigin", () => {
+  it("干完活把结果写回来源任务并标成待你看", () => {
+    const origin = createTask({ title: "拂晓：改一下文案", kind: "slack", source: {}, status: "processing" });
+    const done = createTask({
+      title: "whale-console：改文案",
+      kind: "code",
+      source: { fromTaskId: origin.id },
+      status: "review",
+      progress: "改完了，跑过测试",
+    });
+    reportBackToOrigin(done);
+    const after = getTask(origin.id)!;
+    expect(after.status).toBe("review");
+    expect(after.attention).toBe("review");
+    expect(after.progress).toContain("派出去的活已完成");
+  });
+
+  it("来源已经收工就不动它", () => {
+    const origin = createTask({ title: "已完成的事", kind: "slack", source: {}, status: "done" });
+    const done = createTask({ title: "活", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
+    reportBackToOrigin(done);
+    expect(getTask(origin.id)!.status).toBe("done");
+  });
+
+  it("没有来源就什么都不做", () => {
+    const done = createTask({ title: "孤立的活", kind: "code", source: {}, status: "review" });
+    expect(() => reportBackToOrigin(done)).not.toThrow();
   });
 });

@@ -12,7 +12,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
 import { getThreshold } from "../memory/thresholds.js";
-import { markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
+import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
 import { decide, decideStart } from "./gate.js";
 import type { HandbookDraft } from "./handbook.js";
@@ -316,7 +316,55 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push），合完收掉 worktree`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
+  if (task.status === "review" || task.status === "done") reportBackToOrigin(task);
   return task;
+}
+
+
+/**
+ * 干完活回流到来源：Slack 待办派生出代码任务，任务做完了那条待办还挂着，
+ * 用户既没收到「可以回复了」也不知道该关掉它。把结果写回去并备好回复草稿。
+ */
+export function reportBackToOrigin(done: Task): void {
+  const originId = done.source.fromTaskId;
+  if (!originId) return;
+  const origin = getTask(originId);
+  if (!origin || origin.status === "done" || origin.status === "ignored") return;
+
+  const summary = done.report?.summary ?? done.progress ?? "已处理完";
+  const line = `派出去的活已完成：${done.title}。${summary.slice(0, 300)}`;
+  let next = updateTask(origin.id, {
+    status: "review",
+    progress: line,
+    attention: "review",
+  })!;
+
+  const thread = origin.source.threadId ? getThread(origin.source.threadId) : undefined;
+  const first = thread?.items[0];
+  const already = (next.pending ?? []).some((p) => p.type === "slack_reply");
+  if (thread && first && !already) {
+    const reply = `${summary.slice(0, 500)}`;
+    next = addPending(next.id, {
+      type: "slack_reply",
+      label: `回复 ${thread.userName}`,
+      detail: reply,
+      payload: {
+        channel: first.channelId,
+        text: reply,
+        ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}),
+        userName: thread.userName,
+      },
+    })!;
+  }
+
+  record({
+    taskId: origin.id,
+    action: "job_reported_back",
+    why: "派出去的活做完了，来源那条还挂着",
+    how: line,
+    evidence: { doneTaskId: done.id, hasReply: Boolean(thread && first) },
+    risk: "reversible",
+  });
 }
 
 function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
