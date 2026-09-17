@@ -5,7 +5,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { gitInspect } from "./git.js";
+import { currentBranchSync, gitInspect } from "./git.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
@@ -140,14 +140,18 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
         // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
         const origin = linked ?? (conversationId ? findTaskBySource((src) => src.conversationId === conversationId, true) : undefined);
+        // 开工时的分支先记下来，终端里 git switch 之后靠 friday_progress 更新
+        const branch0 = currentBranchSync(r.dir) || undefined;
         const t = linked
-          ? updateTask(linked.id, { status: "processing", project: linked.project ?? r.name, progress: `Claude Code 正在 ${r.name} 上处理${task ? `：${task.slice(0, 80)}` : ""}`, source: { jobId: id } })!
+          ? updateTask(linked.id, { status: "processing", project: linked.project ?? r.name, progress: `Claude Code 正在 ${r.name} 上处理${task ? `：${task.slice(0, 80)}` : ""}`, source: { jobId: id, repoDir: r.dir, ...(branch0 ? { branch: branch0 } : {}) } })!
           : createTask({
               title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`,
               kind: "code",
               // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
               source: {
                 jobId: id,
+                repoDir: r.dir,
+                ...(branch0 ? { branch: branch0 } : {}),
                 ...(conversationId ? { conversationId } : {}),
                 ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
               },

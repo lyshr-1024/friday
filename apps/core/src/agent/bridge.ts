@@ -12,6 +12,7 @@ import { personNote } from "./enrich.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
 import { lessonFromRelay } from "./lessons.js";
+import { currentBranchSync } from "./git.js";
 
 const execFileP = promisify(execFile);
 
@@ -33,8 +34,8 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   },
   {
     name: "friday_progress",
-    description: "报一句阶段进展（不超过 200 字），用户在 Friday 的任务卡上实时看到。每完成一个阶段调一次，不要每步都调。",
-    inputSchema: { type: "object", properties: { text: str("一句话进展") }, required: ["text"] },
+    description: "报一句阶段进展（不超过 200 字），用户在 Friday 的任务卡上实时看到。每完成一个阶段调一次，不要每步都调。起好分支后第一次调用要带上 branch。",
+    inputSchema: { type: "object", properties: { text: str("一句话进展"), branch: str("当前分支名，起好或切换后报一次") }, required: ["text"] },
   },
   {
     name: "friday_done",
@@ -237,8 +238,11 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_progress") {
     const text = String(args.text ?? "").trim().slice(0, 300);
     if (!text) return { text: "text 不能为空", isError: true };
+    // 分支是关联 Meegle / Slack / 浏览器的钥匙，它没报就自己去读
+    const dir = task.source.worktree ?? task.source.repoDir ?? job.dir;
+    const branch = String(args.branch ?? "").trim() || (dir ? currentBranchSync(dir) : "");
     // 新一轮开始干活了，上一轮"等你看/卡住"的标记清掉
-    updateTask(task.id, { progress: text, attention: undefined });
+    updateTask(task.id, { progress: text, attention: undefined, ...(branch ? { source: { branch } } : {}) });
     setJobMessage(jobId, text);
     return { text: "记下了，用户能在任务卡上看到。" };
   }

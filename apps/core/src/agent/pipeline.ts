@@ -282,13 +282,15 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return job.task;
   }
+  // 分支是关联的钥匙，收工时补一次实际值（终端里可能 switch 过）
+  const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
   if (!job.task.source.autonomous) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
-    return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}` })!;
+    return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
   // 分支名由终端里的 Claude 按项目规范起，这里读实际值（读不到就不挂合并动作）
-  const branch = currentBranchSync(job.dir);
+  const branch = exitBranch ?? "";
   record({
     taskId: job.task.id,
     action: "claude_code_finish",
@@ -309,6 +311,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
         ? `终端会话已结束（退出码 ${exitCode}）`
         : `终端任务结束（退出码 ${exitCode}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
     ...(report ? { report } : {}),
+    ...(exitBranch ? { source: { branch: exitBranch } } : {}),
   })!;
   // 读不到分支名（不是 git 仓库、或它没建分支）就不挂合并动作，免得挂个假的
   // 合并要在主仓做，不能在 worktree 里（分支正被它检出着，merge 不了）

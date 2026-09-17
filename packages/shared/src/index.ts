@@ -340,6 +340,8 @@ export interface TaskSource {
   repoDir?: string;
   /** Friday 给这条任务开的 worktree，终端就跑在里面；收工时连同分支一起清 */
   worktree?: string;
+  /** 这条任务在哪个分支上干活。终端里的 Claude 起好名后用 friday_progress 回报，是关联 Meegle / Slack 的钥匙 */
+  branch?: string;
   /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
   researchFile?: string;
   /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */

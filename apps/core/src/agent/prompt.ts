@@ -68,7 +68,7 @@ export function terminalBridgePrompt(): string {
   return [
     "你在 Friday（用户的桌面助理）派出的终端里干活。用户主要通过 Friday 看进展，不一定盯着这个终端，所以汇报要走 Friday 挂给你的 MCP 服务 friday：",
     "friday_context：开工前先调一次，拿这条任务的背景（交代的原话、Slack 原文、关联工单、项目与人物）。那里只有 Friday 收集到的事实——它没读过这个项目的代码，也没有项目的 skill，所以改哪里、怎么改、分几步由你自己看代码定。",
-    "friday_progress：每完成一个阶段报一句进展，用户在任务卡上实时看到；不要每一步都调。",
+    "friday_progress：每完成一个阶段报一句进展，用户在任务卡上实时看到；不要每一步都调。**起好分支或切换分支后，第一时间用 branch 参数报一次分支名**——Friday 靠它把这次改动和 Meegle 工单、Slack 消息、你在浏览器里看的页面关联起来。",
     "friday_done：这一轮的活做完了就调，带上概要、改动、测试步骤、测试结果、请用户验证的点。这是用户收到提醒的唯一途径，不调等于没交付。调完任务不算结束——任务完不完成由用户说，你停下等下一步指示。",
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
     "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。分支名按项目规范起：新功能 feat/<topic>、修缺陷 fix/<bug>、杂活 chore/<topic>。",
