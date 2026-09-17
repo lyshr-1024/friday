@@ -138,9 +138,23 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conversationId ? { conversationId } : {}) });
         // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
         const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
+        // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
+        const origin = linked ?? (conversationId ? findTaskBySource((src) => src.conversationId === conversationId, true) : undefined);
         const t = linked
           ? updateTask(linked.id, { status: "processing", project: linked.project ?? r.name, progress: `Claude Code 正在 ${r.name} 上处理${task ? `：${task.slice(0, 80)}` : ""}`, source: { jobId: id } })!
-          : createTask({ title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`, kind: "code", source: { jobId: id, ...(conversationId ? { conversationId } : {}) }, project: r.name, status: "processing", understanding: task ?? "会话里让 Friday 开的终端" });
+          : createTask({
+              title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`,
+              kind: "code",
+              // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
+              source: {
+                jobId: id,
+                ...(conversationId ? { conversationId } : {}),
+                ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
+              },
+              project: r.name,
+              status: "processing",
+              understanding: task ?? "会话里让 Friday 开的终端",
+            });
         record({ taskId: t.id, action: "claude_code_start", why: linked ? "讨论这条任务时让 Friday 去干活" : "会话里让 Friday 去干活", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: r.name, dir: r.dir }, risk: "reversible" });
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
         return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
