@@ -125,7 +125,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
     tool(
       "run_claude",
       "在用户默认终端打开该项目目录并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
-      { project, task: z.string().max(4000).optional().describe("交给 Claude Code 的任务，一句话") },
+      { project, task: z.string().max(4000).optional().describe("对方或用户要什么，照原话转达，保留关键词、报错、路径、工单号。不要写改哪个文件、什么方案、分几步——那由终端自己看代码判断") },
       async ({ project, task }) => {
         const r = resolveOrExplain(project);
         if (typeof r === "string") return text(r);
