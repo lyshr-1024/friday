@@ -74,3 +74,10 @@ describe("trimUrl", () => {
     expect(trimUrl(sn, allow).browser).toEqual({ url: "", title: "" });
   });
 });
+
+describe("trimUrl 与项目地址", () => {
+  it("项目注册表里登记过的域名保留完整路径", () => {
+    const sn = snap({ browser: { url: "https://console.longbridge.xyz/opa/next/cattle-activities/create", title: "养牛活动" } });
+    expect(trimUrl(sn, ["console.longbridge.xyz"]).browser?.url).toContain("cattle-activities");
+  });
+});

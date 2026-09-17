@@ -50,7 +50,10 @@ export function trimUrl(snapshot: Snapshot, allowlist: string[]): Snapshot {
 }
 
 export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
-  const snapshot = trimUrl(raw, userSettings().summon.urlAllowlist);
+  // projects.md 里登记过地址的项目自动进白名单：那些本来就是工作页面，
+  // 用户登记过一次就不该再去设置里补一遍域名
+  const projectHosts = loadProjects().flatMap((p) => p.urls.map((u) => u.split("/")[0]!).filter(Boolean));
+  const snapshot = trimUrl(raw, [...userSettings().summon.urlAllowlist, ...projectHosts]);
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
   const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
