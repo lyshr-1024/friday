@@ -199,9 +199,10 @@ export function Hud() {
       <button className="hud__saw" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         {rules?.saw ?? "看看你在做什么…"}
       </button>
-      {open && snapshot && (
+      {open && snapshot && (snapshot.browser?.url || snapshot.selection || snapshot.screenshotPath) && (
         <div className="hud__raw">
-          {snapshot.browser && <div className="hud__raw-row">{snapshot.browser.title || snapshot.browser.url}</div>}
+          {snapshot.browser?.url && <div className="hud__raw-row">{snapshot.browser.url}</div>}
+          {snapshot.browser?.text && <div className="hud__raw-row hud__raw-selection">{snapshot.browser.text}</div>}
           {snapshot.selection && <div className="hud__raw-row hud__raw-selection">{snapshot.selection}</div>}
           {snapshot.screenshotPath && <img className="hud__shot" src={convertFileSrc(snapshot.screenshotPath)} alt="当前屏幕截图" />}
         </div>

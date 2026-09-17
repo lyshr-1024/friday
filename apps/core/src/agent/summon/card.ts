@@ -44,9 +44,12 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     'Slack 场景可以给 reply 草稿（用户身份，中文，不要承诺工期和人力）。只输出一个 JSON 对象：{"verdict":"","reply":"","actions":[],"matchTaskId":""}。',
   ].join("\n");
 
+  // 浏览器的标题在 browser.title 里，app.title 往往是空的；
+  // 两处都写会让模型读到「标题：」的空缺，然后回一句「标题为空」——它其实拿到了
+  const title = snapshot.browser?.title || snapshot.app.title;
   const context = [
-    `app：${snapshot.app.name}${snapshot.app.title ? `，标题：${snapshot.app.title}` : ""}`,
-    snapshot.browser ? `网址：${snapshot.browser.url}，标题：${snapshot.browser.title}` : "",
+    `app：${snapshot.app.name}${title ? `，标题：${title}` : ""}`,
+    snapshot.browser?.url ? `网址：${snapshot.browser.url}` : "",
     snapshot.browser?.text ? `页面正文：${snapshot.browser.text.slice(0, 4000)}` : "",
     snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
     input.scene ?? "",
