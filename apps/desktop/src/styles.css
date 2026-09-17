@@ -20,26 +20,28 @@
 }
 
 :root {
-  --font: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --font-text: var(--font);
+  /* 2026-09-17 HUD 化：等宽做主力。界面里的内容本来就是分支名、URL、工单号、
+     命令，比例字体显示这些反而别扭；中文回落到系统字体，不影响正文可读性。 */
+  --font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, "Friday CJK", "PingFang SC", sans-serif;
+  --font-text: -apple-system, BlinkMacSystemFont, system-ui, "Friday CJK", "PingFang SC", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  /* 2026-09-08 设计系统：Radix Slate 深色 12 级按语义用，唯一主按钮近白，青色只标「正在活动」 */
-  --bg-1: #0c0d0f;
-  --bg-2: #141618;
-  --bg-3: #1c1f23;
-  --bg-4: #262a2f;
-  --bg-5: #30353b;
-  --line-1: #2a2e33;
-  --line-2: #3d434a;
-  --line-3: #58606a;
-  --fg-1: #edeef0;
-  --fg-2: #b0b4ba;
-  --fg-3: #696e77;
-  --fg-2-dim: #8f949c;
-  --fg-4: #43484e;
-  --primary: #edeef0;
-  --primary-fg: #111113;
-  --amber: #ffca16;
+  /* 底比原来更黑，灰阶整体压暗：只有活动的东西亮起来，静态的一律沉下去 */
+  --bg-1: #08090a;
+  --bg-2: #0f1113;
+  --bg-3: #15181b;
+  --bg-4: #1f2327;
+  --bg-5: #2b3036;
+  --line-1: #1e2226;
+  --line-2: #2b3036;
+  --line-3: #4a5158;
+  --fg-1: #e8eaed;
+  --fg-2: #9aa1a9;
+  --fg-3: #5f666e;
+  --fg-2-dim: #7c838b;
+  --fg-4: #3a4046;
+  --primary: #e8eaed;
+  --primary-fg: #0c0d0f;
+  --amber: #f0a020;
   --page: var(--bg-1);
   --panel: var(--bg-2);
   --card: var(--bg-3);
@@ -53,13 +55,13 @@
   --label-3: var(--fg-3);
   --accent: var(--bg-4);
   --accent-fg: var(--fg-1);
-  --live: #4ccce6;
-  --live-solid: #00a2c7;
-  --live-dim: rgba(76, 204, 230, 0.35);
-  --live-glow: rgba(76, 204, 230, 0.16);
-  --ring: rgba(76, 204, 230, 0.4);
-  --red: #ff9592;
-  --green: #3dd68c;
+  --live: #38d6ff;
+  --live-solid: #0b9fcc;
+  --live-dim: rgba(56, 214, 255, 0.35);
+  --live-glow: rgba(56, 214, 255, 0.16);
+  --ring: rgba(56, 214, 255, 0.4);
+  --red: #ff5c5c;
+  --green: #4ade80;
   --ok: var(--green);
   --bad: var(--red);
   /* Elevation 只解释叠放关系，不表达重要程度（GPUI）。
@@ -2639,9 +2641,11 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--s-2);
   padding: 0 var(--s-2);
   color: var(--fg-2);
   font-size: var(--t-aux);
+  white-space: nowrap;
 }
 .rail__row kbd {
   font-family: var(--mono);
@@ -2671,6 +2675,7 @@ body,
   cursor: default;
   text-align: left;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .usage__strip:hover {
@@ -2689,6 +2694,7 @@ body,
   margin-left: auto;
   font-size: var(--t-micro);
   color: var(--fg-4);
+  white-space: nowrap;
 }
 .usage__panel {
   position: absolute;
