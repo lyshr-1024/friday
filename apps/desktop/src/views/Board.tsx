@@ -170,7 +170,7 @@ function IssueBody({ t }: { t: Task }) {
       <MeegleChips t={t} extra={ISSUE_STATUS[t.source.statusKey ?? ""] ?? t.source.statusKey} />
       {desc && (
         <div>
-          <span className="k">缺陷描述</span>
+          <span className="k">DEFECT</span>
           <div className={`fx__desc ${full ? "" : "fx__desc--clip"}`}><Rich text={desc} /></div>
           <button className="b b--text" onClick={() => setFull((v) => !v)}>{full ? "收起" : "展开全文"}</button>
         </div>
@@ -187,13 +187,13 @@ function StoryBody({ t }: { t: Task }) {
       <MeegleChips t={t} extra={nodeName} />
       {(feDue || beDue) && (
         <div>
-          <span className="k">排期</span>
+          <span className="k">SCHEDULE</span>
           <div className="fx__text">{[feDue && `后台前端 ${feDue}`, beDue && `服务端 ${beDue}`].filter(Boolean).join(" · ")}</div>
         </div>
       )}
       {links.length > 0 && (
         <div>
-          <span className="k">资料</span>
+          <span className="k">DOCS</span>
           <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
         </div>
       )}
@@ -578,14 +578,8 @@ export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, run
   }, [ids, focus?.id]);
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
-  const sub =
-    view === "ledger" || view === "all"
-      ? ""
-      : decide.length
-        ? `先把这 ${decide.length} 件定了，其他的 Friday 在做。`
-        : doing.length + queued.length
-          ? `没有等你决定的事，Friday 手上有 ${doing.length} 件，待办 ${queued.length} 件。`
-          : "一切清爽，没有等你的事。";
+  const liveTerminals = tasks.filter((t) => t.terminal === "busy" || (t.status === "processing" && t.source.jobId)).length;
+  const blockedCount = tasks.filter((t) => t.status === "blocked" || t.attention === "blocked" || t.attention === "question").length;
 
   // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
   /** 一组里的行：同一个需求下的缺陷先收成一包，剩下的照常一条一行 */
@@ -600,8 +594,18 @@ export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, run
           </div>
           <div className="q__tools">{tools}</div>
         </div>
-        {sub && board && <p className="q__sub" data-tauri-drag-region>{name ? `Hello ${name}！` : ""}{greeting()}，{sub}</p>}
+        {/* 读数条把「几件在等你」说得更清楚，这里只留一句问候 */}
+        {board && name && <p className="q__sub" data-tauri-drag-region>{`Hello ${name}！`}{greeting()}。</p>}
       </header>
+      {board && view !== "ledger" && (
+        <div className="gauges">
+          <Gauge k="AWAITING YOU" v={decide.length} u="TASKS" tone={decide.length ? "warn" : ""} max={8} />
+          <Gauge k="TERMINALS" v={liveTerminals} u="ACTIVE" tone={liveTerminals ? "hot" : ""} max={4} />
+          <Gauge k="BLOCKED" v={blockedCount} u="TASK" tone={blockedCount ? "bad" : ""} max={4} />
+          <Gauge k="IN PROGRESS" v={doing.length} u="ITEMS" tone="" max={8} />
+          <Gauge k="QUEUED" v={queued.length} u="ITEMS" tone="" max={20} />
+        </div>
+      )}
       {view === "ledger" ? (
         <div className="wb__scroll">
           <div className="wb__page">
@@ -685,6 +689,17 @@ export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, run
         </div>
       )}
     </>
+  );
+}
+
+/** 顶部读数：一个数字 + 单位 + 一条刻度。满格按 max 算，只为看出「多不多」 */
+function Gauge({ k, v, u, tone, max }: { k: string; v: number; u: string; tone: string; max: number }) {
+  return (
+    <div className={`g ${tone ? `g--${tone}` : ""}`}>
+      <div className="g__k">{k}</div>
+      <div className="g__v">{v}<span className="u">{u}</span></div>
+      <div className="g__bar"><i style={{ width: `${Math.min(100, (v / max) * 100)}%` }} /></div>
+    </div>
   );
 }
 
@@ -881,7 +896,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       {/* 缺陷挂在哪个需求下 / 需求名下有哪些缺陷。Meegle 里填好的关联，点一下就能跳过去 */}
       {t.source.linkedStoryId && (
         <div className="fx__rel">
-          <span className="k">{t.kind === "slack" ? "聊的是需求" : "属于需求"}</span>
+          <span className="k">MEEGLE</span>
           {/* 需求没分派给用户时任务板里没有它，只显示名字（或工单号）不给跳转 */}
           {parentStory ? (
             <button className="link" onClick={() => onPick?.(parentStory.id)}>{parentStory.title}</button>
@@ -944,7 +959,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       {thread && thread.items.length > 0 && (
         <div className="fx__source">
           <div className="fx__source-head">
-            <span className="k">对方原话</span>
+            <span className="k">SLACK</span>
             {channelLink ? (
               <a
                 href={channelLink}
@@ -1002,7 +1017,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
         <div className="fx__col">
           {situation && (
             <div>
-              <span className="k">情境</span>
+              <span className="k">CONTEXT</span>
               <div className="fx__text"><Linkified text={situation} /></div>
             </div>
           )}
@@ -1017,7 +1032,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
           )}
           {!situation && !advice && !asked && t.progress && (
             <div>
-              <span className="k">进展</span>
+              <span className="k">PROGRESS</span>
               <div className="fx__text">{t.progress}</div>
             </div>
           )}
@@ -1044,13 +1059,13 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
           {/* Friday 在会话里只重写 verify 时，报告的其余字段是空的——别渲染出一个空标签 */}
           {r?.testResult?.trim() && (
             <div>
-              <span className="k">测试结果</span>
+              <span className="k">RESULT</span>
               <div className="fx__text">{r.testResult}</div>
             </div>
           )}
           {!r?.testResult?.trim() && !asked && t.progress && (situation || advice) && (
             <div>
-              <span className="k">进展</span>
+              <span className="k">PROGRESS</span>
               <div className="fx__text">{t.progress}</div>
             </div>
           )}

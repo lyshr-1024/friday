@@ -25,23 +25,26 @@
   --font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, "Friday CJK", "PingFang SC", sans-serif;
   --font-text: -apple-system, BlinkMacSystemFont, system-ui, "Friday CJK", "PingFang SC", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  /* 底比原来更黑，灰阶整体压暗：只有活动的东西亮起来，静态的一律沉下去 */
-  --bg-1: #08090a;
-  --bg-2: #0f1113;
-  --bg-3: #15181b;
-  --bg-4: #1f2327;
-  --bg-5: #2b3036;
-  --line-1: #1e2226;
-  --line-2: #2b3036;
-  --line-3: #4a5158;
-  --fg-1: #e8eaed;
-  --fg-2: #9aa1a9;
-  --fg-3: #5f666e;
-  --fg-2-dim: #7c838b;
-  --fg-4: #3a4046;
-  --primary: #e8eaed;
-  --primary-fg: #0c0d0f;
-  --amber: #f0a020;
+  /* 2026-09-18 HUD：底几乎全黑，灰阶偏青。物体比背景亮才像浮在前面——
+     在这种底上阴影是看不见的，层次靠底色差和自发光。 */
+  --bg-1: #000305;
+  --bg-2: #04090d;
+  --bg-3: #081218;
+  --bg-4: #0d1c24;
+  --bg-5: #142b36;
+  --line-1: rgba(95, 227, 255, 0.1);
+  --line-2: rgba(95, 227, 255, 0.22);
+  --line-3: rgba(95, 227, 255, 0.4);
+  --fg-1: #d6f4ff;
+  --fg-2: #7fb8ce;
+  --fg-3: #4b7e92;
+  --fg-2-dim: #669cb2;
+  --fg-4: #2d5263;
+  /* 28px 网格，淡到只在余光里有质感，读字时不干扰 */
+  --grid-line: rgba(95, 227, 255, 0.035);
+  --primary: #d6f4ff;
+  --primary-fg: #001018;
+  --amber: #ffb347;
   --page: var(--bg-1);
   --panel: var(--bg-2);
   --card: var(--bg-3);
@@ -55,13 +58,13 @@
   --label-3: var(--fg-3);
   --accent: var(--bg-4);
   --accent-fg: var(--fg-1);
-  --live: #38d6ff;
-  --live-solid: #0b9fcc;
-  --live-dim: rgba(56, 214, 255, 0.35);
-  --live-glow: rgba(56, 214, 255, 0.16);
-  --ring: rgba(56, 214, 255, 0.4);
-  --red: #ff5c5c;
-  --green: #4ade80;
+  --live: #5fe3ff;
+  --live-solid: #17657d;
+  --live-dim: rgba(95, 227, 255, 0.35);
+  --live-glow: rgba(95, 227, 255, 0.16);
+  --ring: rgba(95, 227, 255, 0.45);
+  --red: #ff6b4a;
+  --green: #5fffc4;
   --ok: var(--green);
   --bad: var(--red);
   /* Elevation 只解释叠放关系，不表达重要程度（GPUI）。
@@ -1724,6 +1727,11 @@ body,
   display: flex;
   height: 100%;
   background: var(--bg-1);
+  /* HUD 底：网格淡到只在余光里有质感 */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
   overflow: hidden;
 }
 .wb {
@@ -4855,4 +4863,180 @@ body:has(.hud)::-webkit-scrollbar {
 .hud__tool:focus-visible {
   outline: 1px solid var(--live);
   outline-offset: 2px;
+}
+
+/* ════ HUD 皮肤（2026-09-18）════
+   钢铁侠那套 FRIDAY 的语言：黑底、单一青色相、细线框、全大写标签、
+   活的东西发光。骨架用它，但不做旋转环和扫描线——那是电影特效，
+   每天用八小时会累。 */
+
+/* 卡片：一圈发光描边，还在推进的事上有一道光巡回 */
+.deck__card .fx {
+  position: relative;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: linear-gradient(160deg, rgba(13, 28, 36, 0.5), rgba(4, 9, 13, 0.4) 62%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(95, 227, 255, 0.07),
+    inset 0 1px 0 rgba(95, 227, 255, 0.14);
+  padding-left: var(--s-5);
+  padding-right: var(--s-5);
+}
+.deck__card .fx::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--live), transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .deck__card .fx::before {
+    animation: hud-sweep 5.5s var(--ease) infinite;
+  }
+  @keyframes hud-sweep {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 0.75; }
+  }
+}
+
+/* 标题：等宽大字，带辉光 */
+.deck__card .fx__title {
+  color: var(--fg-1);
+  text-shadow: 0 0 18px rgba(95, 227, 255, 0.28);
+}
+/* 状态行：全大写字距拉开，活动态发光 */
+.deck__card .fx__state {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: var(--t-micro);
+  color: var(--live);
+  text-shadow: 0 0 8px var(--live-dim), 0 0 18px var(--live-glow);
+}
+.deck__card .fx__meta-dim {
+  letter-spacing: 0.1em;
+}
+
+/* 字段标签（情境 / Friday 的建议 / MEEGLE …）：HUD 的键名样式 */
+.deck__card .k {
+  letter-spacing: 0.22em;
+  color: var(--live-solid);
+  border: 0;
+  padding: 0;
+  font-weight: 400;
+}
+
+/* 信标：圆点换菱形，活的会呼吸 */
+.dot {
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+.dot--doing,
+.dot--processing {
+  box-shadow: 0 0 7px var(--live), 0 0 16px var(--live-glow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dot--doing,
+  .dot--processing {
+    animation: hud-blink 2.4s var(--ease) infinite;
+  }
+  @keyframes hud-blink {
+    0%, 100% { box-shadow: 0 0 7px var(--live), 0 0 16px var(--live-glow); }
+    50% { box-shadow: 0 0 3px var(--live), 0 0 7px transparent; }
+  }
+}
+
+/* 顶部读数条：把「几件」换成仪表盘 */
+.gauges {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 1px;
+  margin: 0 0 var(--s-4);
+  background: var(--line-1);
+  border-top: 1px solid var(--line-1);
+  border-bottom: 1px solid var(--line-1);
+}
+.g {
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  background: var(--bg-1);
+}
+.g__k {
+  margin-bottom: 5px;
+  font-size: var(--t-micro);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+}
+.g__v {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.g__v .u {
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  color: var(--fg-4);
+}
+.g--hot .g__v {
+  color: var(--live);
+  text-shadow: 0 0 8px var(--live-dim), 0 0 22px var(--live-glow);
+}
+.g--warn .g__v {
+  color: var(--amber);
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.5);
+}
+.g--bad .g__v {
+  color: var(--red);
+  text-shadow: 0 0 8px rgba(255, 107, 74, 0.5);
+}
+.g__bar {
+  position: relative;
+  height: 2px;
+  margin-top: 7px;
+  overflow: hidden;
+  background: var(--line-1);
+}
+.g__bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  background: var(--live-solid);
+}
+.g--hot .g__bar i {
+  background: var(--live);
+  box-shadow: 0 0 8px var(--live-glow);
+}
+.g--warn .g__bar i { background: var(--amber); }
+.g--bad .g__bar i { background: var(--red); }
+
+/* 品牌字 */
+.rail__brand {
+  letter-spacing: 0.34em;
+  color: var(--live);
+  text-shadow: 0 0 10px var(--live-dim), 0 0 26px var(--live-glow);
+}
+
+/* 左栏：跟主区同一套语言 */
+.rail {
+  background: var(--bg-2);
+  border-right: 1px solid var(--line-1);
+}
+.rail__item {
+  letter-spacing: 0.02em;
+}
+.rail__item.is-on {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.rail__sub {
+  letter-spacing: 0.06em;
 }

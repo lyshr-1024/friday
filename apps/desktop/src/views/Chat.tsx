@@ -285,7 +285,7 @@ export function Chat() {
     <div className={`chat ${railOpen ? "" : "chat--norail"}`}>
       <LinkMenuHost />
       <nav className={`rail ${railOpen ? "" : "rail--hidden"}`}>
-        <div className="rail__brand">Friday</div>
+        <div className="rail__brand">FRIDAY</div>
         {NAV.map((n) => (
           <button key={n.key} className={`rail__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)}>
             {n.key === "queue" && <span className="dot dot--decide" />}
