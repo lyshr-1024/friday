@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DeliveryReport, PendingAction, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
+import { inferTaskLinks } from "./infer.js";
 import { publish } from "../bus.js";
 
 interface Row {
@@ -65,7 +66,9 @@ export function createTask(input: {
     )
     .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(input.source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, t, t);
   publish({ type: "tasks" });
-  return getTask(id)!;
+  const task = getTask(id)!;
+  inferTaskLinks(task);
+  return task;
 }
 
 export function getTask(id: string): Task | undefined {
@@ -111,7 +114,10 @@ export function updateTask(
       id,
     );
   publish({ type: "tasks" });
-  return getTask(id);
+  const task = getTask(id);
+  // 分支是终端干活途中才回报的，理解和方案也会被改写，所以每次更新都重推一遍
+  if (task) inferTaskLinks(task);
+  return task;
 }
 
 export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task[] {

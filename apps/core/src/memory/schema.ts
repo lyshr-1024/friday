@@ -185,6 +185,27 @@ CREATE TABLE IF NOT EXISTS activity (
   exit_code INTEGER
 );
 CREATE INDEX IF NOT EXISTS activity_ts ON activity (ts);
+
+-- 四端之间的关联：一条边一行。Friday 唯一不可替代的东西就是这张表——
+-- Slack / Meegle / 终端 / 浏览器各自都有完整的客户端，但它们彼此不知道对方的存在。
+CREATE TABLE IF NOT EXISTS links (
+  id TEXT PRIMARY KEY,
+  -- 边的两端，kind 是实体类型，ref 是它在那一端的标识
+  from_kind TEXT NOT NULL CHECK (from_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  from_ref TEXT NOT NULL,
+  to_kind TEXT NOT NULL CHECK (to_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  to_ref TEXT NOT NULL,
+  -- user 是你纠正过的，查表必中且永不被自动推翻；rule 查表推出来；guess 模型猜的，界面要标出来
+  source TEXT NOT NULL CHECK (source IN ('user', 'rule', 'guess')),
+  -- 凭什么这么连的，出了错你能看出是哪条规则的锅
+  why TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+-- 同一条边只留一行，重复推断走 UPSERT 而不是堆行
+CREATE UNIQUE INDEX IF NOT EXISTS links_edge ON links (from_kind, from_ref, to_kind, to_ref);
+CREATE INDEX IF NOT EXISTS links_from ON links (from_kind, from_ref);
+CREATE INDEX IF NOT EXISTS links_to ON links (to_kind, to_ref);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

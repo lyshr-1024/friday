@@ -19,6 +19,7 @@ import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
 import { learn } from "./learn.js";
+import { links } from "./links.js";
 import { memory } from "./memory.js";
 import { searchApi } from "./search.js";
 import { usage } from "./usage.js";
@@ -50,6 +51,7 @@ export const app = new Hono()
   .route("/", events)
   .route("/", pty)
   .route("/", learn)
+  .route("/", links)
   .route("/", usage)
   .route("/", activity)
   .route("/", summonApi);

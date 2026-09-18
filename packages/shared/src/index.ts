@@ -348,6 +348,30 @@ export interface TaskSource {
   fromTaskId?: string;
 }
 
+/** 关联图里的一个端点：四端各自的实体 */
+export type LinkKind = "task" | "meegle" | "thread" | "branch" | "url" | "project";
+
+/** 这条边是怎么来的。user 是你纠正过的，永远压过自动推断 */
+export type LinkSource = "user" | "rule" | "guess";
+
+export interface LinkNode {
+  kind: LinkKind;
+  /** meegle 是工单号，branch 是「项目名:分支名」，url 是归一化后的前缀，其余是各自的 id */
+  ref: string;
+}
+
+/** 四端之间的一条关联。Friday 的核心数据。 */
+export interface Link extends Record<string, unknown> {
+  id: string;
+  from: LinkNode;
+  to: LinkNode;
+  source: LinkSource;
+  /** 凭什么这么连的，一句话，出错时能看出是哪条规则的锅 */
+  why: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 全局搜索（⌘F）的一条结果：任务或对话里的一条消息 */
 export interface SearchHit {
   kind: "task" | "message";
