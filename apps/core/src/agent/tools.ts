@@ -6,6 +6,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { currentBranchSync, gitInspect } from "./git.js";
 import { reviewOnce } from "./lessons.js";
+import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
@@ -221,6 +222,20 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
           if (getJob(j.id)?.status !== "running") closed++;
         }
         return text(`关掉了 ${closed} 个终端${running.length > closed ? `，还剩 ${running.length - closed} 个在跑` : ""}。`);
+      },
+    ),
+    tool(
+      "surface_context",
+      "看用户现在浏览器里开着的页面属于哪个项目、这个项目上有哪些没收工的事、哪个终端在跑。用户说“我这个页面”“当前这页”“这个后台”而没说是哪个项目时用它认出来。",
+      { url: z.string().describe("页面地址，用户没给就说你需要它") },
+      async ({ url }) => {
+        const ctx = surfaceContext(url);
+        if (!ctx.project && !ctx.tasks.length) return text(`不认识 ${url}。在 projects.md 里给那个项目补一条「地址：」就能认出来。`);
+        return text([
+          `页面：${url}`,
+          `项目：${ctx.project ?? "认不出"}`,
+          ctx.tasks.length ? `这个项目上在办的：\n${ctx.tasks.map((t) => `- ${t.title}${t.branch ? `（${t.branch}）` : ""}${t.jobId ? `｜终端 ${t.terminal}` : ""}`).join("\n")}` : "这个项目上没有在办的事",
+        ].join("\n"));
       },
     ),
     tool(

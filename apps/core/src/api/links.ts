@@ -3,11 +3,14 @@ import { z } from "zod";
 import type { LinkKind } from "@friday/shared";
 import { allLinks, linkUp, linksOf, unlink } from "../memory/links.js";
 import { projectOfUrl } from "../memory/infer.js";
+import { relayTarget, surfaceContext } from "../agent/surface.js";
+import { say } from "../agent/terminal.js";
 import { record } from "../memory/audit.js";
 
 const KINDS = ["task", "meegle", "thread", "branch", "url", "project"] as const;
 const node = z.object({ kind: z.enum(KINDS), ref: z.string().min(1).max(400) });
 const edge = z.object({ from: node, to: node, why: z.string().max(200).optional() });
+const relay = z.object({ url: z.string().min(1).max(2000), text: z.string().min(1).max(4000), taskId: z.string().optional() });
 
 export const links = new Hono()
   .get("/links", (c) => {
@@ -41,4 +44,30 @@ export const links = new Hono()
     if (!url) return c.json({ error: "缺 url" }, 400);
     const project = projectOfUrl(url);
     return c.json({ project: project ?? null, links: linksOf({ kind: "url", ref: url }) });
+  })
+  // 你在这个页面上，Friday 知道些什么：项目、这个项目上在办的事、哪个终端能收下反馈
+  .get("/surface", (c) => {
+    const url = c.req.query("url") ?? "";
+    if (!url) return c.json({ error: "缺 url" }, 400);
+    return c.json(surfaceContext(url));
+  })
+  // 对着页面说一句话，转给该收下它的终端。不用你说是哪个任务。
+  .post("/surface/say", async (c) => {
+    const parsed = relay.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "url / text 不能为空" }, 400);
+    const { url, text, taskId } = parsed.data;
+    const target = relayTarget(url, taskId);
+    if ("why" in target) return c.json({ error: target.why }, 409);
+    const note = `我在 ${url} 上看到：${text}`;
+    const r = say(target.jobId, note);
+    if (r === "no-terminal") return c.json({ error: "这个终端不在了" }, 409);
+    record({
+      taskId: target.taskId,
+      action: "terminal_say",
+      why: "你对着页面说了一句，Friday 认出是哪个终端在改它",
+      how: r === "sent" ? "直接敲进 PTY" : "排队等它这轮结束",
+      evidence: { jobId: target.jobId, url, text },
+      risk: "reversible",
+    });
+    return c.json({ ok: true, jobId: target.jobId, taskId: target.taskId, queued: r === "queued" });
   });

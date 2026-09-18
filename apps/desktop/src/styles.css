@@ -3176,55 +3176,287 @@ body,
 .q__head--wide {
   max-width: none;
 }
-.split {
+/* ── 轮播：一次一条任务铺满中间，右侧一块浮着的锚点条 ──
+   分组列表换成轮播是因为「同时看见十条」在这里没有价值：
+   你每次只处理一条，看板反而让人迷茫（2026-09-17 讨论）。 */
+.deck {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(300px, 34%) minmax(0, 1fr);
-  margin-top: 16px;
+  display: flex;
+  gap: var(--s-5);
+  margin-top: var(--s-4);
+  padding-right: var(--s-4);
 }
-.split__list {
-  min-height: 0;
-  overflow-y: auto;
-  /* 对齐轴：和 .q__head 同为 --s-8，标题与它标注的列表左边缘对齐 */
-  padding: var(--s-1) var(--s-4) var(--s-8) var(--s-8);
-  border-right: 1px solid var(--line-1);
-}
-/* 导航收起时红绿灯压回页面左上角，页头和列表左边让开 */
-.chat--norail .q__head,
-.chat--norail .split__list {
-  padding-left: 88px;
-}
-/* 分组头与 .li 共用同一条轴（.li 是 padding: --s-2 = 8px）。
-   声明一次，别让它从多条规则里凑出来。 */
-.split__list .grp__head,
-.split__list .grp__head--row {
-  padding-left: var(--s-2);
-}
-.split__detail {
+.deck__stage {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  /* 左右都用 --s-8，gutter 两侧对称（原来 10/28 让分隔线偏 18px） */
-  padding: var(--s-1) var(--s-8) var(--s-5) var(--s-8);
+  /* 对齐轴：和 .q__head 同为 --s-8 */
+  padding-left: var(--s-8);
 }
-/* 卡片自己滚，操作栏钉在右栏底部，一直看得见 */
-.split__detail .fx {
+/* 导航收起时红绿灯压回页面左上角，页头和舞台左边都让开 */
+.chat--norail .q__head,
+.chat--norail .deck__stage {
+  padding-left: 88px;
+}
+
+/* 搜索：轮播没有全局视野，靠它直达 */
+.find {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.find:focus-within {
+  border-color: var(--line-2);
+  box-shadow: 0 0 0 3px var(--live-glow);
+}
+.find__k {
+  flex: none;
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  color: var(--fg-4);
+}
+.find input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg-1);
+  font: inherit;
+  font-size: var(--t-aux);
+}
+.find input::placeholder {
+  color: var(--fg-4);
+}
+.find__n {
+  flex: none;
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+  font-variant-numeric: tabular-nums;
+}
+.find__act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 74px;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  cursor: default;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.find__act:hover:not(:disabled) {
+  color: var(--fg-1);
+  border-color: var(--line-2);
+}
+.find__act:disabled {
+  opacity: var(--o-disabled);
+}
+.find__act:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* 一张卡占满一屏，滚一下翻一页 */
+.deck__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.deck__scroll::-webkit-scrollbar {
+  display: none;
+}
+.deck__card {
+  height: 100%;
+  scroll-snap-align: center;
+  /* 不写 always：一次滚太多格时强制停在每一张会很粘手 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.deck__card .fx {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   margin-bottom: 0;
-  /* 卡片自己是滚动容器：顶部不留内边距，否则内容会从 sticky 的状态行上方露出来 */
   padding-top: 0;
 }
-.split__detail .fx__meta {
+.deck__card .fx__meta {
   margin-top: 0;
-  padding-top: 16px;
+  padding-top: var(--s-2);
 }
-.split__detail .empty {
+.deck__card .fx__foot {
+  margin-top: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.deck__scroll .empty {
   padding-top: 96px;
 }
+
+.deck__cmd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-1);
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+}
+.deck__cmd kbd {
+  padding: 0 3px;
+  border: 1px solid var(--line-1);
+  border-radius: 3px;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+.deck__sp {
+  flex: 1;
+  min-width: 0;
+}
+.deck__pos {
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 锚点条：浮在版心外面。在纯黑底上阴影是看不见的，
+   所以「浮起来」靠自发光——底色比页面亮一档、边发光、下方一片辉映。 */
+.anchors {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  width: 184px;
+  align-self: center;
+  max-height: 76%;
+  display: flex;
+  padding: var(--s-4) var(--s-1) var(--s-4) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: linear-gradient(160deg, var(--bg-4), var(--bg-2) 62%, var(--bg-1));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 18px var(--live-glow),
+    0 24px 56px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 var(--live-dim);
+}
+.anchors::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -14px;
+  height: 20px;
+  background: radial-gradient(ellipse at center, var(--live-glow), transparent 72%);
+  filter: blur(5px);
+  pointer-events: none;
+}
+.anchors__scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* 上下渐隐，滚动时不硬切 */
+  mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.anchors__scroll::-webkit-scrollbar {
+  display: none;
+}
+.anchors__g {
+  padding: var(--s-3) 0 var(--s-1) 2px;
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  color: var(--fg-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.anchors__scroll > .anchors__g:first-child {
+  padding-top: 0;
+}
+.an {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2);
+  align-items: start;
+  padding: 6px var(--s-2) 6px 6px;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  cursor: default;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.an:hover {
+  background: var(--bg-3);
+}
+.an:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.an[aria-current="true"] {
+  background: var(--bg-4);
+  border-left-color: var(--live);
+}
+.an .dot {
+  margin-top: 5px;
+}
+.an__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.an__t {
+  font-size: var(--t-xs);
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease);
+}
+.an:hover .an__t {
+  color: var(--fg-2);
+}
+.an[aria-current="true"] .an__t {
+  color: var(--fg-1);
+}
+.an__sub {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 名下的缺陷一次全开工 */
+.fx__pack-start {
+  margin: var(--s-2) 0 0;
+}
+
+@media (max-width: 1080px) {
+  .anchors {
+    display: none;
+  }
+}
+
 .grp--side {
   margin-top: var(--s-6);
   padding-top: var(--s-3);
