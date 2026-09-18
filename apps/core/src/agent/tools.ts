@@ -1,4 +1,3 @@
-import { reviewOnce } from "./lessons.js";
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
@@ -99,7 +98,6 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
                 `${i + 1}. ${th.userName}（${th.kind === "dm" ? "私聊" : th.channelName}，${th.items.length} 条）${b ? ` · ${b.urgency}${b.needsReply ? " · 等你回" : ""}` : ""}${th.project ? ` · 项目 ${th.project}` : ""}`,
                 b ? `   情境：${b.situation}` : "",
                 b ? `   需要你：${b.needs}` : "",
-                b?.reply ? `   建议回复：${b.reply}` : "",
                 b?.context.length ? `   背景：${b.context.join("；")}` : "",
                 `   原文：${th.items.map((it) => it.text.slice(0, 200)).join(" / ")}`,
                 th.items.some((it) => it.permalink) ? `   链接：${th.items.map((it) => it.permalink).filter(Boolean).join(" ")}` : "",
@@ -222,15 +220,6 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
           if (getJob(j.id)?.status !== "running") closed++;
         }
         return text(`关掉了 ${closed} 个终端${running.length > closed ? `，还剩 ${running.length - closed} 个在跑` : ""}。`);
-      },
-    ),
-    tool(
-      "review_now",
-      "让 Friday 现在复盘一次人工处理：看你最近怎么处置它起草的 Slack 回复（改了 / 打回 / 直接忽略 / 自己回的），重写对应类别的经验手册，下次草稿更准。用户说“复盘一下”“学学我是怎么处理的”“为什么老是判不准”时用。平时每天自动跑一次（设置里可关）。",
-      {},
-      async () => {
-        const r = await reviewOnce(true);
-        return text("skipped" in r ? `这次没复盘：${r.skipped}` : `复盘完了，重写了 ${r.categories.length} 份手册：${r.categories.join("、") || "无"}。`);
       },
     ),
     tool(

@@ -3,8 +3,6 @@ import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
 import { judgeIntake } from "./intake.js";
-import { decideStart } from "./gate.js";
-import { getThreshold } from "../memory/thresholds.js";
 import { startAutonomousJob } from "./pipeline.js";
 import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
@@ -368,25 +366,10 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
     console.log(`[meegle] ${item.id} 排队：项目 ${verdict.project} 定位不到目录`);
     return;
   }
-  const t = updateTask(task.id, { project: dir.project.name })!;
-  const threshold = getThreshold(AUTOSTART_CATEGORY);
-  const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, confidence: verdict.confidence, meegleId: item.id };
+  updateTask(task.id, { project: dir.project.name });
+  const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, meegleId: item.id };
 
-  if (decideStart(verdict.confidence, threshold) === "auto") {
-    await startAutonomousJob(t, dir.project.name, dir.project.dir, verdict.detail);
-    record({
-      taskId: task.id,
-      action: "intake_start",
-      why: `置信度 ${verdict.confidence} 不低于开工阈值 ${threshold}：${verdict.why}`,
-      how: `在 ${dir.project.name} 上自主开工`,
-      evidence: { ...payload, auto: true },
-      risk: "reversible",
-    });
-    state.notices.push({ title: `已开始做 · ${dir.project.name}`, body: item.name.slice(0, 120) });
-    return;
-  }
-
-  // 阈值没到：挂成待审动作等用户点。用户点通过 / 打回的记录会回流成 lessons，阈值自己校准。
+  // 一律挂成待审动作等你点：开工要动代码，由你拍板。
   // 状态留在待办里：一条还没开工的工单不是「阻塞你的事」，不该进「待我决定」。
   addPending(task.id, {
     type: "start_job",
@@ -397,7 +380,7 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
   record({
     taskId: task.id,
     action: "intake_start_pending",
-    why: threshold >= 100 ? `开工闸门默认关着（阈值 ${threshold}），等你点` : `置信度 ${verdict.confidence} 低于开工阈值 ${threshold}`,
+    why: "改代码由你拍板，Friday 只把它挑出来",
     how: `拟在 ${dir.project.name} 上开工：${verdict.why}`,
     evidence: payload,
     risk: "reversible",

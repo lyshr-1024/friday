@@ -348,7 +348,7 @@ export function threadPrompt(t: Thread): string {
     `帮我处理 ${t.userName} 在 Slack 找我的这件事（${t.kind === "dm" ? "私聊" : t.channelName}）。`,
     `原文：`,
     ...t.items.map((i) => `- ${i.text}${i.permalink ? `（${i.permalink}）` : ""}`),
-    b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}${b.reply ? `你拟的回复：${b.reply}` : ""}` : "",
+    b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}` : "",
     `先给判断和方案，等我确认再动手。`,
   ].filter(Boolean).join("\n");
 }

@@ -2,32 +2,16 @@ import type { Thread, ThreadBrief } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { markAutoDone } from "../memory/threads.js";
-import { addNoteTask, dropNoteTask } from "../memory/noteTask.js";
+import { dropNoteTask } from "../memory/noteTask.js";
 import { deleteTodo } from "../memory/todos.js";
 
 /**
- * 情境卡里的可逆写：记待办、更新 people.md。按 permission.ts 属 reversible：自动做、记账、可撤销、每个线程每类只做一次。
+ * 情境卡里的可逆写：更新 people.md。按 permission.ts 属 reversible：自动做、记账、可撤销、每个线程每类只做一次。
+ * 原来还会按情境卡的 todo 自动记待办，2026-09-18 随起草能力一起去掉了——
+ * 那些待办是模型从指代句里编出来的（「确认张亮问的是哪个 key」），实测创建后 98 分钟内被全部清掉。
  */
 export function applyReversibleWrites(thread: Thread, brief: ThreadBrief, taskId?: string): string[] {
   const done: string[] = [];
-  if (brief.todo && markAutoDone(thread.id, "todo")) {
-    const todo = addNoteTask({
-      text: brief.todo.text,
-      ...(brief.todo.due ? { due: brief.todo.due } : {}),
-      kind: "slack",
-      source: taskId ? { fromTaskId: taskId } : {},
-    });
-    record({
-      ...(taskId ? { taskId } : {}),
-      action: "todo_add",
-      why: `${thread.userName} 的消息里有需要你之后做的事`,
-      how: "建成一条待办任务",
-      evidence: { text: todo.title, due: todo.due ?? null, threadId: thread.id },
-      risk: "reversible",
-      undo: { kind: "drop_note_task", id: todo.id },
-    });
-    done.push(`已记待办：${brief.todo.text}`);
-  }
   if (brief.person && markAutoDone(thread.id, "person")) {
     const line = upsertPerson(thread.userName, brief.person);
     record({

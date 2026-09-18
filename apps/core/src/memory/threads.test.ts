@@ -55,7 +55,7 @@ describe("线程聚合", () => {
 
   it("情境卡、历史情境、状态流转、自动写只做一次", () => {
     const [t1, t2] = listThreads("open").filter((t) => t.kind === "dm").map((t) => t.id).sort();
-    setThreadBrief(t1!, { situation: "灵雨追问登录报错", needs: "看下报错", needsReply: true, urgency: "high", actions: [], context: [], confidence: 80, confidenceReason: "" }, "whale-console");
+    setThreadBrief(t1!, { situation: "灵雨追问登录报错", needs: "看下报错", needsReply: true, urgency: "high", context: [] }, "whale-console");
     expect(previousBriefs("U9", t2!)).toEqual(["灵雨追问登录报错"]);
     expect(listThreads("open").find((t) => t.id === t1)!.project).toBe("whale-console");
     expect(markAutoDone(t1!, "todo")).toBe(true);

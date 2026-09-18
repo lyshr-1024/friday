@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask, reportBackToOrigin } from "./pipeline.js";
 import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
-import { setThreshold } from "../memory/thresholds.js";
 import { attachToThread, getThread } from "../memory/threads.js";
 import { addInboxItems } from "../memory/inbox.js";
 import { initMemory } from "../memory/db.js";
@@ -56,130 +55,6 @@ function mkRealThread(id: string, kind: "dm" | "mention" = "dm") {
   const threadId = attachToThread(item);
   return { ...getThread(threadId)!, items: [item] };
 }
-
-describe("过阈值自动回复", () => {
-  const mkThread = mkRealThread;
-  const mkBrief = (confidence: number) => ({ situation: "问进度", needs: "回一句", needsReply: true, urgency: "normal" as const, reply: "修好了，已经上灰度", actions: [], context: [], confidence, confidenceReason: "" });
-
-  it("置信度够就直接发，任务 done，账本带可撤回的 channel 与 ts", async () => {
-    // 默认阈值现在是 100（等同于关掉自动发送），这里显式调到 90 来表达「阈值 90 时置信度 96 会自动发」这个意图。
-    setThreshold("status_ask", 90);
-    const sent: Array<[string, string]> = [];
-    const slackPost = async (channel: string, text: string) => { sent.push([channel, text]); return { ts: "1760000009.001" }; };
-    const task = await threadToTask(mkThread("th-auto"), mkBrief(96), undefined, { slackPost });
-    expect(sent).toEqual([["D9", "修好了，已经上灰度"]]);
-    expect(task.status).toBe("done");
-    expect(task.pending ?? []).toHaveLength(0);
-    const ev = listAudit({ taskId: task.id }).find((e) => e.action === "slack_reply_sent")!;
-    expect(ev.reversible).toBe(true);
-    expect(undoPlan(ev.id)).toEqual({ kind: "delete_slack_message", channel: "D9", ts: "1760000009.001" });
-  });
-
-  it("置信度不够仍挂待审动作", async () => {
-    const task = await threadToTask(mkThread("th-queue"), mkBrief(40), undefined, { slackPost: async () => ({ ts: "x" }) });
-    expect(task.status).toBe("review");
-    expect(task.pending!.map((p) => p.type)).toEqual(["slack_reply"]);
-  });
-
-  it("没有注入发送能力时一律进队列", async () => {
-    const task = await threadToTask(mkThread("th-nodep"), mkBrief(99));
-    expect(task.status).toBe("review");
-    expect(task.pending!.map((p) => p.type)).toEqual(["slack_reply"]);
-  });
-});
-
-describe("自动回复的故障路径（Task 6 review round 1）", () => {
-  const mkThread = mkRealThread;
-  const mkBrief = (confidence: number) => ({ situation: "问进度", needs: "回一句", needsReply: true, urgency: "normal" as const, reply: "修好了，已经上灰度", actions: [], context: [], confidence, confidenceReason: "" });
-
-  it("类别阈值被调高后，同样的置信度必须排队而不是照默认阈值自动发", async () => {
-    setThreshold("status_ask", 98);
-    try {
-      const sent: string[] = [];
-      const task = await threadToTask(mkThread("th-cat"), mkBrief(96), undefined, { slackPost: async (c) => { sent.push(c); return { ts: "x" }; } });
-      expect(sent).toEqual([]);
-      expect(task.status).toBe("review");
-      expect(task.pending!.map((p) => p.type)).toEqual(["slack_reply"]);
-    } finally {
-      setThreshold("status_ask", 90);
-    }
-  });
-
-  it("发送抛错：任务 blocked，账本留一条 failed，progress 提醒可能已发出", async () => {
-    setThreshold("status_ask", 90);
-    const task = await threadToTask(mkThread("th-fail"), mkBrief(96), undefined, {
-      slackPost: async () => { throw new Error("network reset"); },
-    });
-    expect(task.status).toBe("blocked");
-    expect(task.progress).toContain("可能已经发出");
-    const ev = listAudit({ taskId: task.id }).find((e) => e.action === "slack_reply_sent")!;
-    expect(ev.status).toBe("failed");
-    expect(ev.reversible).toBe(false);
-  });
-
-  it("Slack 返回空 ts：不算成功，不留可撤回的 undo", async () => {
-    setThreshold("status_ask", 90);
-    const task = await threadToTask(mkThread("th-emptyts"), mkBrief(96), undefined, {
-      slackPost: async () => ({ ts: "" }),
-    });
-    expect(task.status).toBe("blocked");
-    const ev = listAudit({ taskId: task.id }).find((e) => e.action === "slack_reply_sent")!;
-    expect(ev.status).toBe("failed");
-    expect(undoPlan(ev.id)).toBeUndefined();
-  });
-
-  it("同一线程发过一次之后，下一轮不会再自动发送第二遍", async () => {
-    setThreshold("status_ask", 90);
-    const th = mkThread("th-twice");
-    const sent: string[] = [];
-    const slackPost = async (channel: string, text: string) => { sent.push(text); return { ts: "1760000009.001" }; };
-    const first = await threadToTask(th, mkBrief(96), undefined, { slackPost });
-    expect(first.status).toBe("done");
-    const second = await threadToTask(th, mkBrief(96), undefined, { slackPost });
-    expect(sent).toHaveLength(1);
-    expect(second.status).toBe("review");
-    expect(second.pending!.map((p) => p.type)).toEqual(["slack_reply"]);
-  });
-
-  it("mention 类型的线程自动发送要带上 threadTs，回到原线程里", async () => {
-    setThreshold("status_ask", 90);
-    let seenThreadTs: string | undefined;
-    const task = await threadToTask(mkThread("th-mention", "mention"), mkBrief(96), undefined, {
-      slackPost: async (_c, _t, threadTs) => { seenThreadTs = threadTs; return { ts: "1760000010.001" }; },
-    });
-    expect(task.status).toBe("done");
-    expect(seenThreadTs).toBe("1760000001");
-  });
-});
-
-describe("自动回复的账本可读性（Task 6 review round 2）", () => {
-  const mkBrief = (confidence: number) => ({ situation: "问进度", needs: "回一句", needsReply: true, urgency: "normal" as const, reply: "修好了，已经上灰度", actions: [], context: [], confidence, confidenceReason: "" });
-
-  it("闸门拦下的排队理由要写「已经自动回过」，不能说成置信度不够", async () => {
-    setThreshold("status_ask", 90);
-    const th = mkRealThread("th-gate-text");
-    const slackPost = async () => ({ ts: "1760000031.001" });
-    const first = await threadToTask(th, mkBrief(96), undefined, { slackPost });
-    expect(first.status).toBe("done");
-    const second = await threadToTask(th, mkBrief(96), undefined, { slackPost });
-    expect(second.status).toBe("review");
-    const ev = listAudit({ taskId: second.id }).find((e) => e.action === "slack_reply_prepared")!;
-    expect(ev.why).toContain("已经自动回过一次");
-    expect(ev.why).not.toContain("低于阈值");
-    expect(ev.evidence.gateBlocked).toBe(true);
-  });
-
-  it("发送异常的原文要能在账本 evidence 里查到", async () => {
-    setThreshold("status_ask", 90);
-    const th = mkRealThread("th-error-evidence");
-    const task = await threadToTask(th, mkBrief(96), undefined, {
-      slackPost: async () => { throw new Error("invalid_auth: token 过期"); },
-    });
-    expect(task.status).toBe("blocked");
-    const ev = listAudit({ taskId: task.id }).find((e) => e.action === "slack_reply_sent")!;
-    expect(ev.evidence.error).toContain("token 过期");
-  });
-});
 
 describe("同一线程不重复建任务", () => {
   it("上一条任务已收工，同线程再来消息时复用它而不是新建第二条", async () => {
@@ -251,38 +126,13 @@ describe("Slack 线程要自己开工改代码时的闸门", () => {
     return dir;
   }
 
-  it("置信度不到阈值不许自己开工，挂成待审动作等用户点", async () => {
+  it("Slack 线程不再自动开工，也不再挂开工提案——改代码由你在会话里说", async () => {
     mkProject();
-    setThreshold("autostart", 80);
-    const task = await threadToTask(mkRealThread("th-code-low"), mkCodeBrief(45), "demo-proj");
+    const task = await threadToTask(mkRealThread("th-code"), mkCodeBrief(100), "demo-proj");
     expect(task.source.jobId).toBeUndefined();
-    expect((task.pending ?? []).map((p) => p.type)).toContain("start_job");
+    expect((task.pending ?? []).map((p) => p.type)).not.toContain("start_job");
   });
 
-  it("挂了开工提案不改状态：还没开工的活留在待办里，不占「待我决定」", async () => {
-    mkProject();
-    setThreshold("autostart", 80);
-    const task = await threadToTask(mkRealThread("th-code-stay"), mkCodeBrief(45), "demo-proj");
-    expect(task.status).not.toBe("review");
-    expect(task.status).not.toBe("blocked");
-  });
-
-  it("阈值 100（默认）等于关掉自动开工，置信度满分也只是挂起", async () => {
-    mkProject();
-    setThreshold("autostart", 100);
-    const task = await threadToTask(mkRealThread("th-code-full"), mkCodeBrief(100), "demo-proj");
-    expect(task.source.jobId).toBeUndefined();
-    expect((task.pending ?? []).map((p) => p.type)).toContain("start_job");
-  });
-
-  it("待审动作要带上项目和目录，用户点之前能看出它要去哪个仓库改", async () => {
-    const dir = mkProject();
-    setThreshold("autostart", 80);
-    const task = await threadToTask(mkRealThread("th-code-where"), mkCodeBrief(45), "demo-proj");
-    const p = (task.pending ?? []).find((x) => x.type === "start_job")!;
-    expect(p.label).toContain("demo-proj");
-    expect(p.payload).toMatchObject({ project: "demo-proj", dir, confidence: 45 });
-  });
 });
 
 describe("reportBackToOrigin", () => {

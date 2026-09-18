@@ -11,7 +11,6 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "./enrich.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
-import { lessonFromRelay } from "./lessons.js";
 import { currentBranchSync } from "./git.js";
 
 const execFileP = promisify(execFile);
@@ -143,7 +142,6 @@ export function userTyped(jobId: string, data: string): void {
   clearAttention(jobId);
   if (!line) return;
   const task = findTaskBySource((s) => s.jobId === jobId);
-  lessonFromRelay(task?.id, line);
 }
 
 /** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */

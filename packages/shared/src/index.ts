@@ -245,27 +245,22 @@ export interface Job {
 
 export type ThreadStatus = "open" | "done" | "ignored";
 
-export interface ThreadAction {
-  type: "reply" | "run_claude" | "todo" | "meegle" | "none";
-  label: string;
-  detail?: string;
-}
-
-/** Friday 对一个线程做完功课后的情境卡 */
+/**
+ * 情境卡。2026-09-18 起只备料不下结论：
+ * 137 条起草的回复只发出 14 条（10%），99 条「判要回」的线程被直接忽略，
+ * 说明 Friday 凭 10 条前文写不出能用的草稿，写了也是白写。
+ * 现在它只回答「谁、为什么找、要什么、急不急」，回复由你来写，
+ * 要动代码就把原话转给终端——那边才有完整上下文。
+ */
 export interface ThreadBrief {
   situation: string;
   needs: string;
   needsReply: boolean;
   urgency: Urgency;
-  reply?: string;
-  actions: ThreadAction[];
   context: string[];
   /** 这条消息之前、频道或 thread 里已经聊过的原话。判断的依据，要能被核对。 */
   priorMessages?: Array<{ ts: string; userName: string; text: string }>;
-  todo?: { text: string; due?: string };
   person?: string;
-  confidence: number;
-  confidenceReason: string;
 }
 
 export interface Thread {

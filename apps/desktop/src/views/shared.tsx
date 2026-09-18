@@ -284,7 +284,6 @@ export function ThreadCard({ t, onOpen, onDone, onIgnore }: { t: Thread; onOpen?
         <>
           <div className="thread__situation">{b.situation}</div>
           <div className="thread__needs"><span className="k mono">需要你</span>{b.needs}</div>
-          {b.reply && <div className="thread__reply"><span className="k mono">建议回复</span>{b.reply}</div>}
           {b.context.length > 0 && (
             <ul className="thread__ctx">
               {b.context.map((c, i) => <li key={i}>{c}</li>)}
@@ -308,7 +307,6 @@ export function ThreadCard({ t, onOpen, onDone, onIgnore }: { t: Thread; onOpen?
         </ul>
       )}
       <div className="inbox__actions">
-        {b?.reply && <button onClick={() => void navigator.clipboard.writeText(b.reply!)}>复制回复</button>}
         {onOpen && <button className="inbox__go" onClick={() => onOpen(t)}>在会话里处理</button>}
         {onDone && <button onClick={() => onDone(t.id)}>已处理</button>}
         {onIgnore && <button onClick={() => onIgnore(t.id)}>忽略</button>}

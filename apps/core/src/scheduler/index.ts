@@ -5,7 +5,6 @@ import { buildBrief } from "../agent/brief.js";
 import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
-import { reviewDue, reviewOnce, REVIEW_KEY } from "../agent/lessons.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
@@ -162,12 +161,6 @@ export function startScheduler(): void {
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };
   setTimeout(meegleTick, 8_000).unref();
-  // 每天复盘一次你的人工处理，重写对应类别的经验手册（reviewDue 只看离上次跑过了多久）
-  const reviewTick = async () => {
-    if (reviewDue(getCursor(REVIEW_KEY))) await reviewOnce();
-    setTimeout(reviewTick, LEARN_CHECK_MS).unref();
-  };
-  setTimeout(reviewTick, 20_000).unref();
   // 从 Claude Code 历史提炼项目手册，每周一轮（historyDue 只看离上次跑过了多久）
   const historyTick = async () => {
     if (historyDue(getCursor(RAN_KEY))) await learnHistoryOnce();

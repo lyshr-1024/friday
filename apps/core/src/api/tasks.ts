@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { recordLesson, reviewOnce } from "../agent/lessons.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
@@ -19,11 +18,6 @@ import { getThread, markAutoDone, threadCategory } from "../memory/threads.js";
 const replyCategory = (t?: Task): ReplyCategory => {
   const th = t?.source.threadId ? getThread(t.source.threadId) : undefined;
   return th ? threadCategory(th) : "other";
-};
-const asCategory = (v: unknown): ReplyCategory => (REPLY_CATEGORIES.includes(v as ReplyCategory) ? (v as ReplyCategory) : "other");
-const taskConfidence = (t?: Task): number => {
-  const th = t?.source.threadId ? getThread(t.source.threadId) : undefined;
-  return th?.brief?.confidence ?? 0;
 };
 
 const transitionInput = z.object({
@@ -46,7 +40,6 @@ export const tasks = new Hono()
     if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
-  .post("/tasks/review", async (c) => c.json(await reviewOnce(true)))
   .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
@@ -106,16 +99,6 @@ export const tasks = new Hono()
         },
         text ? { text } : undefined,
       );
-      const final = text?.trim() || draft;
-      // 只有回复类动作才算「Friday 起草、用户拍板」的经验；git_merge 这类审核动作不代表对话质量，不该污染 lesson 统计。
-      // 会话里改过的草稿在改那一刻已记过 edited_approved，这里再记一条 approved 会把统计冲成「判得很准」
-      if (action?.type === "slack_reply" && draft && !action.payload.edited) {
-        recordLesson({ taskId: t.id, category: replyCategory(before), kind: final === draft ? "approved" : "edited_approved", draft, final, confidence: taskConfidence(before) });
-      }
-      // 点了开工同样是拍板：这条记进 autostart 的经验，阈值据此校准
-      if (action?.type === "start_job") {
-        recordLesson({ taskId: t.id, category: AUTOSTART_CATEGORY, kind: "approved", draft: action.detail, confidence: Number(action.payload.confidence ?? 0) });
-      }
       return c.json(t);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -128,16 +111,7 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
-    const firstPending = t.pending?.[0];
-    // 只有回复类动作被打回才记 lesson——用户说的是「这条不要发」，git_merge 这类审核动作打回不代表对话质量。
-    if (firstPending?.type === "slack_reply") {
-      recordLesson({ taskId: t.id, category: replyCategory(t), kind: "rejected", feedback: reason ?? "", draft: firstPending.detail ?? "", confidence: taskConfidence(t) });
-    }
-    // 打回开工 = 「这活你不该自己接」，是校准开工阈值最直接的信号
-    if (firstPending?.type === "start_job") {
-      recordLesson({ taskId: t.id, category: AUTOSTART_CATEGORY, kind: "rejected", feedback: reason ?? "", draft: firstPending.detail ?? "", confidence: Number(firstPending.payload.confidence ?? 0) });
-    }
-    // 打回是用户表达「这条不要发」的最强信号：关掉这条线程的自动发送闸门，下一轮新消息不能绕过审核直接发出去。
+    // 打回 = 「这条不要发」：关掉这条线程的自动发送闸门
     if (t.source.threadId) markAutoDone(t.source.threadId, "slack_reply_sent");
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
@@ -238,11 +212,6 @@ export const tasks = new Hono()
         return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
       }
       setEventStatus(c.req.param("id"), "undone");
-      const ev = getEvent(c.req.param("id"));
-      // 只有 Friday 自动发出去又被撤回的才算它判断失误，人工批准发出的不记这一笔
-      if (ev?.action === "slack_reply_sent" && ev.evidence.auto === true) {
-        recordLesson({ ...(ev.taskId ? { taskId: ev.taskId } : {}), category: asCategory(ev.evidence.category), kind: "auto_undone", final: String(ev.evidence.text ?? ""), confidence: Number(ev.evidence.confidence ?? 0) });
-      }
       return c.json({ ok: true });
     }
     if (plan.kind === "restore_memory") {

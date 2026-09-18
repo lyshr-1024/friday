@@ -4,7 +4,6 @@ import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished, userTyped } from "./bridge.js";
-import { listLessons } from "../memory/lessons.js";
 import { RELAY_CATEGORY } from "@friday/shared";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
@@ -147,36 +146,4 @@ describe("项目明确之后只做决定和转发", () => {
     expect(toFriday).not.toContain("没读过这个项目的代码");
   });
 
-  it("用户自己往终端敲整句 = 一条 relay 经验；应答键和空行不算", () => {
-    createJob({ id: "job-typed", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
-    const task = createTask({ title: "demo：转发", kind: "code", source: { jobId: "job-typed" }, project: "demo", status: "processing" });
-    const before = listLessons(RELAY_CATEGORY, 100).length;
-
-    // 前端每键一个 POST，攒到回车算一句
-    for (const ch of "先看 apps/core 里的 fence.ts") userTyped("job-typed", ch);
-    userTyped("job-typed", "\r");
-    const after = listLessons(RELAY_CATEGORY, 100);
-    expect(after.length).toBe(before + 1);
-    expect(after[0]!.final).toBe("先看 apps/core 里的 fence.ts");
-    expect(after[0]!.kind).toBe("relayed_direct");
-    expect(after[0]!.taskId).toBe(task.id);
-
-    // y / 回车这类应答键学不出东西
-    userTyped("job-typed", "y");
-    userTyped("job-typed", "\r");
-    userTyped("job-typed", "\r");
-    expect(listLessons(RELAY_CATEGORY, 100).length).toBe(before + 1);
-  });
-
-  it("退格跟着删，不把删掉的那版一起攒进去", () => {
-    createJob({ id: "job-bs", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
-    createTask({ title: "demo：退格", kind: "code", source: { jobId: "job-bs" }, project: "demo", status: "processing" });
-    const before = listLessons(RELAY_CATEGORY, 100).length;
-    for (const ch of "改成 exclusiveX") userTyped("job-bs", ch);
-    userTyped("job-bs", "\x7f");
-    userTyped("job-bs", "\r");
-    const l = listLessons(RELAY_CATEGORY, 100);
-    expect(l.length).toBe(before + 1);
-    expect(l[0]!.final).toBe("改成 exclusive");
-  });
 });

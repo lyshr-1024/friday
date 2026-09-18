@@ -22,7 +22,7 @@ export async function buildDesk(): Promise<Desk> {
     .filter((t) => t.brief?.needsReply)
     .sort((a, b) => rank(a.brief!.urgency) - rank(b.brief!.urgency) || Number(b.lastTs) - Number(a.lastTs))
     .slice(0, 6)
-    .map((t) => ({ id: t.id, userName: t.userName, situation: t.brief!.situation, needs: t.brief!.needs, urgency: t.brief!.urgency, ...(t.brief!.reply ? { reply: t.brief!.reply } : {}) }));
+    .map((t) => ({ id: t.id, userName: t.userName, situation: t.brief!.situation, needs: t.brief!.needs, urgency: t.brief!.urgency }));
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
   const todos = listOpenTodos()
     .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"))

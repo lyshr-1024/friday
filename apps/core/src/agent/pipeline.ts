@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
-import { lessonFromTask } from "./lessons.js";
 import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
@@ -11,10 +10,8 @@ import { createJob, getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
-import { getThreshold } from "../memory/thresholds.js";
 import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
-import { decide, decideStart } from "./gate.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport } from "./report.js";
@@ -62,7 +59,6 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   const before = getTask(id);
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) {
-    if (before) lessonFromTask(before, status === "done" ? "done_without_reply" : "ignored");
     closeTaskTerminal(t, why);
     closeTaskThread(t, status);
     await cleanupTaskWorktree(t, why);
@@ -75,14 +71,13 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
   // 只找未完成的会找不到它、再建一条，同一件事就在板上出现两遍。
   let task = findTaskBySource((s) => s.threadId === thread.id, true);
   const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
-  const plan = brief.actions.map((a) => `${a.label}${a.detail ? `：${a.detail}` : ""}`).join("\n");
   if (!task) {
-    task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, plan, status: "understood" });
+    task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, status: "understood" });
     record({ taskId: task.id, action: "task_create", why: "Slack 线程做完功课", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   } else {
     // 收工过的线程又有新消息 = 这件事没完，拉回队列；用户手动忽略的不翻回来。
     const revive = task.status === "done";
-    task = updateTask(task.id, { title, understanding: brief.situation, plan, priority: brief.urgency, ...(project ? { project } : {}), ...(revive ? { status: "understood" as const } : {}) })!;
+    task = updateTask(task.id, { title, understanding: brief.situation, priority: brief.urgency, ...(project ? { project } : {}), ...(revive ? { status: "understood" as const } : {}) })!;
     if (revive) record({ taskId: task.id, action: "task_reopen", why: "这条线程收工后对方又来消息", how: "拉回待办，不另建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   }
 
@@ -99,82 +94,6 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
     })!;
   }
 
-  const first = thread.items[0];
-  const already = (task.pending ?? []).some((p) => p.type === "slack_reply");
-  if (brief.needsReply && brief.reply && first && !already) {
-    const category = threadCategory(thread);
-    const threshold = getThreshold(category);
-    const payload = { channel: first.channelId, text: brief.reply, ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}), userName: thread.userName };
-    // 闸门必须在真正尝试发送之前过：同一线程自动发过一次后，即便又有新消息触发同一判断也不再重发，只排队等人看。
-    const wouldAuto = decide(brief, threshold) === "auto";
-    if (deps.slackPost && wouldAuto && markAutoDone(thread.id, "slack_reply_sent")) {
-      const ev = record({
-        taskId: task.id,
-        action: "slack_reply_sent",
-        why: `置信度 ${brief.confidence} 不低于 ${REPLY_CATEGORY_LABEL[category]} 的阈值 ${threshold}`,
-        how: "Friday 正在自动回复，你可以撤回",
-        evidence: { channel: payload.channel, text: payload.text, confidence: brief.confidence, threshold, category, auto: true },
-        risk: "irreversible",
-        status: "pending",
-      });
-      try {
-        const res = await deps.slackPost(payload.channel, payload.text, payload.threadTs);
-        if (!res.ts) throw new Error("Slack 没有返回消息 ts，发送结果不可信");
-        setEventUndo(ev.id, { kind: "delete_slack_message", channel: payload.channel, ts: res.ts });
-        setEventStatus(ev.id, "done");
-        task = updateTask(task.id, { status: "done", progress: `Friday 已自动回复（置信度 ${brief.confidence} ≥ 阈值 ${threshold}）：${brief.reply}` })!;
-      } catch (e) {
-        updateEventEvidence(ev.id, { error: e instanceof Error ? e.message : String(e) });
-        setEventStatus(ev.id, "failed");
-        task = updateTask(task.id, { status: "blocked", progress: `自动回复可能已经发出，请去 Slack 核对后手动处理：${brief.reply}` })!;
-      }
-    } else {
-      // 置信度够但闸门已经关了（这条线程自动回过一次）、没有注入发送能力、置信度本身不够，是三种不同的原因，账本要分开说，
-      // 不能不管哪种都写「低于阈值」——置信度明明达标却这么说，用户点开账本会看出自相矛盾。
-      const gateBlocked = Boolean(deps.slackPost) && wouldAuto;
-      const noSendCapability = !deps.slackPost && wouldAuto;
-      task = addPending(task.id, { type: "slack_reply", label: `回复 ${thread.userName}`, detail: brief.reply, payload })!;
-      record({
-        taskId: task.id,
-        action: "slack_reply_prepared",
-        why: gateBlocked ? "对方等回复，但这条线程已经自动回过一次" : "对方等回复",
-        how: gateBlocked
-          ? `置信度 ${brief.confidence} 达标，同一线程只自动回一次，这次等你确认`
-          : noSendCapability
-            ? `置信度 ${brief.confidence} 达标，但这轮没有发送能力，等你审核`
-            : `置信度 ${brief.confidence}，低于阈值 ${threshold}，等你审核`,
-        evidence: { text: brief.reply, confidence: brief.confidence, threshold, category, ...(gateBlocked ? { gateBlocked: true } : {}) },
-        risk: "irreversible",
-        status: "pending",
-      });
-    }
-  }
-
-  const wantsCode = brief.actions.some((a) => a.type === "run_claude");
-  const dir = project ? resolveProject(project) : undefined;
-  if (wantsCode && dir?.kind === "match" && !task.source.jobId) {
-    const what = brief.actions.find((a) => a.type === "run_claude")?.detail ?? brief.needs;
-    const detail = codeTaskDetail(thread, what);
-    // 改代码比发一句话更重（而且项目可能判错，改的是哪个仓库得先让人看见），同一份情境卡的置信度
-    // 既然拦得住回复，就也得拦得住开工。阈值表和回复共用，默认 100 = 全部等人点。
-    const startThreshold = getThreshold(AUTOSTART_CATEGORY);
-    const payload = { project: dir.project.name, dir: dir.project.dir, detail, confidence: brief.confidence };
-    if (decideStart(brief.confidence, startThreshold) === "auto") {
-      task = await startAutonomousJob(task, dir.project.name, dir.project.dir, detail);
-    } else {
-      // 状态不动：开工提案是「可以安排」，不是「卡住了等你」，别挤进「待我决定」
-      task = addPending(task.id, { type: "start_job", label: `开工：${dir.project.name}`, detail: what, payload }, { keepStatus: true })!;
-      record({
-        taskId: task.id,
-        action: "intake_start_pending",
-        why: startThreshold >= 100 ? `开工闸门默认关着（阈值 ${startThreshold}），等你点` : `置信度 ${brief.confidence} 低于开工阈值 ${startThreshold}`,
-        how: `拟在 ${dir.project.name} 上开工：${what.slice(0, 200)}`,
-        evidence: payload,
-        risk: "reversible",
-        status: "pending",
-      });
-    }
-  }
   return task;
 }
 

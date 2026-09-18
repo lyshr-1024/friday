@@ -4,18 +4,11 @@ import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import type { Enrichment } from "./enrich.js";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
-import { readPlaybook } from "../memory/playbooks.js";
-import { recentEdited } from "../memory/lessons.js";
-import { threadCategory } from "../memory/threads.js";
 import { TRIAGE_MODEL } from "./triage.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
-export function briefPrompt(
-  thread: Thread,
-  e: Enrichment,
-  extra: { playbook?: string; examples?: Array<{ input: string; final: string }> } = {},
-): { system: string; prompt: string } {
+export function briefPrompt(thread: Thread, e: Enrichment): { system: string; prompt: string } {
   const registry = loadProjects()
     .map((p) => `- ${p.name}${p.aliases.length ? `（${p.aliases.join("、")}）` : ""}${p.channels.length ? ` ${p.channels.join(" ")}` : ""}${p.note ? ` — ${p.note}` : ""}`)
     .join("\n");
@@ -32,18 +25,11 @@ export function briefPrompt(
   return {
     system: [
       "你是 Friday，用户的私人助理。用户是前端工程师。下面是一个人在 Slack 上找用户的一组消息，以及你已经查好的背景。请替用户把功课做完，输出一张情境卡。",
-      "要求：situation 一句话说清谁、为什么找、和哪个工单/项目有关、现在卡在哪（不超过 60 字）；needs 一句话说用户需要做什么（不超过 40 字）；needsReply 是否需要用户本人回复；urgency high/normal/low；reply 如果需要回复，给一条 20 到 80 字、口语化、基于背景写的中文回复（把已查到的工单状态、进展直接写进去，不要客套）；actions 建议动作列表，type 取 reply / run_claude / todo / meegle / none，label 不超过 12 字，detail 一句话；context 列出你用到的背景要点（每条不超过 40 字）；如果这件事需要用户之后去做，给 todo（text 不超过 40 字，due 可选 YYYY-MM-DD）；如果对这个人有值得记住的新信息（角色、负责什么、常找你什么），给 person 一句话，否则省略。",
-      "run_claude 这类动作的 detail 只写「对方要什么」——照抄诉求，保留原话里的关键词、报错、路径、工单号。你没读过这个项目的代码，也没有它的 skill，不要写改哪个文件、用什么方案、分几步，那些由终端里看得到代码的 Claude 自己判断，你写了反而把它带偏。",
+      "你的活是把事实摆清楚，不是替用户拿主意。situation 一句话说清谁、为什么找、和哪个工单/项目有关、现在卡在哪（不超过 60 字）；needs 一句话说对方要用户做什么（不超过 40 字，照抄诉求，保留原话里的关键词、报错、路径、工单号）；needsReply 是否需要用户本人回复；urgency high/normal/low；context 列出你用到的背景要点（每条不超过 40 字）；如果对这个人有值得记住的新信息（角色、负责什么、常找你什么），给 person 一句话，否则省略。",
+      "不要起草回复，不要给行动建议，不要写改哪个文件、用什么方案、分几步。你只读到了这几条消息和一点前文，写出来的方案会把有完整上下文的人和终端带偏。用户看完你的卡自己决定怎么办。",
       registry ? `项目注册表：\n${registry}` : "",
       "找用户的消息常常是指代句（“你看看志华遗留的这个问题”“晚一点吧”），前面那段对话才说明是什么事——先读它再判断，situation 要写清具体指的是哪件事，不要复述指代句。",
-      "再给 confidence（0-100 的整数）和 confidenceReason（一句话）：按背景是否查全、对方要什么是否明确、回复里有没有只有用户本人能定的承诺来自评。回复里出现工期、方案选型、人力安排这类承诺时，confidence 必须低于 60。",
       "context 只写查到的事实，不要写你自己的能力限制（比如“无权限读 thread”“没有搜索工具”），查不到就不提。",
-      extra.playbook ? `这类消息的处理经验（你自己攒的，优先照它做）：\n${extra.playbook}` : "",
-      // examples 的 input 是 Friday 自己起草的草稿（不是对方的原话，lessons 表没存原始消息），措辞必须说清这一点，
-      // 不然模型会学到「对方说 X 就回 Y」这种错配的因果——这条链直接产出会被自动发出去的文本。
-      extra.examples?.length
-        ? `你以前是这么回的（左边是你起草的，右边是用户最终改成的话，照这个改法调整语气和详略）：\n${extra.examples.map((x) => `${untrusted("friday-brief", x.input)}\n→ ${x.final}`).join("\n\n")}`
-        : "",
       UNTRUSTED_NOTE,
       "只输出一个 JSON 对象，不要其他文字。",
       `现在是 ${now()}。`,
@@ -64,27 +50,15 @@ export function parseBrief(text: string): ThreadBrief | undefined {
   const json = /\{[\s\S]*\}/.exec(text)?.[0];
   if (!json) return undefined;
   try {
-    const r = JSON.parse(json) as Partial<ThreadBrief> & { urgency?: string; actions?: Array<Partial<ThreadBrief["actions"][number]>>; confidence?: unknown; confidenceReason?: unknown };
+    const r = JSON.parse(json) as Partial<ThreadBrief> & { urgency?: string };
     const urgency: Urgency = r.urgency === "high" || r.urgency === "low" ? r.urgency : "normal";
     return {
       situation: (r.situation ?? "").slice(0, 200),
       needs: (r.needs ?? "").slice(0, 120),
       needsReply: Boolean(r.needsReply),
       urgency,
-      ...(r.reply ? { reply: String(r.reply).slice(0, 400) } : {}),
-      actions: (r.actions ?? [])
-        .filter((a) => a && a.label)
-        .slice(0, 4)
-        .map((a) => ({
-          type: (["reply", "run_claude", "todo", "meegle", "none"] as const).includes(a.type as never) ? (a.type as ThreadBrief["actions"][number]["type"]) : "none",
-          label: String(a.label).slice(0, 24),
-          ...(a.detail ? { detail: String(a.detail).slice(0, 200) } : {}),
-        })),
       context: (r.context ?? []).map((c) => String(c).slice(0, 120)).slice(0, 8),
-      ...(r.todo?.text ? { todo: { text: String(r.todo.text).slice(0, 120), ...(r.todo.due && /^\d{4}-\d{2}-\d{2}$/.test(r.todo.due) ? { due: r.todo.due } : {}) } } : {}),
       ...(r.person ? { person: String(r.person).slice(0, 200) } : {}),
-      confidence: typeof r.confidence === "number" && Number.isFinite(r.confidence) && r.confidence >= 0 && r.confidence <= 100 ? Math.round(r.confidence) : 0,
-      confidenceReason: typeof r.confidenceReason === "string" ? r.confidenceReason.slice(0, 200) : "",
     };
   } catch {
     return undefined;
@@ -92,10 +66,7 @@ export function parseBrief(text: string): ThreadBrief | undefined {
 }
 
 export async function buildBrief(thread: Thread, e: Enrichment): Promise<ThreadBrief | undefined> {
-  const category = threadCategory(thread);
-  const playbook = readPlaybook(category);
-  const examples = recentEdited(category, 3).map((l) => ({ input: l.draft ?? "", final: l.final ?? "" })).filter((x) => x.final);
-  const { system, prompt } = briefPrompt(thread, e, { ...(playbook ? { playbook } : {}), ...(examples.length ? { examples } : {}) });
+  const { system, prompt } = briefPrompt(thread, e);
   let text = "";
   for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "brief" })) {
     if (ev.type === "delta") text += ev.text;

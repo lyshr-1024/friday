@@ -40,7 +40,7 @@ export function slackContext(channel: string | undefined, person: string | undef
   const last = thread.items[thread.items.length - 1];
   if (last) lines.push(`最近找你的：${last.userName} ${hoursAgo(last.ts)}「${last.text.slice(0, 80)}」`);
   if (thread.brief) {
-    lines.push(`Friday 的判断：${thread.brief.situation}${thread.brief.reply ? `，建议回：${thread.brief.reply.slice(0, 100)}` : ""}`);
+    lines.push(`Friday 查到的：${thread.brief.situation}`);
   }
   const who = person ?? thread.userName;
   const entry = personEntry(readMemoryFile("people"), who);
