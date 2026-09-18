@@ -5,6 +5,7 @@ import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeRea
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
+import { reviewOnce } from "../agent/lessons.js";
 import { executePending, finishTask, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
@@ -40,6 +41,7 @@ export const tasks = new Hono()
     if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
+  .post("/tasks/review", async (c) => c.json(await reviewOnce()))
   .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {

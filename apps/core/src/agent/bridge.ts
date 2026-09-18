@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { DeliveryReport, Job, Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
+import { lessonFromRelay } from "./lessons.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
@@ -142,6 +143,7 @@ export function userTyped(jobId: string, data: string): void {
   clearAttention(jobId);
   if (!line) return;
   const task = findTaskBySource((s) => s.jobId === jobId);
+  lessonFromRelay(task?.id, line);
 }
 
 /** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */

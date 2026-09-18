@@ -108,7 +108,6 @@ export interface SettingsResponse {
   skills: boolean;
   name: string;
   theme: ThemeId;
-  learn: boolean;
   learnHistory: boolean;
   summon: SummonSettings;
   dataDir: string;

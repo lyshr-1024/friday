@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { lessonFromTask } from "./lessons.js";
 import { closeTaskTerminal, say } from "./terminal.js";
 import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
 import type { Task, Thread, ThreadBrief } from "@friday/shared";
@@ -59,6 +60,7 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   const before = getTask(id);
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) {
+    if (before) lessonFromTask(before, status === "done" ? "done_without_reply" : "ignored");
     closeTaskTerminal(t, why);
     closeTaskThread(t, status);
     await cleanupTaskWorktree(t, why);

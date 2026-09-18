@@ -4,7 +4,7 @@ import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
 import { applyTheme, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
-import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
+import { coreBaseUrl, health, learnHistory, listHandbooks, reviewNow, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 
 export function Settings() {
@@ -13,6 +13,8 @@ export function Settings() {
   const [hotkey, setHotkey] = useState("");
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
   const [editing, setEditing] = useState<EditTarget | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [review, setReview] = useState<string | null>(null);
   const [notified, setNotified] = useState(false);
   const [handbooks, setHandbooks] = useState<string[]>([]);
   const [learning, setLearning] = useState(false);
@@ -21,6 +23,19 @@ export function Settings() {
 
   function refreshPerms() {
     void invoke<PermissionStatus>("permission_status").then(setPerms);
+  }
+
+  async function runReview() {
+    setReviewing(true);
+    try {
+      const r = await reviewNow();
+      setReview(r.skipped ?? `重写了 ${r.categories?.length ?? 0} 份手册`);
+    } catch {
+      setReview("复盘失败");
+    } finally {
+      setReviewing(false);
+      setTimeout(() => setReview(null), 5000);
+    }
   }
 
   useEffect(() => {
@@ -170,14 +185,10 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
-        <Row label="每天复盘人工处理" hint="看你怎么处置它起草的 Slack 回复（改了 / 打回 / 直接忽略 / 自己回的），重写对应类别的经验手册，下次草稿更准">
-          <button
-            className={`switch ${prefs?.learn ? "switch--on" : ""}`}
-            role="switch"
-            aria-checked={!!prefs?.learn}
-            disabled={!prefs}
-            onClick={() => prefs && void updateSettings({ learn: !prefs.learn }).then(setPrefs)}
-          />
+        <Row label="复盘人工处理" hint="看你怎么处置它判过的消息（直接忽略 / 自己回的）、哪些话你绕过它自己敲进终端，重写经验手册，下次判得更准。只在你点的时候跑">
+          <button className="b" disabled={reviewing} onClick={() => void runReview()}>
+            {reviewing ? "复盘中…" : review ?? "现在复盘"}
+          </button>
         </Row>
         <Row label="从 Claude Code 学" hint="每周扫一次你在 Claude Code 里说过的话，提炼成项目手册挂成待审；一轮约 $0.2，冷启动那次约 $1">
           <button

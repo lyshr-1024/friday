@@ -223,6 +223,12 @@ export async function learnHistory(): Promise<{ taskId?: string; groups?: number
   return res.json();
 }
 
+export async function reviewNow(): Promise<{ skipped?: string; categories?: string[] }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/review`, { method: "POST" });
+  if (!res.ok) throw new Error(`core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function readMemory(name: MemoryFile): Promise<MemoryFileResponse> {
   const res = await fetch(`${await coreBaseUrl()}/memory/${name}`);
   if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);

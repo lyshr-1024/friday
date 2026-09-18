@@ -5,6 +5,7 @@ import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { currentBranchSync, gitInspect } from "./git.js";
+import { reviewOnce } from "./lessons.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
@@ -220,6 +221,15 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
           if (getJob(j.id)?.status !== "running") closed++;
         }
         return text(`关掉了 ${closed} 个终端${running.length > closed ? `，还剩 ${running.length - closed} 个在跑` : ""}。`);
+      },
+    ),
+    tool(
+      "review_now",
+      "让 Friday 现在复盘一次人工处理：看你最近怎么处置它判过的 Slack 消息（直接忽略 / 自己回的）、哪些话你绕过它自己敲进了终端，重写对应的经验手册，下次判得更准、转得更到位。用户说“复盘一下”“学学我是怎么处理的”“为什么老是判不准”时用。只在你说的时候跑，不自动。",
+      {},
+      async () => {
+        const r = await reviewOnce();
+        return text("skipped" in r ? `这次没复盘：${r.skipped}` : `复盘完了，重写了 ${r.categories.length} 份手册：${r.categories.join("、") || "无"}。`);
       },
     ),
     tool(

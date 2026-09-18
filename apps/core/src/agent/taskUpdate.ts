@@ -1,5 +1,6 @@
 import type { Task, TaskStatus } from "@friday/shared";
 import { record } from "../memory/audit.js";
+import { lessonFromTask } from "./lessons.js";
 import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
@@ -122,6 +123,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     // 收工时草稿还挂着 = 没用上它，跟列表里点完成 / 忽略记一样的经验
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
+    if (closing) lessonFromTask(task, patch.status === "ignored" ? "ignored" : "done_without_reply");
     if (closing) {
       closeTaskTerminal(task, "用户在会话里说这条任务收工了");
       closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done");

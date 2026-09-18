@@ -12,13 +12,12 @@ export interface UserSettings {
   name: string;
   theme: ThemeId;
   /** 每天复盘一次人工处理：看用户怎么处置草稿，重写经验手册 */
-  learn: boolean;
   /** 每周从 Claude Code 历史提炼项目手册 */
   learnHistory: boolean;
   summon: SummonSettings;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learn: true, learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -41,7 +40,6 @@ export function userSettings(): UserSettings {
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
-    learn: typeof raw.learn === "boolean" ? raw.learn : DEFAULTS.learn,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
     summon: { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}) },
   };
@@ -54,7 +52,6 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.skills !== undefined) raw.skills = patch.skills;
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
-  if (patch.learn !== undefined) raw.learn = patch.learn;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
   if (patch.summon !== undefined) raw.summon = { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));

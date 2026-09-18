@@ -5,10 +5,12 @@ import type { Enrichment } from "./enrich.js";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
 import { TRIAGE_MODEL } from "./triage.js";
+import { readPlaybook } from "../memory/playbooks.js";
+import { threadCategory } from "../memory/threads.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
-export function briefPrompt(thread: Thread, e: Enrichment): { system: string; prompt: string } {
+export function briefPrompt(thread: Thread, e: Enrichment, playbook?: string): { system: string; prompt: string } {
   const registry = loadProjects()
     .map((p) => `- ${p.name}${p.aliases.length ? `（${p.aliases.join("、")}）` : ""}${p.channels.length ? ` ${p.channels.join(" ")}` : ""}${p.note ? ` — ${p.note}` : ""}`)
     .join("\n");
@@ -30,6 +32,7 @@ export function briefPrompt(thread: Thread, e: Enrichment): { system: string; pr
       registry ? `项目注册表：\n${registry}` : "",
       "找用户的消息常常是指代句（“你看看志华遗留的这个问题”“晚一点吧”），前面那段对话才说明是什么事——先读它再判断，situation 要写清具体指的是哪件事，不要复述指代句。",
       "context 只写查到的事实，不要写你自己的能力限制（比如“无权限读 thread”“没有搜索工具”），查不到就不提。",
+      playbook ? `这类消息你自己攒的判断经验（优先照它做）：\n${playbook}` : "",
       UNTRUSTED_NOTE,
       "只输出一个 JSON 对象，不要其他文字。",
       `现在是 ${now()}。`,
@@ -66,7 +69,7 @@ export function parseBrief(text: string): ThreadBrief | undefined {
 }
 
 export async function buildBrief(thread: Thread, e: Enrichment): Promise<ThreadBrief | undefined> {
-  const { system, prompt } = briefPrompt(thread, e);
+  const { system, prompt } = briefPrompt(thread, e, readPlaybook(threadCategory(thread)) || undefined);
   let text = "";
   for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "brief" })) {
     if (ev.type === "delta") text += ev.text;
