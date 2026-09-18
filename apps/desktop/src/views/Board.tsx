@@ -289,8 +289,10 @@ function sortDecide(a: Task, b: Task): number {
   return b.updatedAt.localeCompare(a.updatedAt);
 }
 
-export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, runningConvs }: {
+export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange, runningConvs }: {
   view: BoardView;
+  /** 顶栏那一行视图切换，由 Chat 给——它知道当前是哪个视图 */
+  nav?: React.ReactNode;
   tools: React.ReactNode;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
   runningConvs?: Set<string>;
@@ -587,6 +589,7 @@ export function Board({ view, tools, onCounts, onQueueCounts, onFocusChange, run
   return (
     <>
       <header className="q__head q__head--wide" data-tauri-drag-region>
+        {nav}
         <div className="q__row" data-tauri-drag-region>
           <div className="q__title" data-tauri-drag-region>
             <h1 data-tauri-drag-region>{title}</h1>

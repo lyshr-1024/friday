@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, ModelId, TaskCategory } from "@friday/shared";
-import { MODEL_OPTIONS, TASK_CATEGORY_LABEL } from "@friday/shared";
+import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
+import { MODEL_OPTIONS } from "@friday/shared";
 import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
@@ -11,7 +11,6 @@ import { HotList, LinkMenuHost, fmtTime } from "./shared";
 import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardView } from "./Board";
-import { Icon } from "./Icon";
 import { UsageStrip } from "./Usage";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
@@ -36,8 +35,6 @@ const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "hot", label: "AI 热点" },
 ];
 
-/** 左栏待办锚点的顺序，和任务板里的分组一致 */
-const QUEUE_ANCHORS: TaskCategory[] = ["slack", "defect", "story", "other"];
 
 /** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
 type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: string };
@@ -46,9 +43,7 @@ export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [view, setView] = useState<View>("queue");
   // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
-  const [railOpen, setRailOpen] = useState(() => { try { return localStorage.getItem("friday:rail") !== "0"; } catch { return true; } });
   const [counts, setCounts] = useState({ decide: 0, doing: 0 });
-  const [queueCounts, setQueueCounts] = useState<Record<TaskCategory, number>>({ slack: 0, defect: 0, story: 0, other: 0 });
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
@@ -220,13 +215,6 @@ export function Chat() {
     }
   }
 
-  /** 左栏待办锚点：回任务板，展开那一组并滚过去 */
-  function jumpGroup(cat: TaskCategory) {
-    setView("queue");
-    // Board 可能是这一帧才挂上的，等它的监听就位再发
-    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("friday:jump-group", { detail: cat })));
-  }
-
   function go(v: View) {
     if (v === "ask") {
       openAsk(askConv ? { kind: "load", id: askConv } : { kind: "reset" });
@@ -249,9 +237,6 @@ export function Chat() {
       } else if (e.key === "f") {
         e.preventDefault();
         setSearching(true);
-      } else if (e.key === "\\") {
-        e.preventDefault();
-        setRailOpen((v) => { try { localStorage.setItem("friday:rail", v ? "0" : "1"); } catch {} return !v; });
       } else if (e.key === "w") {
         e.preventDefault();
         void getCurrentWindow().close();
@@ -267,10 +252,46 @@ export function Chat() {
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
   const askTitle = askConv ? (list.find((c) => c.id === askConv)?.title ?? "当前对话") : "新话题 · 发出后判断";
 
-  const tools = <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>;
+  /* 左栏没了，终端计数和用量跟着「问 Friday」一起挂在顶栏右侧 */
+  const tools = (
+    <>
+      {runningJobs > 0 &&
+        (closingJobs ? (
+          <span className="topbar__confirm">
+            关掉这 {runningJobs} 个终端？里面跑着的 Claude Code 会一起停掉。
+            <button className="b b--primary" onClick={() => void doCloseJobs()}>全部关掉</button>
+            <button className="b b--text" onClick={() => setClosingJobs(false)}>取消</button>
+          </span>
+        ) : (
+          <button className="topbar__jobs" onClick={() => setClosingJobs(true)} title="关掉所有在跑的终端">
+            <span className="side__spin" />
+            <span className="num mono">{runningJobs}</span> 个终端
+          </button>
+        ))}
+      <UsageStrip />
+      <span className="topbar__model mono" title="/ask 用的模型，设置里可改">{modelLabel || "跟随 Claude Code"}</span>
+      <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>
+    </>
+  );
+
+  /* 左栏删掉之后，导航挪到顶栏：一行视图切换 + 右边工具。
+     计数不在这儿说——读数条已经把「几件在等你」讲清楚了。 */
+  const nav = (
+    <nav className="topnav" aria-label="视图">
+      <span className="topnav__brand" data-tauri-drag-region>FRIDAY</span>
+      {NAV.map((n) => (
+        <button key={n.key} className={`topnav__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)} title={n.kbd ? `${n.label} ${n.kbd}` : n.label}>
+          {n.key === "queue" && counts.decide > 0 && <span className="dot dot--decide" />}
+          {n.key === "doing" && counts.doing > 0 && <span className="dot dot--processing" />}
+          {n.label}
+        </button>
+      ))}
+    </nav>
+  );
 
   const head = (title: string, count: React.ReactNode, right: React.ReactNode) => (
     <header className="q__head" data-tauri-drag-region>
+      {nav}
       <div className="q__row" data-tauri-drag-region>
         <div className="q__title" data-tauri-drag-region>
           <h1 data-tauri-drag-region>{title}</h1>
@@ -282,52 +303,8 @@ export function Chat() {
   );
 
   return (
-    <div className={`chat ${railOpen ? "" : "chat--norail"}`}>
+    <div className="chat chat--norail">
       <LinkMenuHost />
-      <nav className={`rail ${railOpen ? "" : "rail--hidden"}`}>
-        <div className="rail__brand">FRIDAY</div>
-        {NAV.map((n) => (
-          <button key={n.key} className={`rail__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)}>
-            {n.key === "queue" && <span className="dot dot--decide" />}
-            {n.key === "doing" && <span className={`dot ${counts.doing ? "dot--processing" : ""}`} />}
-            {n.label}
-            {n.key === "queue" && counts.decide > 0 && <span className="mono amber">{counts.decide}</span>}
-            {n.key === "doing" && counts.doing > 0 && <span className="mono">{counts.doing}</span>}
-            {n.kbd && <span className="mono rail__kbd">{n.kbd}</span>}
-          </button>
-        ))}
-        {/* 待办四组的锚点：点一下回到任务板并展开那一组 */}
-        {QUEUE_ANCHORS.filter((c) => queueCounts[c] > 0 || c === "defect" || c === "story").map((c) => (
-          <button key={c} className="rail__item rail__sub" onClick={() => jumpGroup(c)}>
-            {TASK_CATEGORY_LABEL[c]}
-            <span className="mono">{queueCounts[c]}</span>
-          </button>
-        ))}
-        <div className="rail__foot">
-          {runningJobs > 0 && (
-            closingJobs ? (
-              <div className="rail__confirm">
-                <div className="rail__confirm-q">关掉这 {runningJobs} 个终端？</div>
-                <div className="rail__confirm-hint">里面跑着的 Claude Code 会一起停掉，任务本身不动。</div>
-                <div className="rail__confirm-acts">
-                  <button className="b b--primary" onClick={() => void doCloseJobs()}>全部关掉</button>
-                  <button className="b b--text" onClick={() => setClosingJobs(false)}>取消</button>
-                </div>
-              </div>
-            ) : (
-              <button className="rail__jobs" onClick={() => setClosingJobs(true)} title="关掉所有在跑的终端">
-                <span className="side__spin" />
-                <span className="num">{runningJobs}</span> 个终端在跑
-                <span className="rail__jobs-x"><Icon name="cross" /></span>
-              </button>
-            )
-          )}
-          <UsageStrip />
-          <div className="rail__status">
-            {modelLabel || "跟随 Claude Code"} · ⌘\ 收起
-          </div>
-        </div>
-      </nav>
 
       <div className="wb">
         {view === "ask" ? (
@@ -408,7 +385,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} tools={tools} onCounts={setCounts} onQueueCounts={setQueueCounts} runningConvs={runningConvs} />
+          <Board view={view} nav={nav} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
         )}
       </div>
       {searching && (

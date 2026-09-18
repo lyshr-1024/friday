@@ -3204,7 +3204,7 @@ body,
   /* 对齐轴：和 .q__head 同为 --s-8 */
   padding-left: var(--s-8);
 }
-/* 导航收起时红绿灯压回页面左上角，页头和舞台左边都让开 */
+/* 没有左栏了，红绿灯就在页面左上角，页头和舞台给它让位 */
 .chat--norail .q__head,
 .chat--norail .deck__stage {
   padding-left: 88px;
@@ -5039,4 +5039,95 @@ body:has(.hud)::-webkit-scrollbar {
 }
 .rail__sub {
   letter-spacing: 0.06em;
+}
+
+/* ════ 顶栏导航（2026-09-18，左栏删掉之后）════
+   导航从竖着的一栏改成横着的一行：轮播已经把「现在处理哪条」变成主线，
+   左栏那些分组入口在这儿反而是噪音，搜索比它们更快。 */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--line-1);
+}
+.topnav__brand {
+  margin-right: var(--s-4);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  letter-spacing: 0.34em;
+  color: var(--live);
+  text-shadow: 0 0 10px var(--live-dim), 0 0 26px var(--live-glow);
+}
+.topnav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px var(--s-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--t-xs);
+  cursor: default;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.topnav__item:hover {
+  color: var(--fg-2);
+  background: var(--bg-3);
+}
+.topnav__item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.topnav__item.on {
+  color: var(--fg-1);
+  background: var(--bg-4);
+  border-color: var(--line-2);
+}
+
+/* 顶栏右侧：终端计数 / 用量 / 模型 / 问 Friday */
+.q__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.topbar__jobs {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--t-micro);
+  cursor: default;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.topbar__jobs:hover {
+  color: var(--fg-1);
+  border-color: var(--line-2);
+}
+.topbar__jobs .num {
+  color: var(--live);
+}
+.topbar__confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+}
+.topbar__model {
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+  white-space: nowrap;
 }
