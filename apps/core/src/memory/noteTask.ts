@@ -1,6 +1,11 @@
-import type { Task, TaskSource } from "@friday/shared";
+import type { Task, TaskSource, TaskStatus } from "@friday/shared";
 import { db } from "./db.js";
+import { meegleIdsIn } from "./infer.js";
+import { loadProjects } from "./projects.js";
 import { createTask, listTasks, updateTask } from "./tasks.js";
+
+/** 还没收工的：只在这些里面找同一件事，早就 done 的不该被一句话拽回来 */
+const OPEN_STATES: TaskStatus[] = ["collected", "understood", "processing", "review", "blocked"];
 
 /**
  * 「记一条待办」统一建成任务。
@@ -13,6 +18,17 @@ import { createTask, listTasks, updateTask } from "./tasks.js";
 export function addNoteTask(input: { text: string; due?: string; source?: TaskSource; kind?: "verbal" | "slack" }): Task {
   const text = input.text.trim();
   const title = text.length > 80 ? `${text.slice(0, 79)}…` : text;
+  // 先看这件事是不是已经在板上了。口头交代常常是对已有工单的补充
+  //（「养牛 1.1 那个下拉框也有问题」），无脑新建会让同一件事在列表里出现两遍。
+  const existing = findSameThing(text);
+  if (existing) {
+    const note = existing.understanding ? `${existing.understanding}\n\n又交代：${text}` : text;
+    const t = updateTask(existing.id, {
+      understanding: note.slice(0, 4000),
+      ...(input.due ? { due: input.due } : {}),
+    });
+    if (t) return t;
+  }
   return createTask({
     title,
     kind: input.kind ?? "verbal",
@@ -22,6 +38,50 @@ export function addNoteTask(input: { text: string; due?: string; source?: TaskSo
     ...(title === text ? {} : { understanding: text }),
     ...(input.due ? { due: input.due } : {}),
   });
+}
+
+/**
+ * 这句话说的是不是板上已有的某件事。只认硬线索，宁可漏不可错——
+ * 挂错地方比多建一条更难发现，而多建一条你一眼就看得出来。
+ *
+ * ① 话里带工单号，板上正好有那条工单 → 就是它
+ * ② 话里带项目名 / 别名，再加一个跟已有任务重合的长关键词 → 同一件事
+ */
+export function findSameThing(text: string, tasks = listTasks(OPEN_STATES)): Task | undefined {
+  const ids = meegleIdsIn(text);
+  if (ids.length) {
+    const byTicket = tasks.find((t) => ids.includes(t.source.meegleId ?? "") || ids.includes(t.source.linkedStoryId ?? ""));
+    if (byTicket) return byTicket;
+  }
+  const named = loadProjects().find((p) => text.includes(p.name) || p.aliases.some((a) => a.length >= 2 && text.includes(a)));
+  if (!named) return undefined;
+  // 项目名和别名本身不算线索：它已经用来定项目了，再拿它比对等于「提到这个项目
+  // 就算同一件事」，板上随便哪条都能命中
+  const noise = [named.name, ...named.aliases];
+  const said = grams(text, noise);
+  if (!said.size) return undefined;
+  return tasks.find((t) => t.project === named.name && overlap(said, grams(t.title, noise)));
+}
+
+/**
+ * 中文没有词边界，按 4 字滑窗切片来比对：「多级标题配置回滚」和「多级标题回滚方案」
+ * 共享「多级标题」这一片。英文和路径按整词切。
+ */
+function grams(text: string, noise: string[]): Set<string> {
+  let s = text.toLowerCase();
+  for (const n of noise) s = s.split(n.toLowerCase()).join(" ");
+  const out = new Set<string>();
+  for (const w of s.match(/[A-Za-z][\w./-]{4,}/g) ?? []) out.add(w);
+  for (const run of s.match(/[一-龥]{4,}/g) ?? []) {
+    for (let i = 0; i + 4 <= run.length; i += 1) out.add(run.slice(i, i + 4));
+  }
+  return out;
+}
+
+/** 两片里有没有共同片段 */
+function overlap(a: Set<string>, b: Set<string>): boolean {
+  for (const x of b) if (a.has(x)) return true;
+  return false;
 }
 
 /** 撤销「记一条待办」：标成 ignored 而不是物理删除，保留痕迹。 */

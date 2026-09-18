@@ -1,55 +1,75 @@
-import { describe, expect, it } from "vitest";
-import { initMemory, db } from "./db.js";
-import { addNoteTask, dropNoteTask, migrateLocalTodos } from "./noteTask.js";
-import { addLocalTodo } from "./todos.js";
-import { listTasks } from "./tasks.js";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { Task } from "@friday/shared";
+import { addNoteTask, findSameThing } from "./noteTask.js";
+import { createTask } from "./tasks.js";
 
-describe("记待办 = 建任务", () => {
-  it("落在「待办」分组里，带来源和截止", () => {
-    initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = addNoteTask({ text: "把导出中心的筛选加上", due: "2026-09-20" });
-    expect(t.status).toBe("understood");
-    expect(t.kind).toBe("verbal");
-    expect(t.due).toBe("2026-09-20");
-    expect(listTasks().some((x) => x.id === t.id)).toBe(true);
+beforeAll(() => {
+  writeFileSync(
+    join(process.env.FRIDAY_DATA_DIR!, "projects.md"),
+    "## fe-wealth-admin\n- 目录：/tmp/fe\n- 别名：老后台, 社区\n\n## whale-console\n- 目录：/tmp/wc\n- 别名：后台, console\n",
+  );
+});
+
+const mk = (title: string, project: string, extra: Partial<Parameters<typeof createTask>[0]> = {}): Task =>
+  createTask({ title, kind: "meegle", source: {}, project, status: "understood", ...extra });
+
+describe("口头交代先找已有的事", () => {
+  it("话里带工单号，命中板上那条工单", () => {
+    const t = mk("陪伴日记模板去掉三大指数收盘方向", "fe-wealth-admin", { source: { meegleId: "24519027" } });
+    expect(findSameThing("24519027 这条今天要改完")?.id).toBe(t.id);
   });
 
-  it("超长的截断成标题，全文留在理解里", () => {
-    const long = "补".repeat(120);
-    const t = addNoteTask({ text: long });
-    expect(t.title.length).toBeLessThanOrEqual(80);
-    expect(t.title.endsWith("…")).toBe(true);
-    expect(t.understanding).toBe(long);
-    // 不超长的不重复存一份
-    const short = addNoteTask({ text: "短的" });
-    expect(short.understanding).toBeUndefined();
+  it("挂在需求下的缺陷，报需求号也能找到", () => {
+    const t = mk("奖品图片必填缺红星", "fe-wealth-admin", { source: { meegleId: "24532477", linkedStoryId: "24440539" } });
+    expect(findSameThing("养牛 24440539 的验收问题")?.id).toBe(t.id);
   });
 
-  it("撤销是标 ignored，不物理删除", () => {
-    const t = addNoteTask({ text: "这条会被撤销" });
-    expect(dropNoteTask(t.id)).toBe(true);
-    expect(listTasks().find((x) => x.id === t.id)!.status).toBe("ignored");
+  it("项目名 + 重合关键词算同一件事", () => {
+    const t = mk("排查 whale-console 里 anyOf 服务端不识别的问题", "whale-console");
+    expect(findSameThing("whale-console 那个 anyOf 的事记得跟进")?.id).toBe(t.id);
+  });
+
+  it("项目别名也认", () => {
+    const t = mk("财富页多级标题配置回滚", "fe-wealth-admin");
+    expect(findSameThing("老后台的多级标题回滚方案定了吗")?.id).toBe(t.id);
+  });
+
+  // 挂错地方比多建一条更难发现，所以宁可漏
+  it("只有项目名、没有重合片段，不乱认", () => {
+    mk("风控名单导入失败", "whale-console");
+    expect(findSameThing("whale-console 要加个日历组件")).toBeUndefined();
+  });
+
+  it("只共享短词不算同一件事", () => {
+    mk("报表打印的问题", "whale-console");
+    expect(findSameThing("whale-console 结算的问题")).toBeUndefined();
+  });
+
+  it("跨项目不认：同样的关键词落在别的项目上不算一件事", () => {
+    mk("多级标题配置回滚", "fe-wealth-admin");
+    expect(findSameThing("whale-console 的多级标题配置回滚")).toBeUndefined();
+  });
+
+  it("已经收工的任务不会被一句话拽回来", () => {
+    mk("清算对账单生成失败", "whale-console", { status: "done" });
+    expect(findSameThing("whale-console 清算对账单的事")).toBeUndefined();
   });
 });
 
-describe("补搬 todos 表的孤儿待办", () => {
-  it("只搬最近的、去重、搬过的不再搬第二遍", () => {
-    initMemory(process.env.FRIDAY_DATA_DIR!);
-    const now = Date.parse("2026-09-14T10:00:00Z");
-    const old = new Date(now - 5 * 86_400_000).toISOString();
-    addLocalTodo({ text: "今天记的 A" });
-    addLocalTodo({ text: "今天记的 A" }); // 重复
-    addLocalTodo({ text: "今天记的 B", due: "2026-09-30" });
-    const stale = addLocalTodo({ text: "五天前记的" });
-    db().prepare("UPDATE todos SET created_at = ? WHERE id = ?").run(old, stale.id);
+describe("addNoteTask", () => {
+  it("命中已有的事就补在它上面，不新建", () => {
+    const t = mk("换汇额度校验漏了小数位", "whale-console", { understanding: "原始理解" });
+    const got = addNoteTask({ text: "whale-console 换汇额度校验那条，顺带把提示文案也改了" });
+    expect(got.id).toBe(t.id);
+    expect(got.understanding).toContain("又交代");
+    expect(got.understanding).toContain("原始理解");
+  });
 
-    const moved = migrateLocalTodos(1, now);
-    expect(moved).toBe(2); // 去重后两条，五天前那条不搬
-    const titles = listTasks().map((t) => t.title);
-    expect(titles).toContain("今天记的 A");
-    expect(titles).toContain("今天记的 B");
-    expect(titles).not.toContain("五天前记的");
-    // 搬过的标成 done，再跑一次不会重复建
-    expect(migrateLocalTodos(1, now)).toBe(0);
+  it("认不出来就照常新建", () => {
+    const got = addNoteTask({ text: "下周三之前把季度总结写了" });
+    expect(got.title).toBe("下周三之前把季度总结写了");
+    expect(got.status).toBe("understood");
   });
 });
