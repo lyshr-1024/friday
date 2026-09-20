@@ -306,6 +306,13 @@ export async function jobLog(id: string): Promise<{ tail: string; lines: number 
   return res.json();
 }
 
+/** 终端窗口关了但任务没完：重开一个，接回原来那个 Claude 会话。 */
+export async function jobReopen(id: string): Promise<{ status: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/reopen`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function jobFocus(id: string): Promise<void> {
   await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => {});
 }

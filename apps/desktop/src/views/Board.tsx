@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
@@ -1260,11 +1260,18 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                 完成当前节点
               </button>
             )}
-            {/* 终端是外部 Ghostty 窗口了，「拉到前台」是常用操作，得摆在动手的这一排 */}
-            {t.source.jobId && t.terminal !== "gone" && (
-              <button className="b b--ghost" title="把这条任务的终端窗口拉到前台" onClick={() => void jobFocus(t.source.jobId!)}>
-                <Icon name="terminal" />打开终端
-              </button>
+            {/* 终端是外部 Ghostty 窗口了，「拉到前台」是常用操作，得摆在动手的这一排。
+                窗口关掉之后不是就完了——重开一个 --resume 接回原来那个 Claude 会话 */}
+            {t.source.jobId && (
+              t.terminal === "gone" ? (
+                <button className="b b--ghost" title="窗口已经关了，重开一个并接回原来的会话" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
+                  <Icon name="terminal" />重开终端
+                </button>
+              ) : (
+                <button className="b b--ghost" title="把这条任务的终端窗口拉到前台" onClick={() => void jobFocus(t.source.jobId!)}>
+                  <Icon name="terminal" />打开终端
+                </button>
+              )
             )}
             <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回…</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>

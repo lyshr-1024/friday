@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
-import { focusTerminal } from "../agent/runner.js";
+import { focusTerminal, reopenTerminal } from "../agent/runner.js";
 import { closeJobTerminal, markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
@@ -111,6 +111,12 @@ export const jobs = new Hono()
     }
     state.notices.push({ title: `任务结束 · ${job.project}`, body: job.lastMessage?.slice(0, 120) ?? `退出码 ${parsed.data.code}` });
     return c.json(job);
+  })
+  /** 窗口关了但任务没完：重开一个，--resume 接回原来那个 Claude 会话 */
+  .post("/jobs/:id/reopen", async (c) => {
+    const r = await reopenTerminal(c.req.param("id"));
+    if (r === "no-job") return c.json({ error: "没有这个终端任务" }, 404);
+    return c.json({ status: r, id: c.req.param("id") });
   })
   .post("/jobs/:id/focus", async (c) => {
     if (!getJob(c.req.param("id"))) return c.json({ error: "任务不存在" }, 404);

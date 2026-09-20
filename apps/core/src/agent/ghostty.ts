@@ -32,8 +32,8 @@ const termRef = (id: string) => `first terminal whose id is ${osaString(id)}`;
  * 开一个窗口跑脚本，返回它的 terminal id；拿不到 id 不算失败，窗口照样开着，
  * 只是这条 job 之后没法 say / focus。
  *
- * `wait after command` 让脚本退出后窗口留着：脚本末尾自己会 exec 一个交互 shell，
- * 但万一它中途挂了，窗口连同报错一起消失就没法排查了。
+ * 不设 `wait after command`：脚本跑完窗口就关掉，「关终端」才关得干净（脚本末尾也不再
+ * 留交互 shell）。代价是脚本中途挂掉时窗口会连同报错一起消失，要排查看 <id>.log。
  */
 export async function openWindow(script: string, dir: string): Promise<string | undefined> {
   const out = await osa(
@@ -45,7 +45,6 @@ export async function openWindow(script: string, dir: string): Promise<string | 
       // command 会按 shell 规则拆词，脚本路径里有「Application Support」这种空格，
       // 不加引号会被拆成两段，窗口开出来但脚本没跑、随即关闭
       `  set command of cfg to ${osaString(`'${script.replace(/'/g, `'\\''`)}'`)}`,
-      `  set wait after command of cfg to true`,
       `  set w to new window with configuration cfg`,
       `  return id of (first terminal of first tab of w)`,
       `end tell`,

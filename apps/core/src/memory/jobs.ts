@@ -76,6 +76,14 @@ export function setJobMessage(id: string, text: string): boolean {
   return db().prepare("UPDATE jobs SET last_message = ? WHERE id = ?").run(text.slice(0, 4000), id).changes > 0;
 }
 
+/** 重开终端：这条 job 又活了，清掉收尾信息。 */
+export function reviveJob(id: string): Job | undefined {
+  db()
+    .prepare("UPDATE jobs SET status = 'running', exit_code = NULL, finished_at = NULL WHERE id = ?")
+    .run(id);
+  return getJob(id);
+}
+
 export function finishJob(id: string, exitCode: number): Job | undefined {
   db()
     .prepare("UPDATE jobs SET status = ?, exit_code = ?, finished_at = ? WHERE id = ? AND status = 'running'")

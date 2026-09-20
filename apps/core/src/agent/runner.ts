@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { config } from "../config.js";
-import { focusTerminalById, openWindow } from "./ghostty.js";
+import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
+import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
+import { record } from "../memory/audit.js";
+import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
-import { getJob } from "../memory/jobs.js";
 import { handbookBlock } from "../memory/handbooks.js";
 import { terminalBridgePrompt } from "./prompt.js";
 import { FORBIDDEN } from "./guard.js";
@@ -21,6 +23,8 @@ export interface LaunchRequest {
   terminal: TerminalApp;
   /** 自主模式：claude -p 跑完即退，按交付报告约定产出 report.md 与截图 */
   autonomous?: boolean;
+  /** 重开这条任务的终端：用 --resume 接回原来那个 Claude 会话，而不是从头开始 */
+  resumeSessionId?: string;
 }
 
 export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
@@ -134,20 +138,22 @@ export function transcriptPath(dir: string, sessionId: string): string {
 
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
   const flags = claudeFlags(files, req.autonomous);
-  const claude = `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
+  // 重开：接回这条任务原来那个 Claude 会话；transcript 可能还没落盘，交给 claude 自己判断，接不上就新开
+  const resume = req.resumeSessionId
+    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)} || ${shellQuote(claudePath)} ${flags}`
+    : undefined;
+  const claude = resume ?? `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
   return [
     "#!/bin/zsh",
-    // Ghostty 用 open -na 启动时偶发新旧实例各执行一次，用原子 mkdir 锁保证任务只跑一份，多出来的 tab 直接退出。
-    `mkdir ${shellQuote(`${jobLog(req.id)}.lock`)} 2>/dev/null || exit 0`,
     `cd ${shellQuote(req.dir)} || exit 1`,
     UNSET_CLAUDE_ENV,
     `printf '\\033]0;Friday · %s\\007' ${shellQuote(req.dir.split("/").pop() ?? "")}`,
-    `script -q ${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
+    `script -q ${req.resumeSessionId ? "-a " : ""}${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
     "code=$?",
-    // Claude Code 被杀时可能没复位终端（鼠标追踪、备用屏幕等），这里强制复位，否则后面的 shell 会吐一屏鼠标事件。
-    "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
     `curl -s -m 3 -X POST ${shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/exit`)} -H 'content-type: application/json' -d "{\\"code\\":$code}" >/dev/null 2>&1`,
-    "exec /bin/zsh -il",
+    // 不留交互 shell：Claude Code 一退窗口就跟着关，「关终端」才是真的关干净。
+    // 原来这里 exec zsh -il 留个壳给你接着用，代价是关不掉、窗口标题还挂着旧任务名。
+    "exit $code",
     "",
   ].join("\n");
 }
@@ -242,6 +248,37 @@ export async function launchClaude(req: LaunchRequest): Promise<{ script: string
   // id 交回给调用方去写：job 行这会儿还没建出来，在这里 UPDATE 会落空
   const ghosttyId = await openWindow(script, req.dir);
   return { script, ...(ghosttyId ? { ghosttyId } : {}) };
+}
+
+/**
+ * 窗口关掉了（你手动关的、或者 Claude Code 退出带走的），但这条任务还没做完：
+ * 重开一个窗口，用 --resume 接回它原来那个 Claude 会话，上下文不丢。
+ *
+ * 接不上就新开一个空会话——总比让你从头交代一遍强。
+ */
+export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive" | "no-job"> {
+  const job = getJob(jobId);
+  if (!job) return "no-job";
+  if (job.status === "running" && job.ghosttyId && (await isAlive(job.ghosttyId))) return "alive";
+
+  const terminal = job.terminal ?? userSettings().terminal;
+  const { ghosttyId } = await launchClaude({
+    id: jobId,
+    dir: job.dir,
+    terminal,
+    ...(job.task ? { task: job.task } : {}),
+    ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
+  });
+  reviveJob(jobId);
+  if (ghosttyId) setGhosttyId(jobId, ghosttyId);
+  record({
+    action: "terminal_reopened",
+    why: "终端窗口关掉了但任务还没做完",
+    how: job.claudeSessionId ? "重开窗口并 --resume 接回原会话" : "重开窗口（没有会话 id，开新会话）",
+    evidence: { jobId, project: job.project, resumed: Boolean(job.claudeSessionId) },
+    risk: "reversible",
+  });
+  return "reopened";
 }
 
 /** 把某条 job 的终端窗口带到前台；没记下 terminal id 就退回只激活 app。 */
