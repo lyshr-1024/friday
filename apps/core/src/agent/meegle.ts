@@ -371,24 +371,21 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
   updateTask(task.id, { project: dir.project.name });
   const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, meegleId: item.id };
 
-  // 一律挂成待审动作等你点：开工要动代码，由你拍板。
-  // 状态留在待办里：一条还没开工的工单不是「阻塞你的事」，不该进「待我决定」。
-  addPending(task.id, {
-    type: "start_job",
-    label: `开工：${dir.project.name}`,
-    detail: verdict.detail,
-    payload,
-  }, { keepStatus: true });
+  // 定位得到项目就直接开工，不再挂待审等你点头（2026-09-20 起）：活在 worktree 里干、
+  // 不 push 不 merge，做完交报告给你审——真做错了撤掉就行，拦在开工这步只是把每条
+  // 工单都变成一次点击。定位不到项目的仍然问你（上面 verdict.question 那支）。
   record({
     taskId: task.id,
-    action: "intake_start_pending",
-    why: "改代码由你拍板，Friday 只把它挑出来",
-    how: `拟在 ${dir.project.name} 上开工：${verdict.why}`,
+    action: "intake_start",
+    why: "工单定位到了项目，直接开工",
+    how: `在 ${dir.project.name} 上开工：${verdict.why}`,
     evidence: payload,
     risk: "reversible",
-    status: "pending",
   });
-  state.notices.push({ title: `有条工单可以开工 · ${dir.project.name}`, body: item.name.slice(0, 120) });
+  await startAutonomousJob(task, dir.project.name, dir.project.dir, verdict.detail).catch((e: unknown) => {
+    console.log(`[meegle] ${item.id} 开工失败：${e instanceof Error ? e.message : String(e)}`);
+  });
+  state.notices.push({ title: `已开工 · ${dir.project.name}`, body: item.name.slice(0, 120) });
 }
 
 function toTodoLike(it: MeegleWorkItem) {

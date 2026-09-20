@@ -246,16 +246,12 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       void closeJobTerminal(jobId, "终端交付完这一轮", t.id);
       return { text: "已交给用户看，终端窗口随之关闭。任务是否算完成由用户决定；用户要追问会重开终端接回这个会话。" };
     }
-    let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
-    // 只要不在主干上就挂合并动作（分支名由终端的 Claude 按项目规范起）
+    const t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";
-    if (onFeatureBranch && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
-      t = addPending(t.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: job.dir, branch } })!;
-    }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary, "finished");
     void closeJobTerminal(jobId, "终端交付完任务", t.id);
-    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `合并 ${branch} 已挂成待审核动作，不要自己 merge。` : ""}终端窗口随之关闭。` };
+    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}终端窗口随之关闭。` };
   }
 
   if (name === "friday_blocked") {

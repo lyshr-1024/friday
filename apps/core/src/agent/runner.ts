@@ -61,7 +61,8 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "- 用户应该亲自确认的点，每行一条，写清楚打开哪里看什么。",
     "## 截图",
     "- 文件名 — 说明（没有就写 无）",
-    "5. 全程不要问用户问题；拿不准就按最保守的方式做并在报告里写明。",
+    "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
+    "6. 提交后按项目规范建一个 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），把 MR 链接写进交付报告的「概要」里。不要 merge，也不要 push 到主分支。建不出来就在报告里说明原因。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
@@ -124,7 +125,24 @@ export function buildHookSettings(hookScript: string, guardScript?: string): str
   const asking = [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: hook[0]!.hooks }];
   // 自主任务多挂一条 Bash 守卫；settings 的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效
   const guard = guardScript ? [{ matcher: "Bash", hooks: [{ type: "command", command: shellQuote(guardScript), timeout: 10 }] }] : [];
-  return JSON.stringify({ hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...asking], PostToolUse: asking, Notification: hook } }, null, 2);
+  // 自主任务里弹选择题 / plan 确认没人会答，会一直卡着：直接拒掉，让它按提示词第 5 条
+  // 「拿不准就按最保守的方式做并在报告里写明」往下走。交互式终端不拦——你就在那儿。
+  const refuseAsking = guardScript
+    ? [{
+        matcher: "AskUserQuestion|ExitPlanMode",
+        hooks: [{
+          type: "command",
+          command: `printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"这是无人值守的自主任务，没人能回答。按最保守的做法继续，把拿不准的点写进交付报告的「请验证」。"}}'`,
+          timeout: 5,
+        }],
+      }]
+    : [];
+  const askHooks = guardScript ? refuseAsking : asking;
+  return JSON.stringify(
+    { hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...askHooks], PostToolUse: guardScript ? [] : asking, Notification: hook } },
+    null,
+    2,
+  );
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。

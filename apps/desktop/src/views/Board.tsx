@@ -487,7 +487,10 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
   // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => (DECIDE.includes(t.status) || asking(t)) && !nested(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
-  const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t) && !nested(t)).sort(byActivity(active));
+  // 「Friday 在做」只放全程交给它的活。你自己 run_claude 开终端干的不算——
+  // 那是你在做，Friday 只是帮你开了个窗口，它归待办等你处置。
+  const doing = rest.filter((t) => DOING.includes(t.status) && t.source.autonomous && !asking(t) && !nested(t)).sort(byActivity(active));
+  const mine = rest.filter((t) => DOING.includes(t.status) && !t.source.autonomous && !asking(t) && !nested(t));
   /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
   const nestedCount = (t: Task) =>
     t.source.meegleId
@@ -498,7 +501,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const liveIds = new Set(tasks.filter((t) => t.status !== "done" && t.status !== "ignored").map((t) => t.id));
   const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
   const derivedCount = (t: Task) => tasks.filter((x) => x.source.fromTaskId === t.id && x.status !== "done" && x.status !== "ignored").length;
-  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t) && !derived(t)).sort(byTier);
+  const queued = [...rest.filter((t) => QUEUED.includes(t.status) && !nested(t) && !derived(t)), ...mine].sort(byTier);
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
