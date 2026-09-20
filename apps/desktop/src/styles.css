@@ -102,6 +102,8 @@
   --s-5: 20px;
   --s-6: 24px;
   --s-8: 32px;
+  /* 工作台版心：页头、读数条、轮播三块共用，靠左对齐轴摆放 */
+  --deck-max: 1100px;
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
@@ -3180,7 +3182,8 @@ body,
 
 /* 主从布局：左边任务列表随时可见（在跑 / 做完 / 等你），右边固定显示选中任务的详情 */
 .q__head--wide {
-  max-width: none;
+  max-width: var(--deck-max);
+  margin: 0;
 }
 /* ── 轮播：一次一条任务铺满中间，右侧一块浮着的锚点条 ──
    分组列表换成轮播是因为「同时看见十条」在这里没有价值：
@@ -3188,6 +3191,8 @@ body,
 .deck {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  max-width: var(--deck-max);
   display: flex;
   gap: var(--s-5);
   margin-top: var(--s-4);
@@ -4998,19 +5003,25 @@ body:has(.hud)::-webkit-scrollbar {
   flex: none;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-  gap: 1px;
-  /* 对齐轴：左跟 .q__head / .deck__stage，右跟 .deck 的内边距 */
-  margin: 0 var(--s-4) var(--s-4) var(--s-8);
-  background: var(--line-1);
-  border-top: 1px solid var(--line-1);
-  border-bottom: 1px solid var(--line-1);
+  gap: 0;
+  /* 和 .deck 用同一个盒子：整块占满版心，左右内边距在盒内留出对齐轴，
+     右边缘因此天然和轮播齐平。边框和格线都画在 .g 上，免得横跨到内边距里 */
+  box-sizing: border-box;
+  max-width: var(--deck-max);
+  margin: 0 0 var(--s-4);
+  padding: 0 var(--s-4) 0 var(--s-8);
 }
 .chat--norail .gauges {
-  margin-left: 88px;
+  padding-left: 88px;
 }
 .g {
   padding: var(--s-3) var(--s-3) var(--s-2);
   background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-width: 1px 0 1px 1px;
+}
+.g:first-child {
+  border-left-width: 0;
 }
 /* 最左一格的读数要落在标题那条轴上，最右一格靠右边缘 */
 .g:first-child {
