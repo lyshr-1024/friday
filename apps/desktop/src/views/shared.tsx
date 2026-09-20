@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
 
@@ -315,3 +315,60 @@ export function ThreadCard({ t, onOpen, onDone, onIgnore }: { t: Thread; onOpen?
 }
 
 /** 工作台首屏：问候 + 现在先做什么 + 素材 */
+
+/**
+ * 下拉选择。原生 <select> 的弹出层由系统画，在深色 HUD 里是一块白底，
+ * 跟界面完全两套语言——自己画一个。
+ */
+export function Picker({ value, options, placeholder, onPick, label, resetAfterPick }: {
+  value?: string;
+  options: Array<{ value: string; label: string; hint?: string }>;
+  placeholder: string;
+  onPick: (value: string) => void;
+  label: string;
+  /** 选完就把显示恢复成 placeholder（用于「选一条并进来」这类一次性动作） */
+  resetAfterPick?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc, true);
+    return () => { window.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc, true); };
+  }, [open]);
+  const current = resetAfterPick ? undefined : options.find((o) => o.value === value);
+  return (
+    <div className="pick" ref={box}>
+      <button
+        type="button"
+        className={`pick__btn ${open ? "pick__btn--open" : ""}`}
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={current ? "" : "pick__ph"}>{current?.label ?? placeholder}</span>
+        <Icon name="chevronDown" />
+      </button>
+      {open && (
+        <div className="pick__menu" role="listbox">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              className={`pick__item ${o.value === value ? "pick__item--on" : ""}`}
+              onClick={() => { setOpen(false); onPick(o.value); }}
+            >
+              <span className="pick__label">{o.label}</span>
+              {o.hint && <span className="pick__hint">{o.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

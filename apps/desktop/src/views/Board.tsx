@@ -4,7 +4,7 @@ import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAc
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
-import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
+import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
@@ -191,14 +191,13 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
       <div>
         <span className="k">项目</span>
         <div className="fx__base">
-          <select
+          <Picker
+            label="这条工单改哪个仓库"
+            placeholder="没定（选了才能开工）"
             value={t.project ?? ""}
-            onChange={(e) => void onAct(t, () => taskSetProject(t.id, e.target.value || null))}
-            aria-label="这条工单改哪个仓库"
-          >
-            <option value="">没定（开工前必须先选）</option>
-            {projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select>
+            options={[{ value: "", label: "没定" }, ...projects.map((p) => ({ value: p.name, label: p.name, hint: p.dir.replace(/^\/Users\/[^/]+/, "~") }))]}
+            onPick={(v) => void onAct(t, () => taskSetProject(t.id, v || null))}
+          />
           {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
         </div>
       </div>
@@ -206,20 +205,13 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
         <div>
           <span className="k">并入这条</span>
           <div className="fx__base">
-            <select
-              value=""
-              onChange={(e) => {
-                const from = bases.find((x) => x.id === e.target.value);
-                if (from) setMerging(from);
-                e.target.value = "";
-              }}
-              aria-label="把另一条需求并进这条"
-            >
-              <option value="">选一条并进来…</option>
-              {bases.map((x) => (
-                <option key={x.id} value={x.id}>{x.source.meegleId ? `#${x.source.meegleId} · ` : ""}{x.title.slice(0, 28)}</option>
-              ))}
-            </select>
+            <Picker
+              label="把另一条需求并进这条"
+              placeholder="选一条并进来…"
+              resetAfterPick
+              options={bases.map((x) => ({ value: x.id, label: x.title.slice(0, 34), ...(x.source.meegleId ? { hint: `#${x.source.meegleId}` } : {}) }))}
+              onPick={(v) => { const from = bases.find((x) => x.id === v); if (from) setMerging(from); }}
+            />
             {(t.source.mergedMeegleIds ?? []).length > 0 && (
               <span className="fx__meta-dim">已并入 {(t.source.mergedMeegleIds ?? []).map((x) => `#${x}`).join("、")}</span>
             )}
@@ -539,7 +531,9 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const asking = (t: Task) => t.attention === "question" || t.attention === "intake";
   // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
   // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
-  const storyIds = new Set(tasks.filter((t) => t.source.meegleId).map((t) => t.source.meegleId!));
+  const storyIds = new Set(
+    tasks.flatMap((t) => [...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]),
+  );
   const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
   // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
   const decide = rest.filter((t) => (DECIDE.includes(t.status) || asking(t)) && !nested(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
@@ -548,10 +542,11 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const doing = rest.filter((t) => DOING.includes(t.status) && t.source.autonomous && !asking(t) && !nested(t)).sort(byActivity(active));
   const mine = rest.filter((t) => DOING.includes(t.status) && !t.source.autonomous && !asking(t) && !nested(t));
   /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
-  const nestedCount = (t: Task) =>
-    t.source.meegleId
-      ? tasks.filter((x) => x.source.linkedStoryId === t.source.meegleId && x.status !== "done" && x.status !== "ignored").length
-      : 0;
+  const nestedCount = (t: Task) => {
+    const mine = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
+    if (!mine.size) return 0;
+    return tasks.filter((x) => x.source.linkedStoryId && mine.has(x.source.linkedStoryId) && x.status !== "done" && x.status !== "ignored").length;
+  };
   // 情境卡从 Slack 线程派生出来的待办：线程那条还在时它们说的是同一件事，不再单独占一行，
   // 跟缺陷挂需求一样收进父任务里看。线程已经收工的留着独立显示，那才是真正剩下的事。
   const liveIds = new Set(tasks.filter((t) => t.status !== "done" && t.status !== "ignored").map((t) => t.id));
@@ -939,7 +934,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
 
   // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
   const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
-  const childIssues = t.source.meegleId ? all.filter((x) => x.source.linkedStoryId === t.source.meegleId) : [];
+  const ownIds = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
+  const childIssues = ownIds.size ? all.filter((x) => x.source.linkedStoryId && ownIds.has(x.source.linkedStoryId)) : [];
   const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
   const startable = childIssues.filter((c) => c.pending?.some((a) => a.type === "start_job"));
   // Friday 从这条线程的情境卡里记下的待办：列表里不单独占行，在这儿看

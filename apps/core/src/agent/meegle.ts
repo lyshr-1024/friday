@@ -76,7 +76,7 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     if (!linkedStoryId || !meegleProject) continue;
     // 只有「还开着的需求任务」才算容器已到位。已经收掉的不算——否则一旦被误收，
     // 它会被当成已存在而永远不再复活。
-    const existing = findTaskBySource((s) => s.meegleId === linkedStoryId, true);
+    const existing = findTaskBySource((s) => s.meegleId === linkedStoryId || (s.mergedMeegleIds ?? []).includes(linkedStoryId), true);
     if (existing && existing.status !== "done" && existing.status !== "ignored") continue;
     // 用户自己标忽略的别硬拉回来
     if (existing?.status === "ignored") continue;
@@ -157,7 +157,10 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   // 都对不上），猜错了开工就改错仓库。项目由你在任务卡上手动指定。
   // 唯一的例外是缺陷跟着它所属的需求走——那是 Meegle 里填好的事实，不是猜的。
   const project = item.linkedStory
-    ? findTaskBySource((s) => s.meegleId === item.linkedStory!.id, true)?.project
+    ? findTaskBySource(
+        (s) => s.meegleId === item.linkedStory!.id || (s.mergedMeegleIds ?? []).includes(item.linkedStory!.id),
+        true,
+      )?.project
     : undefined;
   const page = item.links[0];
   const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
@@ -273,8 +276,17 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         fresh.push({ task: t, item });
       } else if (OPEN.includes(existing.status)) {
         const { status: _s, ...patch } = input;
-        // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
-        updateTask(existing.id, { ...patch, source: input.source });
+        const isSelf = existing.source.meegleId === item.id;
+        if (isSelf) {
+          // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
+          updateTask(existing.id, { ...patch, source: input.source });
+        } else {
+          // 这是并进来的另一个工单，不是本体：别拿它的标题覆盖主任务，
+          // 也别让它的 linkedStoryId 改掉主任务的归属
+          const { linkedStoryId: _l, ...rest } = input.source;
+          const { title: _t, understanding: _u, ...keep } = patch;
+          updateTask(existing.id, { ...keep, source: rest });
+        }
       } else if ((existing.status === "done" || existing.status === "ignored") && /reopen/i.test(item.status)) {
         // Friday 里已经收工，Meegle 里却被 Reopen 又分派回来：拉回待办并提醒。
         // 只认 Reopen 状态——用户在 Friday 里主动标完成而 Meegle 还挂着的，不能每 15 分钟翻回来。
@@ -293,7 +305,8 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       // 不能按「不再分派给你」把它收掉，否则建出来下次同步就没了。
       // 它的收尾由名下缺陷决定：缺陷都完了才跟着收。
       if (t.source.storyContainer) {
-        const kids = listTasks().filter((x) => x.source.linkedStoryId === t.source.meegleId);
+        const own = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
+        const kids = listTasks().filter((x) => x.source.linkedStoryId && own.has(x.source.linkedStoryId));
         if (!containerDone(kids)) continue;
         updateTask(t.id, { status: "done" });
         record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });

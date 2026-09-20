@@ -4085,19 +4085,104 @@ a.fx__source-where:hover {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
-.fx__base select {
+/* 自绘下拉：原生 select 的弹出层由系统画，在深色 HUD 里是一块白底 */
+.pick {
+  position: relative;
+}
+.pick__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 200px;
   max-width: 420px;
-  padding: 3px var(--s-2);
+  padding: 4px var(--s-2) 4px var(--s-3);
   border: 1px solid var(--line-1);
   border-radius: var(--r-sm);
   background: var(--bg-2);
   color: var(--fg-2);
   font: inherit;
   font-size: var(--t-aux);
+  text-align: left;
+  cursor: default;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.fx__base select:focus-visible {
+.pick__btn > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick__btn .icon {
+  flex: none;
+  color: var(--fg-4);
+}
+.pick__btn:hover,
+.pick__btn--open {
+  border-color: var(--line-2);
+  color: var(--fg-1);
+}
+.pick__btn:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
+}
+.pick__ph {
+  color: var(--fg-4);
+}
+.pick__menu {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-width: 460px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-pop);
+}
+.pick__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 5px var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-aux);
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pick__item:hover {
+  background: var(--bg-4);
+  color: var(--fg-1);
+}
+.pick__item--on {
+  color: var(--live);
+}
+.pick__item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.pick__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick__hint {
+  flex: none;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
 }
 .fx__docs {
   display: flex;
