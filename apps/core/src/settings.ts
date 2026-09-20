@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
 
-export type TerminalApp = "embedded" | "ghostty" | "terminal";
+export type TerminalApp = "ghostty" | "terminal";
 
 export interface UserSettings {
   terminal: TerminalApp;
@@ -17,7 +17,7 @@ export interface UserSettings {
   summon: SummonSettings;
 }
 
-const DEFAULTS: UserSettings = { terminal: "embedded", model: "", skills: true, name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -35,7 +35,8 @@ function readRaw(): Record<string, unknown> {
 export function userSettings(): UserSettings {
   const raw = readRaw();
   return {
-    terminal: raw.terminal === "terminal" || raw.terminal === "ghostty" || raw.terminal === "embedded" ? raw.terminal : DEFAULTS.terminal,
+    // 旧配置里可能还存着 "embedded"（已移除），落到默认的 ghostty
+    terminal: raw.terminal === "terminal" || raw.terminal === "ghostty" ? raw.terminal : DEFAULTS.terminal,
     model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),

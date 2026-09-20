@@ -1,5 +1,5 @@
 export const DEFAULT_CORE_PORT = 7788;
-export type TerminalApp = "embedded" | "ghostty" | "terminal";
+export type TerminalApp = "ghostty" | "terminal";
 
 export const DEFAULT_HOTKEY = "CmdOrCtrl+Shift+Space";
 
@@ -233,8 +233,10 @@ export interface Job {
   conversationId?: string;
   /** Stop hook 回报的 Claude Code 会话 id，重开终端时用 --resume 接上 */
   claudeSessionId?: string;
-  /** 在哪种终端里跑：内嵌 PTY 随 sidecar 重启就没了，外部终端 Friday 看不见 */
+  /** 在哪种终端里跑 */
   terminal?: TerminalApp;
+  /** Ghostty 的 terminal id，开窗口时拿到；say / focus / close 靠它认窗口（标题会被 Claude Code 改掉） */
+  ghosttyId?: string;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;
@@ -533,8 +535,11 @@ export interface Task {
   updatedAt: string;
 }
 
-/** busy 在输出 / idle 等指示 / gone 内嵌终端已断（Friday 重启过）/ external 在 Ghostty 等外部终端里，看不到 */
-export type TerminalState = "busy" | "idle" | "gone" | "external";
+/**
+ * busy 这轮还在干（Stop hook 还没到）/ idle 说完了在等你 / gone 窗口已经关掉。
+ * 外部窗口读不到输出流，忙闲靠 Stop hook 判断，所以 busy 只是「还没回报完这一轮」。
+ */
+export type TerminalState = "busy" | "idle" | "gone";
 
 export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "custom";
 
@@ -577,7 +582,7 @@ export interface TaskBoard {
   slackConfigured: boolean;
 }
 
-export const TERMINAL_LABEL: Record<TerminalApp, string> = { embedded: "内嵌终端", ghostty: "Ghostty", terminal: "Terminal" };
+export const TERMINAL_LABEL: Record<TerminalApp, string> = { ghostty: "Ghostty", terminal: "Terminal" };
 
 /** 用量统计的时间档 */
 export type UsageRange = "today" | "7d" | "30d";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
-import { cleanEnv } from "./pty.js";
+import { cleanEnv } from "./env.js";
 import { buildHookSettings, transcriptPath } from "./runner.js";
 
 describe("终端环境与会话恢复", () => {

@@ -125,7 +125,8 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
     if (closing) lessonFromTask(task, patch.status === "ignored" ? "ignored" : "done_without_reply");
     if (closing) {
-      closeTaskTerminal(task, "用户在会话里说这条任务收工了");
+      // 即发即忘：关窗口失败不该挡住任务状态更新（这个函数是同步的）
+      void closeTaskTerminal(task, "用户在会话里说这条任务收工了");
       closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done");
       const t = task;
       void import("./pipeline.js").then((m) => m.cleanupTaskWorktree(t, "用户在会话里说这条任务收工了")).catch(() => {});

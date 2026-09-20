@@ -7,7 +7,6 @@ import { conversation } from "./conversation.js";
 import { desk } from "./desk.js";
 import { health } from "./health.js";
 import { note } from "./note.js";
-import { pty } from "./pty.js";
 import { route } from "./route.js";
 import { mcp } from "./mcp.js";
 import { events } from "./events.js";
@@ -48,7 +47,6 @@ export const app = new Hono()
   .route("/", route)
   .route("/", mcp)
   .route("/", events)
-  .route("/", pty)
   .route("/", links)
   .route("/", usage)
   .route("/", activity)

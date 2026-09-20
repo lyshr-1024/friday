@@ -122,29 +122,6 @@ export function clearAttention(jobId: string): void {
   if (t?.attention) updateTask(t.id, { attention: undefined });
 }
 
-/**
- * 用户自己在终端里敲字（前端是每键一个 POST），攒到回车算一句。
- * 敲完的整句记一条 relay 经验：本该由 Friday 转达的话你自己说了，说明它没转到位。
- *
- * Friday 自己 terminal_say 写进去的不走这条路（那是 pty.write，不经 HTTP 输入接口），
- * 所以这里攒到的一定是用户亲手敲的。
- */
-const typed = new Map<string, string>();
-
-export function userTyped(jobId: string, data: string): void {
-  if (!data.includes("\r")) {
-    // 退格键：跟着删，否则「删掉重写」会把两版都攒进去
-    const next = data === "\x7f" || data === "\b" ? (typed.get(jobId) ?? "").slice(0, -1) : (typed.get(jobId) ?? "") + data;
-    typed.set(jobId, next.slice(-2000));
-    return;
-  }
-  const line = ((typed.get(jobId) ?? "") + data.slice(0, data.indexOf("\r"))).trim();
-  typed.delete(jobId);
-  clearAttention(jobId);
-  if (!line) return;
-  const task = findTaskBySource((s) => s.jobId === jobId);
-  lessonFromRelay(task?.id, line);
-}
 
 /** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */
 export function turnFinished(jobId: string, text: string): void {
@@ -161,7 +138,7 @@ export function turnFinished(jobId: string, text: string): void {
 }
 
 /** 用户勾了一项「通过前请确认」。全部勾完 = 这轮验收通过：有终端就让它继续下一步，有待审动作就等用户点通过。 */
-export function setVerified(taskId: string, index: number, checked: boolean): Task | undefined {
+export async function setVerified(taskId: string, index: number, checked: boolean): Promise<Task | undefined> {
   const task = getTask(taskId);
   if (!task?.report || index < 0 || index >= task.report.verify.length) return undefined;
   const list = Array.from({ length: task.report.verify.length }, (_, i) => task.report!.checked?.[i] ?? false);
@@ -177,8 +154,8 @@ export function setVerified(taskId: string, index: number, checked: boolean): Ta
   const conv = t.source.conversationId ?? (jobId ? getJob(jobId)?.conversationId : undefined);
   const hasPending = (t.pending ?? []).length > 0;
   if (jobId && !hasPending && t.status === "processing") {
-    const r = say(jobId, `用户已逐项确认你上一轮列的 ${list.length} 条验证点，全部通过。继续下一步（该提交就提交，按项目流程建 draft MR，不要 push 到主分支、不要 merge），做完调 friday_done。`);
-    const note = r === "no-terminal" ? "你已确认全部验证点；终端已断，重开后让它继续" : r === "queued" ? "你已确认全部验证点，终端正忙，说完就转达它继续下一步" : "你已确认全部验证点，已让终端继续下一步";
+    const r = await say(jobId, `用户已逐项确认你上一轮列的 ${list.length} 条验证点，全部通过。继续下一步（该提交就提交，按项目流程建 draft MR，不要 push 到主分支、不要 merge），做完调 friday_done。`);
+    const note = r === "no-terminal" ? "你已确认全部验证点；终端窗口已经关掉了" : "你已确认全部验证点，已让终端继续下一步";
     t = updateTask(taskId, { attention: undefined, progress: note })!;
     if (conv && conversationExists(conv)) addMessage(conv, { role: "assistant", kind: "run", content: `→ ${note}`, payload: { status: "relayed", jobId } });
   } else if (conv && conversationExists(conv)) {
