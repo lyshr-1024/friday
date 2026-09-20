@@ -225,12 +225,11 @@ function byTier(a: Task, b: Task): number {
  * 名下还挂着缺陷或待办时先说那个——那是它现在最要紧的信息。
  */
 function anchorSub(t: Task, nested = 0, derived = 0): string {
-  if (DECIDE.includes(t.status)) return needs(t);
-  if (t.status === "processing") return doingRight(t);
+  const kids = nested > 0 ? `${nested} 条缺陷要改` : derived > 0 ? `${derived} 条待办要跟进` : "";
+  if (DECIDE.includes(t.status)) return kids ? `${needs(t)} · ${kids}` : needs(t);
+  if (t.status === "processing") return kids ? `${doingRight(t)} · ${kids}` : doingRight(t);
   if (t.status === "done" || t.status === "ignored") return fmtTime(t.updatedAt);
-  if (nested > 0) return `${nested} 条缺陷要改`;
-  if (derived > 0) return `${derived} 条待办要跟进`;
-  return queuedRight(t);
+  return kids || queuedRight(t);
 }
 
 function queuedRight(t: Task): string {
@@ -483,13 +482,13 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
   const asking = (t: Task) => t.attention === "question" || t.attention === "intake";
-  // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
-  const decide = rest.filter((t) => DECIDE.includes(t.status) || asking(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
-  const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t)).sort(byActivity(active));
   // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
   // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
   const storyIds = new Set(tasks.filter((t) => t.source.meegleId).map((t) => t.source.meegleId!));
   const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
+  // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
+  const decide = rest.filter((t) => (DECIDE.includes(t.status) || asking(t)) && !nested(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
+  const doing = rest.filter((t) => DOING.includes(t.status) && !asking(t) && !nested(t)).sort(byActivity(active));
   /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
   const nestedCount = (t: Task) =>
     t.source.meegleId
@@ -504,7 +503,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
-  const done = rest.filter((t) => t.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+  const done = rest.filter((t) => t.status === "done" && !nested(t)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const queueCounts = Object.fromEntries(QUEUE_GROUPS.map((c) => [c, queuedBy(c).length])) as Record<TaskCategory, number>;
   const queueKey = QUEUE_GROUPS.map((c) => queueCounts[c]).join(",");
   useEffect(() => {
