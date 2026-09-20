@@ -132,6 +132,40 @@ export const tasks = new Hono()
     record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name }, risk: "reversible" });
     return c.json(t);
   })
+  /**
+   * 把另一条需求并进这条：二期跟一期是同一件事、同一个分支，板上不该并排两条。
+   * 被并掉那条的工单号记进 mergedMeegleIds，同步才认得出它、不会重新建一条。
+   */
+  .post("/tasks/:id/merge", async (c) => {
+    const parsed = z.object({ fromTaskId: z.string().min(1) }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "fromTaskId 必填" }, 400);
+    const into = getTask(c.req.param("id"));
+    const from = getTask(parsed.data.fromTaskId);
+    if (!into || !from) return c.json({ error: "任务不存在" }, 404);
+    if (into.id === from.id) return c.json({ error: "不能和自己合并" }, 400);
+
+    const ids = [
+      ...(into.source.mergedMeegleIds ?? []),
+      ...(from.source.meegleId ? [from.source.meegleId] : []),
+      ...(from.source.mergedMeegleIds ?? []),
+    ].filter((x, i, a) => a.indexOf(x) === i && x !== into.source.meegleId);
+    // 两边的描述都留着：合并不是丢掉一半内容
+    const understanding = [into.understanding, `—— 并入 #${from.source.meegleId ?? from.id}「${from.title}」——`, from.understanding]
+      .filter(Boolean)
+      .join("\n\n");
+    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids } })!;
+    const row = deleteTask(from.id);
+    record({
+      taskId: into.id,
+      action: "task_merged",
+      why: "两条需求是同一件事，二期接着一期做",
+      how: `把「${from.title}」并进「${into.title}」`,
+      evidence: { fromTaskId: from.id, fromMeegleId: from.source.meegleId ?? null, mergedMeegleIds: ids },
+      risk: "reversible",
+      ...(row ? { undo: { kind: "restore_task", row } } : {}),
+    });
+    return c.json(next);
+  })
   /** 二期在一期分支上接着开：记下基线任务，开工时从它的分支检出 */
   .post("/tasks/:id/base", async (c) => {
     const parsed = z.object({ baseTaskId: z.string().min(1).nullable() }).safeParse(await c.req.json().catch(() => null));
@@ -281,6 +315,14 @@ export const tasks = new Hono()
     }
     if (plan.kind === "restore_task") {
       if (!restoreTask(plan.row)) return c.json({ error: "撤销失败（任务已不能恢复）" }, 409);
+      const ev = getEvent(c.req.param("id"));
+      if (ev?.action === "task_merged" && ev.taskId) {
+        const back = String((ev.evidence as { fromMeegleId?: string }).fromMeegleId ?? "");
+        const into = getTask(ev.taskId);
+        if (into && back) {
+          updateTask(into.id, { source: { mergedMeegleIds: (into.source.mergedMeegleIds ?? []).filter((x) => x !== back) } });
+        }
+      }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

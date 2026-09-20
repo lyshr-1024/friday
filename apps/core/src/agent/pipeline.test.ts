@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask, reportBackToOrigin } from "./pipeline.js";
-import { createTask, getTask, listTasks, updateTask  } from "../memory/tasks.js";
+import { createTask, getTask, listTasks, updateTask, findTaskBySource } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { attachToThread, getThread } from "../memory/threads.js";
 import { addInboxItems } from "../memory/inbox.js";
@@ -188,5 +188,14 @@ describe("二期在一期分支上接着开", () => {
     const second = createTask({ title: "二期", kind: "meegle", source: { baseTaskId: first.id }, project: "demo-proj", status: "understood" });
     const base = getTask(getTask(second.id)!.source.baseTaskId!)!;
     expect(base.source.branch).toBe("feat/phase-1");
+  });
+});
+
+describe("两条需求合并成一条", () => {
+  it("被并掉那条的工单号记在主任务名下，同步认得出、不会重新建", () => {
+    const into = createTask({ title: "一期", kind: "meegle", source: { meegleId: "S1" }, status: "understood" });
+    updateTask(into.id, { source: { mergedMeegleIds: ["S2"] } });
+    const found = findTaskBySource((s) => s.meegleId === "S2" || (s.mergedMeegleIds ?? []).includes("S2"), true);
+    expect(found?.id).toBe(into.id);
   });
 });

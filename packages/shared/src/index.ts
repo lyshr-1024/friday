@@ -299,6 +299,11 @@ export type Risk = "read" | "reversible" | "irreversible";
 export interface TaskSource {
   threadId?: string;
   meegleId?: string;
+  /**
+   * 合并进来的其它工单号（二期并进一期时）。同步认领工单要连它一起查，
+   * 否则被合掉那条下次同步会被当成新工单重新建出来。
+   */
+  mergedMeegleIds?: string[];
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
   /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */

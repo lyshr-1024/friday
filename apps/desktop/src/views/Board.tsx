@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, taskSetBase, projectList, taskSetProject } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 
@@ -180,13 +180,13 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
+  const [merging, setMerging] = useState<Task | null>(null);
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能当基线的：同项目、未收工、不是自己。不要求已经有分支——你开工前就知道要
   // 接着谁做；真开工时那条若还没分支，就退回从主干开。
   const bases = all.filter(
     (x) => x.id !== t.id && x.project && x.project === t.project && x.status !== "done" && x.status !== "ignored",
   );
-  const base = t.source.baseTaskId ? all.find((x) => x.id === t.source.baseTaskId) : undefined;
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
@@ -204,24 +204,26 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
           {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
         </div>
       </div>
-      {(bases.length > 0 || base) && (
+      {bases.length > 0 && (
         <div>
-          <span className="k">接着谁开</span>
+          <span className="k">并入这条</span>
           <div className="fx__base">
             <select
-              value={t.source.baseTaskId ?? ""}
-              onChange={(e) => void onAct(t, () => taskSetBase(t.id, e.target.value || null))}
-              aria-label="在哪条任务的分支上接着开"
+              value=""
+              onChange={(e) => {
+                const from = bases.find((x) => x.id === e.target.value);
+                if (from) setMerging(from);
+                e.target.value = "";
+              }}
+              aria-label="把另一条需求并进这条"
             >
-              <option value="">从主干开新分支</option>
+              <option value="">选一条并进来…</option>
               {bases.map((x) => (
-                <option key={x.id} value={x.id}>{x.source.branch ? `${x.source.branch} · ` : "（还没分支）"}{x.title.slice(0, 26)}</option>
+                <option key={x.id} value={x.id}>{x.source.meegleId ? `#${x.source.meegleId} · ` : ""}{x.title.slice(0, 28)}</option>
               ))}
             </select>
-            {base && (
-              <span className="fx__meta-dim">
-                {base.source.branch ? `开工时从 ${base.source.branch} 检出` : "那条还没开工，等它有分支后才接得上"}
-              </span>
+            {(t.source.mergedMeegleIds ?? []).length > 0 && (
+              <span className="fx__meta-dim">已并入 {(t.source.mergedMeegleIds ?? []).map((x) => `#${x}`).join("、")}</span>
             )}
           </div>
         </div>
@@ -230,6 +232,18 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
         <div>
           <span className="k">SCHEDULE</span>
           <div className="fx__text">{[feDue && `后台前端 ${feDue}`, beDue && `服务端 ${beDue}`].filter(Boolean).join(" · ")}</div>
+        </div>
+      )}
+      {merging && (
+        <div className="modal" onMouseDown={() => setMerging(null)}>
+          <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="合并需求">
+            <strong className="modal__title">把「{merging.title.slice(0, 30)}」并进这条？</strong>
+            <p className="modal__note">它会从任务板上消失，工单号记在这条名下，同步不会再把它拉回来。可以在操作记录里撤销。</p>
+            <div className="modal__foot">
+              <button className="b b--primary" autoFocus onClick={() => { const f = merging; setMerging(null); void onAct(t, () => taskMerge(t.id, f.id)); }}>合并</button>
+              <button className="b b--text" onClick={() => setMerging(null)}>取消</button>
+            </div>
+          </div>
         </div>
       )}
       {links.length > 0 && (

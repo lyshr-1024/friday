@@ -265,7 +265,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     const fresh: Array<{ task: Task; item: MeegleWorkItem }> = [];
     for (const item of items) {
       const input = workItemToTask(item, projects);
-      const existing = findTaskBySource((s) => s.meegleId === item.id, true);
+      const existing = findTaskBySource((s) => s.meegleId === item.id || (s.mergedMeegleIds ?? []).includes(item.id), true);
       if (!existing) {
         const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
