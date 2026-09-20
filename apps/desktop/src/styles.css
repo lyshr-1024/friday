@@ -2992,37 +2992,6 @@ body,
 }
 
 
-/* 和 Friday 聊这条任务：单列，在终端之上；先看 Friday 说的，不放心再展开终端 */
-.fx__talk {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
-  display: flex;
-  flex-direction: column;
-}
-.fx__talk .thread {
-  /* .thread 自带 flex:1 是给全屏视图的；在卡片里 flex-basis 会盖掉 height，必须 flex:none 才有高度 */
-  flex: none;
-  margin-top: var(--s-2);
-  /* 空态只占两行的高度，真有对话了再撑到 44vh；避免空白比内容还高 */
-  height: auto;
-  min-height: 0;
-  max-height: clamp(320px, 44vh, 480px);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-md);
-  background: var(--bg-2);
-}
-.fx__talk .chat__body {
-  padding: 14px 16px 8px;
-  gap: 14px;
-}
-.fx__talk .composer {
-  padding: 6px 10px 10px;
-  background: transparent;
-}
-.fx__talk .chat__empty {
-  padding: 20px 8px;
-}
 /* 一条明确可点的开合条：有底色和边框，看得出是控件而不是标题 */
 /* .k 自带 margin-bottom，在居中的 flex 里会把文字整体顶上去 */
 /* 发消息前的确认框：要发的原文、可改、⌘↵ 发 */
@@ -3743,10 +3712,6 @@ body,
   vertical-align: -0.13em;
 }
 
-/* 聊过的会话固定高度，滚动位置才稳 */
-.fx__talk .thread:has(.turn) {
-  height: clamp(320px, 44vh, 480px);
-}
 
 /* 任务卡里的会话空态：两行就够，不和真实内容抢高度 */
 .chat__empty--compact {

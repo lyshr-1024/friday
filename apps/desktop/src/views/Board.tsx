@@ -3,10 +3,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
-import { Thread as ChatThread } from "./Thread";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
 
@@ -1173,23 +1172,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
           </div>
         </details>
       )}
-      <div className="fx__talk">
-        <span className="k">和 Friday 聊这条任务</span>
-        <ChatThread
-          conversationId={t.source.conversationId ?? null}
-          resolve={async (prompt) => {
-            const conv = await newConversation();
-            await taskBindConversation(t.id, conv.id).catch(() => {});
-            window.dispatchEvent(new Event("friday:tasks-changed"));
-            return { id: conv.id, prompt };
-          }}
-          compact
-          emptyTitle="关于这条任务，直接问"
-          emptyHint="Friday 带着情境和原文回答；要动代码会先说判断等你点头。"
-          placeholder="跟 Friday 说这条任务…"
-          hint="Enter 发送 · Shift+Enter 换行"
-        />
-      </div>
       {t.source.jobId && acts.length > 0 && (
         <div className="fx__doing">
           <span className="k">终端在做</span>
