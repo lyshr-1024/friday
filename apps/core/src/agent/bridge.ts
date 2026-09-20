@@ -62,7 +62,12 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
 function taskFor(job: Job): Task {
   const existing = findTaskBySource((s) => s.jobId === job.id, true);
   if (existing) return existing;
-  return createTask({
+  // 开工时记下了这个 job 是替哪条任务干的，认领它而不是另建一条
+  if (job.taskId) {
+    const owner = getTask(job.taskId);
+    if (owner) return updateTask(owner.id, { source: { jobId: job.id } }) ?? owner;
+  }
+  const t = createTask({
     title: job.task ? `${job.project}：${job.task}`.slice(0, 80) : `${job.project}：交互式会话`,
     kind: "code",
     source: { jobId: job.id, ...(job.conversationId ? { conversationId: job.conversationId } : {}) },
@@ -70,6 +75,8 @@ function taskFor(job: Job): Task {
     status: "processing",
     understanding: job.task ?? "终端会话",
   });
+  record({ taskId: t.id, action: "task_create", why: "终端连回来时没有归属的任务", how: "按 job 补建一条", evidence: { jobId: job.id, project: job.project }, risk: "read" });
+  return t;
 }
 
 function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress"): void {

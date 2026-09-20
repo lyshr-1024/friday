@@ -167,7 +167,7 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
   }
   const prompt = autonomousPrompt(id, detail, project);
   const { ghosttyId } = await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
-  createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id) });
+  createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
   if (ghosttyId) setGhosttyId(id, ghosttyId);
   record({
     taskId: task.id,

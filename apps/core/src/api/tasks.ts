@@ -12,6 +12,7 @@ import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
+import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { getThread, markAutoDone, threadCategory } from "../memory/threads.js";
@@ -124,9 +125,13 @@ export const tasks = new Hono()
     if (!t.project) return c.json({ error: "任务没有关联项目，无法开工" }, 400);
     const r = resolveProject(t.project);
     if (r.kind !== "match") return c.json({ error: `找不到项目 ${t.project}` }, 400);
-    const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.understanding ?? t.title;
+    const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
+    if (running?.status === "running") return c.json({ error: "这条任务已经在跑了，先关掉那个终端再重新开工" }, 409);
+    // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，
+    // 拿它当任务描述等于什么都没说；优先用方案，其次标题，最后才退回 understanding。
+    const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
     record({ taskId: t.id, action: "retry", why: "你让它重新开工", how: "重新拉起自主 Claude Code 任务", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
-    const next = await startAutonomousJob({ ...t, source: { ...t.source, jobId: undefined } }, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
+    const next = await startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
     return c.json(next);
   })
   .post("/tasks/:id/conversation", async (c) => {

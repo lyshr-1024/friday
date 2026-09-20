@@ -14,6 +14,7 @@ interface Row {
   claude_session_id: string | null;
   terminal: TerminalApp | null;
   ghostty_id: string | null;
+  task_id: string | null;
   log_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -31,15 +32,16 @@ const toJob = (r: Row): Job => ({
   ...(r.claude_session_id ? { claudeSessionId: r.claude_session_id } : {}),
   ...(r.terminal ? { terminal: r.terminal } : {}),
   ...(r.ghostty_id ? { ghosttyId: r.ghostty_id } : {}),
+  ...(r.task_id ? { taskId: r.task_id } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
 
-export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string; terminal?: TerminalApp }): Job {
+export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string; terminal?: TerminalApp; taskId?: string }): Job {
   const startedAt = new Date().toISOString();
   db()
-    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)")
-    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal);
+    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)")
+    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal, input.taskId ?? null);
   return getJob(input.id)!;
 }
 

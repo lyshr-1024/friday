@@ -237,6 +237,8 @@ export interface Job {
   terminal?: TerminalApp;
   /** Ghostty 的 terminal id，开窗口时拿到；say / focus / close 靠它认窗口（标题会被 Claude Code 改掉） */
   ghosttyId?: string;
+  /** 这个 job 是替哪条任务干的。开工时写死，终端连回来按它认领，不另建任务 */
+  taskId?: string;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;

@@ -46,6 +46,9 @@ export function migrate(d: DatabaseSync): void {
   if (!jobCols.includes("terminal")) d.exec("ALTER TABLE jobs ADD COLUMN terminal TEXT");
   // Ghostty 的 terminal id：开窗口时拿到，say / focus / close 都靠它认窗口
   if (!jobCols.includes("ghostty_id")) d.exec("ALTER TABLE jobs ADD COLUMN ghostty_id TEXT");
+  // 这个 job 是替哪条任务干的：开工时写死归属，终端连回来时按它认领，
+  // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
+  if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
   const threadCols = (d.prepare("PRAGMA table_info(threads)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!threadCols.includes("anchor_ts")) d.exec("ALTER TABLE threads ADD COLUMN anchor_ts TEXT");
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
