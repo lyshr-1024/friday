@@ -4817,13 +4817,30 @@ body:has(.hud)::-webkit-scrollbar {
   opacity: 0.55;
   pointer-events: none;
 }
+/* 不在跑的卡片：顶部只留一道静态高光 */
+.deck__card .fx:not(.fx--live)::before {
+  opacity: 0.18;
+}
+/* 在跑：一道光从左扫到右，循环 */
+.deck__card .fx--live::before {
+  opacity: 1;
+  background: linear-gradient(90deg, transparent, var(--live) 42%, #fff 50%, var(--live) 58%, transparent);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .deck__card .fx::before {
-    animation: hud-sweep 5.5s var(--ease) infinite;
+  .deck__card .fx--live::before {
+    animation: hud-scan 2.2s linear infinite;
   }
-  @keyframes hud-sweep {
-    0%, 100% { opacity: 0.2; }
-    50% { opacity: 0.75; }
+  @keyframes hud-scan {
+    from { background-position: -45% 0; }
+    to { background-position: 145% 0; }
+  }
+}
+/* 关了动效也要看得出在跑：整条线亮着 */
+@media (prefers-reduced-motion: reduce) {
+  .deck__card .fx--live::before {
+    background: var(--live);
   }
 }
 

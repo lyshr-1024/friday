@@ -822,6 +822,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
+  // 顶部那条流线只在真的在跑时扫：有终端且没关掉，或者 Friday 正在回
+  const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -948,10 +950,11 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
 
   return (
     <>
-    <article className="fx" ref={ref as React.Ref<HTMLDivElement>}>
+    <article className={`fx ${live ? "fx--live" : ""}`} ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
-        <span className="fx__state">{STATUS[t.status]}{ATTENTION_NOTE[t.attention ?? ""] ?? ""}</span>
+        {/* 状态文字去掉了：在不在跑由顶部那条流线说，要看细节有圆点和下面的进展 */}
+        {ATTENTION_NOTE[t.attention ?? ""] && <span className="fx__state">{ATTENTION_NOTE[t.attention ?? ""]!.replace(/^ · /, "")}</span>}
         <span className="fx__meta-dim">{meta(t)} · 更新于 {fmtTime(t.updatedAt)}</span>
         {t.pinned && <span className="fx__pinned" title="已关注（右键可取消）"><Icon name="star" filled />已关注</span>}
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
