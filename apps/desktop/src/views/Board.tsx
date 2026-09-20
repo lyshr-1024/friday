@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
+import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
@@ -147,13 +147,12 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-function MeegleChips({ t, extra }: { t: Task; extra?: string }) {
-  const tags = (t.source.meegleTags ?? []).map((x) => TAG_LABELS[x] ?? x);
-  const chips = [t.priority === "high" ? "高优先级" : "", extra, ...tags].filter(Boolean) as string[];
+function MeegleChips({ t }: { t: Task; extra?: string }) {
+  // 只留优先级和回原工单的链接。迭代标签、当前节点、提出人跟「这条要写什么代码」无关
+  if (t.priority !== "high" && !t.source.url) return null;
   return (
     <div className="fx__chips">
-      {chips.map((m) => <span key={m} className="fx__chip">{m}</span>)}
-      {t.source.reporter && <span className="fx__by">{t.source.reporter} 提的</span>}
+      {t.priority === "high" && <span className="fx__chip">高优先级</span>}
       {t.source.url && <OpenLink href={t.source.url}>在 Meegle 打开 ↗</OpenLink>}
     </div>
   );
