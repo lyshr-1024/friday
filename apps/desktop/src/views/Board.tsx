@@ -202,6 +202,7 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
             onPick={(v) => void onAct(t, () => taskSetProject(t.id, v || null))}
           />
           {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
+          {t.project && t.source.jobId && <span className="fx__meta-dim">改项目会关掉现在这个终端（它开在旧目录里）</span>}
         </div>
       </div>
       {bases.length > 0 && (

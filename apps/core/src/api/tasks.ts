@@ -9,7 +9,7 @@ import { reviewOnce } from "../agent/lessons.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
-import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
+import { closeJobTerminal, closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
@@ -128,21 +128,17 @@ export const tasks = new Hono()
     if (!parsed.success) return c.json({ error: "project 必填（传 null 解除）" }, 400);
     const name = parsed.data.project;
     if (name && resolveProject(name).kind !== "match") return c.json({ error: `项目注册表里没有 ${name}` }, 400);
-    const t = updateTask(c.req.param("id"), { project: name ?? undefined });
-    if (!t) return c.json({ error: "任务不存在" }, 404);
-    record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name }, risk: "reversible" });
-    // 项目是你亲手定的，定了就等于「这条交给 Friday 做」，不用再挂一次待审让你点第二遍。
-    // 已经在跑的别重开，已收工的别翻出来。
+    const before = getTask(c.req.param("id"));
+    if (!before) return c.json({ error: "任务不存在" }, 404);
+    const changed = (before.project ?? null) !== name;
+    const t = updateTask(c.req.param("id"), { project: name ?? undefined })!;
+    record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name, from: before.project ?? null }, risk: "reversible" });
+    // 改项目意味着之前那个终端开错地方了：它 cd 在旧项目目录里，留着只会继续
+    // 在错的仓库上改代码。断掉，任务回到待办，等你点「开始做」在新项目上重开。
     const job = t.source.jobId ? getJob(t.source.jobId) : undefined;
-    const idle = t.status !== "done" && t.status !== "ignored" && job?.status !== "running";
-    if (name && idle) {
-      const r = resolveProject(name);
-      if (r.kind === "match") {
-        const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
-        void startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`).catch((e: unknown) => {
-          console.log(`[task] ${t.id} 定完项目开工失败：${e instanceof Error ? e.message : String(e)}`);
-        });
-      }
+    if (changed && before.project && job?.status === "running") {
+      await closeJobTerminal(job.id, `项目从 ${before.project} 改成 ${name ?? "未定"}，旧终端开在错的目录里`, t.id);
+      return c.json(updateTask(t.id, { status: "understood", source: { jobId: undefined } })!);
     }
     return c.json(t);
   })
