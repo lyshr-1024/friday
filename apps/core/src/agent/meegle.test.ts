@@ -320,3 +320,34 @@ describe("新工单 Friday 判断不了归属时问一句", () => {
     expect(after.progress).toBe("这条工单是财富后台还是新BO项目的？");
   });
 });
+
+describe("出池判据是「FE 发布」走完，不是「不在分派列表里」", () => {
+  const mk = (id: string) => ({ id, name: `需求 ${id}`, typeName: "Requirement", typeKey: "story", links: [], status: "In Progress", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" });
+  /** 分派列表为空（节点流去别人手上了），FE 发布状态由参数决定 */
+  const gone = (feDone: boolean) =>
+    ({
+      fetchWorkItems: async () => [],
+      getWorkItem: async () => ({ name: "需求", statusKey: "Testing", roles: [] }),
+      feReleased: async () => feDone,
+    }) as never;
+
+  it("节点流转走了但 FE 还没发布 → 留在池子里，不收", async () => {
+    const t = mkTask({ title: "需求 f1", kind: "meegle", source: { meegleId: "f1", meegleProject: "p1", meegleType: "story" }, status: "understood" });
+    const r = await syncOnce(gone(false));
+    expect(r.closed).toBe(0);
+    expect(readTask(t.id)!.status).toBe("understood");
+  });
+
+  it("FE 发布走完 → 收掉并记账", async () => {
+    const t = mkTask({ title: "需求 f2", kind: "meegle", source: { meegleId: "f2", meegleProject: "p1", meegleType: "story" }, status: "understood" });
+    // 同一个库里可能还有上一条用例留下的任务，只断言这一条
+    await syncOnce(gone(true));
+    expect(readTask(t.id)!.status).toBe("done");
+  });
+
+  it("没记项目 key 的老任务不去问 Meegle，也不收", async () => {
+    const t = mkTask({ title: "需求 f3", kind: "meegle", source: { meegleId: "f3" }, status: "understood" });
+    expect((await syncOnce(gone(true))).closed).toBe(0);
+    expect(readTask(t.id)!.status).toBe("understood");
+  });
+});

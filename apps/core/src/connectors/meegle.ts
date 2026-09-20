@@ -323,6 +323,29 @@ export class MeegleConnector implements Connector {
   }
 
   /**
+   * 「FE 发布」这个节点走完了没。这是任务出池的唯一判据（2026-09-20 与用户定）：
+   * 需求只要前端还没发布，就一直留在池子里，哪怕当前节点流转到别人手上（测试、服务端）。
+   * 节点名各空间可能不同，所以按名字模糊匹配，宁可认不出（继续留着）也不要误判出池。
+   */
+  async feReleased(projectKey: string, workItemId: string): Promise<boolean> {
+    try {
+      const d = await runJson<{ list?: Array<{ basic?: { name?: string; status?: string } }> }>(this.bin, [
+        "workflow", "get-node",
+        "--work-item-id", workItemId,
+        "--project-key", projectKey,
+        "--node-id-list", "_all",
+        "--format", "json",
+      ]);
+      const fe = (d.list ?? [])
+        .map((n) => n.basic)
+        .find((b) => b?.name && /^\s*(FE|前端)\s*(Release|发布)\s*$/i.test(b.name));
+      return fe?.status === "finished";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 单独拉一条工单（不经 mywork todo，所以没分派给我的也能拿到）。
    * 用来看缺陷关联的那个需求里有没有我的角色。
    */

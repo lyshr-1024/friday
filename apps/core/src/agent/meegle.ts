@@ -301,8 +301,18 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         closed++;
         continue;
       }
+      // 不在 mywork todo 里只说明当前节点不在你手上（流去测试 / 服务端了），不代表这件事完了。
+      // 出池的唯一判据是「FE 发布」节点走完（2026-09-20 与用户定）：只要前端还没发布，
+      // 需求就一直留在池子里，你还要持续关注它。
+      if (!t.source.meegleProject) continue;
+      // 它已经不在 mywork todo 里，上面那轮刷不到它，这里单独问一次把节点状态跟上
+      const now = await connector.getWorkItem(t.source.meegleProject, t.source.meegleId);
+      if (now && now.statusKey !== t.source.statusKey) {
+        updateTask(t.id, { source: { statusKey: now.statusKey } });
+      }
+      if (!(await connector.feReleased(t.source.meegleProject, t.source.meegleId))) continue;
       updateTask(t.id, { status: "done" });
-      record({ taskId: t.id, action: "meegle_done", why: "这个工单不再分派给你（已流转或关闭）", how: "同步时发现它不在分派列表里，标记完成", evidence: { meegleId: t.source.meegleId }, risk: "read" });
+      record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
     }
     // 缺陷关联的需求不在任务板里时，只要我在那个需求里担角色就拉进来当容器
