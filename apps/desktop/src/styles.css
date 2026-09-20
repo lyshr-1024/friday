@@ -3176,7 +3176,7 @@ body,
   gap: var(--s-4);
   flex-wrap: wrap;
   margin-top: var(--s-3);
-  padding-top: var(--s-3);
+  padding: var(--s-3) 0 var(--s-4);
   border-top: 1px solid var(--line-1);
   font-size: var(--t-micro);
   color: var(--fg-4);
@@ -4085,6 +4085,14 @@ a.fx__source-where:hover {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
+/* 需求卡的字段块：项目 / 并入 / 排期 / 文档，块之间要留白，不然全挤在一起 */
+.fx__story {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  margin-top: var(--s-4);
+}
+
 /* 并进来那条需求的文档：缩一档，前面标明是谁的 */
 .fx__docs--merged {
   margin-top: var(--s-2);

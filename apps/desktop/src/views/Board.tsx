@@ -190,7 +190,7 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
   // 项目现在是手动指定的，多数需求还没定；而要合的那条也可能已经收工了。
   const bases = all.filter((x) => x.id !== t.id && isStory(x));
   return (
-    <>
+    <div className="fx__story">
       <MeegleChips t={t} extra={nodeName} />
       <div>
         <span className="k">项目</span>
@@ -264,7 +264,7 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
