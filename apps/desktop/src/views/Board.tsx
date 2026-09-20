@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, taskSetBase } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, taskSetBase, projectList, taskSetProject } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 
@@ -179,12 +179,31 @@ function IssueBody({ t }: { t: Task }) {
 function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
-  // 能当基线的：同项目、已经有分支、不是自己。一期还没上线时二期就接在它后面开
-  const bases = all.filter((x) => x.id !== t.id && x.source.branch && x.project === t.project);
+  const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
+  useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
+  // 能当基线的：同项目、未收工、不是自己。不要求已经有分支——你开工前就知道要
+  // 接着谁做；真开工时那条若还没分支，就退回从主干开。
+  const bases = all.filter(
+    (x) => x.id !== t.id && x.project && x.project === t.project && x.status !== "done" && x.status !== "ignored",
+  );
   const base = t.source.baseTaskId ? all.find((x) => x.id === t.source.baseTaskId) : undefined;
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
+      <div>
+        <span className="k">项目</span>
+        <div className="fx__base">
+          <select
+            value={t.project ?? ""}
+            onChange={(e) => void onAct(t, () => taskSetProject(t.id, e.target.value || null))}
+            aria-label="这条工单改哪个仓库"
+          >
+            <option value="">没定（开工前必须先选）</option>
+            {projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+          {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
+        </div>
+      </div>
       {(bases.length > 0 || base) && (
         <div>
           <span className="k">接着谁开</span>
@@ -196,10 +215,14 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
             >
               <option value="">从主干开新分支</option>
               {bases.map((x) => (
-                <option key={x.id} value={x.id}>{x.source.branch} · {x.title.slice(0, 24)}</option>
+                <option key={x.id} value={x.id}>{x.source.branch ? `${x.source.branch} · ` : "（还没分支）"}{x.title.slice(0, 26)}</option>
               ))}
             </select>
-            {base?.source.branch && <span className="fx__meta-dim">开工时从 {base.source.branch} 检出</span>}
+            {base && (
+              <span className="fx__meta-dim">
+                {base.source.branch ? `开工时从 ${base.source.branch} 检出` : "那条还没开工，等它有分支后才接得上"}
+              </span>
+            )}
           </div>
         </div>
       )}

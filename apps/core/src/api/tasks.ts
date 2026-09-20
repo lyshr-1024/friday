@@ -119,6 +119,19 @@ export const tasks = new Hono()
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
   // 卡住的任务重新开工（比如用量上限恢复后）
+  /** 项目注册表里的项目名，任务卡上手动归属用 */
+  .get("/projects", (c) => c.json(loadProjects().map((p) => ({ name: p.name, dir: p.dir }))))
+  /** 手动把任务归到某个项目：不再按标题猜，猜错了开工就改错仓库 */
+  .post("/tasks/:id/project", async (c) => {
+    const parsed = z.object({ project: z.string().min(1).nullable() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "project 必填（传 null 解除）" }, 400);
+    const name = parsed.data.project;
+    if (name && resolveProject(name).kind !== "match") return c.json({ error: `项目注册表里没有 ${name}` }, 400);
+    const t = updateTask(c.req.param("id"), { project: name ?? undefined });
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name }, risk: "reversible" });
+    return c.json(t);
+  })
   /** 二期在一期分支上接着开：记下基线任务，开工时从它的分支检出 */
   .post("/tasks/:id/base", async (c) => {
     const parsed = z.object({ baseTaskId: z.string().min(1).nullable() }).safeParse(await c.req.json().catch(() => null));
@@ -129,7 +142,6 @@ export const tasks = new Hono()
     if (base) {
       const b = getTask(base);
       if (!b) return c.json({ error: "基线任务不存在" }, 404);
-      if (!b.source.branch) return c.json({ error: "那条任务还没有分支，先让它开工" }, 400);
       if (base === t.id) return c.json({ error: "不能基于自己" }, 400);
     }
     const next = updateTask(t.id, { source: { baseTaskId: base ?? undefined } });

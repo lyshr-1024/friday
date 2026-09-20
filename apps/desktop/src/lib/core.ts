@@ -475,6 +475,20 @@ export async function taskVerify(id: string, index: number, checked: boolean): P
 
 
 /** 二期在一期分支上接着开：设/解除基线任务。 */
+/** 项目注册表里的项目，任务卡上手动归属用。 */
+export async function projectList(): Promise<Array<{ name: string; dir: string }>> {
+  const res = await fetch(`${await coreBaseUrl()}/projects`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/** 手动把任务归到某个项目（不再按标题猜）。 */
+export async function taskSetProject(id: string, project: string | null): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/project`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function taskSetBase(id: string, baseTaskId: string | null): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/base`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseTaskId }) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);

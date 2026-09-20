@@ -106,7 +106,8 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     const roles = myRoles(story.roles, me);
     if (!roles.length) continue;
     const projects = loadProjects();
-    const project = matchProject(story.name, projects);
+    // 项目由用户手动指定，不按标题猜
+    const project = undefined;
     const t = createTask({
       title: story.name || name || `Meegle 需求 #${storyId}`,
       kind: "meegle",
@@ -152,12 +153,12 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
   // 分派给我的工单一律先排队，不占「待我决定」：这个组织里 P0/P1 太常见，真要拍板的由 Slack/口头触发。
   const status: TaskStatus = "understood";
   // 描述里的页面链接比标题可靠得多：标题只写「【BO 后台】…」，归不到仓库；链接带域名和 app 段。
-  // 再兜一层关联需求：缺陷标题常常不带需求名（「【BO】开关开到关没有弹出二次确认弹窗」），
-  // 但它挂在哪个需求下是 Meegle 里填好的，需求那条已经归过项目就顺着拿。
-  const project =
-    matchProjectByUrl(item.links, projects)?.name ??
-    matchProject(item.name, projects) ??
-    (item.linkedStory ? projectOfStory(item.linkedStory, projects) : undefined);
+  // 不自动猜项目：标题里有没有项目名跟它属于哪个仓库没关系（「养牛计划1.0」这种一个字
+  // 都对不上），猜错了开工就改错仓库。项目由你在任务卡上手动指定。
+  // 唯一的例外是缺陷跟着它所属的需求走——那是 Meegle 里填好的事实，不是猜的。
+  const project = item.linkedStory
+    ? findTaskBySource((s) => s.meegleId === item.linkedStory!.id, true)?.project
+    : undefined;
   const page = item.links[0];
   const full = page ? `${understanding}。出问题的页面：${page}` : understanding;
   // 这些键始终写出（含 undefined），工单撤掉排期或标签时 source 的 merge 才能抹掉旧值

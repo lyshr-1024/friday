@@ -73,7 +73,7 @@ describe("Meegle 工单进任务中枢", () => {
     const hot = workItemToTask({ ...base, priority: "P0", node: "FE Release" }, projects);
     expect(hot.status).toBe("understood");
     expect(hot.priority).toBe("high");
-    expect(hot.project).toBe("whale-console");
+    expect(hot.project).toBeUndefined(); // 不再按标题猜项目，由你在卡上手动指定
     expect(hot.understanding).toBe("Meegle Defect #1，节点「FE Release」在等你，状态 Open，优先级 P0");
     const cold = workItemToTask({ ...base, priority: "P2", due: "2026-09-10T00:00:00Z" }, projects);
     expect(cold.status).toBe("understood");
@@ -248,18 +248,18 @@ describe("需求的资料链接与当前节点", () => {
   });
 });
 
-describe("按页面链接归项目", () => {
-  it("描述里的链接比标题可靠：标题只写「BO 后台」也能归到 whale-console", () => {
+describe("不再自动猜项目（2026-09-20 起由用户手动指定）", () => {
+  it("标题和链接都不再用来归项目，但页面链接仍写进理解里供你判断", () => {
     const base = { id: "2", name: "【BO 后台】任务类型下拉框缺少「日内融平仓」", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", statusKey: "OPEN", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
     expect(workItemToTask({ ...base, links: [] }, projects).project).toBeUndefined();
     const located = workItemToTask({ ...base, links: ["https://console.longbridge.xyz/wbo/risk/auto-close-settings?page=1"] }, projects);
-    expect(located.project).toBe("whale-console");
+    expect(located.project).toBeUndefined();
     expect(located.understanding).toContain("出问题的页面：https://console.longbridge.xyz/wbo/risk/auto-close-settings");
   });
 
-  it("链接归不到项目时回落到标题匹配", () => {
+  it("标题里明明白白写着项目别名也不猜——猜错了开工就改错仓库", () => {
     const base = { id: "3", name: "鲸鱼后台导出报表时区错乱", typeName: "Defect", typeKey: "issue", status: "Open", projectName: "p", statusKey: "OPEN", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
-    expect(workItemToTask({ ...base, links: ["https://unknown.example.com/x"] }, projects).project).toBe("whale-console");
+    expect(workItemToTask({ ...base, links: ["https://unknown.example.com/x"] }, projects).project).toBeUndefined();
   });
 });
 
