@@ -3304,8 +3304,14 @@ body,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* .fx__meta 用负边距出血到卡片边缘，会比内容盒宽出滚动条那几 px */
+  overflow-x: hidden;
+  scrollbar-width: none;
   margin-bottom: 0;
   padding-top: 0;
+}
+.deck__card .fx::-webkit-scrollbar {
+  display: none;
 }
 .deck__card .fx__meta {
   margin-top: 0;
@@ -3354,7 +3360,7 @@ body,
   flex: none;
   position: relative;
   z-index: 3;
-  width: 184px;
+  width: 248px;
   align-self: center;
   max-height: 76%;
   display: flex;
@@ -4956,14 +4962,25 @@ body:has(.hud)::-webkit-scrollbar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: 1px;
-  margin: 0 0 var(--s-4);
+  /* 对齐轴：左跟 .q__head / .deck__stage，右跟 .deck 的内边距 */
+  margin: 0 var(--s-4) var(--s-4) var(--s-8);
   background: var(--line-1);
   border-top: 1px solid var(--line-1);
   border-bottom: 1px solid var(--line-1);
 }
+.chat--norail .gauges {
+  margin-left: 88px;
+}
 .g {
   padding: var(--s-3) var(--s-3) var(--s-2);
   background: var(--bg-1);
+}
+/* 最左一格的读数要落在标题那条轴上，最右一格靠右边缘 */
+.g:first-child {
+  padding-left: 0;
+}
+.g:last-child {
+  padding-right: 0;
 }
 .g__k {
   margin-bottom: 5px;
