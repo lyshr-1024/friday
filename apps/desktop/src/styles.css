@@ -3399,17 +3399,19 @@ body,
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  /* 上下渐隐，滚动时不硬切 */
-  mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  /* 上下渐隐，滚动时不硬切。别超过 6px——第一个分组头贴着顶，
+     渐隐带太宽会把它一起削暗，看着像没渲染完 */
+  mask-image: linear-gradient(180deg, transparent, #000 6px, #000 calc(100% - 6px), transparent);
 }
 .anchors__scroll::-webkit-scrollbar {
   display: none;
 }
 .anchors__g {
-  padding: var(--s-3) 0 var(--s-1) 2px;
+  padding: var(--s-4) 0 var(--s-2) 2px;
   font-size: var(--t-micro);
-  letter-spacing: 0.14em;
-  color: var(--fg-4);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--fg-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5058,7 +5060,7 @@ body:has(.hud)::-webkit-scrollbar {
   font-size: var(--t-micro);
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--fg-4);
+  color: var(--fg-3);
 }
 .g__v {
   display: flex;
