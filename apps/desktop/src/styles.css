@@ -1469,17 +1469,27 @@ kbd {
   gap: 12px;
 }
 .job__actions button {
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
   background: none;
-  padding: 0;
   font: inherit;
   font-size: var(--t-xs);
-  color: var(--label-2);
+  color: var(--fg-3);
   cursor: default;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .job__actions button:hover {
-  color: var(--label);
-  text-decoration: underline;
+  color: var(--fg-1);
+  border-color: var(--line-2);
+  background: var(--bg-3);
+}
+.job__actions button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 .job__logtitle {
   margin: 8px 0;
