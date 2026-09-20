@@ -119,7 +119,11 @@ export const jobs = new Hono()
     return c.json({ status: r, id: c.req.param("id") });
   })
   .post("/jobs/:id/focus", async (c) => {
-    if (!getJob(c.req.param("id"))) return c.json({ error: "任务不存在" }, 404);
-    await focusTerminal(userSettings().terminal, getJob(c.req.param("id"))?.ghosttyId);
-    return c.json({ ok: true });
+    const id = c.req.param("id");
+    const job = getJob(id);
+    if (!job) return c.json({ error: "任务不存在" }, 404);
+    if (await focusTerminal(job.terminal ?? userSettings().terminal, job.ghosttyId)) return c.json({ ok: true, focused: true });
+    // 窗口已经不在了：与其把 Ghostty 随便一个窗口拉到前台，不如重开一个接回原来那个会话
+    const r = await reopenTerminal(id);
+    return c.json({ ok: r !== "no-job", focused: false, reopened: r });
   });

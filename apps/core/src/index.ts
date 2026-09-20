@@ -3,6 +3,7 @@ import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
 import { reapStaleJobs } from "./memory/jobs.js";
+import { isAlive } from "./agent/ghostty.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { backfillSlackLinks } from "./memory/backfillLinks.js";
 import { closeSettledThreads } from "./memory/threads.js";
@@ -10,8 +11,9 @@ import { startScheduler } from "./scheduler/index.js";
 
 initMemory();
 console.log(`memory at ${config.dataDir}`);
-// PTY 活在内存里，上次进程没了它们就都死了——启动先收尸，否则计数越攒越多
-const reaped = reapStaleJobs();
+// 上次进程没了，库里还标着 running 的挨个问一句窗口在不在：外部 Ghostty 不跟着
+// sidecar 死，还开着的要留下，只收真没了的那些
+const reaped = await reapStaleJobs(isAlive);
 if (reaped) console.log(`收尾 ${reaped} 个上次遗留的终端记录`);
 // todos 表在启动器删掉后就没有界面出口了，把最近写进去的补成任务
 const moved = migrateLocalTodos();

@@ -3571,6 +3571,9 @@ body,
   border-color: var(--line-2);
   box-shadow: 0 0 0 3px var(--live-glow);
 }
+.modal__note--bad {
+  color: var(--bad);
+}
 .modal__foot {
   display: flex;
   align-items: center;
@@ -4926,7 +4929,7 @@ body:has(.hud)::-webkit-scrollbar {
   left: -1px;
   right: -1px;
   top: -1px;
-  height: 1px;
+  height: 2px;
   background: linear-gradient(90deg, transparent, var(--live), transparent);
   opacity: 0.55;
   pointer-events: none;
@@ -4935,26 +4938,33 @@ body:has(.hud)::-webkit-scrollbar {
 .deck__card .fx:not(.fx--live)::before {
   opacity: 0.18;
 }
-/* 在跑：一道光从左扫到右，循环 */
+/* 开着终端：整条线亮着、发光，一眼看出这条还没了结 */
 .deck__card .fx--live::before {
   opacity: 1;
-  background: linear-gradient(90deg, transparent, var(--live) 42%, #fff 50%, var(--live) 58%, transparent);
-  background-size: 45% 100%;
+  background: linear-gradient(90deg, transparent, var(--live) 12%, var(--live) 88%, transparent);
+  box-shadow: 0 0 10px rgba(95, 227, 255, 0.55);
+}
+/* 终端正在干活：一道白光在线上来回扫。它说完在等你时这条线是静止的——
+   动没动就是「它现在有没有在替我干活」这一个问题的答案 */
+.deck__card .fx--run::before {
+  background: linear-gradient(90deg, var(--live), var(--live) 34%, #fff 50%, var(--live) 66%, var(--live));
+  background-size: 55% 100%;
   background-repeat: no-repeat;
+  background-color: rgba(95, 227, 255, 0.35);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .deck__card .fx--live::before {
-    animation: hud-scan 2.2s linear infinite;
+  .deck__card .fx--run::before {
+    animation: hud-scan 2.4s linear infinite;
   }
   @keyframes hud-scan {
-    from { background-position: -45% 0; }
-    to { background-position: 145% 0; }
+    from { background-position: -55% 0; }
+    to { background-position: 155% 0; }
   }
 }
-/* 关了动效也要看得出在跑：整条线亮着 */
+/* 关了动效：在跑的那条更亮更实，靠亮度而不是运动来区分 */
 @media (prefers-reduced-motion: reduce) {
-  .deck__card .fx--live::before {
-    background: var(--live);
+  .deck__card .fx--run::before {
+    background: #fff;
   }
 }
 

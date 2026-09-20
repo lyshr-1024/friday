@@ -302,8 +302,16 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
   return "reopened";
 }
 
-/** 把某条 job 的终端窗口带到前台；没记下 terminal id 就退回只激活 app。 */
-export async function focusTerminal(terminal: TerminalApp, ghosttyId?: string): Promise<void> {
-  if (ghosttyId && terminal === "ghostty" && (await focusTerminalById(ghosttyId))) return;
-  await execFileP("/usr/bin/open", ["-a", terminal === "terminal" ? "Terminal" : "Ghostty"]);
+/**
+ * 把某条 job 的终端窗口带到前台。
+ * 找不到那个窗口时返回 false，不要退回 `open -a Ghostty`——那只会激活当前最前的
+ * 窗口，用户点「打开终端」却跳进一个不相干的会话里，比什么都不做更糟。
+ */
+export async function focusTerminal(terminal: TerminalApp, ghosttyId?: string): Promise<boolean> {
+  if (ghosttyId && terminal === "ghostty") return focusTerminalById(ghosttyId);
+  if (terminal === "terminal") {
+    await execFileP("/usr/bin/open", ["-a", "Terminal"]);
+    return true;
+  }
+  return false;
 }

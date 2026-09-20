@@ -72,6 +72,9 @@ export async function inputText(terminalId: string, text: string): Promise<boole
 
 /** 把这个终端的窗口拉到前台。 */
 export async function focusTerminalById(terminalId: string): Promise<boolean> {
+  // 先确认它还在：窗口关掉之后 activate 照样会把 Ghostty 拉到前台，
+  // 用户看到的是「点了打开终端，跳进了另一个不相干的窗口」。
+  if (!(await isAlive(terminalId))) return false;
   try {
     await osa(`tell application "Ghostty"\n  activate\n  focus (${termRef(terminalId)})\nend tell`);
     return true;

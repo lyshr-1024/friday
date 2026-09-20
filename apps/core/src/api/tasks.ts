@@ -73,7 +73,8 @@ export const tasks = new Hono()
       source: { ...(note ? { note } : {}), ...(url ? { url } : {}) },
       ...(projectName ? { project: projectName } : {}),
       ...(due ? { due } : {}),
-      status: "processing",
+      // 手动建的进待办，不是「Friday 在做」——建完还没人开始干
+      status: "understood",
     });
     record({ taskId: t.id, action: "task_create", why: "你交代的", how: url ? "带文档链接建任务" : "建任务", evidence: { title, note: note ?? null, url: url ?? null, project: projectName ?? null }, risk: "read" });
     return c.json(t, 201);

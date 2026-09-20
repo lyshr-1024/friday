@@ -313,8 +313,11 @@ export async function jobReopen(id: string): Promise<{ status: string }> {
   return res.json();
 }
 
-export async function jobFocus(id: string): Promise<void> {
-  await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => {});
+/** 把终端窗口拉到前台。窗口已经没了的话后端会重开一个接回原会话，返回 reopened。 */
+export async function jobFocus(id: string): Promise<{ focused: boolean; reopened?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => null);
+  if (!res?.ok) return { focused: false };
+  return res.json();
 }
 
 export async function uploadAttachment(file: File): Promise<Attachment> {
@@ -476,6 +479,17 @@ export async function taskVerify(id: string, index: number, checked: boolean): P
 
 /** 二期在一期分支上接着开：设/解除基线任务。 */
 /** 项目注册表里的项目，任务卡上手动归属用。 */
+/** 手动建一条任务（界面上「＋ 新建」）。落成待办，不占「Friday 在做」。 */
+export async function taskCreate(input: { title: string; note?: string; url?: string; project?: string; due?: string }): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function projectList(): Promise<Array<{ name: string; dir: string }>> {
   const res = await fetch(`${await coreBaseUrl()}/projects`);
   if (!res.ok) return [];

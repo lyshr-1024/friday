@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -455,6 +455,9 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   }, [view]);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [allProjects, setAllProjects] = useState<Array<{ name: string; dir: string }>>([]);
+  useEffect(() => { void projectList().then(setAllProjects).catch(() => {}); }, []);
   const [slackSyncing, setSlackSyncing] = useState(false);
   const [slackNote, setSlackNote] = useState<string | null>(null);
   async function doSlackSync() {
@@ -699,6 +702,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
         </div>
       ) : (
         <div className="deck">
+          {creating && <NewTask projects={allProjects} onClose={() => setCreating(false)} onDone={() => { setCreating(false); void load(); }} />}
           <div className="deck__stage">
             {err && <div className="err" style={{ margin: "0 0 12px" }}>{err}</div>}
             <label className="find">
@@ -718,6 +722,9 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
               </button>
               <button className="find__act" title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={(e) => { e.preventDefault(); void doSync(); }}>
                 {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
+              </button>
+              <button className="find__act" title="自己记一件事，落到待办里" onClick={(e) => { e.preventDefault(); setCreating(true); }}>
+                ＋ 新建
               </button>
             </label>
             <div className="deck__scroll" ref={deckRef}>
@@ -814,6 +821,62 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
   );
 }
 
+/** 手动记一件事。Meegle 和 Slack 拉不到的（口头交代、自己想起来的）走这儿。 */
+function NewTask({ projects, onClose, onDone }: { projects: Array<{ name: string; dir: string }>; onClose: () => void; onDone: () => void }) {
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [project, setProject] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function submit() {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await taskCreate({ title: title.trim(), ...(note.trim() ? { note: note.trim() } : {}), ...(project ? { project } : {}) });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="modal" onMouseDown={onClose}>
+      <div className="modal__box" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="记一件事">
+        <strong className="modal__title">记一件事</strong>
+        <div className="modal__row">
+        <input
+          autoFocus
+          value={title}
+          placeholder="要做什么"
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
+        />
+        <textarea
+          value={note}
+          placeholder="补充说明（可不填）"
+          rows={3}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
+        />
+        </div>
+        <Picker
+          value={project}
+          options={projects.map((p) => ({ value: p.name, label: p.name, hint: p.dir }))}
+          placeholder="关联项目（可不填）"
+          label="关联项目"
+          onPick={setProject}
+        />
+        {err && <p className="modal__note modal__note--bad">{err}</p>}
+        <div className="modal__foot">
+          <button className="b b--primary" disabled={!title.trim() || busy} onClick={() => void submit()}>记下{!busy && <kbd>↵</kbd>}</button>
+          <button className="b b--text" onClick={onClose}>取消</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 删除确认。WebView 里 window.confirm 不弹，只能自己画。 */
 function DeleteConfirm({ t, onClose, onConfirm }: { t: Task; onClose: () => void; onConfirm: () => void }) {
   return (
@@ -893,8 +956,9 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
-  // 顶部那条流线只在真的在跑时扫：有终端且没关掉，或者 Friday 正在回
+  // 顶部那条流线分两档：终端正在敲代码是扫光，说完在等你是常亮不动
   const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
+  const running = live && t.terminal !== "idle";
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -1020,7 +1084,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
 
   return (
     <>
-    <article className={`fx ${live ? "fx--live" : ""}`} ref={ref as React.Ref<HTMLDivElement>}>
+    <article className={`fx ${live ? "fx--live" : ""} ${running ? "fx--run" : ""}`} ref={ref as React.Ref<HTMLDivElement>}>
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
         {/* 状态文字去掉了：在不在跑由顶部那条流线说，要看细节有圆点和下面的进展 */}
@@ -1329,7 +1393,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                   <Icon name="terminal" />重开终端
                 </button>
               ) : (
-                <button className="b b--ghost" title="把这条任务的终端窗口拉到前台" onClick={() => void jobFocus(t.source.jobId!)}>
+                <button className="b b--ghost" title="把这条任务的终端窗口拉到前台；窗口没了就重开一个接回原会话" onClick={() => void onAct(t, () => jobFocus(t.source.jobId!))}>
                   <Icon name="terminal" />打开终端
                 </button>
               )

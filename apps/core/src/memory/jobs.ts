@@ -95,13 +95,21 @@ export function finishJob(id: string, exitCode: number): Job | undefined {
 
 /** 启动时收尸：PTY 只活在 sidecar 内存里，进程重启后还标着 running 的
     必然已经死了，留着会让「N 个终端在跑」越攒越多。 */
-export function reapStaleJobs(): number {
-  const rows = db().prepare("SELECT id FROM jobs WHERE status = 'running'").all() as unknown as { id: string }[];
+export async function reapStaleJobs(alive?: (ghosttyId: string) => Promise<boolean>): Promise<number> {
+  const rows = db().prepare("SELECT id, ghostty_id FROM jobs WHERE status = 'running'").all() as unknown as { id: string; ghostty_id: string | null }[];
   if (!rows.length) return 0;
-  db()
-    .prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE status = 'running'")
-    .run(new Date().toISOString());
-  return rows.length;
+  // 终端是外部 Ghostty 窗口，sidecar 重启它并不会跟着死——不能再像 PTY 时代那样
+  // 一律当僵尸收掉，否则用户手上还开着的终端会被标成已完成、任务也就断了关联。
+  const dead: string[] = [];
+  for (const r of rows) {
+    if (alive && r.ghostty_id && (await alive(r.ghostty_id))) continue;
+    dead.push(r.id);
+  }
+  if (!dead.length) return 0;
+  const now = new Date().toISOString();
+  const stmt = db().prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE id = ?");
+  for (const id of dead) stmt.run(now, id);
+  return dead.length;
 }
 
 /** 10 秒内同目录同任务的运行中记录，用来挡住重复启动。 */
