@@ -102,8 +102,8 @@
   --s-5: 20px;
   --s-6: 24px;
   --s-8: 32px;
-  /* 工作台版心：页头、读数条、轮播三块共用，靠左对齐轴摆放 */
-  --deck-max: 1100px;
+  /* 工作台版心：页头、读数条、轮播三块共用，居中摆放 */
+  --deck-max: 1400px;
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
@@ -3183,7 +3183,7 @@ body,
 /* 主从布局：左边任务列表随时可见（在跑 / 做完 / 等你），右边固定显示选中任务的详情 */
 .q__head--wide {
   max-width: var(--deck-max);
-  margin: 0;
+  margin: 0 auto;
 }
 /* ── 轮播：一次一条任务铺满中间，右侧一块浮着的锚点条 ──
    分组列表换成轮播是因为「同时看见十条」在这里没有价值：
@@ -3195,7 +3195,7 @@ body,
   max-width: var(--deck-max);
   display: flex;
   gap: var(--s-5);
-  margin-top: var(--s-4);
+  margin: var(--s-4) auto 0;
   padding-right: var(--s-4);
 }
 .deck__stage {
@@ -3207,10 +3207,13 @@ body,
   /* 对齐轴：和 .q__head 同为 --s-8 */
   padding-left: var(--s-8);
 }
-/* 没有左栏了，红绿灯就在页面左上角，页头和舞台给它让位 */
-.chat--norail .q__head,
-.chat--norail .deck__stage {
-  padding-left: 88px;
+/* 没有左栏了，红绿灯就在页面左上角。居中后窗口宽到两侧留白各够 88px
+   （1400 + 88*2）时它就压不到正文了，让位只在那之前给 */
+@media (max-width: 1575px) {
+  .chat--norail .q__head,
+  .chat--norail .deck__stage {
+    padding-left: 88px;
+  }
 }
 
 /* 搜索：轮播没有全局视野，靠它直达 */
@@ -5007,12 +5010,15 @@ body:has(.hud)::-webkit-scrollbar {
   /* 和 .deck 用同一个盒子：整块占满版心，左右内边距在盒内留出对齐轴，
      右边缘因此天然和轮播齐平。边框和格线都画在 .g 上，免得横跨到内边距里 */
   box-sizing: border-box;
+  width: 100%;
   max-width: var(--deck-max);
-  margin: 0 0 var(--s-4);
+  margin: 0 auto var(--s-4);
   padding: 0 var(--s-4) 0 var(--s-8);
 }
-.chat--norail .gauges {
-  padding-left: 88px;
+@media (max-width: 1575px) {
+  .chat--norail .gauges {
+    padding-left: 88px;
+  }
 }
 .g {
   padding: var(--s-3) var(--s-3) var(--s-2);
