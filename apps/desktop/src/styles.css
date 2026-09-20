@@ -3424,11 +3424,10 @@ body,
   grid-template-columns: auto 1fr;
   gap: var(--s-2);
   align-items: start;
-  padding: 6px var(--s-2) 6px 6px;
-  border-left: 2px solid transparent;
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: 6px var(--s-2) 6px 8px;
+  border-radius: var(--r-sm);
   cursor: default;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease);
 }
 .an:hover {
   background: var(--bg-3);
@@ -3439,7 +3438,6 @@ body,
 }
 .an[aria-current="true"] {
   background: var(--bg-4);
-  border-left-color: var(--live);
 }
 .an .dot {
   margin-top: 5px;
