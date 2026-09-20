@@ -130,6 +130,19 @@ export const tasks = new Hono()
     const t = updateTask(c.req.param("id"), { project: name ?? undefined });
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name }, risk: "reversible" });
+    // 项目是你亲手定的，定了就等于「这条交给 Friday 做」，不用再挂一次待审让你点第二遍。
+    // 已经在跑的别重开，已收工的别翻出来。
+    const job = t.source.jobId ? getJob(t.source.jobId) : undefined;
+    const idle = t.status !== "done" && t.status !== "ignored" && job?.status !== "running";
+    if (name && idle) {
+      const r = resolveProject(name);
+      if (r.kind === "match") {
+        const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
+        void startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`).catch((e: unknown) => {
+          console.log(`[task] ${t.id} 定完项目开工失败：${e instanceof Error ? e.message : String(e)}`);
+        });
+      }
+    }
     return c.json(t);
   })
   /**

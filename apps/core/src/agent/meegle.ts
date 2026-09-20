@@ -372,33 +372,9 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
     return;
   }
 
-  const dir = resolveProject(verdict.project);
-  if (dir.kind !== "match") {
-    console.log(`[meegle] ${item.id} 排队：项目 ${verdict.project} 定位不到目录`);
-    return;
-  }
-  updateTask(task.id, { project: dir.project.name });
-  const payload = { project: dir.project.name, dir: dir.project.dir, detail: verdict.detail, meegleId: item.id };
-
-  // 挂成待审动作等你点：工单同步进来就自动开一堆终端不是你要的。
-  // 「不再问你」指的是你点「交给 Friday 改」之后它别再确认，不是替你决定要不要做。
-  // 状态留在待办里：一条还没开工的工单不是「阻塞你的事」，不该进「待我决定」。
-  addPending(task.id, {
-    type: "start_job",
-    label: `开工：${dir.project.name}`,
-    detail: verdict.detail,
-    payload,
-  }, { keepStatus: true });
-  record({
-    taskId: task.id,
-    action: "intake_start_pending",
-    why: "工单定位到了项目，等你决定要不要开工",
-    how: `拟在 ${dir.project.name} 上开工：${verdict.why}`,
-    evidence: payload,
-    risk: "reversible",
-    status: "pending",
-  });
-  state.notices.push({ title: `有条工单可以开工 · ${dir.project.name}`, body: item.name.slice(0, 120) });
+  // 项目由你在任务卡上手动选，选完就直接开工（见 POST /tasks/:id/project）。
+  // 这里既不替你猜项目，也不挂「开工」待审——那等于让你为同一件事点两次。
+  console.log(`[meegle] ${item.id} 进待办，等你在卡上选项目：${verdict.why}`);
 }
 
 function toTodoLike(it: MeegleWorkItem) {

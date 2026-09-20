@@ -182,11 +182,9 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
   const [merging, setMerging] = useState<Task | null>(null);
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
-  // 能当基线的：同项目、未收工、不是自己。不要求已经有分支——你开工前就知道要
-  // 接着谁做；真开工时那条若还没分支，就退回从主干开。
-  const bases = all.filter(
-    (x) => x.id !== t.id && x.project && x.project === t.project && x.status !== "done" && x.status !== "ignored",
-  );
+  // 能并进来的：别的需求，不看项目也不看状态。
+  // 项目现在是手动指定的，多数需求还没定；而要合的那条也可能已经收工了。
+  const bases = all.filter((x) => x.id !== t.id && isStory(x));
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
