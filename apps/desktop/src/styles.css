@@ -62,6 +62,7 @@
   --live-solid: #17657d;
   --live-dim: rgba(95, 227, 255, 0.35);
   --live-glow: rgba(95, 227, 255, 0.16);
+  --live-0: rgba(95, 227, 255, 0);
   --ring: rgba(95, 227, 255, 0.45);
   --red: #ff6b4a;
   --green: #5fffc4;
@@ -2786,6 +2787,7 @@ body,
   --live-solid: #2f9f8b;
   --live-dim: rgba(127, 209, 192, 0.35);
   --live-glow: rgba(127, 209, 192, 0.16);
+  --live-0: rgba(127, 209, 192, 0);
   --ring: rgba(127, 209, 192, 0.16);
   --amber: #f2b635;
   --red: #ff9a86;
@@ -2811,6 +2813,7 @@ body,
   --live-solid: #1f9ec4;
   --live-dim: rgba(92, 201, 234, 0.35);
   --live-glow: rgba(92, 201, 234, 0.16);
+  --live-0: rgba(92, 201, 234, 0);
   --ring: rgba(92, 201, 234, 0.16);
   --amber: #ffc94a;
   --red: #ff9592;
@@ -2839,6 +2842,7 @@ body,
   --live-solid: #0b7a96;
   --live-dim: rgba(14, 143, 176, 0.3);
   --live-glow: rgba(14, 143, 176, 0.14);
+  --live-0: rgba(14, 143, 176, 0);
   --ring: rgba(14, 143, 176, 0.18);
   --amber: #d98b06;
   --red: #d64545;
@@ -3135,6 +3139,7 @@ body,
   display: none;
 }
 .deck__card {
+  position: relative;
   height: 100%;
   scroll-snap-align: center;
   /* 不写 always：一次滚太多格时强制停在每一张会很粘手 */
@@ -4931,6 +4936,7 @@ body:has(.hud)::-webkit-scrollbar {
   padding-left: var(--s-5);
   padding-right: var(--s-5);
 }
+/* 静态：顶边一道高光，标出这是一张卡 */
 .deck__card .fx::before {
   content: "";
   position: absolute;
@@ -4939,40 +4945,74 @@ body:has(.hud)::-webkit-scrollbar {
   top: -1px;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--live), transparent);
-  opacity: 0.55;
-  pointer-events: none;
-}
-/* 不在跑的卡片：顶部只留一道静态高光 */
-.deck__card .fx:not(.fx--live)::before {
   opacity: 0.18;
+  pointer-events: none;
+  z-index: 1;
 }
-/* 开着终端：整条线亮着、发光，一眼看出这条还没了结 */
+/* 开着终端：整条顶边亮起来，一眼看出这条还没了结 */
 .deck__card .fx--live::before {
   opacity: 1;
   background: linear-gradient(90deg, transparent, var(--live) 12%, var(--live) 88%, transparent);
   box-shadow: 0 0 10px rgba(95, 227, 255, 0.55);
 }
-/* 终端正在干活：一道白光在线上来回扫。它说完在等你时这条线是静止的——
-   动没动就是「它现在有没有在替我干活」这一个问题的答案 */
-.deck__card .fx--run::before {
-  background: linear-gradient(90deg, var(--live), var(--live) 34%, #fff 50%, var(--live) 66%, var(--live));
-  background-size: 55% 100%;
-  background-repeat: no-repeat;
-  background-color: rgba(95, 227, 255, 0.35);
+/*
+ * 终端正在干活：一道光绕着整个边框跑一圈。
+ * 做法是一个铺满卡片的 conic-gradient 在转，再用两层 mask 相减只留边框
+ * 那一圈——比给四条边各做一个动画省事，拐角也接得上。
+ */
+/*
+ * 挂在 .deck__card 上而不是 .fx：.fx 是 overflow-y:auto 的滚动容器，绝对定位的
+ * 伪元素会跟着内容滚走、负 inset 也会被裁掉。card 里除了 .fx 还有底部操作栏
+ * （.fx__foot 自带边框圆角，是独立一块），所以下边界收到操作栏上沿，
+ * 靠 --foot 这个变量传高度，没有操作栏时是 0。
+ */
+.deck__card:has(.fx--run)::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -1px;
+  /* --foot 由 Board 量出来写进来（操作栏高度 + 间距），没有操作栏时是 0 */
+  bottom: calc(var(--foot, 0px) - 1px);
+  border-radius: 2px;
+  padding: 2px;
+  /* 用 --live-0（同色零透明）而不是 transparent：transparent 是 rgba(0,0,0,0)，
+     跟青色插值会经过一段发灰的中间色，光带看着脏 */
+  background: conic-gradient(
+    from var(--ang),
+    var(--live-0) 0deg,
+    var(--live-0) 200deg,
+    var(--live) 300deg,
+    #eafbff 340deg,
+    var(--live) 350deg,
+    var(--live-0) 360deg
+  );
+  filter: drop-shadow(0 0 6px var(--live));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+@property --ang {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .deck__card .fx--run::before {
-    animation: hud-scan 2.4s linear infinite;
+  .deck__card:has(.fx--run)::after {
+    animation: hud-orbit 3.2s linear infinite;
   }
-  @keyframes hud-scan {
-    from { background-position: -55% 0; }
-    to { background-position: 155% 0; }
+  @keyframes hud-orbit {
+    to { --ang: 360deg; }
   }
 }
-/* 关了动效：在跑的那条更亮更实，靠亮度而不是运动来区分 */
+/* 关了动效：整圈边框常亮，靠亮度而不是运动表示在跑 */
 @media (prefers-reduced-motion: reduce) {
-  .deck__card .fx--run::before {
-    background: #fff;
+  .deck__card:has(.fx--run)::after {
+    background: var(--live);
+    opacity: 0.7;
   }
 }
 

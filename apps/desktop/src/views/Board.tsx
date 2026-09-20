@@ -1101,6 +1101,19 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     return () => window.removeEventListener("keydown", onKey);
   }, [t.id, t.updatedAt, primary?.label, confirming]);
 
+  // 绕框那道光贴着卡片主体走，下边界要避开底部操作栏——它高度会变（后果提示、
+  // 按钮换行），量出来写进 --foot 给 CSS 用
+  const footRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const foot = footRef.current;
+    const card = foot?.closest(".deck__card") as HTMLElement | null;
+    if (!card) return;
+    if (!foot) { card.style.removeProperty("--foot"); return; }
+    const ro = new ResizeObserver(() => card.style.setProperty("--foot", `${foot.offsetHeight + 8}px`));
+    ro.observe(foot);
+    return () => { ro.disconnect(); card.style.removeProperty("--foot"); };
+  }, [open]);
+
   return (
     <>
     <article className={`fx ${live ? "fx--live" : ""} ${running ? "fx--run" : ""}`} ref={ref as React.Ref<HTMLDivElement>}>
@@ -1369,7 +1382,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       )}
 
       {open && (
-        <div className="fx__foot">
+        <div className="fx__foot" ref={footRef}>
           {first && consequence(first, thread) && (
             <div className="fx__consequence">
               <Icon name="alert" />
