@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addPending, createTask, findTaskBySource, listTasks, takePending, taskBoard, updateTask } from "./tasks.js";
+import { addPending, clearTombstone, createTask, deleteTask, findTaskBySource, isTombstoned, listTasks, restoreTask, takePending, taskBoard, updateTask } from "./tasks.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
@@ -34,5 +34,32 @@ describe("账本", () => {
     const ro = record({ action: "meegle_lookup", why: "做功课", how: "meegle workitem get", risk: "read" });
     expect(ro.reversible).toBe(false);
     expect(listAudit({ limit: 5 }).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("删掉的任务不会被同步重新建出来", () => {
+  it("删 Meegle 任务立墓碑，撤销时移走", () => {
+    const t = createTask({ title: "工单", kind: "meegle", source: { meegleId: "M-1" } });
+    expect(isTombstoned({ meegleId: "M-1" })).toBe(false);
+
+    const row = deleteTask(t.id)!;
+    expect(isTombstoned({ meegleId: "M-1" })).toBe(true);
+
+    restoreTask(row);
+    expect(isTombstoned({ meegleId: "M-1" })).toBe(false);
+  });
+
+  it("Slack 线程同理，按 threadId 立碑", () => {
+    const t = createTask({ title: "线程", kind: "slack", source: { threadId: "th-1" } });
+    deleteTask(t.id);
+    expect(isTombstoned({ threadId: "th-1" })).toBe(true);
+    clearTombstone({ threadId: "th-1" });
+    expect(isTombstoned({ threadId: "th-1" })).toBe(false);
+  });
+
+  it("没有同步来源的任务（口头交代）不立碑", () => {
+    const t = createTask({ title: "口头", kind: "verbal", source: {} });
+    deleteTask(t.id);
+    expect(isTombstoned({})).toBe(false);
   });
 });

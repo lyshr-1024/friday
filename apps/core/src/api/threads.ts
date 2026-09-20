@@ -5,6 +5,7 @@ import { enrichThread } from "../agent/enrich.js";
 import { applyReversibleWrites } from "../agent/autowrite.js";
 import { threadToTask } from "../agent/pipeline.js";
 import { getThread, listThreads, setThreadBrief, setThreadStatus } from "../memory/threads.js";
+import { clearTombstone } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 
 export const threads = new Hono()
@@ -20,6 +21,8 @@ export const threads = new Hono()
   .post("/threads/:id/refresh", async (c) => {
     const t = getThread(c.req.param("id"));
     if (!t) return c.json({ error: "线程不存在" }, 404);
+    // 你亲手点的「重做功课」，意图明确：撤掉墓碑，让它重新建得出来
+    clearTombstone({ threadId: t.id });
     const enrichment = await enrichThread(t);
     const brief = await buildBrief(t, enrichment);
     if (!brief) return c.json({ error: "情境卡生成失败" }, 502);

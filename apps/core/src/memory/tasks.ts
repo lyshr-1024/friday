@@ -123,18 +123,48 @@ export function updateTask(
 export type TaskRow = Record<string, string | number | null>;
 
 /** 整行删掉。撤销要能原样长回来，所以先把整行交出去当快照存进账本。 */
+/**
+ * 这条任务是从哪儿同步来的。连接器靠它认领已有任务，删掉后也靠它立墓碑——
+ * 不然「已删除」和「从没同步过」在库里长得一样，下次同步会把它重新建出来。
+ */
+function sourceKey(source: TaskSource): string | undefined {
+  if (source.meegleId) return `meegle:${source.meegleId}`;
+  if (source.threadId) return `thread:${source.threadId}`;
+  return undefined;
+}
+
+/** 撤掉墓碑，让这个来源重新建得出任务（撤销删除、或你手动要求重做时）。 */
+export function clearTombstone(source: TaskSource): void {
+  const key = sourceKey(source);
+  if (key) db().prepare("DELETE FROM task_tombstones WHERE key = ?").run(key);
+}
+
+/** 这个来源的任务是不是被你删过。连接器建任务前先问一句。 */
+export function isTombstoned(source: TaskSource): boolean {
+  const key = sourceKey(source);
+  if (!key) return false;
+  return Boolean(db().prepare("SELECT 1 FROM task_tombstones WHERE key = ?").get(key));
+}
+
 export function deleteTask(id: string): TaskRow | undefined {
   const r = db().prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
   if (!r) return undefined;
+  const key = sourceKey(JSON.parse(String(r.source)) as TaskSource);
+  if (key) {
+    db()
+      .prepare("INSERT OR REPLACE INTO task_tombstones (key, task_id, title, ts) VALUES (?, ?, ?, ?)")
+      .run(key, id, String(r.title), now());
+  }
   db().prepare("DELETE FROM tasks WHERE id = ?").run(id);
   publish({ type: "tasks" });
   return r;
 }
 
-/** 按 deleteTask 交出的快照把行放回去。 */
+/** 按 deleteTask 交出的快照把行放回去，同时移走墓碑，让同步重新认领它。 */
 export function restoreTask(row: TaskRow): boolean {
   const cols = Object.keys(row);
   if (!cols.length) return false;
+  clearTombstone(JSON.parse(String(row.source)) as TaskSource);
   db()
     .prepare(`INSERT OR REPLACE INTO tasks (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`)
     .run(...cols.map((c) => row[c] as never));

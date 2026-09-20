@@ -4,7 +4,7 @@ import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
 import { judgeIntake } from "./intake.js";
 import { startAutonomousJob } from "./pipeline.js";
-import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, isTombstoned, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
 
@@ -265,6 +265,8 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     for (const item of items) {
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id, true);
+      // 你删过这条：别再建回来
+      if (!existing && isTombstoned({ meegleId: item.id })) continue;
       if (!existing) {
         const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });

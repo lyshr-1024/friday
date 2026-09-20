@@ -8,6 +8,7 @@ import { syncMeegleOnce } from "../agent/meegle.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
+import { isTombstoned } from "../memory/tasks.js";
 import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
 import { fetchLastRead, fetchSlack, isRead, loadSlackCreds, postMessage, repliedSince, slackCaller, type SlackCreds } from "../connectors/slack.js";
 import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage, sweepRepliedInbox } from "../memory/inbox.js";
@@ -111,6 +112,8 @@ export async function syncSlackOnce(): Promise<number> {
       await mapLimit([...touched], 3, async (id) => {
         const thread = getThread(id, true);
         if (!thread) return;
+        // 这条线程的任务被你删过：别再做功课、别再建回来（做功课还要花模型钱）
+        if (isTombstoned({ threadId: id })) return;
         try {
           const enrichment = await enrichThread(thread);
           const brief = await buildBrief(thread, enrichment);
