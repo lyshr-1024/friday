@@ -502,6 +502,12 @@ export async function taskSetBase(id: string, baseTaskId: string | null): Promis
   return res.json();
 }
 
+export async function taskStart(id: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function taskRetry(id: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);

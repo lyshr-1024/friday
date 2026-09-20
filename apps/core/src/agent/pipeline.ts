@@ -148,6 +148,28 @@ export async function handOffToStory(task: Task, detail: string): Promise<boolea
   return true;
 }
 
+/**
+ * 我自己做：开一个交互式终端到项目目录，把这条任务的上下文交代给 Claude Code，然后就交给我了。
+ * 和自主开工的区别只有一处——没有自主提示词、没有 guard、没有自动收尾：
+ * 分支、要不要测、什么时候算完，都是我在终端里说了算，Friday 只负责开窗口和跟状态。
+ * 也不开 worktree：自己做就在主仓里做，平时怎么干现在还怎么干。
+ */
+export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
+  const id = randomUUID();
+  const { ghosttyId } = await launchClaude({ id, dir, terminal: userSettings().terminal, task: detail });
+  createJob({ id, project, dir, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
+  if (ghosttyId) setGhosttyId(id, ghosttyId);
+  record({
+    taskId: task.id,
+    action: "terminal_opened",
+    why: "你点了「开始做」，这条需求自己动手",
+    how: `在 ${dir} 开了一个交互式终端，把需求交代给 Claude Code`,
+    evidence: { jobId: id, project, dir },
+    risk: "reversible",
+  });
+  return updateTask(task.id, { status: "processing", source: { jobId: id, autonomous: false, repoDir: dir } })!;
+}
+
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
   // 归在某个需求下、而那个需求已经有终端在跑：交给它，不要另起一个改同一片代码

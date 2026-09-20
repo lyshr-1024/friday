@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -983,8 +983,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     ? { label: `开工：${String(startJob.payload.project ?? "")}`.trim(), run: () => taskApprove(t.id, startJob.id) }
     : isIssue(t) && trs[0]
     ? { label: trs[0].label, run: () => taskTransition(t.id, trs[0]!) }
-    : isStory(t) && t.project
-    ? { label: "交给 Friday 改", run: () => taskRetry(t.id) }
+    : isStory(t) && t.project && !t.source.jobId
+    ? { label: "开始做", run: () => taskStart(t.id) }
     : first
     ? isMessage
       ? {
@@ -1299,6 +1299,13 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
             {(!primary || first) && (
               <button className="b b--ghost" title={first ? "任务标记完成，待审的动作作废，不会发出去" : undefined} onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>
                 {first ? (isMessage ? "完成，不发" : "完成，不执行") : "标记完成"}
+              </button>
+            )}
+            {/* 全权代理是重的一档：开 worktree、无人值守、跑完自己进 review。
+                日常是「开始做」自己动手，所以这条摆在次按钮里 */}
+            {isStory(t) && t.project && !t.source.jobId && (
+              <button className="b b--ghost" title="Friday 独立在 worktree 里改完再交你验收，中途不问你" onClick={() => void onAct(t, () => taskRetry(t.id))}>
+                交给 Friday 改
               </button>
             )}
             {isIssue(t) && (startJob ? trs : trs.slice(1)).map((tr) => (

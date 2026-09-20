@@ -6,7 +6,7 @@ import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { reviewOnce } from "../agent/lessons.js";
-import { executePending, finishTask, startAutonomousJob } from "../agent/pipeline.js";
+import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
@@ -207,6 +207,25 @@ export const tasks = new Hono()
     const next = updateTask(t.id, { source: { baseTaskId: base ?? undefined } });
     record({ taskId: t.id, action: base ? "base_set" : "base_cleared", why: "二期要在一期分支上接着开", how: base ? `基线改成任务 ${base}` : "解除基线", evidence: { baseTaskId: base }, risk: "reversible" });
     return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
+  })
+  // 我自己做：开个交互式终端，把需求交代进去。状态归 Friday 管，活儿归我干。
+  .post("/tasks/:id/start", async (c) => {
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    if (!t.project) return c.json({ error: "任务没有关联项目，先选个项目" }, 400);
+    const r = resolveProject(t.project);
+    if (r.kind !== "match") return c.json({ error: `找不到项目 ${t.project}` }, 400);
+    const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
+    if (running?.status === "running") return c.json({ error: "这条任务已经有终端在跑了" }, 409);
+    const docs = Object.values(t.source.docs ?? {}).filter(Boolean);
+    const detail = [
+      `我要开始做这条需求：${t.title}`,
+      t.source.url ? `工单：${t.source.url}` : "",
+      docs.length ? `文档：${docs.join(" ")}` : "",
+      "",
+      "先把需求和相关代码读一遍，跟我说你打算怎么改，别急着动手。",
+    ].filter(Boolean).join("\n");
+    return c.json(await startInteractiveJob(t, r.project.name, r.project.dir, detail));
   })
   .post("/tasks/:id/retry", async (c) => {
     const t = getTask(c.req.param("id"));
