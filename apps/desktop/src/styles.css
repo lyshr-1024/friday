@@ -3696,6 +3696,23 @@ body,
   background: var(--bg-3);
   box-shadow: var(--shadow-pop);
 }
+/* 确认框比编辑框窄：只有一句话和两个按钮 */
+.modal__box--ask {
+  width: min(400px, 100%);
+  gap: var(--s-3);
+}
+.modal__title {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--fg-1);
+  overflow-wrap: anywhere;
+}
+.modal__note {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--t-aux);
+  line-height: var(--lh-body);
+}
 .modal__row {
   display: flex;
   flex-direction: column;

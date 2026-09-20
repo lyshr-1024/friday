@@ -460,6 +460,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
 
   const [menu, setMenu] = useState<{ t: Task; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
+  const [deleting, setDeleting] = useState<Task | null>(null);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -553,13 +554,20 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   useEffect(() => {
     onFocusChange?.(focus ?? null);
   }, [focus?.id]);
+  // 自己发起的滚动期间不让观察者接管：平滑滚动会经过中间那些卡，
+  // 观察者一接管就把选中改成途经的那张，滚动被半路劫持，跳不到点的那条
+  const settlingRef = useRef(0);
   // 选中变了 → 把那张卡滚进视野，右侧锚点跟着走
   useEffect(() => {
     if (!focus) return;
-    deckRef.current?.querySelector(`[data-id="${focus.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const card = deckRef.current?.querySelector(`[data-id="${focus.id}"]`);
+    if (card) {
+      settlingRef.current = Date.now();
+      card.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    }
     document.querySelector('.an[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
   }, [focus?.id]);
-  // 滚到哪张就选哪张。只在真的滚过之后才接管，否则首帧会把默认选中顶掉。
+  // 滚到哪张就选哪张。只在用户真的自己滚过之后才接管，否则首帧会把默认选中顶掉。
   useEffect(() => {
     const root = deckRef.current;
     if (!root || flat.length < 2) return;
@@ -569,6 +577,8 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
     const io = new IntersectionObserver(
       (es) => {
         if (!scrolled) return;
+        // 平滑滚动最多几百毫秒，这期间的经过不算用户在翻页
+        if (Date.now() - settlingRef.current < 700) return;
         const best = es.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         const id = (best?.target as HTMLElement | undefined)?.dataset.id;
         if (id) setSelectedId(id);
@@ -707,19 +717,27 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
           )}
         </div>
       )}
-      {menu && <TaskMenu t={menu.t} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} onAct={act} onEdit={setEditing} />}
+      {menu && <TaskMenu t={menu.t} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} onAct={act} onEdit={setEditing} onDelete={setDeleting} />}
       {editing && <TaskEditor t={editing} onClose={() => setEditing(null)} onSaved={(fn) => void act(editing, fn)} />}
+      {deleting && (
+        <DeleteConfirm
+          t={deleting}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => { const t = deleting; setDeleting(null); void act(t, () => taskDelete(t.id)); }}
+        />
+      )}
     </>
   );
 }
 
 /** 任务右键菜单。关注 / 完成 / 忽略复用现有动作，编辑和删除走新接口。 */
-function TaskMenu({ t, at, onClose, onAct, onEdit }: {
+function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
   t: Task;
   at: { x: number; y: number };
   onClose: () => void;
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
   onEdit: (t: Task) => void;
+  onDelete: (t: Task) => void;
 }) {
   const closed = t.status === "done" || t.status === "ignored";
   const run = (fn: () => Promise<unknown>) => { onClose(); void onAct(t, fn); };
@@ -732,10 +750,26 @@ function TaskMenu({ t, at, onClose, onAct, onEdit }: {
       <button
         role="menuitem"
         className="ctx__danger"
-        onClick={() => { onClose(); if (confirm(`删除「${t.title}」？\n\n可以在操作记录里撤销。`)) void onAct(t, () => taskDelete(t.id)); }}
+        onClick={() => { onClose(); onDelete(t); }}
       >
         删除任务…
       </button>
+    </div>
+  );
+}
+
+/** 删除确认。WebView 里 window.confirm 不弹，只能自己画。 */
+function DeleteConfirm({ t, onClose, onConfirm }: { t: Task; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <div className="modal" onMouseDown={onClose}>
+      <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="删除任务">
+        <strong className="modal__title">删除「{t.title}」？</strong>
+        <p className="modal__note">还开着的终端会一起关掉。可以在操作记录里撤销。</p>
+        <div className="modal__foot">
+          <button className="b b--primary" autoFocus onClick={onConfirm}>删除</button>
+          <button className="b b--text" onClick={onClose}>取消</button>
+        </div>
+      </div>
     </div>
   );
 }
