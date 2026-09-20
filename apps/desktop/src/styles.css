@@ -3304,8 +3304,6 @@ body,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* .fx__meta 用负边距出血到卡片边缘，会比内容盒宽出滚动条那几 px */
-  overflow-x: hidden;
   scrollbar-width: none;
   margin-bottom: 0;
   padding-top: 0;
@@ -3313,9 +3311,13 @@ body,
 .deck__card .fx::-webkit-scrollbar {
   display: none;
 }
+/* 卡片在滚动容器里，meta 再按 -s-6 出血就会比内容盒宽出滚动条那几 px，
+   撑出横向滚动并把最右边的「关注」挤出可视区。底色跟 .fx 一样，不出血看不出差别 */
 .deck__card .fx__meta {
   margin-top: 0;
-  padding-top: var(--s-2);
+  margin-left: 0;
+  margin-right: 0;
+  padding: var(--s-2) 0;
 }
 .deck__card .fx__foot {
   margin-top: var(--s-2);
