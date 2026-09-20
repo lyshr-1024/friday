@@ -477,7 +477,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   }
 
   const tasks = (board?.tasks ?? []).map((t) => (t.source.jobId && termStates.has(t.source.jobId) && t.status === "processing" ? { ...t, terminal: termStates.get(t.source.jobId) } : t));
-  const active = (t: Task) => t.terminal === "busy" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
+  const active = (t: Task) => (t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone") || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
   // 星标的单独一组放最顶上，其余分组里不再出现
   const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
