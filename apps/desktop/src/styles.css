@@ -2116,29 +2116,6 @@ body,
 .fx__acts .fx__spacer {
   flex: 1;
 }
-.fx__reject {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-.fx__reject input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
-  padding: 0 var(--s-3);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-  background: var(--bg-1);
-  color: var(--fg-1);
-  font: inherit;
-  font-size: var(--t-sm);
-  outline: none;
-}
-.fx__reject input:focus {
-  border-color: var(--line-3);
-  box-shadow: 0 0 0 3px var(--ring);
-}
 
 .fx__links {
   list-style: none;

@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 
@@ -817,8 +817,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   closable: boolean;
   ref?: React.Ref<HTMLElement>;
 }) {
-  const [rejecting, setRejecting] = useState(false);
-  const [reason, setReason] = useState("");
   // 给别人发消息前先给用户看要发什么、可以改，确认才发
   const [confirming, setConfirming] = useState(false);
   const [sendText, setSendText] = useState("");
@@ -840,8 +838,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     return () => { stop = true; window.clearInterval(timer); };
   }, [t.source.jobId, t.status]);
   useEffect(() => {
-    setRejecting(false);
-    setReason("");
     setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
@@ -1260,7 +1256,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                 </button>
               )
             )}
-            <button className="b b--ghost" onClick={() => setRejecting((v) => !v)}>打回…</button>
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
             {isStory(t) && node && !node.canConfirm && <span className="fx__miss">还差：{node.missing.join("、")}</span>}
           </div>
@@ -1286,12 +1281,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                 <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
               </div>
             </div>
-          )}
-          {rejecting && (
-            <form className="fx__reject" onSubmit={(e) => { e.preventDefault(); void onAct(t, () => taskReject(t.id, reason || undefined)); }}>
-              <input autoFocus placeholder="哪里不对？一句话，Friday 会按这个改" value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setRejecting(false); }} />
-              <button className="b b--ghost" type="submit">打回给 Friday</button>
-            </form>
           )}
         </div>
       )}

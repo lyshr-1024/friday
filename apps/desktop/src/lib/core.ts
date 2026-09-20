@@ -473,11 +473,6 @@ export async function taskVerify(id: string, index: number, checked: boolean): P
   return res.json();
 }
 
-export async function taskReject(id: string, reason?: string): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
-  if (!res.ok) throw new Error(`reject ${res.status}`);
-  return res.json();
-}
 
 export async function taskRetry(id: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
