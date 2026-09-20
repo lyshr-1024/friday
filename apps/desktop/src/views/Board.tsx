@@ -179,6 +179,10 @@ function IssueBody({ t }: { t: Task }) {
 function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
+  // 合并进来的需求各自带着文档：一期二期的资料都要在这儿点得到
+  const mergedDocs = (t.source.merged ?? [])
+    .map((m) => ({ ...m, docs: m.docs ?? {}, links: DOC_LABELS.filter(([k]) => m.docs?.[k]) }))
+    .filter((m) => m.links.length > 0);
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
   const [merging, setMerging] = useState<Task | null>(null);
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
@@ -212,8 +216,17 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
               options={bases.map((x) => ({ value: x.id, label: x.title.slice(0, 34), ...(x.source.meegleId ? { hint: `#${x.source.meegleId}` } : {}) }))}
               onPick={(v) => { const from = bases.find((x) => x.id === v); if (from) setMerging(from); }}
             />
-            {(t.source.mergedMeegleIds ?? []).length > 0 && (
-              <span className="fx__meta-dim">已并入 {(t.source.mergedMeegleIds ?? []).map((x) => `#${x}`).join("、")}</span>
+            {(t.source.merged ?? []).length > 0 && (
+              <span className="fx__merged">
+                已并入
+                {(t.source.merged ?? []).map((m) =>
+                  m.url ? (
+                    <OpenLink key={m.meegleId} href={m.url}>#{m.meegleId} {m.title.slice(0, 22)}</OpenLink>
+                  ) : (
+                    <span key={m.meegleId}>#{m.meegleId} {m.title.slice(0, 22)}</span>
+                  ),
+                )}
+              </span>
             )}
           </div>
         </div>
@@ -236,10 +249,19 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
           </div>
         </div>
       )}
-      {links.length > 0 && (
+      {(links.length > 0 || mergedDocs.length > 0) && (
         <div>
           <span className="k">DOCS</span>
-          <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
+          {links.length > 0 && (
+            <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
+          )}
+          {/* 并进来那些需求的文档也要点得到，标明是谁的 */}
+          {mergedDocs.map((m) => (
+            <div key={m.meegleId} className="fx__docs fx__docs--merged">
+              <span className="fx__meta-dim">#{m.meegleId} {m.title.slice(0, 16)}</span>
+              {m.links.map(([k, label]) => <OpenLink key={k} href={m.docs[k]!}>{label} ↗</OpenLink>)}
+            </div>
+          ))}
         </div>
       )}
     </>

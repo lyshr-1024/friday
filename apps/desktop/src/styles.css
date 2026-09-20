@@ -4085,6 +4085,29 @@ a.fx__source-where:hover {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
+/* 并进来那条需求的文档：缩一档，前面标明是谁的 */
+.fx__docs--merged {
+  margin-top: var(--s-2);
+  font-size: var(--t-aux);
+}
+
+/* 已并入的需求：名字 + 链接，点得开 */
+.fx__merged {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  color: var(--fg-4);
+  font-size: var(--t-aux);
+}
+.fx__merged .link,
+.fx__merged > span {
+  color: var(--fg-3);
+}
+.fx__merged .link:hover {
+  color: var(--fg-1);
+}
+
 /* 自绘下拉：原生 select 的弹出层由系统画，在深色 HUD 里是一块白底 */
 .pick {
   position: relative;

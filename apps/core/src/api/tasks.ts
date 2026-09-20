@@ -166,7 +166,20 @@ export const tasks = new Hono()
     const understanding = [into.understanding, `—— 并入 #${from.source.meegleId ?? from.id}「${from.title}」——`, from.understanding]
       .filter(Boolean)
       .join("\n\n");
-    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids } })!;
+    // 名字和链接一起存下来：被合掉那条马上就删了，只留号码的话卡片上没法显示也点不开
+    const merged = [
+      ...(into.source.merged ?? []),
+      ...(from.source.meegleId
+        ? [{
+            meegleId: from.source.meegleId,
+            title: from.title,
+            ...(from.source.url ? { url: from.source.url } : {}),
+            ...(from.source.docs ? { docs: from.source.docs } : {}),
+          }]
+        : []),
+      ...(from.source.merged ?? []),
+    ].filter((m, i, a) => a.findIndex((x) => x.meegleId === m.meegleId) === i);
+    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids, merged } })!;
     const row = deleteTask(from.id);
     record({
       taskId: into.id,
@@ -333,7 +346,12 @@ export const tasks = new Hono()
         const back = String((ev.evidence as { fromMeegleId?: string }).fromMeegleId ?? "");
         const into = getTask(ev.taskId);
         if (into && back) {
-          updateTask(into.id, { source: { mergedMeegleIds: (into.source.mergedMeegleIds ?? []).filter((x) => x !== back) } });
+          updateTask(into.id, {
+            source: {
+              mergedMeegleIds: (into.source.mergedMeegleIds ?? []).filter((x) => x !== back),
+              merged: (into.source.merged ?? []).filter((m) => m.meegleId !== back),
+            },
+          });
         }
       }
       setEventStatus(c.req.param("id"), "undone");
