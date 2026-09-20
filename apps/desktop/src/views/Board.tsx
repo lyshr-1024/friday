@@ -505,7 +505,6 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
-  const done = rest.filter((t) => t.status === "done" && !nested(t)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const queueCounts = Object.fromEntries(QUEUE_GROUPS.map((c) => [c, queuedBy(c).length])) as Record<TaskCategory, number>;
   const queueKey = QUEUE_GROUPS.map((c) => queueCounts[c]).join(",");
   useEffect(() => {
@@ -521,7 +520,6 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
             { label: "关注", items: pinned.filter((t) => !DECIDE.includes(t.status)) },
             { label: "Friday 在做", items: doing },
             { label: "待办", items: queued },
-            { label: "最近完成", items: done },
           ];
     const k = q.trim().toLowerCase();
     const hit = (t: Task) =>
@@ -530,7 +528,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(k));
     return raw.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length);
-  }, [tasks, decide, pinned, doing, queued, done, view, q]);
+  }, [tasks, decide, pinned, doing, queued, view, q]);
   const flat = useMemo(() => anchorGroups.flatMap((g) => g.items), [anchorGroups]);
   // 处理完一条自动跳到相邻那条，顺序就是轮播的顺序
   orderRef.current = flat.map((t) => t.id);

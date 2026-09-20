@@ -116,14 +116,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_status ON tasks (status, updated_at);
 
--- 被你删掉的任务留一块墓碑。任务是整行删的，不留痕迹的话连接器下次同步
--- 分不清「已删除」和「从没同步过」，会把它重新建出来。
-CREATE TABLE IF NOT EXISTS task_tombstones (
-  key TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  ts TEXT NOT NULL
-);
 
 CREATE TABLE IF NOT EXISTS audit (
   id TEXT PRIMARY KEY,
