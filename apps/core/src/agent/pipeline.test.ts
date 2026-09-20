@@ -60,9 +60,9 @@ describe("同一线程不重复建任务", () => {
   it("上一条任务已收工，同线程再来消息时复用它而不是新建第二条", async () => {
     const thread = mkRealThread("th-reuse");
     const brief = { situation: "问进度", needs: "回一句", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
-    const first = await threadToTask(thread, brief);
+    const first = (await threadToTask(thread, brief, undefined, { create: true }))!;
     updateTask(first.id, { status: "done" });
-    const again = await threadToTask(thread, { ...brief, situation: "又催了一遍" });
+    const again = (await threadToTask(thread, { ...brief, situation: "又催了一遍" }))!;
     expect(again.id).toBe(first.id);
     expect(listTasks().filter((t) => t.source.threadId === thread.id)).toHaveLength(1);
     expect(again.status).toBe("understood");
@@ -90,13 +90,13 @@ describe("收工 + 新消息的完整链路", () => {
     const [first] = addInboxItems([{ ...G, id: "C9:1", ts: "1760000100", text: "验收问题改一波" }]);
     const t1 = attachToThread(first!, 1760000101000);
     const brief = { situation: "催验收", needs: "改一波", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
-    const task1 = await threadToTask(getThread(t1)!, brief);
+    const task1 = (await threadToTask(getThread(t1)!, brief, undefined, { create: true }))!;
     closeTaskThread(updateTask(task1.id, { status: "done" })!);
 
     const [next] = addInboxItems([{ ...G, id: "C9:2", ts: "1760000200", text: "另外发布也安排下" }]);
     const t2 = attachToThread(next!, 1760000201000);
     expect(t2).not.toBe(t1);
-    const task2 = await threadToTask(getThread(t2, true)!, { ...brief, situation: "催发布" });
+    const task2 = (await threadToTask(getThread(t2, true)!, { ...brief, situation: "催发布" }, undefined, { create: true }))!;
     expect(task2.id).not.toBe(task1.id);
     expect(task2.status).toBe("understood");
     // 新任务的功课里不该再出现上一轮已经收工的那条消息
@@ -128,7 +128,7 @@ describe("Slack 线程要自己开工改代码时的闸门", () => {
 
   it("Slack 线程不再自动开工，也不再挂开工提案——改代码由你在会话里说", async () => {
     mkProject();
-    const task = await threadToTask(mkRealThread("th-code"), mkCodeBrief(100), "demo-proj");
+    const task = (await threadToTask(mkRealThread("th-code"), mkCodeBrief(100), "demo-proj", { create: true }))!;
     expect(task.source.jobId).toBeUndefined();
     expect((task.pending ?? []).map((p) => p.type)).not.toContain("start_job");
   });
@@ -157,5 +157,27 @@ describe("reportBackToOrigin", () => {
   it("没有来源就什么都不做", () => {
     const done = createTask({ title: "孤立的活", kind: "code", source: {}, status: "review" });
     expect(() => reportBackToOrigin(done)).not.toThrow();
+  });
+});
+
+describe("Slack 不主动建任务", () => {
+  it("没传 create 时不建，情境卡照写但任务板上不出现", async () => {
+    const thread = mkRealThread("th-nocreate");
+    const brief = { situation: "问进度", needs: "回一句", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
+    const task = await threadToTask(thread, brief);
+    expect(task).toBeUndefined();
+    expect(listTasks().filter((t) => t.source.threadId === thread.id)).toHaveLength(0);
+  });
+
+  it("已经存在的任务仍然跟着更新，收工后又催照样拉回队列", async () => {
+    const thread = mkRealThread("th-existing");
+    const brief = { situation: "问进度", needs: "回一句", needsReply: false, urgency: "normal" as const, actions: [], context: [], confidence: 50, confidenceReason: "" };
+    const made = (await threadToTask(thread, brief, undefined, { create: true }))!;
+    updateTask(made.id, { status: "done" });
+
+    // 这次不传 create：不新建，但原任务要被拉回来
+    const again = await threadToTask(thread, { ...brief, situation: "又催了一遍" });
+    expect(again?.id).toBe(made.id);
+    expect(again?.status).toBe("understood");
   });
 });

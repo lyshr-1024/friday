@@ -26,8 +26,9 @@ export const threads = new Hono()
     const enrichment = await enrichThread(t);
     const brief = await buildBrief(t, enrichment);
     if (!brief) return c.json({ error: "情境卡生成失败" }, 502);
-    const task = await threadToTask(t, brief, enrichment.project?.name);
-    const writes = applyReversibleWrites(t, brief, task.id);
+    // 你亲手点的「重做功课」：这时才建任务
+    const task = await threadToTask(t, brief, enrichment.project?.name, { create: true });
+    const writes = applyReversibleWrites(t, brief, task?.id);
     setThreadBrief(t.id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
     return c.json(getThread(t.id));
   })

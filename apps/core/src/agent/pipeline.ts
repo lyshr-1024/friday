@@ -68,14 +68,22 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   return t;
 }
 
-export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps = {}): Promise<Task> {
+/**
+ * 线程 → 任务。**Slack 不主动建任务**（2026-09-20 用户要求）：情境卡照写、通知照发，
+ * 但要不要变成任务板上的一条由你定——自动建出来的那批大多是当时的临时消息，
+ * 过两天就是噪音。已经存在的任务仍然跟着更新，收工后对方又催照样拉回队列。
+ *
+ * `create: true` 是你亲手要求的（线程「处理」按钮、手动重做功课），那时才建。
+ */
+export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps & { create?: boolean } = {}): Promise<Task | undefined> {
   // 含已收工的：同一条线程只能有一条任务。上一轮标了完成之后对方又催一句时，
   // 只找未完成的会找不到它、再建一条，同一件事就在板上出现两遍。
   let task = findTaskBySource((s) => s.threadId === thread.id, true);
   const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
+  if (!task && !deps.create) return undefined;
   if (!task) {
     task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, status: "understood" });
-    record({ taskId: task.id, action: "task_create", why: "Slack 线程做完功课", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
+    record({ taskId: task.id, action: "task_create", why: "你让 Friday 处理这条 Slack 线程", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
   } else {
     // 收工过的线程又有新消息 = 这件事没完，拉回队列；用户手动忽略的不翻回来。
     const revive = task.status === "done";

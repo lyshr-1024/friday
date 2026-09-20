@@ -118,13 +118,14 @@ export async function syncSlackOnce(): Promise<number> {
           const enrichment = await enrichThread(thread);
           const brief = await buildBrief(thread, enrichment);
           if (!brief) return;
+          // 不传 create：自动同步不建任务，只更新已经存在的那条
           const task = await threadToTask(getThread(id, true)!, brief, enrichment.project?.name, {
             slackPost: (channel, text, threadTs) => postMessage(call, channel, text, threadTs),
           });
-          const writes = applyReversibleWrites(thread, brief, task.id);
+          const writes = applyReversibleWrites(thread, brief, task?.id);
           setThreadBrief(id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
           // Friday 已经自动回过（任务已 done）就不用再推「等你回」的通知，用户点开只会看到一件已经处理完的事。
-          if (brief.needsReply && task.status !== "done") needReply.push(`${thread.userName}：${brief.situation}`);
+          if (brief.needsReply && task?.status !== "done") needReply.push(`${thread.userName}：${brief.situation}`);
         } catch (e) {
           console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
         }
