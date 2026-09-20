@@ -184,6 +184,9 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
     .filter((m) => m.links.length > 0);
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
   const [merging, setMerging] = useState<Task | null>(null);
+  // to 用 null 表示「改成没定」，所以开合得另拿一个字段，不能靠 null 兼职
+  const [switching, setSwitching] = useState<{ to: string | null } | null>(null);
+  const hasTerm = Boolean(t.source.jobId) && t.terminal !== "gone" && t.status === "processing";
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能并进来的：别的需求，不看项目也不看状态。
   // 项目现在是手动指定的，多数需求还没定；而要合的那条也可能已经收工了。
@@ -199,10 +202,13 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
             placeholder="没定（选了才能开工）"
             value={t.project ?? ""}
             options={[{ value: "", label: "没定" }, ...projects.map((p) => ({ value: p.name, label: p.name, hint: p.dir.replace(/^\/Users\/[^/]+/, "~") }))]}
-            onPick={(v) => void onAct(t, () => taskSetProject(t.id, v || null))}
+            onPick={(v) => {
+              // 终端还开着就先问一句：关掉它意味着里面没提交的改动要自己去收
+              if (hasTerm && (v || null) !== (t.project ?? null)) setSwitching({ to: v || null });
+              else void onAct(t, () => taskSetProject(t.id, v || null));
+            }}
           />
           {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
-          {t.project && t.source.jobId && <span className="fx__meta-dim">改项目会关掉现在这个终端（它开在旧目录里）</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -235,6 +241,18 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
         <div>
           <span className="k">SCHEDULE</span>
           <div className="fx__text">{[feDue && `后台前端 ${feDue}`, beDue && `服务端 ${beDue}`].filter(Boolean).join(" · ")}</div>
+        </div>
+      )}
+      {switching && (
+        <div className="modal" onMouseDown={() => setSwitching(null)}>
+          <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="切换项目">
+            <strong className="modal__title">改到 {switching.to ?? "没定"}？现在这个终端会关掉</strong>
+            <p className="modal__note">终端开在 {t.project} 的目录里，换了项目它就用不上了。里面没提交的改动要自己去收——关掉之后 Friday 接不回来。任务会退回待办，等你点「开始做」在新项目上重开。</p>
+            <div className="modal__foot">
+              <button className="b b--primary" autoFocus onClick={() => { const v = switching.to; setSwitching(null); void onAct(t, () => taskSetProject(t.id, v)); }}>关掉终端，改项目</button>
+              <button className="b b--text" onClick={() => setSwitching(null)}>取消</button>
+            </div>
+          </div>
         </div>
       )}
       {merging && (
