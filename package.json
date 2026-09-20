@@ -7,7 +7,6 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "postinstall": "find node_modules -maxdepth 7 -path '*node-pty*' -name spawn-helper -type f -exec chmod +x {} +",
     "dev": "pnpm --filter @friday/desktop tauri dev",
     "dev:core": "pnpm --filter @friday/core dev",
     "build": "pnpm -r build",

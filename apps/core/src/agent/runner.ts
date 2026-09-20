@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { config } from "../config.js";
+import { focusTerminalById, openWindow } from "./ghostty.js";
 import type { TerminalApp } from "../settings.js";
-import { getSession, spawnSession } from "./pty.js";
 import { getJob } from "../memory/jobs.js";
 import { handbookBlock } from "../memory/handbooks.js";
 import { terminalBridgePrompt } from "./prompt.js";
@@ -124,7 +124,7 @@ export function buildHookSettings(hookScript: string, guardScript?: string): str
 }
 
 // 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
-// 见 pty.ts cleanEnv：Ghostty / Terminal 由 open 拉起同样会继承这些变量
+// 见 env.ts cleanEnv：外部终端由 Ghostty 拉起同样会继承这些变量
 const UNSET_CLAUDE_ENV = "unset CLAUDECODE CLAUDE_PID $(env | sed -n 's/^\\(CLAUDE_CODE_[A-Z_]*\\)=.*/\\1/p') 2>/dev/null";
 
 /** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里所有非字母数字换成 ->/<session>.jsonl */
@@ -224,7 +224,7 @@ export function claudeFlags(files: ClaudeFiles, autonomous = false): string {
   ].join(" ");
 }
 
-export async function launchClaude(req: LaunchRequest): Promise<string> {
+export async function launchClaude(req: LaunchRequest): Promise<{ script: string; ghosttyId?: string }> {
   const claudePath = await findClaude();
   const files = writeHookFiles(req.id, req.autonomous);
 
@@ -233,64 +233,19 @@ export async function launchClaude(req: LaunchRequest): Promise<string> {
   writeFileSync(script, buildScript(req, claudePath, config.port, files));
   chmodSync(script, 0o755);
 
-  // 内嵌终端：sidecar 自己用 PTY 跑脚本，前端 xterm 接 /pty/:id/stream；上下文和任务绑在一起，不会串。
-  if (req.terminal === "embedded") {
-    spawnSession(req.id, script, req.dir);
-    return script;
+  // Terminal.app 没有脚本接口，只能 open；Ghostty 走 AppleScript，为的是开完就能拿到
+  // terminal id——之后 say / focus / close 都认它，标题不行（Claude Code 自己会改）。
+  if (req.terminal === "terminal") {
+    await execFileP("/usr/bin/open", ["-a", "Terminal", script]);
+    return { script };
   }
-  const args =
-    req.terminal === "terminal"
-      ? ["-a", "Terminal", script]
-      : ["-na", "Ghostty", "--args", `--working-directory=${req.dir}`, "-e", script];
-  await execFileP("/usr/bin/open", args);
-  return script;
+  // id 交回给调用方去写：job 行这会儿还没建出来，在这里 UPDATE 会落空
+  const ghosttyId = await openWindow(script, req.dir);
+  return { script, ...(ghosttyId ? { ghosttyId } : {}) };
 }
 
-/** 把终端 app 带到前台。 */
-export async function focusTerminal(terminal: TerminalApp): Promise<void> {
-  if (terminal === "embedded") return;
+/** 把某条 job 的终端窗口带到前台；没记下 terminal id 就退回只激活 app。 */
+export async function focusTerminal(terminal: TerminalApp, ghosttyId?: string): Promise<void> {
+  if (ghosttyId && terminal === "ghostty" && (await focusTerminalById(ghosttyId))) return;
   await execFileP("/usr/bin/open", ["-a", terminal === "terminal" ? "Terminal" : "Ghostty"]);
-}
-
-/** 终端随 Friday 重启一起没了：在同一目录重开一个 PTY，用 --resume 接上这条任务自己的 Claude 会话（id 来自 Stop hook），并把旧日志尾部回放出来。 */
-export async function reopenClaude(jobId: string): Promise<"alive" | "reopened" | "no-job"> {
-  const live = getSession(jobId);
-  if (live && live.exited === undefined) return "alive";
-  const job = getJob(jobId);
-  if (!job) return "no-job";
-  const claudePath = await findClaude();
-  const flags = claudeFlags(writeHookFiles(jobId));
-  // 有 id 就先试 --resume（transcript 可能刚建还没落盘，交给 claude 自己判断），失败再新开
-  const resumable = Boolean(job.claudeSessionId);
-  const hasTranscript = resumable && existsSync(transcriptPath(job.dir, job.claudeSessionId!));
-  const script = join(runsDir(), `${jobId}.reopen.sh`);
-  const fresh = `这是任务「${(job.task ?? job.project).slice(0, 200)}」的终端，之前的会话记录没保存下来。先不要动手，等我指示。`;
-  writeFileSync(
-    script,
-    [
-      "#!/bin/zsh",
-      `cd ${shellQuote(job.dir)} || exit 1`,
-      UNSET_CLAUDE_ENV,
-      `printf '\\033]0;Friday · %s\\007' ${shellQuote(job.dir.split("/").pop() ?? "")}`,
-      resumable
-        ? `printf '\\033[2m[Friday 重启过，用 --resume 接上这条任务的 Claude 会话${hasTranscript ? "" : "（记录可能还没落盘，接不上就新开）"}]\\033[0m\\n'`
-        : `printf '\\033[2m[Friday 重启过，这条任务没有记录到会话 id，开一个新会话]\\033[0m\\n'`,
-      resumable
-        ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(job.claudeSessionId!)} || ${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`
-        : `${shellQuote(claudePath)} ${flags} ${shellQuote(fresh)}`,
-      "printf '\\e[?1000l\\e[?1002l\\e[?1003l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?25h\\e[0m'; stty sane 2>/dev/null",
-      "exec /bin/zsh -il",
-      "",
-    ].join("\n"),
-  );
-  chmodSync(script, 0o755);
-  let replay = "";
-  const log = jobLog(jobId);
-  if (existsSync(log)) {
-    const size = statSync(log).size;
-    const raw = readFileSync(log, "utf8");
-    replay = (size > 60_000 ? raw.slice(-60_000) : raw) + "\r\n\x1b[2m—— 以上是重启前的输出 ——\x1b[0m\r\n";
-  }
-  spawnSession(jobId, script, job.dir, replay);
-  return "reopened";
 }

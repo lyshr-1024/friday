@@ -3,7 +3,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Thread, Todo } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
-import { requestFocusJob } from "../lib/focusJob";
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -258,7 +257,7 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
       {/* job.task 是发给终端的整段提示词，上面 Friday 已经说过要干什么了，不再重复一遍 */}
       {last && <div className="job__last">{last}</div>}
       <div className="job__actions">
-        <button onClick={() => { requestFocusJob(job.id); void jobFocus(job.id); }}>聚焦终端</button>
+        <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
       </div>
     </div>

@@ -13,6 +13,7 @@ interface Row {
   last_message: string | null;
   claude_session_id: string | null;
   terminal: TerminalApp | null;
+  ghostty_id: string | null;
   log_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -29,6 +30,7 @@ const toJob = (r: Row): Job => ({
   ...(r.last_message ? { lastMessage: r.last_message } : {}),
   ...(r.claude_session_id ? { claudeSessionId: r.claude_session_id } : {}),
   ...(r.terminal ? { terminal: r.terminal } : {}),
+  ...(r.ghostty_id ? { ghosttyId: r.ghostty_id } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
@@ -39,6 +41,11 @@ export function createJob(input: { id: string; project: string; dir: string; tas
     .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)")
     .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal);
   return getJob(input.id)!;
+}
+
+/** 开完 Ghostty 窗口把 terminal id 记下来，之后 say / focus / close 都认它。 */
+export function setGhosttyId(id: string, ghosttyId: string): void {
+  db().prepare("UPDATE jobs SET ghostty_id = ? WHERE id = ?").run(ghosttyId, id);
 }
 
 export function getJob(id: string): Job | undefined {

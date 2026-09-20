@@ -3,7 +3,7 @@ import { app } from "../api/index.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
-import { contextFor, describeQuestion, setVerified, turnFinished, userTyped } from "./bridge.js";
+import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
 import { RELAY_CATEGORY } from "@friday/shared";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
@@ -97,7 +97,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(audit.some((e) => e.action === "verified_all")).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
     expect(c.messages.at(-1)!.content).toContain("确认全部验证点");
-    expect(setVerified("nope", 0, true)).toBeUndefined();
+    expect(await setVerified("nope", 0, true)).toBeUndefined();
   });
 
   it("终端弹选项题（PreToolUse AskUserQuestion）：任务标 question、通知、会话留问题；PostToolUse 解除", async () => {

@@ -10,6 +10,4 @@ pnpm --dir "$ROOT" --filter @friday/core build
 # （claude-agent-sdk-darwin-arm64，平台可选依赖）不在 store 里，打出的包 /ask 直接报找不到二进制。
 pnpm --dir "$ROOT" --filter @friday/core deploy --prod --offline --config.inject-workspace-packages=true --config.node-linker=hoisted "$OUT"
 [ -d "$OUT/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64" ] || { echo "包里缺 claude-agent-sdk-darwin-arm64，/ask 会起不来"; exit 1; }
-# node-pty 的 spawn-helper 复制后会丢可执行位，没有它 PTY 起不来。
-find "$OUT/node_modules" -path "*node-pty*" -name spawn-helper -type f -print0 | xargs -0 chmod +x
 echo "core bundled -> $OUT ($(du -sh "$OUT" | cut -f1))"

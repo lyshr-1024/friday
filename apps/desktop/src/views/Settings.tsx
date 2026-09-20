@@ -199,10 +199,9 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
           />
         </Row>
-        <Row label="跑 Claude 用的终端" hint="内嵌：在任务详情里直接看和聊；Ghostty / Terminal：弹外部窗口">
-          <select className="model-select" value={prefs?.terminal ?? "embedded"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "embedded" | "ghostty" | "terminal" }).then(setPrefs)}>
-            <option value="embedded">内嵌终端</option>
-            <option value="ghostty">Ghostty</option>
+        <Row label="跑 Claude 用的终端" hint="开工时弹一个终端窗口跑 Claude Code。Ghostty 支持 Friday 往里转达你的指令，Terminal 不支持">
+          <select className="model-select" value={prefs?.terminal ?? "ghostty"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "ghostty" | "terminal" }).then(setPrefs)}>
+                        <option value="ghostty">Ghostty</option>
             <option value="terminal">Terminal</option>
           </select>
         </Row>

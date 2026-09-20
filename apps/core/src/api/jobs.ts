@@ -5,7 +5,7 @@ import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal } from "../agent/runner.js";
 import { closeJobTerminal, markStop, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
-import { describeQuestion, terminalAnswered, terminalAsking, turnFinished } from "../agent/bridge.js";
+import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource } from "../memory/tasks.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
@@ -17,11 +17,11 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g;
 export const jobs = new Hono()
   .get("/jobs", (c) => c.json(listJobs()))
   /** 关掉一个终端：杀进程组 + job 收尾。任务不动，用户可能还想接着做。 */
-  .post("/jobs/:id/close", (c) => {
+  .post("/jobs/:id/close", async (c) => {
     const id = c.req.param("id");
     const job = getJob(id);
     if (!job) return c.json({ error: "没有这个终端" }, 404);
-    closeJobTerminal(id, "用户手动关闭");
+    await closeJobTerminal(id, "用户手动关闭");
     return c.json({ closed: getJob(id)?.status !== "running", id });
   })
   /** 关掉所有在跑的终端。任务已经完成或忽略的优先，全关则不挑。 */
@@ -83,7 +83,12 @@ export const jobs = new Hono()
     const okSid = sessionId ? setJobSession(id, sessionId) : true;
     if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);
     // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
-    if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) markStop(id);
+    if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) {
+      markStop(id);
+      // 外部窗口看不到用户击键（内嵌时代靠 userTyped 清），但它答完这轮 Stop 会到，
+      // 「终端在等你回答」的标记该跟着清掉
+      clearAttention(id);
+    }
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
     return c.json({ ok: true });
   })
@@ -109,6 +114,6 @@ export const jobs = new Hono()
   })
   .post("/jobs/:id/focus", async (c) => {
     if (!getJob(c.req.param("id"))) return c.json({ error: "任务不存在" }, 404);
-    await focusTerminal(userSettings().terminal);
+    await focusTerminal(userSettings().terminal, getJob(c.req.param("id"))?.ghosttyId);
     return c.json({ ok: true });
   });

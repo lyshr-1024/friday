@@ -2228,25 +2228,6 @@ body,
   50% { opacity: 0.3; }
 }
 
-.fx__term {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
-}
-.fx__term .xterm-host {
-  border-radius: var(--r-md);
-  overflow: hidden;
-  /* WKWebView 里 overflow:hidden 裁不到合成层，而下面的 translateZ(0) 正好把
-     WebGL canvas 提成了合成层，四角会被方角盖住。mask 强制按圆角裁一次。 */
-  -webkit-mask-image: -webkit-radial-gradient(white, black);
-  border: 1px solid var(--line-1);
-  background: var(--term-bg);
-  /* 跟着窗口走，但不少于 24 行（12px × 1.25 行高 = 15px/行）：Claude Code 的 Ink 界面一帧
-     约 20 行，行数不够它就清不掉旧帧，画面会叠花；窄窗口宁可让卡片超出靠页面滚动 */
-  height: clamp(360px, calc(100vh - 420px), 560px);
-  /* 单独一层合成，终端重绘不带着卡片投影一起重绘 */
-  transform: translateZ(0);
-}
 .row__tag {
   display: inline-block;
   margin-left: 8px;
@@ -2259,23 +2240,6 @@ body,
   vertical-align: 1px;
 }
 
-.term {
-  position: relative;
-}
-.xterm-host .xterm-viewport {
-  scrollbar-width: none;
-}
-.xterm-host .xterm-viewport::-webkit-scrollbar {
-  display: none;
-}
-.term__dead {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--term-veil);
-}
 
 /* 一行一件 */
 .row {
@@ -2866,35 +2830,6 @@ body,
   --green: #4fd1a0;
 }
 /* 浅色：亮底深字。青色改成能在白底上读的深青，状态色全部降亮度 */
-/* ── 终端配色
-   ANSI 16 色必须给全：缺的会落到 xterm.js 内置的 Tango 默认值，那套是给紫底
-   (#300a24) 配的，放在深灰底上 blue(#3465a4)、magenta(#75507b) 对比度只有 2:1。
-   Claude Code 的 Ink 界面恰好大量用这些色（diff 红绿、工具名青、dim 灰）。
-   这组不随主题走：终端里跑的 Claude Code 自带深色 diff 底和高亮块，浅底配上去
-   会和它自己的底色插花，整块看着是花的。 */
-:root {
-  --term-bg: #0e0f12;
-  --term-fg: #e8eaee;
-  --term-cursor: #38d6ff;
-  --term-sel: rgba(56, 214, 255, 0.25);
-  --term-veil: rgba(17, 17, 19, 0.6);
-  --term-black: #1a1c21;
-  --term-red: #f07178;
-  --term-green: #98c379;
-  --term-yellow: #e5c07b;
-  --term-blue: #61afef;
-  --term-magenta: #c678dd;
-  --term-cyan: #56b6c2;
-  --term-white: #c8ccd4;
-  --term-bright-black: #585e6a;
-  --term-bright-red: #ff7b72;
-  --term-bright-green: #b5e890;
-  --term-bright-yellow: #ffd58a;
-  --term-bright-blue: #82c7ff;
-  --term-bright-magenta: #dba0f0;
-  --term-bright-cyan: #7fdbe8;
-  --term-bright-white: #f0f2f5;
-}
 
 :root[data-theme="light"] {
   --bg-1: #f4f5f7;
@@ -3079,62 +3014,7 @@ body,
   padding: 20px 8px;
 }
 /* 一条明确可点的开合条：有底色和边框，看得出是控件而不是标题 */
-.fx__term-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-3);
-  padding: var(--s-2) var(--s-3);
-  border: none;
-  border-radius: var(--r-sm);
-  background: var(--bg-3);
-  box-shadow: inset 0 0 0 1px var(--line-1);
-  color: inherit;
-  font: inherit;
-  cursor: default;
-  text-align: left;
-  transition: background var(--dur) var(--ease);
-}
 /* .k 自带 margin-bottom，在居中的 flex 里会把文字整体顶上去 */
-.fx__term-toggle .k {
-  margin-bottom: 0;
-  line-height: 1;
-}
-.fx__term-toggle:hover {
-  background: var(--bg-4);
-}
-.fx__term-toggle:active {
-  transform: scale(0.985);
-}
-.fx__term-toggle:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-/* 动作词比标签更显眼：这一条上真正要读的是「展开还是收起」 */
-.fx__term-act {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  color: var(--fg-2);
-  font-size: var(--t-aux);
-  letter-spacing: var(--tr-aux);
-  /* 和左边的 .k 字号不同，行高都归一才落在同一条中线上 */
-  line-height: 1;
-}
-.fx__term-act .icon {
-  color: var(--fg-3);
-}
-@media (prefers-reduced-motion: reduce) {
-  .fx__term-toggle:active {
-    transform: none;
-  }
-}
-.fx__term-toggle + .xterm-host,
-.fx__term-toggle + .term {
-  margin-top: var(--s-3);
-}
-
 /* 发消息前的确认框：要发的原文、可改、⌘↵ 发 */
 .fx__confirm {
   margin-top: var(--s-3);

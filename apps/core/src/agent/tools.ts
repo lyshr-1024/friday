@@ -9,7 +9,7 @@ import { reviewOnce } from "./lessons.js";
 import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
-import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { createJob, getJob, listJobs, recentDuplicate, setGhosttyId } from "../memory/jobs.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { TERMINAL_STATE_LABEL, closeJobTerminal, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
@@ -134,8 +134,9 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         const dup = recentDuplicate(r.dir, task);
         if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
         const id = randomUUID();
-        await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
+        const { ghosttyId } = await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
         createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conversationId ? { conversationId } : {}) });
+        if (ghosttyId) setGhosttyId(id, ghosttyId);
         // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
         const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
         // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
@@ -166,19 +167,19 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
     ),
     tool(
       "terminal_say",
-      "往当前会话绑定的任务的内嵌终端里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。它正忙时会排队，等它这轮说完再送进去。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
+      "往当前会话绑定的任务的终端窗口里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
       { text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理") },
       async ({ text: msg }) => {
         const bound = boundJob(conversationId);
         if (!bound) return text("这条会话没有绑定带终端的任务，转达不了。让用户从任务的「在会话里讨论」进来，或先用 run_claude 开一个。");
-        const r = say(bound.jobId, msg);
-        if (r !== "no-terminal") clearAttention(bound.jobId);
-        if (r === "no-terminal") return text("这条任务的终端不在了（不是内嵌终端，或已经关掉）。可以让用户在任务卡上点「重新打开终端」。");
+        const r = await say(bound.jobId, msg);
+        if (r === "no-terminal") return text("这条任务的终端窗口已经关掉了，转达不进去。要继续的话让用户用 run_claude 重新开一个。");
+        clearAttention(bound.jobId);
         if (conversationId && conversationExists(conversationId)) {
-          addMessage(conversationId, { role: "assistant", kind: "run", content: `${r === "sent" ? "→ 已转达给终端" : "→ 终端正忙，等它这轮说完转达"}：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
+          addMessage(conversationId, { role: "assistant", kind: "run", content: `→ 已转达给终端：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
         }
-        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: r === "sent" ? "直接敲进 PTY" : "排队等它这轮结束", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
-        return text(r === "sent" ? "已敲进终端。它回话后会回报到任务卡，不用你复述。" : "终端里的 Claude 正在输出，已排队，它这轮说完就送进去。");
+        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 Ghostty 窗口", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
+        return text("已敲进终端。它回话后会回报到任务卡，不用你复述。");
       },
     ),
     tool(

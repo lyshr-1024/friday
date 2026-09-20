@@ -2,13 +2,11 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
-import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
-import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
 
@@ -256,11 +254,9 @@ function doingRight(t: Task): string {
   if (t.attention === "blocked") return p ?? "卡住了，需要你";
   switch (t.terminal) {
     case "gone":
-      return "终端已断 · 点开重新打开";
+      return p ?? "终端已关掉";
     case "idle":
       return p ? `等你指示 · ${p}` : "等你指示";
-    case "external":
-      return p ?? "在外部终端里跑";
     default:
       return p ?? STATUS[t.status];
   }
@@ -377,27 +373,16 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
       if (ev.type === "terminal") setTermStates((m) => (m.get(ev.jobId) === ev.state ? m : new Map(m).set(ev.jobId, ev.state)));
     };
     window.addEventListener("friday:event", onEvent);
-    const onFocusJob = () => setFocusSignal((n) => n + 1);
-    window.addEventListener("friday:focus-job", onFocusJob);
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
       window.removeEventListener("friday:tasks-changed", onChanged);
-      window.removeEventListener("friday:focus-job", onFocusJob);
       window.removeEventListener("friday:event", onEvent);
       window.clearTimeout(coalesce);
     };
   }, []);
   // 终端忙闲：实时推送的值优先于任务板快照
   const [termStates, setTermStates] = useState<Map<string, TerminalState>>(new Map());
-  // 「聚焦终端」点过来：任务列表到了就选中绑着那个 job 的任务，Terminal 挂上时接管光标
-  const [focusSignal, setFocusSignal] = useState(0);
-  useEffect(() => {
-    const jobId = peekFocusJob();
-    if (!jobId) return;
-    const t = board?.tasks.find((x) => x.source.jobId === jobId);
-    if (t) setSelectedId(t.id);
-  }, [board, focusSignal]);
   useEffect(() => {
     if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
   }, [view]);
@@ -839,29 +824,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
-  // 终端默认收起：先看 Friday 怎么说，不放心再展开自己看；「聚焦终端」点过来时直接展开
-  const [termOpen, setTermOpen] = useState(() => peekFocusJob() === t.source.jobId);
-  const termRef = useRef<HTMLDivElement>(null);
-  // 展开后要把终端滚进视野，否则点了「聚焦终端」人还停在卡片上半部分不知道发生了什么
-  const [scrollToTerm, setScrollToTerm] = useState(() => peekFocusJob() === t.source.jobId);
-  useEffect(() => {
-    const onFocusJob = (e: Event) => {
-      if ((e as CustomEvent<string>).detail !== t.source.jobId) return;
-      setTermOpen(true);
-      setScrollToTerm(true);
-    };
-    window.addEventListener("friday:focus-job", onFocusJob);
-    return () => window.removeEventListener("friday:focus-job", onFocusJob);
-  }, [t.source.jobId]);
-  useEffect(() => {
-    if (!scrollToTerm || !termOpen) return;
-    // 等 xterm 挂完再滚，否则量到的还是没撑开的高度
-    const id = window.requestAnimationFrame(() => {
-      termRef.current?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      setScrollToTerm(false);
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [scrollToTerm, termOpen]);
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -1239,16 +1201,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
               </li>
             ))}
           </ul>
-        </div>
-      )}
-      {t.source.jobId && (
-        <div className="fx__term" ref={termRef}>
-          {/* 状态交给左栏那条说，这里只做开合——原来两处都报「已断」，措辞还更吓人 */}
-          <button className="fx__term-toggle" onClick={() => setTermOpen((v) => !v)} aria-expanded={termOpen}>
-            <span className="k">终端</span>
-            <span className="fx__term-act">{termOpen ? "收起" : "展开"}<Icon name={termOpen ? "chevronDown" : "chevronRight"} /></span>
-          </button>
-          {termOpen && <Terminal id={t.source.jobId} />}
         </div>
       )}
       {events.length > 0 && (

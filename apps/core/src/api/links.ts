@@ -59,15 +59,15 @@ export const links = new Hono()
     const target = relayTarget(url, taskId);
     if ("why" in target) return c.json({ error: target.why }, 409);
     const note = `我在 ${url} 上看到：${text}`;
-    const r = say(target.jobId, note);
+    const r = await say(target.jobId, note);
     if (r === "no-terminal") return c.json({ error: "这个终端不在了" }, 409);
     record({
       taskId: target.taskId,
       action: "terminal_say",
       why: "你对着页面说了一句，Friday 认出是哪个终端在改它",
-      how: r === "sent" ? "直接敲进 PTY" : "排队等它这轮结束",
+      how: "写进 Ghostty 窗口",
       evidence: { jobId: target.jobId, url, text },
       risk: "reversible",
     });
-    return c.json({ ok: true, jobId: target.jobId, taskId: target.taskId, queued: r === "queued" });
+    return c.json({ ok: true, jobId: target.jobId, taskId: target.taskId });
   });

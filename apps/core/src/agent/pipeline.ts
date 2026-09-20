@@ -7,7 +7,7 @@ import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
-import { createJob, getJob } from "../memory/jobs.js";
+import { createJob, getJob, setGhosttyId } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIds } from "./enrich.js";
@@ -61,7 +61,7 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) {
     if (before) lessonFromTask(before, status === "done" ? "done_without_reply" : "ignored");
-    closeTaskTerminal(t, why);
+    await closeTaskTerminal(t, why);
     closeTaskThread(t, status);
     await cleanupTaskWorktree(t, why);
   }
@@ -119,7 +119,7 @@ export function codeTaskDetail(thread: Thread, detail: string): string {
  *
  * 返回 true 表示已经交给需求的终端了，调用方不必再开新的。
  */
-export function handOffToStory(task: Task, detail: string): boolean {
+export async function handOffToStory(task: Task, detail: string): Promise<boolean> {
   const storyId = task.source.linkedStoryId;
   if (!storyId) return false;
   const story = findTaskBySource((s) => s.meegleId === storyId, true);
@@ -129,8 +129,9 @@ export function handOffToStory(task: Task, detail: string): boolean {
   // 终端已经退出的不算：转达进去没人看，得让它自己开
   if (!job || job.status !== "running") return false;
 
-  const r = say(jobId, `顺带再改一条同需求下的缺陷：\n${detail}\n\n改完一并在同一个分支上交付，不要另起分支。`);
-  const note = r === "queued" ? "已排队，等它这轮说完就转达" : "已转达给需求的终端";
+  const r = await say(jobId, `顺带再改一条同需求下的缺陷：\n${detail}\n\n改完一并在同一个分支上交付，不要另起分支。`);
+  if (r === "no-terminal") return false;
+  const note = "已转达给需求的终端";
   updateTask(task.id, {
     status: "processing",
     progress: `${note}（和「${story.title.slice(0, 24)}」共用一个终端和分支）`,
@@ -150,7 +151,7 @@ export function handOffToStory(task: Task, detail: string): boolean {
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
   // 归在某个需求下、而那个需求已经有终端在跑：交给它，不要另起一个改同一片代码
-  if (handOffToStory(task, detail)) return getTask(task.id)!;
+  if (await handOffToStory(task, detail)) return getTask(task.id)!;
   const dirt = await worktreeDirt(dir);
   if (dirt) {
     record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });
@@ -165,8 +166,9 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
     return updateTask(task.id, { status: "blocked", progress: `没有开工：${failed}` })!;
   }
   const prompt = autonomousPrompt(id, detail, project);
-  await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
+  const { ghosttyId } = await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
   createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id) });
+  if (ghosttyId) setGhosttyId(id, ghosttyId);
   record({
     taskId: task.id,
     action: "claude_code_start",
@@ -385,6 +387,6 @@ export async function executePending(
   const t = getTask(taskId)!;
   if (t.pending?.length) return t;
   const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
-  closeTaskTerminal(done, "待审动作全部执行完，任务完成");
+  await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
 }

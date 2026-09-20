@@ -5,7 +5,7 @@ import { TERMINAL_LABEL, type RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { launchClaude } from "../agent/runner.js";
-import { createJob, recentDuplicate } from "../memory/jobs.js";
+import { createJob, recentDuplicate, setGhosttyId } from "../memory/jobs.js";
 import { createTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { resolveProject } from "../memory/projects.js";
@@ -49,9 +49,10 @@ export const run = new Hono().post("/run", async (c) => {
   const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
   const { terminal } = userSettings();
   try {
-    const script = await launchClaude({ id, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) });
+    const { script, ghosttyId } = await launchClaude({ id, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) });
     finishSession(id, `launched ${terminal} ${script}`);
     createJob({ id, project: resolved.project.name, dir: resolved.project.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conv ? { conversationId: conv } : {}) });
+    if (ghosttyId) setGhosttyId(id, ghosttyId);
     const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `${resolved.project.name}：交互式会话`, kind: "code", source: { jobId: id }, project: resolved.project.name, status: "processing", understanding: task ?? "你手动开的终端会话" });
     record({ taskId: t.id, action: "claude_code_start", why: "你让 Friday 跑项目", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: resolved.project.name, dir: resolved.project.dir }, risk: "reversible" });
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, jobId: id, ...(task ? { task } : {}) };

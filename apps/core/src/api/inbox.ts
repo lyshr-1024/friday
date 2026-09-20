@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import type { InboxResponse, RunResponse } from "@friday/shared";
 import { jobLog, launchClaude } from "../agent/runner.js";
-import { createJob } from "../memory/jobs.js";
+import { createJob, setGhosttyId } from "../memory/jobs.js";
 import { getInboxItem, listInbox, markInboxDone } from "../memory/inbox.js";
 import { resolveProject } from "../memory/projects.js";
 import { drainNotices, state, syncSlackOnce } from "../scheduler/index.js";
@@ -40,8 +40,9 @@ export const inbox = new Hono()
     const { terminal } = userSettings();
     const task = handoffTask(item);
     const id = randomUUID();
-    await launchClaude({ id, dir: resolved.project.dir, terminal, task });
+    const { ghosttyId } = await launchClaude({ id, dir: resolved.project.dir, terminal, task });
     createJob({ id, project: resolved.project.name, dir: resolved.project.dir, task, logPath: jobLog(id) });
+    if (ghosttyId) setGhosttyId(id, ghosttyId);
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, task, jobId: id };
     return c.json(res);
   })

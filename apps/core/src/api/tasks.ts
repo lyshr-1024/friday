@@ -139,7 +139,7 @@ export const tasks = new Hono()
   .post("/tasks/:id/verify", async (c) => {
     const parsed = z.object({ index: z.number().int().min(0), checked: z.boolean() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "index / checked 必填" }, 400);
-    const t = setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
+    const t = await setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
     return t ? c.json(t) : c.json({ error: "任务不存在或没有验证点" }, 404);
   })
   // 星标关注：列表顶上单独一组
@@ -216,7 +216,7 @@ export const tasks = new Hono()
     const before = getTask(id);
     if (!before) return c.json({ error: "任务不存在" }, 404);
     // 终端还开着就一并收掉，不然留下孤儿 claude 进程和「运行中」的 job
-    closeTaskTerminal(before, "任务被删除");
+    await closeTaskTerminal(before, "任务被删除");
     const row = deleteTask(id);
     if (!row) return c.json({ error: "任务不存在" }, 404);
     record({
