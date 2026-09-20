@@ -449,6 +449,17 @@ export async function taskPin(id: string, pinned: boolean): Promise<Task> {
   return res.json();
 }
 
+export async function taskEdit(id: string, patch: { title?: string; understanding?: string }): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskDelete(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
 export async function taskVerify(id: string, index: number, checked: boolean): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, checked }) });
   if (!res.ok) throw new Error(`verify ${res.status}`);

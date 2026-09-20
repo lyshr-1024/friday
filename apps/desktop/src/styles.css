@@ -144,7 +144,6 @@ body,
 .grp__act:active:not(:disabled),
 .seg__item:active:not(:disabled),
 .li__pin:active,
-.fx__pin:active,
 .switch:active:not(:disabled) {
   transform: scale(0.985);
 }
@@ -155,7 +154,6 @@ body,
   .grp__act:active:not(:disabled),
   .seg__item:active:not(:disabled),
   .li__pin:active,
-  .fx__pin:active,
   .switch:active:not(:disabled) {
     transform: none;
   }
@@ -3657,28 +3655,65 @@ body,
   color: var(--amber);
   font-size: var(--t-xs);
 }
-.fx__pin {
+/* 关注是个状态，不是这行里的动作（动作在右键菜单）：只在已关注时显示 */
+.fx__pinned {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
-  height: 22px;
-  padding: 0 var(--s-2);
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--fg-3);
-  font: inherit;
-  font-size: var(--t-micro);
-  cursor: default;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.fx__pin:hover {
-  background: var(--bg-4);
-  color: var(--fg-1);
-}
-.fx__pin.on {
   color: var(--amber);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+}
+
+/* 编辑任务的弹层 */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal__box {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-6);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-pop);
+}
+.modal__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.modal__row input,
+.modal__row textarea {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: var(--t-body);
+  resize: vertical;
+}
+.modal__row input:focus,
+.modal__row textarea:focus {
+  outline: none;
+  border-color: var(--line-2);
+  box-shadow: 0 0 0 3px var(--live-glow);
+}
+.modal__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
 }
 
 /* 终端在问你：红点呼吸，比"卡住"更急 */

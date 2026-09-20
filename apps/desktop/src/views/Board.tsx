@@ -4,7 +4,7 @@ import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAc
 import type { Activity } from "../lib/core";
 import { peekFocusJob } from "../lib/focusJob";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, newConversation, settings, syncMeegle, taskApprove, taskBindConversation, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskReject, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 import { Thread as ChatThread } from "./Thread";
@@ -458,6 +458,21 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
     }
   }
 
+  const [menu, setMenu] = useState<{ t: Task; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<Task | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
   async function act(t: Task | null, fn: () => Promise<unknown>) {
     setErr("");
     // 操作前的顺序才包含被操作的那条，拿它去找相邻项
@@ -642,7 +657,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
             <div className="deck__scroll" ref={deckRef}>
               {!board ? null : flat.length ? (
                 flat.map((t) => (
-                  <section key={t.id} className="deck__card" data-id={t.id}>
+                  <section key={t.id} className="deck__card" data-id={t.id} onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); setMenu({ t, x: e.clientX, y: e.clientY }); }}>
                     <Focus t={t} all={board.tasks} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
                   </section>
                 ))
@@ -675,6 +690,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
                         title={t.title}
                         aria-current={t.id === focus?.id}
                         onClick={() => setSelectedId(t.id)}
+                        onContextMenu={(e) => { e.preventDefault(); setSelectedId(t.id); setMenu({ t, x: e.clientX, y: e.clientY }); }}
                         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(t.id); } }}
                       >
                         <span className={`dot dot--${t.attention ?? t.status}`} />
@@ -691,7 +707,69 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
           )}
         </div>
       )}
+      {menu && <TaskMenu t={menu.t} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} onAct={act} onEdit={setEditing} />}
+      {editing && <TaskEditor t={editing} onClose={() => setEditing(null)} onSaved={(fn) => void act(editing, fn)} />}
     </>
+  );
+}
+
+/** 任务右键菜单。关注 / 完成 / 忽略复用现有动作，编辑和删除走新接口。 */
+function TaskMenu({ t, at, onClose, onAct, onEdit }: {
+  t: Task;
+  at: { x: number; y: number };
+  onClose: () => void;
+  onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
+  onEdit: (t: Task) => void;
+}) {
+  const closed = t.status === "done" || t.status === "ignored";
+  const run = (fn: () => Promise<unknown>) => { onClose(); void onAct(t, fn); };
+  return (
+    <div className="ctx" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
+      <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
+      <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
+      {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
+      {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "ignore"))}>忽略</button>}
+      <button
+        role="menuitem"
+        className="ctx__danger"
+        onClick={() => { onClose(); if (confirm(`删除「${t.title}」？\n\n可以在操作记录里撤销。`)) void onAct(t, () => taskDelete(t.id)); }}
+      >
+        删除任务…
+      </button>
+    </div>
+  );
+}
+
+/** 改标题和理解。两个字段都可空着不动，提交时只发改过的那个。 */
+function TaskEditor({ t, onClose, onSaved }: { t: Task; onClose: () => void; onSaved: (fn: () => Promise<unknown>) => void }) {
+  const [title, setTitle] = useState(t.title);
+  const [understanding, setUnderstanding] = useState(t.understanding ?? "");
+  const dirty = title.trim() !== t.title || understanding !== (t.understanding ?? "");
+  const save = () => {
+    if (!title.trim() || !dirty) return;
+    const patch: { title?: string; understanding?: string } = {};
+    if (title.trim() !== t.title) patch.title = title.trim();
+    if (understanding !== (t.understanding ?? "")) patch.understanding = understanding;
+    onClose();
+    onSaved(() => taskEdit(t.id, patch));
+  };
+  return (
+    <div className="modal" onMouseDown={onClose}>
+      <div className="modal__box" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="编辑任务">
+        <label className="modal__row">
+          <span className="k">标题</span>
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
+        </label>
+        <label className="modal__row">
+          <span className="k">理解</span>
+          <textarea rows={6} value={understanding} onChange={(e) => setUnderstanding(e.target.value)} placeholder="这条任务到底是什么事" />
+        </label>
+        <div className="modal__foot">
+          <button className="b b--primary" disabled={!title.trim() || !dirty} onClick={save}>保存<kbd>↵</kbd></button>
+          <button className="b b--text" onClick={onClose}>取消</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -881,9 +959,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
         <span className={`dot dot--${t.attention ?? t.status}`} />
         <span className="fx__state">{STATUS[t.status]}{ATTENTION_NOTE[t.attention ?? ""] ?? ""}</span>
         <span className="fx__meta-dim">{meta(t)} · 更新于 {fmtTime(t.updatedAt)}</span>
-        <button className={`fx__pin ${t.pinned ? "on" : ""}`} title={t.pinned ? "取消关注" : "关注这条任务"} onClick={() => void onAct(t, () => taskPin(t.id, !t.pinned))}>
-          <Icon name="star" filled={t.pinned} />{t.pinned ? "已关注" : "关注"}
-        </button>
+        {t.pinned && <span className="fx__pinned" title="已关注（右键可取消）"><Icon name="star" filled />已关注</span>}
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>

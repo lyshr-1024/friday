@@ -9,11 +9,11 @@ import { reviewOnce } from "../agent/lessons.js";
 import { executePending, finishTask, startAutonomousJob } from "../agent/pipeline.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
-import { terminalState } from "../agent/terminal.js";
+import { closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
-import { createTask, getTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
+import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { getThread, markAutoDone, threadCategory } from "../memory/threads.js";
 
 const replyCategory = (t?: Task): ReplyCategory => {
@@ -201,6 +201,35 @@ export const tasks = new Hono()
     const t = await finishTask(c.req.param("id"), "ignored", "你忽略了这条任务");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  .patch("/tasks/:id", async (c) => {
+    const parsed = z
+      .object({ title: z.string().trim().min(1).max(200).optional(), understanding: z.string().max(4000).optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success || (parsed.data.title === undefined && parsed.data.understanding === undefined)) {
+      return c.json({ error: "title 或 understanding 至少给一个" }, 400);
+    }
+    const t = updateTask(c.req.param("id"), parsed.data);
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
+  .delete("/tasks/:id", async (c) => {
+    const id = c.req.param("id");
+    const before = getTask(id);
+    if (!before) return c.json({ error: "任务不存在" }, 404);
+    // 终端还开着就一并收掉，不然留下孤儿 claude 进程和「运行中」的 job
+    closeTaskTerminal(before, "任务被删除");
+    const row = deleteTask(id);
+    if (!row) return c.json({ error: "任务不存在" }, 404);
+    record({
+      taskId: id,
+      action: "delete_task",
+      why: "你在任务上选了删除",
+      how: `从任务表里删掉「${before.title}」`,
+      evidence: { title: before.title, status: before.status },
+      risk: "reversible",
+      undo: { kind: "restore_task", row },
+    });
+    return c.json({ ok: true });
+  })
   .get("/audit", (c) => c.json(listAudit({ ...(c.req.query("taskId") ? { taskId: c.req.query("taskId")! } : {}), limit: Number(c.req.query("limit") ?? 200) })))
   .post("/audit/:id/undo", async (c) => {
     const plan = undoPlan(c.req.param("id"));
@@ -213,6 +242,11 @@ export const tasks = new Hono()
       } catch (e) {
         return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
       }
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_task") {
+      if (!restoreTask(plan.row)) return c.json({ error: "撤销失败（任务已不能恢复）" }, 409);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

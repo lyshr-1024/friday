@@ -120,6 +120,28 @@ export function updateTask(
   return task;
 }
 
+export type TaskRow = Record<string, string | number | null>;
+
+/** 整行删掉。撤销要能原样长回来，所以先把整行交出去当快照存进账本。 */
+export function deleteTask(id: string): TaskRow | undefined {
+  const r = db().prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
+  if (!r) return undefined;
+  db().prepare("DELETE FROM tasks WHERE id = ?").run(id);
+  publish({ type: "tasks" });
+  return r;
+}
+
+/** 按 deleteTask 交出的快照把行放回去。 */
+export function restoreTask(row: TaskRow): boolean {
+  const cols = Object.keys(row);
+  if (!cols.length) return false;
+  db()
+    .prepare(`INSERT OR REPLACE INTO tasks (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`)
+    .run(...cols.map((c) => row[c] as never));
+  publish({ type: "tasks" });
+  return true;
+}
+
 export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task[] {
   const wanted = status ? (Array.isArray(status) ? status : [status]) : undefined;
   const rows = (
