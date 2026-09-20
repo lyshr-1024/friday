@@ -344,6 +344,11 @@ export interface TaskSource {
   researchFile?: string;
   /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
   fromTaskId?: string;
+  /**
+   * 在哪条任务的分支上接着开。一期还没上线、二期要在它基础上继续做时，
+   * 开工不从主干拉新分支，而是检出那条任务的分支再往下走。
+   */
+  baseTaskId?: string;
 }
 
 /** 关联图里的一个端点：四端各自的实体 */

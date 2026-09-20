@@ -31,7 +31,7 @@ export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
 export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 
 /** 自主任务的提示词：分支、测试、交付报告、截图，全部落在约定路径，Friday 事后解析进审核。 */
-export function autonomousPrompt(id: string, task: string, project: string): string {
+export function autonomousPrompt(id: string, task: string, project: string, base?: string): string {
   const handbook = handbookBlock(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
@@ -40,7 +40,10 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "",
     "规则：",
     "1. 你已经在一个专门给这次任务开的 git worktree 里（detached HEAD），主仓不受影响。",
-    "   先 git switch -c <分支名> 建分支再改，不要 push，不要 merge，不要回主仓操作。",
+    ...(base
+      ? [`   注意：这个 worktree 是从分支 ${base} 检出的，不是主干——上一期的改动还没上线，这次在它基础上接着做。`,
+         `   先 git switch -c <分支名> 建新分支（基线就是 ${base}），不要直接在 ${base} 上改。`]
+      : ["   先 git switch -c <分支名> 建分支再改，不要 push，不要 merge，不要回主仓操作。"]),
     "   分支名按项目规范起，用英文小写加连字符，要能看出在做什么：",
     "   新功能用 feat/<topic>，修缺陷用 fix/<bug>，杂活或样式用 chore/<topic> 或 style/<topic>。",
     "   例如 feat/export-center、fix/withdrawal-rule-tabs、style/task-card-spacing。",

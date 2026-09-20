@@ -4078,6 +4078,27 @@ a.fx__source-where:hover {
   color: var(--fg-3);
   font-size: 12px;
 }
+/* 接着谁开：二期在一期分支上继续做时选基线任务 */
+.fx__base {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.fx__base select {
+  max-width: 420px;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-aux);
+}
+.fx__base select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
 .fx__docs {
   display: flex;
   flex-wrap: wrap;

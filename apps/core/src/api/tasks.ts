@@ -119,6 +119,23 @@ export const tasks = new Hono()
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
   // 卡住的任务重新开工（比如用量上限恢复后）
+  /** 二期在一期分支上接着开：记下基线任务，开工时从它的分支检出 */
+  .post("/tasks/:id/base", async (c) => {
+    const parsed = z.object({ baseTaskId: z.string().min(1).nullable() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "baseTaskId 必填（传 null 解除）" }, 400);
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    const base = parsed.data.baseTaskId;
+    if (base) {
+      const b = getTask(base);
+      if (!b) return c.json({ error: "基线任务不存在" }, 404);
+      if (!b.source.branch) return c.json({ error: "那条任务还没有分支，先让它开工" }, 400);
+      if (base === t.id) return c.json({ error: "不能基于自己" }, 400);
+    }
+    const next = updateTask(t.id, { source: { baseTaskId: base ?? undefined } });
+    record({ taskId: t.id, action: base ? "base_set" : "base_cleared", why: "二期要在一期分支上接着开", how: base ? `基线改成任务 ${base}` : "解除基线", evidence: { baseTaskId: base }, risk: "reversible" });
+    return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
+  })
   .post("/tasks/:id/retry", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);

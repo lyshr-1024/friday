@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, TAG_LABELS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, taskSetBase } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime } from "./shared";
 import { Icon } from "./Icon";
 
@@ -176,12 +176,33 @@ function IssueBody({ t }: { t: Task }) {
   );
 }
 
-function StoryBody({ t }: { t: Task }) {
+function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const { feDue, beDue, docs, nodeName } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
+  // 能当基线的：同项目、已经有分支、不是自己。一期还没上线时二期就接在它后面开
+  const bases = all.filter((x) => x.id !== t.id && x.source.branch && x.project === t.project);
+  const base = t.source.baseTaskId ? all.find((x) => x.id === t.source.baseTaskId) : undefined;
   return (
     <>
       <MeegleChips t={t} extra={nodeName} />
+      {(bases.length > 0 || base) && (
+        <div>
+          <span className="k">接着谁开</span>
+          <div className="fx__base">
+            <select
+              value={t.source.baseTaskId ?? ""}
+              onChange={(e) => void onAct(t, () => taskSetBase(t.id, e.target.value || null))}
+              aria-label="在哪条任务的分支上接着开"
+            >
+              <option value="">从主干开新分支</option>
+              {bases.map((x) => (
+                <option key={x.id} value={x.id}>{x.source.branch} · {x.title.slice(0, 24)}</option>
+              ))}
+            </select>
+            {base?.source.branch && <span className="fx__meta-dim">开工时从 {base.source.branch} 检出</span>}
+          </div>
+        </div>
+      )}
       {(feDue || beDue) && (
         <div>
           <span className="k">SCHEDULE</span>
@@ -1027,7 +1048,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       )}
 
       {isIssue(t) && <IssueBody t={t} />}
-      {isStory(t) && <StoryBody t={t} />}
+      {isStory(t) && <StoryBody t={t} all={all} onAct={onAct} />}
 
       {thread && thread.items.length > 0 && (
         <div className="fx__source">

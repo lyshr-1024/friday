@@ -58,8 +58,12 @@ export const fridayWorktree = (dir: string, jobId: string): string => join(dir, 
  * 开一个 detached worktree。不预先建分支——分支名由终端里的 Claude 按项目规范起，
  * 它有完整上下文（任务标题多是中文，这边做 slug 会变乱码）。失败返回原因。
  */
-export async function addWorktree(dir: string, path: string): Promise<string | undefined> {
-  const out = await git(dir, ["worktree", "add", "--detach", path]);
+/**
+ * `base` 给了就从那条分支检出（二期在一期分支上接着开），否则从当前 HEAD。
+ * 一律 --detach：分支名仍由终端里的 Claude 按项目规范自己起。
+ */
+export async function addWorktree(dir: string, path: string, base?: string): Promise<string | undefined> {
+  const out = await git(dir, ["worktree", "add", "--detach", path, ...(base ? [base] : [])]);
   return out.startsWith("（") ? out : undefined;
 }
 

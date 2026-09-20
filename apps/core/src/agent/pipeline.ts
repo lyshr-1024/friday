@@ -160,12 +160,14 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
   const id = randomUUID();
   // 在独立 worktree 里干活，不占主仓：用户可以同时在主仓改自己的东西
   const tree = fridayWorktree(dir, id);
-  const failed = await addWorktree(dir, tree);
+  // 二期在一期分支上接着开：基线任务还有分支就从那儿检出，而不是从主干拉新的
+  const base = task.source.baseTaskId ? getTask(task.source.baseTaskId)?.source.branch : undefined;
+  const failed = await addWorktree(dir, tree, base);
   if (failed) {
     record({ taskId: task.id, action: "claude_code_blocked", why: "开不出 worktree", how: failed, evidence: { dir, project, tree }, risk: "read", status: "failed" });
     return updateTask(task.id, { status: "blocked", progress: `没有开工：${failed}` })!;
   }
-  const prompt = autonomousPrompt(id, detail, project);
+  const prompt = autonomousPrompt(id, detail, project, base);
   const { ghosttyId } = await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
   createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
   if (ghosttyId) setGhosttyId(id, ghosttyId);

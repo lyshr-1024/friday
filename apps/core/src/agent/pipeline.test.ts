@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeTaskThread, codeTaskDetail, startAutonomousJob, threadToTask, reportBackToOrigin } from "./pipeline.js";
-import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { createTask, getTask, listTasks, updateTask  } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { attachToThread, getThread } from "../memory/threads.js";
 import { addInboxItems } from "../memory/inbox.js";
@@ -179,5 +179,14 @@ describe("Slack 不主动建任务", () => {
     const again = await threadToTask(thread, { ...brief, situation: "又催了一遍" });
     expect(again?.id).toBe(made.id);
     expect(again?.status).toBe("understood");
+  });
+});
+
+describe("二期在一期分支上接着开", () => {
+  it("基线任务的分支查得到，开工时才知道从哪儿检出", () => {
+    const first = createTask({ title: "一期", kind: "meegle", source: { branch: "feat/phase-1" }, project: "demo-proj", status: "processing" });
+    const second = createTask({ title: "二期", kind: "meegle", source: { baseTaskId: first.id }, project: "demo-proj", status: "understood" });
+    const base = getTask(getTask(second.id)!.source.baseTaskId!)!;
+    expect(base.source.branch).toBe("feat/phase-1");
   });
 });
