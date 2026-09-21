@@ -4,8 +4,8 @@ import type { Project } from "../../memory/projects.js";
 import { buildRules, candidates, defaultActions, meegleIdFromUrl, parseSlackTitle, projectByCwd } from "./match.js";
 
 const projects: Project[] = [
-  { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: ["#wealth-fe"], urls: [] },
-  { name: "fe-wealth-admin", dir: "/Users/me/work/fe-wealth-admin", aliases: [], channels: [], urls: [] },
+  { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: ["#wealth-fe"], urls: [], envs: [], extra: {} },
+  { name: "fe-wealth-admin", dir: "/Users/me/work/fe-wealth-admin", aliases: [], channels: [], urls: [], envs: [], extra: {} },
 ];
 
 function task(over: Partial<Task> = {}): Task {
@@ -118,7 +118,7 @@ describe("candidates", () => {
   // 真机踩过：开着 whale-console 的调试页按热键，URL 不是工单页于是一个候选都没有，
   // HUD 只好另起一个终端——而那个项目明明正有终端在跑
   it("开着某个项目的页面，该项目在办的任务就是候选，终端在跑的排最前", () => {
-    const withUrl: Project[] = [{ ...projects[0]!, urls: ["console.longbridge.xyz/x"] }, projects[1]!];
+    const withUrl: Project[] = [{ ...projects[0]!, urls: ["console.longbridge.xyz/x"], envs: [], extra: {} }, projects[1]!];
     const running = task({ id: "t-run", title: "后台项目的反馈问题处理", status: "processing", source: { jobId: "j1" } });
     const idle = task({ id: "t-idle", title: "别的活", status: "understood", source: {} });
     const got = candidates({

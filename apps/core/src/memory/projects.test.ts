@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
-import { parseProjects, resolveProject } from "./projects.js";
+import { matchEnv, parseEnvs, parseProjects, projectDetail, resolveProject } from "./projects.js";
 
 const md = `# 项目注册表
 
@@ -49,5 +49,71 @@ describe("项目注册表", () => {
 
   it("未登记但存在的目录路径可直接使用", () => {
     expect(resolveProject("~", projects)).toMatchObject({ kind: "match", project: { dir: homedir() } });
+  });
+
+  it("未知字段收进 extra 而不是丢掉", () => {
+    const ps = parseProjects("## p\n- 目录：/p\n- 发布 tag 与子应用对应：apps/cms-next → release-cms-next-*\n- **强调键**：值\n");
+    expect(ps[0]!.extra).toEqual({ "发布 tag 与子应用对应": "apps/cms-next → release-cms-next-*", 强调键: "值" });
+  });
+
+  it("同名的自定义字段多行累加", () => {
+    const ps = parseProjects("## p\n- 目录：/p\n- 备注：一\n- 备注：二\n");
+    expect(ps[0]!.extra["备注"]).toBe("一\n二");
+  });
+
+  it("projectDetail 把说明、环境、自定义字段一起给出去", () => {
+    const ps = parseProjects("## p\n- 目录：/p\n- 说明：主力项目\n- 环境：测试 console.x/y/\n- 发布：release 分支\n");
+    expect(projectDetail(ps[0]!)).toBe("主力项目\n环境：测试 console.x/y\n发布：release 分支");
+  });
+});
+
+describe("环境解析", () => {
+  it("按「名字 地址」拆，名字不做关键字校验", () => {
+    expect(parseEnvs("线上 console.longbridge.xyz/、测试 console.longbridge.xyz/x/、SIT https://console.whalesit.xyz/x/")).toEqual([
+      { name: "线上", url: "console.longbridge.xyz" },
+      { name: "测试", url: "console.longbridge.xyz/x" },
+      { name: "SIT", url: "console.whalesit.xyz/x" },
+    ]);
+    expect(parseEnvs("预发 a.example.com、玩具环境 b.example.com")).toEqual([
+      { name: "预发", url: "a.example.com" },
+      { name: "玩具环境", url: "b.example.com" },
+    ]);
+  });
+
+  // 用户实际写的是整句话，认得出几个是几个，认不出的安静丢掉
+  it("整句话里只捡「地址前面那个词」，没有名字的地址不要", () => {
+    expect(parseEnvs("线上和测试都在 console.longbridge.xyz，SIT 是 console.whalesit.xyz")).toEqual([
+      { name: "线上和测试都", url: "console.longbridge.xyz" },
+      { name: "SIT", url: "console.whalesit.xyz" },
+    ]);
+    expect(parseEnvs("console.longbridge.xyz")).toEqual([]);
+    expect(parseEnvs("暂时没有环境")).toEqual([]);
+  });
+});
+
+describe("matchEnv", () => {
+  const ps = parseProjects(
+    "## whale-console\n- 目录：/w\n- 环境：测试 console.longbridge.xyz/x/、SIT console.whalesit.xyz/x/\n" +
+      "## fe-wealth-admin\n- 目录：/f\n- 环境：线上 console.longbridge.xyz/\n" +
+      "## 只有地址的\n- 目录：/o\n- 地址：old.example.com\n",
+  );
+
+  it("共用域名时按前缀最长归属，并带出环境名", () => {
+    expect(matchEnv("https://console.longbridge.xyz/x/wbo/funds", ps)).toMatchObject({ project: { name: "whale-console" }, env: "测试" });
+    expect(matchEnv("https://console.longbridge.xyz/next/subjects", ps)).toMatchObject({ project: { name: "fe-wealth-admin" }, env: "线上" });
+    expect(matchEnv("https://console.whalesit.xyz/x/a", ps)).toMatchObject({ project: { name: "whale-console" }, env: "SIT" });
+  });
+
+  it("没写环境的项目退回 urls 匹配，没有环境名", () => {
+    expect(matchEnv("https://old.example.com/a", ps)).toEqual({ project: ps[2] });
+  });
+
+  it("谁都对不上返回 undefined", () => {
+    expect(matchEnv("https://mail.google.com/", ps)).toBeUndefined();
+  });
+
+  // 前缀要落在路径边界上，否则 /x 会吃掉 /xyz
+  it("前缀不在路径边界上不算命中", () => {
+    expect(matchEnv("https://console.longbridge.xyz/xyz/a", ps)).toMatchObject({ project: { name: "fe-wealth-admin" } });
   });
 });

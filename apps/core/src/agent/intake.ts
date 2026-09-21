@@ -1,7 +1,7 @@
 import type { Task } from "@friday/shared";
 import { askStream, SONNET_MODEL } from "./claude.js";
 import { config } from "../config.js";
-import { loadProjects, type Project } from "../memory/projects.js";
+import { loadProjects, projectDetail, type Project } from "../memory/projects.js";
 
 /**
  * 新工单进来先过一道：能自己动手的直接开终端，缺项目归属的问用户一句，
@@ -37,7 +37,10 @@ export function intakePrompt(
   projects: Project[],
 ): { system: string; prompt: string } {
   const registry = projects
-    .map((p) => `- ${p.name}${p.aliases.length ? `（别名：${p.aliases.join("、")}）` : ""}${p.note ? ` — ${p.note}` : ""}`)
+    .map((p) => {
+      const detail = projectDetail(p);
+      return `- ${p.name}${p.aliases.length ? `（别名：${p.aliases.join("、")}）` : ""}${detail ? ` — ${detail.replace(/\n/g, "；")}` : ""}`;
+    })
     .join("\n");
   return {
     system: [
