@@ -24,7 +24,9 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
     } else {
         None
     };
-    let browser = browser.map(|(url, title, text)| json!({ "url": url, "title": title, "text": text }));
+    let browser = browser.map(|(url, title, text, errors)| {
+        json!({ "url": url, "title": title, "text": text, "errors": if errors.is_empty() { None } else { Some(errors) } })
+    });
     json!({
         "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
         "app": { "bundleId": bundle_id, "name": name, "title": title },
@@ -83,7 +85,19 @@ fn ax_attribute(element: &AXUIElement, attribute: &str) -> Option<CFRetained<CFT
     Some(unsafe { CFRetained::from_raw(std::ptr::NonNull::new(value.cast_mut())?) })
 }
 
-fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>)> {
+// 页面正文 + 此刻可见的报错 + 失败的网络请求，一段 JS 取完。
+// 不装全局钩子也不注入长驻脚本——那要改用户的页面；只读这一刻能取到的，
+// 所以 console 历史天然拿不到（Apple Events 执行的 JS 看不到之前的 console 记录）。
+// 单引号是因为整段要嵌进 AppleScript 的双引号字符串里；换行一律走 String.fromCharCode(10)，
+// 写成 \n 会被 AppleScript 先解释成真换行，把 JS 的字符串字面量截断，整段返回 missing value（实测过）。
+const PAGE_JS: &str = "(function(){var N=String.fromCharCode(10);var t=document.body.innerText;var e=[];\
+document.querySelectorAll('[role=alert],[class*=error],[class*=Error]').forEach(function(n){\
+var s=(n.innerText||'').trim();if(s&&s.length<300&&e.indexOf(s)<0)e.push(s)});\
+try{performance.getEntriesByType('resource').forEach(function(r){\
+if(r.responseStatus>=400)e.push(r.responseStatus+' '+r.name)})}catch(x){}\
+return t+N+'---ERRORS---'+N+e.slice(0,10).join(N)})()";
+
+fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>, Vec<String>)> {
     let app_name = match bundle_id {
         "com.apple.Safari" => "Safari",
         "com.google.Chrome" => "Google Chrome",
@@ -102,7 +116,7 @@ fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>)> {
   set t to name of front document
   set b to ""
   try
-    set b to (do JavaScript "document.body.innerText" in front document)
+    set b to (do JavaScript "{PAGE_JS}" in front document)
   end try
   return u & "\n" & t & "\n---BODY---\n" & b
 end tell"#
@@ -114,7 +128,7 @@ end tell"#
   set t to title of active tab of front window
   set b to ""
   try
-    set b to (execute active tab of front window javascript "document.body.innerText")
+    set b to (execute active tab of front window javascript "{PAGE_JS}")
   end try
   return u & "\n" & t & "\n---BODY---\n" & b
 end tell"#
@@ -128,10 +142,17 @@ end tell"#
     if url.is_empty() {
         return None;
     }
+    let (body, error_block) = body.split_once("---ERRORS---").unwrap_or((body, ""));
+    let errors: Vec<String> = error_block
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .map(|l| l.chars().take(300).collect())
+        .collect();
     let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
-    eprintln!("[friday] 浏览器抓取：url={} title={} 正文={}字", url.len(), title.len(), collapsed.chars().count());
+    eprintln!("[friday] 浏览器抓取：url={} title={} 正文={}字 报错={}条", url.len(), title.len(), collapsed.chars().count(), errors.len());
     let text = if collapsed.is_empty() { None } else { Some(collapsed.chars().take(4000).collect()) };
-    Some((url, title, text))
+    Some((url, title, text, errors))
 }
 
 fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<String> {

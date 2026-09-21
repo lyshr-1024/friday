@@ -55,6 +55,7 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     `app：${snapshot.app.name}${title ? `，标题：${title}` : ""}`,
     snapshot.browser?.url ? `网址：${snapshot.browser.url}` : "",
     snapshot.browser?.text ? `页面正文：${snapshot.browser.text.slice(0, 4000)}` : "",
+    snapshot.browser?.errors?.length ? `页面上的报错与失败请求：\n${snapshot.browser.errors.slice(0, 10).join("\n")}` : "",
     snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
     input.scene ?? "",
   ]

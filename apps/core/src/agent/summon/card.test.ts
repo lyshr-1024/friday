@@ -88,3 +88,22 @@ describe("cardPrompt", () => {
     expect(block).toContain("养牛活动验收");
   });
 });
+
+describe("页面报错进上下文", () => {
+  it("报错和失败请求都带给模型，且在不可信定界符里", () => {
+    const withErrors: Snapshot = {
+      ...snapshot,
+      app: { bundleId: "com.google.Chrome", name: "Chrome", title: "资金参数" },
+      browser: { url: "https://console.longbridge.xyz/x/wbo/funds", title: "资金参数", errors: ["请求失败，请稍后重试", "500 https://api.x/params"] },
+    };
+    const { prompt } = cardPrompt({ snapshot: withErrors, rules, candidates: [] });
+    expect(prompt).toContain("页面上的报错与失败请求");
+    expect(prompt).toContain("请求失败，请稍后重试");
+    expect(prompt).toContain("500 https://api.x/params");
+  });
+
+  it("没有报错时不提这一段", () => {
+    const { prompt } = cardPrompt({ snapshot, rules, candidates: [] });
+    expect(prompt).not.toContain("页面上的报错");
+  });
+});
