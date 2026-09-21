@@ -3291,10 +3291,34 @@ body,
 .an__t {
   font-size: var(--t-xs);
   color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  transition: color var(--dur) var(--ease);
+}
+/* 标题让位给终端图标：图标是「别再开一个」的唯一提示，不能被省略号挤掉 */
+.an__t-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color var(--dur) var(--ease);
+}
+/* 名下有活着的终端窗口。忙时呼吸，闲时常亮——两档都比没有强，
+   都说明「这条已经有窗口了」。 */
+.an__term {
+  flex: none;
+  display: inline-flex;
+  color: var(--live);
+  font-size: var(--t-micro);
+  opacity: 0.6;
+}
+.an__term--busy {
+  opacity: 1;
+  animation: term-pulse 1.4s ease-in-out infinite;
+}
+@keyframes term-pulse {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 3px var(--live)); }
+  50% { opacity: 0.45; filter: none; }
 }
 .an:hover .an__t {
   color: var(--fg-2);
@@ -3747,6 +3771,10 @@ body,
     animation: none !important;
     width: 100% !important;
     opacity: 0.55;
+  }
+  .an__term--busy {
+    animation: none !important;
+    filter: drop-shadow(0 0 3px var(--live));
   }
   .dot--question,
   .dot--checking {
