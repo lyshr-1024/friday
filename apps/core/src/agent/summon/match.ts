@@ -1,6 +1,7 @@
 import type { Project } from "../../memory/projects.js";
 import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
+import { matchProjectByUrl } from "../../memory/projects.js";
 import type { SlackScene } from "./slack.js";
 
 export interface MatchInput {
@@ -59,6 +60,9 @@ function projectByChannel(channel: string, projects: Project[]): Project | undef
   return projects.find((p) => p.channels.includes(channel));
 }
 
+/** 终端在跑 > 处理中 > 其余：越靠前越可能是此刻手上的活 */
+const rank = (t: Task) => (t.source.jobId ? 4 : 0) + (t.status === "processing" ? 2 : 0) + (t.status === "review" ? 1 : 0);
+
 export function candidates(input: MatchInput): Candidate[] {
   const { snapshot, tasks, projects, channel, person } = input;
   const out: Candidate[] = [];
@@ -87,6 +91,17 @@ export function candidates(input: MatchInput): Candidate[] {
   if (channel) {
     const project = projectByChannel(channel, projects);
     if (project) for (const t of tasks) if (t.project === project.name) push(t, `${channel} 是 ${project.name} 的频道`, "maybe");
+  }
+
+  // 你开着某个项目的页面调试，那个项目上正跑着的活就是你手头的事。
+  // 不接这条的话，只要 URL 不是工单页就一个候选都没有，HUD 只能另起一个终端——
+  // 而你要的正是它已经开着的那个。
+  const urlProject = snapshot.browser ? matchProjectByUrl([snapshot.browser.url], projects)?.name : undefined;
+  if (urlProject) {
+    const mine = tasks.filter((t) => t.project === urlProject);
+    // 终端在跑的排前面：那才是此刻手上的活
+    for (const t of [...mine].sort((a, b) => rank(b) - rank(a)))
+      push(t, t.source.jobId ? `你开着 ${urlProject} 的页面，这条正在终端里跑` : `你开着 ${urlProject} 的页面`, "maybe");
   }
 
   return out;
