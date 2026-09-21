@@ -4,9 +4,9 @@ import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
-import { undoWrite } from "../agent/autowrite.js";
 import { reviewOnce } from "../agent/lessons.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
+import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal, terminalState } from "../agent/terminal.js";

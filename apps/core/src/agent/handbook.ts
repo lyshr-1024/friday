@@ -1,10 +1,9 @@
 import { askStream } from "./claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "./fence.js";
 import { groupByProject, scanHistory, type HistoryMessage } from "./history.js";
-import { upsertPerson } from "./autowrite.js";
 import { config } from "../config.js";
 import { record } from "../memory/audit.js";
-import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
+import { readMemoryFile, upsertPerson, writeMemoryFile } from "../memory/files.js";
 import { addProjectHints } from "../memory/projectHints.js";
 import { GLOBAL, handbookSlug, listHandbooks, readHandbook, writeHandbook } from "../memory/handbooks.js";
 import { getCursor, setCursor } from "../memory/inbox.js";

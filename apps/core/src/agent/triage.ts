@@ -1,6 +1,6 @@
 import type { InboxItem, Triage, Urgency, ReplyCategory } from "@friday/shared";
 import { REPLY_CATEGORIES } from "@friday/shared";
-import { askStream } from "./claude.js";
+import { askStream, SONNET_MODEL } from "./claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { config } from "../config.js";
 import { loadProjects, type Project } from "../memory/projects.js";
@@ -53,13 +53,11 @@ export function parseTriage(text: string, count: number): Map<number, Triage> {
   return out;
 }
 
-export const TRIAGE_MODEL = "claude-sonnet-5";
-
 export async function triage(items: InboxItem[]): Promise<Map<number, Triage>> {
   if (!items.length) return new Map();
   const { system, prompt } = triagePrompt(items);
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "triage" })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SONNET_MODEL, label: "triage" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

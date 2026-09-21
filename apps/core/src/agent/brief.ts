@@ -4,7 +4,7 @@ import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import type { Enrichment } from "./enrich.js";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
-import { TRIAGE_MODEL } from "./triage.js";
+import { SONNET_MODEL } from "./claude.js";
 import { readPlaybook } from "../memory/playbooks.js";
 import { threadCategory } from "../memory/threads.js";
 
@@ -71,7 +71,7 @@ export function parseBrief(text: string): ThreadBrief | undefined {
 export async function buildBrief(thread: Thread, e: Enrichment): Promise<ThreadBrief | undefined> {
   const { system, prompt } = briefPrompt(thread, e, readPlaybook(threadCategory(thread)) || undefined);
   let text = "";
-  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "brief" })) {
+  for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SONNET_MODEL, label: "brief" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

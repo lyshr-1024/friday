@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseBrief, briefPrompt } from "./brief.js";
-import { meegleIds, meegleLookups, personNote } from "./enrich.js";
-import { upsertPerson } from "./autowrite.js";
+import { meegleLookups } from "./enrich.js";
+import { personNote, upsertPerson } from "../memory/files.js";
 
 describe("情境卡", () => {
   it("解析 JSON、规范字段、越界截断", () => {

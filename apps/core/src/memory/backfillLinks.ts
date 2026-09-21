@@ -1,4 +1,4 @@
-import { meegleIds } from "../agent/enrich.js";
+import { meegleIdsIn } from "./infer.js";
 import { findTaskBySource, listTasks, updateTask } from "./tasks.js";
 import { listThreads } from "./threads.js";
 
@@ -14,7 +14,7 @@ export function backfillSlackLinks(): number {
     if (task.kind !== "slack" || task.source.linkedStoryId) continue;
     const thread = task.source.threadId ? threads.get(task.source.threadId) : undefined;
     if (!thread) continue;
-    const ids = meegleIds(thread.items.map((i) => i.text).join("\n"));
+    const ids = meegleIdsIn(thread.items.map((i) => i.text).join("\n"));
     if (!ids.length) continue;
     // 优先取任务板里真有的那条工单，这样界面上能点过去
     const hit = ids.map((id) => findTaskBySource((s) => s.meegleId === id, true)).find(Boolean);

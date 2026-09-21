@@ -5,6 +5,7 @@ vi.mock("../agent/claude.js", () => ({
     yield { type: "delta", text: "先回灵雨，工单在 Open。\n然后处理今天到期的待办。" };
     yield { type: "done" };
   },
+  SONNET_MODEL: "claude-sonnet-5",
 }));
 const { app } = await import("./index.js");
 

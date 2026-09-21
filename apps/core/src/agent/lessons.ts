@@ -5,7 +5,7 @@ import { getThread, threadCategory } from "../memory/threads.js";
 import type { Task } from "@friday/shared";
 import { askStream } from "./claude.js";
 import { untrusted } from "./fence.js";
-import { TRIAGE_MODEL } from "./triage.js";
+import { SONNET_MODEL } from "./claude.js";
 import { addLesson, listLessons } from "../memory/lessons.js";
 import { readPlaybook, writePlaybook } from "../memory/playbooks.js";
 import { record } from "../memory/audit.js";
@@ -59,7 +59,7 @@ export async function distill(category: PlaybookCategory): Promise<boolean> {
     ),
   ].join("\n");
   let text = "";
-  for await (const ev of askStream(body, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "review" })) {
+  for await (const ev of askStream(body, { systemPrompt: system, cwd: config.dataDir, model: SONNET_MODEL, label: "review" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }

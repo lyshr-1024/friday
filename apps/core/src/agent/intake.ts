@@ -1,6 +1,5 @@
 import type { Task } from "@friday/shared";
-import { askStream } from "./claude.js";
-import { TRIAGE_MODEL } from "./triage.js";
+import { askStream, SONNET_MODEL } from "./claude.js";
 import { config } from "../config.js";
 import { loadProjects, type Project } from "../memory/projects.js";
 
@@ -100,7 +99,7 @@ export async function judgeIntake(
   const { system, prompt } = intakePrompt(task, description, projects);
   let text = "";
   try {
-    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: TRIAGE_MODEL, label: "intake" })) {
+    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SONNET_MODEL, label: "intake" })) {
       if (ev.type === "delta") text += ev.text;
       if (ev.type === "reset") text = "";
     }

@@ -2,7 +2,7 @@ import type { InboxItem, Thread } from "@friday/shared";
 import { fetchContext, loadSlackCreds, slackCaller, type SlackContextLine } from "../connectors/slack.js";
 import { runJson } from "../connectors/exec.js";
 import { gitInspect } from "./git.js";
-import { readMemoryFile } from "../memory/files.js";
+import { personNote } from "../memory/files.js";
 import { resolveProject } from "../memory/projects.js";
 import { previousBriefs } from "../memory/threads.js";
 
@@ -16,11 +16,6 @@ export interface Enrichment {
 }
 
 const MEEGLE_URL = /https?:\/\/(?:project\.larksuite\.com|project\.feishu\.cn|[a-z0-9-]+\.meegle\.com)\/([a-z0-9_-]+)\/(story|issue|task|[a-z_]+)\/detail\/(\d+)/gi;
-
-/** 消息里提到的 Meegle 工单 id。Slack 里贴工单链接很常见，据此把线程接到对应的需求上。 */
-export function meegleIds(text: string): string[] {
-  return [...new Set([...text.matchAll(MEEGLE_URL)].map((m) => m[3]!).filter(Boolean))];
-}
 
 const projectKeys = new Map<string, string>();
 
@@ -59,22 +54,6 @@ export async function meegleLookups(text: string, run = runJson): Promise<string
     }
   }
   return out;
-}
-
-/** 从 people.md 里找这个人的条目（按姓名或英文名包含匹配）。 */
-export function personNote(userName: string, people = readMemoryFile("people")): string | undefined {
-  const tokens = userName
-    .replace(/[()（）]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
-  const sections = people.split(/^## /m).slice(1);
-  for (const sec of sections) {
-    const [title = "", ...rest] = sec.split("\n");
-    if (tokens.some((t) => title.toLowerCase().includes(t.toLowerCase()))) {
-      return `${title.trim()}：${rest.filter((l) => l.trim()).map((l) => l.replace(/^-\s*/, "").trim()).join("；")}`;
-    }
-  }
-  return undefined;
 }
 
 export async function enrichThread(thread: Thread, projectGuess?: string, loadContext = slackContext): Promise<Enrichment> {

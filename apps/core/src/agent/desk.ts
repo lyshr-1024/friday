@@ -1,6 +1,5 @@
 import type { Desk } from "@friday/shared";
-import { askStream } from "./claude.js";
-import { TRIAGE_MODEL } from "./triage.js";
+import { askStream, SONNET_MODEL } from "./claude.js";
 import { config } from "../config.js";
 import { runningJobs } from "../memory/jobs.js";
 import { listThreads } from "../memory/threads.js";
@@ -49,7 +48,7 @@ export async function buildDesk(): Promise<Desk> {
         `现在是 ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。`,
       ].join("\n"),
       cwd: config.dataDir,
-      model: TRIAGE_MODEL,
+      model: SONNET_MODEL,
       label: "desk",
     })) {
       if (ev.type === "delta") advice += ev.text;

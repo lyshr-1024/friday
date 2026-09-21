@@ -9,7 +9,7 @@ import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { listThreads } from "../memory/threads.js";
 import { state } from "../scheduler/index.js";
-import { personNote } from "./enrich.js";
+import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say, closeJobTerminal } from "./terminal.js";
 import { currentBranchSync } from "./git.js";

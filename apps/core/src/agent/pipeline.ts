@@ -10,7 +10,7 @@ import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } 
 import { createJob, getJob, setGhosttyId } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { meegleIds } from "./enrich.js";
+import { meegleIdsIn } from "../memory/infer.js";
 import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
@@ -93,7 +93,7 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
 
   // 消息里贴了 Meegle 工单链接就把线程接到那条工单上：聊的往往就是它，
   // 这样缺陷、需求、Slack 讨论能在一处看全。取任务板里已有的那个，没有就记 id 备查。
-  const mentioned = meegleIds(thread.items.map((i) => i.text).join("\n"));
+  const mentioned = meegleIdsIn(thread.items.map((i) => i.text).join("\n"));
   if (mentioned.length && !task.source.linkedStoryId) {
     const hit = mentioned.map((id) => findTaskBySource((s) => s.meegleId === id, true)).find(Boolean);
     const storyId = hit?.source.meegleId ?? mentioned[0]!;

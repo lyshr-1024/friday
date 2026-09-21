@@ -32,6 +32,9 @@ const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
 /** 只答一个 JSON 的小判断都用它：挂靠、查询分类、接哪段会话 */
 export const SMALL_MODEL = "claude-haiku-4-5";
 
+/** 要读懂中文语境、写给人看的文字，用它 */
+export const SONNET_MODEL = "claude-sonnet-5";
+
 /** 带图片/文档时走流式输入：一条 SDKUserMessage 就结束。 */
 async function* single(content: MessageParam["content"]): AsyncGenerator<SDKUserMessage> {
   yield { type: "user", message: { role: "user", content }, parent_tool_use_id: null };
