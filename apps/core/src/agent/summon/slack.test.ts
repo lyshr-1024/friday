@@ -37,4 +37,13 @@ describe("HUD 在 Slack 前台", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     expect(slackScene(undefined, "查无此人")).toBeUndefined();
   });
+
+  // Slack 显示名普遍是「中文名 (English Name)」，而窗口标题带未读数时只剩中文名，
+  // 严格相等会永远匹配不上——真机上就是这么漏的
+  it("显示名带英文后缀也能对上", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    addInboxItems([{ id: "H4:1", kind: "dm", channelId: "H4", channelName: "与 拂晓 (Chen Xiaofu) 的私聊", userId: "U4", userName: "拂晓 (Chen Xiaofu)", text: "那个改了吗", permalink: "p", ts: "400" }]);
+    expect(slackScene(undefined, "拂晓")?.conv).toBe("H4:400");
+    expect(slackScene(undefined, "拂晓 (Chen Xiaofu)")?.conv).toBe("H4:400");
+  });
 });

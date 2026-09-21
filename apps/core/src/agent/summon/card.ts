@@ -7,7 +7,7 @@ import type { Candidate } from "./match.js";
 export const SUMMON_MODEL = "claude-sonnet-5";
 // 呼出是「随手一按」的场景，模型再慢用户早就走了；不设上限的话
 // 连按几次热键会堆起多个并发 Sonnet 调用，各自烧钱且没人收。
-const SUMMON_TIMEOUT_MS = 20_000;
+const SUMMON_TIMEOUT_MS = 35_000;
 
 export interface CardInput {
   snapshot: Snapshot;
@@ -189,13 +189,22 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
   const { system, prompt } = cardPrompt(input);
   const ctrl = new AbortController();
   if (input.signal) input.signal.addEventListener("abort", () => ctrl.abort(), { once: true });
-  const timer = setTimeout(() => ctrl.abort(), SUMMON_TIMEOUT_MS);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, SUMMON_TIMEOUT_MS);
   let out = "";
   try {
     for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SUMMON_MODEL, label: "summon", signal: ctrl.signal })) {
       if (ev.type === "delta") out += ev.text;
       if (ev.type === "reset") out = "";
     }
+  } catch (e) {
+    // 中断（我们的超时，或 SDK 自己断了）时抛的是「aborted by user」，糊在卡上像是出了故障。
+    // 规则层那张卡已经渲染出来了，安静降级别盖掉它；真故障（模型报错、网络挂了）照旧抛出去。
+    const aborted = timedOut || ctrl.signal.aborted || /abort/i.test(e instanceof Error ? e.message : String(e));
+    if (!aborted) throw e;
   } finally {
     clearTimeout(timer);
   }
