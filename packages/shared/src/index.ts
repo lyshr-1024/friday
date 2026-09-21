@@ -542,6 +542,8 @@ export interface DeliveryReport {
   at?: string;
   /** 用户逐项确认的勾选状态，和 verify 对齐；全部勾完 = 这轮验收通过 */
   checked?: boolean[];
+  /** 查询类任务给出的、可直接发给对方的一句回复 */
+  reply?: string;
 }
 
 export interface Task {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReport } from "./report.js";
+import { parseReport, queryReplyDraft } from "./report.js";
 import { autonomousPrompt, buildScript } from "./runner.js";
 
 describe("交付报告", () => {
@@ -31,5 +31,28 @@ describe("交付报告", () => {
     expect(script).toContain("j.mcp.json");
     expect(script).toContain("--append-system-prompt");
     expect(script).toContain("friday_done");
+  });
+});
+
+describe("查询任务的回复草稿", () => {
+  it("从报告里取出「回复草稿」那一段", () => {
+    const md = [
+      "## 概要", "分群奖励配置在活动编辑页的分群 tab。", "",
+      "## 依据", "- apps/web/src/pages/activity/Groups.tsx:88 — 分群奖励表单在这里", "",
+      "## 回复草稿", "分群奖励在活动编辑页的分群 tab 里配，每个分群单独填奖励 ID，详情接口已经返回了。",
+    ].join("\n");
+    const r = parseReport(md);
+    expect(r.changes[0]).toContain("Groups.tsx:88");
+    expect(queryReplyDraft(r)).toContain("分群 tab");
+  });
+
+  it("没有回复草稿那段时返回 undefined", () => {
+    expect(queryReplyDraft(parseReport("## 概要\n查不到。"))).toBeUndefined();
+  });
+
+  it("草稿超长截断", () => {
+    const long = "啊".repeat(400);
+    const r = parseReport(`## 概要\nx\n\n## 回复草稿\n${long}`);
+    expect(queryReplyDraft(r)!.length).toBeLessThanOrEqual(300);
   });
 });

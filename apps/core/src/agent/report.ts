@@ -14,13 +14,20 @@ const bullets = (s: string) => s.split("\n").map((l) => l.replace(/^[-*]\s*/, ""
 export function parseReport(md: string, shots: Array<{ name: string; data: Buffer }> = []): DeliveryReport {
   return {
     summary: section(md, "概要") || "（报告缺少概要）",
-    changes: bullets(section(md, "改动")),
+    changes: bullets(section(md, "改动") || section(md, "依据")),
     testSteps: bullets(section(md, "测试")),
     testResult: section(md, "测试结果") || "（未写测试结果）",
     screenshots: shots.map((s) => saveAttachment(s.name, "image/png", s.data)),
     verify: bullets(section(md, "请验证")),
     at: new Date().toISOString(),
+    ...(section(md, "回复草稿") ? { reply: section(md, "回复草稿") } : {}),
   };
+}
+
+/** 查询类任务给出的、可直接发给对方的一句回复 */
+export function queryReplyDraft(report: DeliveryReport): string | undefined {
+  const draft = report.reply?.trim();
+  return draft ? draft.slice(0, 300) : undefined;
 }
 
 export function collectReport(jobId: string): DeliveryReport | undefined {

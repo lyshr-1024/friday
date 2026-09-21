@@ -48,7 +48,7 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const task = createTask({
     title: `回答 ${item.userName}：${ask.slice(0, 40)}`,
     kind: "slack",
-    source: { conversation: conv, channelId: item.channelId, userName: item.userName, ...(item.threadTs ? { threadTs: item.threadTs } : {}) },
+    source: { conversation: conv, channelId: item.channelId, userName: item.userName, repoDir: picked[0]!.dir, ...(item.threadTs ? { threadTs: item.threadTs } : {}) },
     ...(project ? { project } : {}),
     status: "processing",
     understanding: `${item.userName} 在 ${item.channelName} 问：${item.text}`,
@@ -70,7 +70,7 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
     risk: "read",
   });
 
-  return updateTask(task.id, { source: { ...task.source, jobId: id, headless: true }, progress: "Friday 正在代码里找答案" });
+  return updateTask(task.id, { source: { jobId: id, headless: true }, progress: "Friday 正在代码里找答案" });
 }
 
 /**

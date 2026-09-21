@@ -15,7 +15,7 @@ import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../mem
 import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
-import { collectReport } from "./report.js";
+import { collectReport, queryReplyDraft } from "./report.js";
 import { untrusted } from "./fence.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -239,11 +239,37 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   }
   // 分支是关联的钥匙，收工时补一次实际值（终端里可能 switch 过）
   const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
-  if (!job.task.source.autonomous) {
+  if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
+  // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
+  const conv = job.task.source.conversation;
+  if (conv) {
+    const draft = report ? queryReplyDraft(report) : undefined;
+    let t = updateTask(job.task.id, {
+      status: report ? "review" : "blocked",
+      attention: "review",
+      progress: report ? "查完了，等你看" : `没查出结果（退出码 ${exitCode}）`,
+      ...(report ? { report } : {}),
+    })!;
+    if (draft && !(t.pending ?? []).some((p) => p.type === "slack_reply")) {
+      t = addPending(t.id, {
+        type: "slack_reply",
+        label: `回复 ${job.task.source.userName ?? "对方"}`,
+        detail: draft,
+        payload: {
+          channel: job.task.source.channelId ?? "",
+          text: draft,
+          ...(job.task.source.threadTs ? { threadTs: job.task.source.threadTs } : {}),
+          ...(job.task.source.userName ? { userName: job.task.source.userName } : {}),
+        },
+      })!;
+    }
+    record({ taskId: t.id, action: "slack_query_done", why: "查询任务结束", how: report ? "已生成答案与草稿" : `退出码 ${exitCode}，没有报告`, evidence: { jobId, exitCode }, risk: "read", status: report ? "done" : "failed" });
+    return t;
+  }
   // 分支名由终端里的 Claude 按项目规范起，这里读实际值（读不到就不挂合并动作）
   const branch = exitBranch ?? "";
   record({
