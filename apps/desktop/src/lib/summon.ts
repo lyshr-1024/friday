@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { RunResponse, Snapshot, SummonAction, SummonEvent } from "@friday/shared";
-import { coreBaseUrl } from "./core";
+import { coreBaseUrl, conversationToTask, queryConversation } from "./core";
 
 export async function* summonStream(snapshot: Snapshot, signal: AbortSignal): AsyncGenerator<SummonEvent> {
   // core 连不上或中途断流时必须吐 error + done，否则界面永远停在「正在判断」
@@ -67,6 +67,12 @@ export async function runAction(action: SummonAction): Promise<string> {
     case "copy":
       await navigator.clipboard.writeText(action.text);
       return "已复制";
+    case "slack_query":
+      await queryConversation(action.conv);
+      return "已在工作台里查";
+    case "slack_task":
+      await conversationToTask(action.conv);
+      return "已建成任务";
     default: {
       const res = await fetch(`${base}/summon/act`, {
         method: "POST",

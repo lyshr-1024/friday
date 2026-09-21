@@ -4761,6 +4761,19 @@ body,
   color: var(--fg-2);
 }
 
+.hud__attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.hud__attach-list .b {
+  width: 100%;
+  text-align: left;
+}
+
 .hud__actions {
   position: relative;
   display: flex;

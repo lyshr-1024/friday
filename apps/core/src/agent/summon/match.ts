@@ -1,11 +1,14 @@
 import type { Project } from "../../memory/projects.js";
 import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
+import { getTask } from "../../memory/tasks.js";
+import { slackScene } from "./slack.js";
 
 export interface MatchInput {
   snapshot: Snapshot;
   tasks: Task[];
   projects: Project[];
   channel?: string;
+  person?: string;
 }
 
 export interface Candidate {
@@ -43,7 +46,7 @@ function projectByChannel(channel: string, projects: Project[]): Project | undef
 }
 
 export function candidates(input: MatchInput): Candidate[] {
-  const { snapshot, tasks, projects, channel } = input;
+  const { snapshot, tasks, projects, channel, person } = input;
   const out: Candidate[] = [];
   const seen = new Set<string>();
   const push = (task: Task, why: string, strength: Candidate["strength"]) => {
@@ -60,6 +63,12 @@ export function candidates(input: MatchInput): Candidate[] {
     // 撞上某个 meegleId 就会把无关任务的不可逆待审动作送上 HUD 按钮，还标着「确定」
     const id = /(?:#|Defect|Issue|Story|Bug|工单|需求|缺陷)\s*[#-]?\s*(\d{3,})/i.exec(snapshot.selection)?.[1];
     if (id) for (const t of tasks) if (t.source.meegleId === id) push(t, `选中的文字里有工单号 #${id}`, "sure");
+  }
+
+  if (snapshot.app.bundleId === SLACK_BUNDLE && (channel || person)) {
+    const scene = slackScene(channel, person);
+    const task = scene?.taskId ? getTask(scene.taskId) : undefined;
+    if (task) push(task, "这段 Slack 对话挂着这条任务", "sure");
   }
 
   if (channel) {
@@ -111,14 +120,24 @@ function describe(snapshot: Snapshot, channel?: string): string {
   return bits.join(" · ");
 }
 
+/** HUD 在 Slack 前台：帮我查这个 / 建成任务（只在没挂上时）/ 挂到…，零模型调用。 */
+function slackActions(scene: ReturnType<typeof slackScene>): SummonAction[] | undefined {
+  if (!scene) return undefined;
+  const actions: SummonAction[] = [{ kind: "slack_query", label: "帮我查这个", conv: scene.conv }];
+  if (!scene.taskId) actions.push({ kind: "slack_task", label: "建成任务", conv: scene.conv });
+  actions.push({ kind: "slack_attach", label: "挂到…", conv: scene.conv });
+  return actions;
+}
+
 export function buildRules(input: MatchInput): SummonRules {
   const hits = candidates(input);
   const top = hits[0];
   const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
+  const scene = input.snapshot.app.bundleId === SLACK_BUNDLE ? slackScene(input.channel, input.person) : undefined;
   return {
     saw: describe(input.snapshot, input.channel),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
-    actions: defaultActions(top?.task, project, input.snapshot),
+    actions: slackActions(scene) ?? defaultActions(top?.task, project, input.snapshot),
     // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。
     // 以前没命中就闭嘴，用户只看到「我看到了 Chrome」加一个建任务按钮，那是登记表不是助理。
     willThink: true,

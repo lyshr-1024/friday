@@ -577,7 +577,10 @@ export type SummonAction =
   | { kind: "create_task"; label: string; title: string }
   | { kind: "mark_done"; label: string; taskId: string }
   | { kind: "note"; label: string; text: string }
-  | { kind: "copy"; label: string; text: string };
+  | { kind: "copy"; label: string; text: string }
+  | { kind: "slack_query"; label: string; conv: string }
+  | { kind: "slack_task"; label: string; conv: string }
+  | { kind: "slack_attach"; label: string; conv: string };
 
 /** 规则层的产出：不调模型也能渲染的那部分 */
 export interface SummonRules {

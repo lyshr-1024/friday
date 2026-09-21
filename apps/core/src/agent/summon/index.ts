@@ -2,19 +2,27 @@ import type { Snapshot, SummonEvent } from "@friday/shared";
 import { listTasks } from "../../memory/tasks.js";
 import { loadProjects, type Project } from "../../memory/projects.js";
 import { loadMemoryContext } from "../../memory/context.js";
+import { personNote } from "../../memory/files.js";
 import { userSettings } from "../../settings.js";
 import { buildRules, candidates, parseSlackTitle } from "./match.js";
 import { summonCard } from "./card.js";
-import { slackContext } from "./slack.js";
+import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
 
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
 
+/** Slack 这段对话最近说了什么、对方是谁，给模型判断用；查不到返回 undefined。 */
+function slackContext(scene: SlackScene | undefined): string | undefined {
+  if (!scene) return undefined;
+  const note = personNote(scene.userName);
+  return [`${scene.userName} 在 ${scene.channelName} 最近说：${scene.text}`, note ? `这个人：${note}` : ""].filter(Boolean).join("\n");
+}
+
 /** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */
-function sceneContext(snapshot: Snapshot, projects: Project[], channel?: string, person?: string): string | undefined {
+function sceneContext(snapshot: Snapshot, projects: Project[], scene: SlackScene | undefined): string | undefined {
   if (TERMINAL_BUNDLES.has(snapshot.app.bundleId)) return terminalContext(snapshot, projects);
-  if (snapshot.app.bundleId === SLACK_BUNDLE) return slackContext(channel, person);
+  if (snapshot.app.bundleId === SLACK_BUNDLE) return slackContext(scene);
   return undefined;
 }
 
@@ -57,13 +65,21 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
   const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
-  const input = { snapshot, tasks, projects, channel };
+  const input = { snapshot, tasks, projects, channel, person };
   const rules = buildRules(input);
   yield { type: "rules", rules };
 
   try {
-    const scene = sceneContext(snapshot, projects, channel, person);
-    const card = await summonCard({ snapshot, rules, candidates: candidates(input), global: globalContext(), ...(scene ? { scene } : {}) });
+    const slack = snapshot.app.bundleId === SLACK_BUNDLE ? slackScene(channel, person) : undefined;
+    const scene = sceneContext(snapshot, projects, slack);
+    const card = await summonCard({
+      snapshot,
+      rules,
+      candidates: candidates(input),
+      global: globalContext(),
+      ...(scene ? { scene } : {}),
+      ...(slack ? { slackConv: slack.conv } : {}),
+    });
     yield { type: "card", card };
   } catch (e) {
     yield { type: "error", message: e instanceof Error ? e.message : String(e) };

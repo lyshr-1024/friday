@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import type { Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
-import { ask as askCore, coreBaseUrl } from "../lib/core";
+import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
+import { ask as askCore, attachConversation, coreBaseUrl, taskBoard } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
 
@@ -22,6 +22,7 @@ export function Hud() {
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [attaching, setAttaching] = useState<{ conv: string; tasks: Task[] } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -79,7 +80,7 @@ export function Hud() {
     if (!h) return;
     // 进位：差一两像素就会冒出滚动条
     void getCurrentWindow().setSize(new LogicalSize(HUD_WIDTH, Math.ceil(h) + 2));
-  }, [rules, card, open, confirming, note, answer, ask]);
+  }, [rules, card, open, confirming, attaching, note, answer, ask]);
 
   function isEditableFocus(): boolean {
     const el = document.activeElement;
@@ -96,6 +97,19 @@ export function Hud() {
       setReplyText(a.pendingType === "slack_reply" ? (card?.reply ?? "") : "");
       return;
     }
+    if (a.kind === "slack_attach") {
+      setBusy(true);
+      setNote(null);
+      try {
+        const board = await taskBoard();
+        setAttaching({ conv: a.conv, tasks: board.tasks });
+      } catch (e) {
+        setNote({ text: e instanceof Error ? e.message : "拿不到任务列表", err: true });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     setNote(null);
     try {
@@ -104,6 +118,22 @@ export function Hud() {
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : "执行失败", err: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pickAttach(taskId: string) {
+    if (!attaching) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      await attachConversation(attaching.conv, taskId);
+      setAttaching(null);
+      setNote({ text: "已挂上", err: false });
+      setTimeout(() => void invoke("hide_hud"), 1500);
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : "挂靠失败", err: true });
     } finally {
       setBusy(false);
     }
@@ -135,6 +165,7 @@ export function Hud() {
       if (e.key === "Escape") {
         e.preventDefault();
         if (confirming) { setConfirming(false); setPendingAction(null); }
+        else if (attaching) setAttaching(null);
         else void invoke("hide_hud");
         return;
       }
@@ -144,7 +175,7 @@ export function Hud() {
         else void invoke("open_chat", { conversationId: null, initialPrompt: null });
         return;
       }
-      if (confirming) return;
+      if (confirming || attaching) return;
       if (e.metaKey && /^[123]$/.test(e.key)) {
         const a = actions[Number(e.key) - 1];
         if (a && keyboardSafe(a)) {
@@ -293,6 +324,26 @@ export function Hud() {
             <button className="b b--text" onClick={() => { setConfirming(false); setPendingAction(null); }}>先不发</button>
           </div>
         </div>
+      ) : attaching ? (
+        <div className="hud__confirm">
+          <div className="hud__confirm-head">
+            <span className="hud__confirm-hint mono">Esc 取消</span>
+          </div>
+          {attaching.tasks.length ? (
+            <div className="hud__attach-list">
+              {attaching.tasks.map((t) => (
+                <button key={t.id} className="b" disabled={busy} onClick={() => void pickAttach(t.id)}>
+                  {t.title}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="hud__confirm-what">没有可挂的任务</p>
+          )}
+          <div className="hud__actions">
+            <button className="b b--text" onClick={() => setAttaching(null)}>取消</button>
+          </div>
+        </div>
       ) : (
         <div className="hud__actions">
           {actions.map((a, i) => (
@@ -304,7 +355,7 @@ export function Hud() {
       )}
       {note && <div className={`hud__note ${note.err ? "hud__note--err" : ""}`}>{note.text}</div>}
       {answer && <p className="hud__answer">{answer}</p>}
-      {!confirming && (
+      {!confirming && !attaching && (
         <div className="hud__ask">
           <textarea
             ref={inputRef}
