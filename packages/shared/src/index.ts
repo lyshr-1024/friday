@@ -246,6 +246,47 @@ export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" 
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
+/**
+ * 开发阶段：只给「要写代码的活」，Slack 回消息类没有。
+ * 这是 Friday 自己记的事实，不跟 Meegle 对齐——Meegle 上的状态依赖别人及时更新，不可信。
+ * released 是终态，落这个阶段的同时 status 置 done 从板上收走。
+ */
+export type Stage = "todo" | "dev" | "testing" | "accepted" | "released";
+
+export const STAGE_ORDER: Stage[] = ["todo", "dev", "testing", "accepted", "released"];
+
+export const STAGE_LABEL: Record<Stage, string> = {
+  todo: "没开始",
+  dev: "开始了",
+  testing: "测试中",
+  accepted: "验收完待发布",
+  released: "已上线",
+};
+
+/** 阶段变更的来由。auto/suggested 是 Friday 判的，其余是用户定的 */
+export type StageBy = "auto" | "suggested" | "user";
+
+/**
+ * 往回拨的两种原因，必须分开——
+ * misjudged 是 Friday 推错了（该学），bounced 是真被打回了（客观事实，学了会让它越来越不敢推）。
+ */
+export type RollbackReason = "misjudged" | "bounced";
+
+export const ROLLBACK_LABEL: Record<RollbackReason, string> = {
+  misjudged: "Friday 推错了",
+  bounced: "确实被打回了",
+};
+
+/** Friday 觉得该推进但信号不够硬时挂在卡片上的一问。用户答了就是一条 lesson */
+export interface StageHint {
+  to: Stage;
+  /** 给用户看的那句话，如「看起来提测了？」 */
+  ask: string;
+  /** 哪个信号触发的，用来归类学习 */
+  signal: string;
+  at: string;
+}
+
 /** 任务上挂的文档链接。前三个 Meegle 同步会写，meegle 那个是手贴的一篇文档，
     跟 meegleId 那条同步链路无关——贴了不会让任务被 Meegle 接管。 */
 export type TaskDocs = { req?: string; tech?: string; design?: string; meegle?: string };
@@ -442,6 +483,20 @@ export interface Task {
   source: TaskSource;
   project?: string;
   status: TaskStatus;
+  /**
+   * 开发阶段。只有「要写代码的活」有，Slack 回消息类是 undefined。
+   * 它和 status 是两件事：stage 说这活走到哪一步，status 说还在不在板上。
+   */
+  stage?: Stage;
+  /** 这个阶段是谁定的：Friday 自己推的会在卡片上标出来、可撤回 */
+  stageBy?: StageBy;
+  stageAt?: string;
+  /** 撤回用：Friday 推进前停在哪 */
+  stagePrev?: Stage;
+  /** Friday 想推进但信号不够硬，挂一问等用户答 */
+  stageHint?: StageHint;
+  /** 上线时间点。发到哪个环境不记——每个项目环境名都不一样 */
+  releasedAt?: string;
   priority: Urgency;
   understanding?: string;
   plan?: string;

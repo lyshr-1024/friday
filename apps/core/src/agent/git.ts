@@ -143,3 +143,14 @@ async function inspect(dir: string, what: GitInspect): Promise<string> {
     }
   }
 }
+
+/**
+ * 分支推上远端了没。这是本机能看到的、最接近「提测」的事实——
+ * 真正的 MR 状态要调 GitLab/GitHub API，那是另一条集成，这版不做。
+ * 推了不等于提测（可能只是备份），所以它是弱信号，由 stage 那边先问一句。
+ */
+export async function isPushed(dir: string, branch: string): Promise<boolean> {
+  if (!dir || !branch) return false;
+  const out = await git(dir, ["ls-remote", "--heads", "origin", branch]);
+  return Boolean(out) && !out.startsWith("（") && out.includes(branch);
+}

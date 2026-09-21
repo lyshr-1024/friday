@@ -112,6 +112,7 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
       title: story.name || name || `Meegle 需求 #${storyId}`,
       kind: "meegle",
       status: "understood",
+      stage: "todo",
       understanding: `Meegle 需求 #${storyId}，我在这个需求里担 ${roles.join("、")}。当前节点不在我手上（状态 ${story.statusKey}），但名下的缺陷要我改。`,
       source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey, storyContainer: true },
       ...(project ? { project } : {}),
@@ -181,7 +182,8 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[], manual
     linkedStoryId: item.linkedStory?.id,
     linkedStoryName: item.linkedStory?.name,
   };
-  return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
+  // 新工单一律从「没开始」起步。Meegle 那边的状态不拿来定阶段——它依赖别人及时更新，不可信。
+  return { title: item.name.slice(0, 200), priority, understanding: full, status, stage: "todo" as const, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
 }
 
 /**
@@ -318,7 +320,9 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         // Friday 里已经收工，Meegle 里却被 Reopen 又分派回来：拉回待办并提醒。
         // 只认 Reopen 状态——用户在 Friday 里主动标完成而 Meegle 还挂着的，不能每 15 分钟翻回来。
         const { status: _s, ...patch } = input;
-        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source });
+        // 阶段也得跟着回退：Friday 里标着「已上线」的活又被打回来了，
+        // 留着旧阶段会让卡片显示一个早就不成立的结论。回到「开始了」等你重新判。
+        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source, stage: "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120) });
         reopened++;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DeliveryReport, PendingAction, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
+import type { DeliveryReport, PendingAction, Stage, StageBy, StageHint, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
 import { inferTaskLinks } from "./infer.js";
 import { publish } from "../bus.js";
@@ -20,6 +20,12 @@ interface Row {
   due: string | null;
   attention: TaskAttention | null;
   pinned: number;
+  stage: Stage | null;
+  stage_by: StageBy | null;
+  stage_at: string | null;
+  stage_prev: Stage | null;
+  stage_hint: string | null;
+  released_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +46,12 @@ const toTask = (r: Row): Task => ({
   ...(r.due ? { due: r.due } : {}),
   ...(r.attention ? { attention: r.attention } : {}),
   ...(r.pinned ? { pinned: true } : {}),
+  ...(r.stage ? { stage: r.stage } : {}),
+  ...(r.stage_by ? { stageBy: r.stage_by } : {}),
+  ...(r.stage_at ? { stageAt: r.stage_at } : {}),
+  ...(r.stage_prev ? { stagePrev: r.stage_prev } : {}),
+  ...(r.stage_hint ? { stageHint: JSON.parse(r.stage_hint) as StageHint } : {}),
+  ...(r.released_at ? { releasedAt: r.released_at } : {}),
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -57,14 +69,15 @@ export function createTask(input: {
   plan?: string;
   due?: string;
   status?: TaskStatus;
+  stage?: Stage;
 }): Task {
   const id = randomUUID();
   const t = now();
   db()
     .prepare(
-      "INSERT INTO tasks (id, title, kind, source, project, status, priority, understanding, plan, due, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tasks (id, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(input.source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, t, t);
+    .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(input.source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
   publish({ type: "tasks" });
   const task = getTask(id)!;
   inferTaskLinks(task);
@@ -87,14 +100,20 @@ export function findTaskBySource(pred: (s: TaskSource) => boolean, includeClosed
 
 export function updateTask(
   id: string,
-  patch: Partial<Pick<Task, "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due" | "source" | "attention" | "pinned">>,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title" | "project" | "status" | "priority" | "understanding" | "plan" | "progress" | "report" | "pending" | "due" | "source" | "attention" | "pinned"
+      | "stage" | "stageBy" | "stageAt" | "stagePrev" | "stageHint" | "releasedAt"
+    >
+  >,
 ): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
   const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
   db()
     .prepare(
-      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, attention = ?, pinned = ?, updated_at = ? WHERE id = ?",
+      "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, attention = ?, pinned = ?, stage = ?, stage_by = ?, stage_at = ?, stage_prev = ?, stage_hint = ?, released_at = ?, updated_at = ? WHERE id = ?",
     )
     .run(
       next.title,
@@ -110,6 +129,12 @@ export function updateTask(
       JSON.stringify(next.source),
       next.attention ?? null,
       next.pinned ? 1 : 0,
+      next.stage ?? null,
+      next.stageBy ?? null,
+      next.stageAt ?? null,
+      next.stagePrev ?? null,
+      next.stageHint ? JSON.stringify(next.stageHint) : null,
+      next.releasedAt ?? null,
       now(),
       id,
     );

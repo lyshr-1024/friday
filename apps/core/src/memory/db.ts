@@ -51,6 +51,12 @@ export function migrate(d: DatabaseSync): void {
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!taskCols.includes("attention")) d.exec("ALTER TABLE tasks ADD COLUMN attention TEXT");
   if (!taskCols.includes("pinned")) d.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  if (!taskCols.includes("stage")) d.exec("ALTER TABLE tasks ADD COLUMN stage TEXT");
+  if (!taskCols.includes("stage_by")) d.exec("ALTER TABLE tasks ADD COLUMN stage_by TEXT");
+  if (!taskCols.includes("stage_at")) d.exec("ALTER TABLE tasks ADD COLUMN stage_at TEXT");
+  if (!taskCols.includes("stage_prev")) d.exec("ALTER TABLE tasks ADD COLUMN stage_prev TEXT");
+  if (!taskCols.includes("stage_hint")) d.exec("ALTER TABLE tasks ADD COLUMN stage_hint TEXT");
+  if (!taskCols.includes("released_at")) d.exec("ALTER TABLE tasks ADD COLUMN released_at TEXT");
   // 开工提案曾经会把工单推进 review，于是「待我决定」里堆的全是还没开工的工单，
   // 而「缺陷」分组反而是空的。挂着开工提案、没有别的待审动作的，放回待办里。
   d.exec(`UPDATE tasks SET status = 'understood'
@@ -59,6 +65,21 @@ export function migrate(d: DatabaseSync): void {
             AND pending NOT LIKE '%"slack_reply"%'
             AND pending NOT LIKE '%"git_merge"%'
             AND pending NOT LIKE '%"handbook_apply"%'`);
+
+  // 存量任务补 stage：status 七态里 understood/processing/review 的语义被 stage 接管了。
+  // 只补「要写代码的活」——Slack 回消息类没有阶段，留空。
+  // 判据全是库里已有的事实，不猜：有分支就是已经动手了。
+  d.exec(`UPDATE tasks SET stage = CASE
+            WHEN status = 'done' THEN 'released'
+            WHEN status = 'review' THEN 'testing'
+            WHEN status = 'processing' THEN 'dev'
+            WHEN json_extract(source, '$.branch') IS NOT NULL THEN 'dev'
+            ELSE 'todo'
+          END,
+          stage_by = 'auto'
+          WHERE stage IS NULL
+            AND json_extract(source, '$.threadId') IS NULL
+            AND json_extract(source, '$.fromTaskId') IS NULL`);
 }
 
 export function db(): DatabaseSync {

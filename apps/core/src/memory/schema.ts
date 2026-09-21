@@ -167,6 +167,17 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE UNIQUE INDEX IF NOT EXISTS links_edge ON links (from_kind, from_ref, to_kind, to_ref);
 CREATE INDEX IF NOT EXISTS links_from ON links (from_kind, from_ref);
 CREATE INDEX IF NOT EXISTS links_to ON links (to_kind, to_ref);
+
+-- 阶段判断的经验：每条信号推错 / 推对了几次。
+-- 弱信号攒够一致的确认就升级成强信号，往后直接推不再问。
+CREATE TABLE IF NOT EXISTS stage_signals (
+  signal TEXT PRIMARY KEY,
+  -- 用户确认「是，该推」的次数
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  -- 用户否了、或推完又撤回的次数
+  rejected INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

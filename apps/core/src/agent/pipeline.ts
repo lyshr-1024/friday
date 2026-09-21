@@ -13,6 +13,7 @@ import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport, queryReplyDraft } from "./report.js";
+import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 
