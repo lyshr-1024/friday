@@ -69,11 +69,6 @@ export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   return rows.map(toItem);
 }
 
-export function getInboxItem(id: string): InboxItem | undefined {
-  const row = db().prepare("SELECT * FROM inbox WHERE id = ?").get(id) as unknown as Row | undefined;
-  return row ? toItem(row) : undefined;
-}
-
 export function setPrior(id: string, lines: string[]): void {
   db().prepare("UPDATE inbox SET prior = ? WHERE id = ?").run(JSON.stringify(lines), id);
 }
