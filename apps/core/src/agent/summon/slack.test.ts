@@ -6,7 +6,7 @@ import { linkUp } from "../../memory/links.js";
 import { slackNode, taskNode } from "../../memory/infer.js";
 import { slackScene } from "./slack.js";
 
-const recentMock = vi.fn(async () => ({ lines: [] as Array<{ ts: string; userName: string; text: string }> }));
+const recentMock = vi.fn(async (): Promise<{ channelId?: string; lines: Array<{ ts: string; userName: string; text: string }> }> => ({ lines: [] }));
 vi.mock("../../connectors/slack.js", () => ({
   loadSlackCreds: async () => ({ token: "t", cookie: "c" }),
   slackCaller: () => async () => ({}),
@@ -78,6 +78,24 @@ describe("HUD 在 Slack 前台", () => {
     expect(scene.text).toBe("没有人在用了");
     expect(scene.channelName).toBe("#team-no-local");
     expect(scene.recent).toHaveLength(2);
+  });
+
+  // 搜索接口给的是账号名（jiacheng.zhou），收件箱里存的是显示名（佳成 (Zhou Jiacheng)）。
+  // 同一个人两种叫法模型对不上，拿收件箱当花名册换过来
+  it("实时消息里的账号名换成熟悉的显示名", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    addInboxItems([{ id: "H8:1", kind: "dm", channelId: "H8", channelName: "与 佳成 (Zhou Jiacheng) 的私聊", userId: "U8", userName: "佳成 (Zhou Jiacheng)", text: "在", permalink: "p", ts: "800" }]);
+    recentMock.mockResolvedValueOnce({
+      channelId: "C88",
+      lines: [
+        { ts: "880", userName: "jiacheng.zhou", text: "菜单去掉 anyOf" },
+        { ts: "881", userName: "someone.else", text: "收到" },
+      ],
+    });
+    const scene = (await slackScene("team-name-book", undefined))!;
+    expect(scene.recent?.[0]?.userName).toBe("佳成 (Zhou Jiacheng)");
+    // 花名册里没有的原样留着，不要瞎猜
+    expect(scene.recent?.[1]?.userName).toBe("someone.else");
   });
 
   it("私聊不拉实时消息", async () => {
