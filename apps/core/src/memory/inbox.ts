@@ -62,6 +62,9 @@ export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
   return added;
 }
 
+/** 按对话聚合消息时一次扫多少条。超过这个数更早的消息就聚不回任务卡了。 */
+export const CONV_SCAN_LIMIT = 500;
+
 export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   const rows = db()
     .prepare(`SELECT * FROM inbox ${includeDone ? "" : "WHERE done = 0"} ORDER BY ts DESC LIMIT ?`)

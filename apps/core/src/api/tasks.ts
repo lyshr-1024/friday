@@ -4,7 +4,7 @@ import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
 import { conversationKey, type InboxItem, type SlackConversation, type StateTransition, type Task } from "@friday/shared";
-import { listInbox } from "../memory/inbox.js";
+import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { taskNode } from "../memory/infer.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
@@ -72,7 +72,7 @@ export const tasks = new Hono()
   .get("/tasks", async (c) => {
     const board = taskBoard();
     const withTerminal = (t: Task): Task => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t);
-    const withSlack = slackOf(listInbox(true, 500));
+    const withSlack = slackOf(listInbox(true, CONV_SCAN_LIMIT));
     return c.json({
       ...board,
       tasks: board.tasks.map((t) => withSlack(withTerminal(t))),

@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { startQueryJob } from "../agent/slack/queryJob.js";
 import { conversationKey, slackNode, taskNode } from "../memory/infer.js";
-import { listInbox } from "../memory/inbox.js";
+import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp, unlink } from "../memory/links.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
 
-const findConversation = (conv: string) => listInbox(true, 500).filter((i) => conversationKey(i) === conv).sort((a, b) => Number(a.ts) - Number(b.ts));
+const findConversation = (conv: string) => listInbox(true, CONV_SCAN_LIMIT).filter((i) => conversationKey(i) === conv).sort((a, b) => Number(a.ts) - Number(b.ts));
 
 export const slack = new Hono()
   .post("/slack/:conv/attach", async (c) => {

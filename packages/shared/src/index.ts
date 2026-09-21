@@ -395,6 +395,15 @@ export type TaskCategory = "slack" | "defect" | "story" | "other";
 
 export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
 
+/**
+ * 是不是 Friday 自己接下的后台查询任务（只读查代码、产出回复草稿那种）。
+ * headless 全仓只有 startQueryJob 会写，是唯一准确的标记——别改用 kind 或
+ * conversation 单独判断：HUD 手动建的任务也带 conversation，会被误判。
+ */
+export function isQueryTask(source: TaskSource): boolean {
+  return Boolean(source.headless && source.conversation);
+}
+
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
   // Slack 来的没有 meegleType：线程本身靠 threadId 认，情境卡派生的待办靠 fromTaskId
