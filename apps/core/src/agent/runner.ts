@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
 import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
 import { record } from "../memory/audit.js";
+import { publish } from "../bus.js";
 import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
 import { handbookBlock } from "../memory/handbooks.js";
@@ -292,6 +293,9 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
   });
   reviveJob(jobId);
   if (ghosttyId) setGhosttyId(jobId, ghosttyId);
+  // 只推过 gone 的话前端那张表就是个只进不出的锁存器，按钮永远停在「重开终端」，
+  // 每点一次多开一个窗口。窗口回来了就得说一声。
+  publish({ type: "terminal", jobId, state: "idle" });
   record({
     action: "terminal_reopened",
     why: "终端窗口关掉了但任务还没做完",

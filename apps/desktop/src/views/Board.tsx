@@ -450,6 +450,14 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
     try {
       const b = await taskBoard();
       setBoard(b);
+      // 快照比之前收到的事件新：清掉这些 job 的本地覆盖。服务端只推 gone 不推 idle，
+      // 留着会变成只进不出的锁存器——终端早重开了，按钮还一直写着「重开终端」
+      setTermStates((m) => {
+        if (!m.size) return m;
+        const next = new Map(m);
+        for (const t of b.tasks) if (t.source.jobId) next.delete(t.source.jobId);
+        return next.size === m.size ? m : next;
+      });
       setErr("");
       failures.current = 0;
       // 侧栏「Friday 在做」的数字要和页面上那个分组一致：只算 processing，待办另有分组
@@ -1470,7 +1478,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                 窗口关掉之后不是就完了——重开一个 --resume 接回原来那个 Claude 会话 */}
             {t.source.jobId && (
               t.terminal === "gone" ? (
-                <button className="b b--ghost" title="窗口已经关了，重开一个并接回原来的会话" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
+                <button className="b b--ghost" title="Friday 交付完这一轮就把窗口关了，重开会 --resume 接回原来那个会话，上下文不丢" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
                   <Icon name="terminal" />重开终端
                 </button>
               ) : (
