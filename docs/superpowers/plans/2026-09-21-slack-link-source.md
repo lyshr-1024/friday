@@ -742,22 +742,27 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 5: 只读的查代码任务
+### Task 5: 只读的查代码任务（后台跑，不弹窗口）
 
 起一个 `claude -p` 去项目里查，只读，不建 worktree，不改代码。产出结果与回复草稿。
+
+**后台跑，不开终端窗口。** 用户明确要求：查代码这活儿自己在后台跑完，他主动点的时候才弹出来。所以这条路**不走 `launchClaude`**（那条必然 `osascript` + `activate` 抢前台，见 `agent/ghostty.ts:38-54`），改成直接 `spawn` 一个 `claude -p` 子进程，stdout / stderr 落到 `<runs>/<id>.log`。进程退出后自己调 `onJobExit`，不依赖终端脚本里那句 `curl POST /jobs/:id/exit`。
+
+想看它在干什么有两条路，都不打断工作：任务卡上的「终端在做」动作流照常（Stop hook 仍在，见下）、点「打开终端看」才 `reopenTerminal` 弹一个接上同一会话的窗口。
 
 **Files:**
 - Create: `apps/core/src/agent/slack/queryJob.ts`
 - Test: `apps/core/src/agent/slack/queryJob.test.ts`
-- Modify: `apps/core/src/agent/runner.ts`（`LaunchRequest` 加 `readonly`；`buildHookSettings` 挂只读守卫；`writeHookFiles` 生成只读守卫脚本）
+- Modify: `apps/core/src/agent/runner.ts`（`LaunchRequest` 加 `readonly`；`buildHookSettings` 挂只读守卫；`writeHookFiles` 生成只读守卫脚本；导出 `writeHookFiles` 与 `findClaude` 供后台路径复用）
 - Modify: `apps/core/src/agent/guard.ts`（加只读工具黑名单）
 - Test: `apps/core/src/agent/guard.test.ts`（追加用例）
 
 **Interfaces:**
-- Consumes: `launchClaude`（`agent/runner.ts`）、`createJob` / `setGhosttyId`（`memory/jobs.ts`）、`createTask` / `updateTask` / `addPending`（`memory/tasks.ts`）、`linkUp` / `slackNode` / `taskNode`、`conversationKey`、`record`（`memory/audit.ts`）、`reportPath` / `jobLog`（`agent/runner.ts`）
+- Consumes: `findClaude` / `writeHookFiles` / `claudeFlags` / `jobLog` / `reportPath`（`agent/runner.ts`）、`cleanEnv`（`agent/env.ts`）、`createJob`（`memory/jobs.ts`）、`createTask` / `updateTask`（`memory/tasks.ts`）、`linkUp` / `slackNode` / `taskNode`、`conversationKey`、`record`（`memory/audit.ts`）、`onJobExit`（`agent/pipeline.ts`，动态 import 避免循环依赖）
 - Produces:
-  - `READONLY_TOOLS: string[]` 与 `forbiddenTool(name: string): string | undefined`（`agent/guard.ts`）
+  - `WRITE_TOOLS: string[]` 与 `forbiddenTool(name: string): string | undefined`（`agent/guard.ts`）
   - `queryJobPrompt(id: string, ask: string, projects: Array<{ name: string; dir: string }>, asker: string): string`
+  - `spawnHeadless(id: string, dir: string, prompt: string): void`（`agent/slack/queryJob.ts`，后台起进程并在退出时回调）
   - `startQueryJob(item: InboxItem, ask: string, project?: string): Promise<Task | undefined>`
 
 **为什么要改 runner：** 现有的 `buildGuardScript` 只拦 Bash 命令（hook matcher 是 `"Bash"`），`--dangerously-skip-permissions` 又让 `permissions.deny` 完全失效。所以「只读」必须再挂一条 matcher 为 `Edit|Write|NotebookEdit|MultiEdit` 的 PreToolUse hook，直接 deny。
@@ -925,6 +930,21 @@ describe("queryJobPrompt", () => {
   it("要求最后给一句可直接发出去的回复", () => {
     expect(queryJobPrompt("job1", "x", one, "A")).toContain("## 回复草稿");
   });
+
+  it("不提终端、不让它等人——它跑在后台没有窗口", () => {
+    const p = queryJobPrompt("job1", "x", one, "A");
+    expect(p).toContain("不要问用户问题");
+  });
+});
+
+describe("claudeArgs", () => {
+  it("后台跑要带 -p，参数是数组不带引号（spawn 用）", async () => {
+    const { claudeArgs } = await import("../runner.js");
+    const args = claudeArgs({ settings: "/tmp/a b.json", mcp: "/tmp/c.json" }, true);
+    expect(args[0]).toBe("-p");
+    expect(args).toContain("/tmp/a b.json");
+    expect(args.some((a) => a.startsWith("'"))).toBe(false);
+  });
 });
 ```
 
@@ -938,17 +958,19 @@ Expected: FAIL，找不到模块 `./queryJob.js`。
 新建 `apps/core/src/agent/slack/queryJob.ts`：
 
 ```ts
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
 import type { InboxItem, Task } from "@friday/shared";
 import { record } from "../../memory/audit.js";
 import { conversationKey, slackNode, taskNode } from "../../memory/infer.js";
-import { createJob, setGhosttyId } from "../../memory/jobs.js";
+import { createJob } from "../../memory/jobs.js";
 import { linkUp } from "../../memory/links.js";
 import { loadProjects } from "../../memory/projects.js";
 import { createTask, updateTask } from "../../memory/tasks.js";
-import { userSettings } from "../../settings.js";
+import { cleanEnv } from "../env.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
-import { jobLog, launchClaude, reportPath } from "../runner.js";
+import { claudeArgs, findClaude, jobLog, reportPath, writeHookFiles } from "../runner.js";
 
 export function queryJobPrompt(id: string, ask: string, projects: Array<{ name: string; dir: string }>, asker: string): string {
   const multi = projects.length > 1;
@@ -996,28 +1018,86 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const id = randomUUID();
   const dir = picked[0]!.dir;
   const prompt = queryJobPrompt(id, ask, picked.map((p) => ({ name: p.name, dir: p.dir })), item.userName);
-  const { ghosttyId } = await launchClaude({ id, dir, terminal: userSettings().terminal, task: prompt, readonly: true });
   createJob({ id, project: picked[0]!.name, dir, task: ask.slice(0, 500), logPath: jobLog(id), taskId: task.id });
-  if (ghosttyId) setGhosttyId(id, ghosttyId);
+  spawnHeadless(id, dir, prompt);
 
   record({
     taskId: task.id,
     action: "slack_query_start",
     why: `${item.userName} 问了一个读代码就能答的问题`,
-    how: `在 ${picked.map((p) => p.name).join(" / ")} 里只读查找`,
+    how: `在 ${picked.map((p) => p.name).join(" / ")} 里只读查找（后台跑，不弹窗口）`,
     evidence: { jobId: id, conversation: conv, ask },
     risk: "read",
   });
 
-  return updateTask(task.id, { source: { ...task.source, jobId: id }, progress: "Friday 正在代码里找答案" });
+  return updateTask(task.id, { source: { ...task.source, jobId: id, headless: true }, progress: "Friday 正在代码里找答案" });
+}
+
+/**
+ * 后台跑一个只读的 claude -p：不开终端窗口，输出落日志文件。
+ * 没有终端脚本替它回报退出码，所以进程退出时自己调 onJobExit。
+ */
+export function spawnHeadless(id: string, dir: string, prompt: string): void {
+  void (async () => {
+    const claudePath = await findClaude();
+    const files = writeHookFiles(id, false, true);
+    const log = createWriteStream(jobLog(id), { flags: "a" });
+    const child = spawn(claudePath, [...claudeFlags(files, true).split(" ").map(unquote), prompt], {
+      cwd: dir,
+      env: cleanEnv(process.env),
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false,
+    });
+    child.stdout.pipe(log);
+    child.stderr.pipe(log);
+    child.on("exit", (code) => {
+      log.end();
+      void import("../pipeline.js").then((m) => m.onJobExit(id, code ?? -1));
+    });
+    child.on("error", (e) => {
+      log.end();
+      console.error(`[slack-query] ${id} 起不来：${e.message}`);
+      void import("../pipeline.js").then((m) => m.onJobExit(id, -1));
+    });
+  })();
 }
 ```
+
+`claudeFlags` 现在返回的是一整条 shell 字符串（给脚本用的），`spawn` 需要数组。加一个 `unquote` 把 `shellQuote` 加的单引号剥掉：
+
+```ts
+const unquote = (s: string): string => (s.startsWith("'") && s.endsWith("'") ? s.slice(1, -1).replace(/'\\''/g, "'") : s);
+```
+
+**更稳妥的做法**（推荐，避免字符串拆词的坑）：在 `runner.ts` 里把参数拼装抽成数组版，`claudeFlags` 改为调用它：
+
+```ts
+export function claudeArgs(files: ClaudeFiles, headless = false): string[] {
+  return [
+    ...(headless ? ["-p"] : []),
+    "--dangerously-skip-permissions",
+    "--settings", files.settings,
+    "--mcp-config", files.mcp,
+    "--append-system-prompt", terminalBridgePrompt(),
+  ];
+}
+
+export function claudeFlags(files: ClaudeFiles, headless = false): string {
+  return claudeArgs(files, headless).map(shellQuote).join(" ");
+}
+```
+
+`spawnHeadless` 里直接 `spawn(claudePath, [...claudeArgs(files, true), prompt], …)`，不需要 `unquote`。**按这个版本实现。**
+
+`writeHookFiles` 目前是模块私有，改成 `export function writeHookFiles(...)`。
 
 `TaskSource` 加三个字段（`packages/shared/src/index.ts`，`TaskSource` 接口内）：
 
 ```ts
   /** 这条任务对应的 Slack 对话键（channelId:ts） */
   conversation?: string;
+  /** 这个 job 在后台跑，没有终端窗口；想看要点「打开终端看」 */
+  headless?: boolean;
   /** 对话所在频道，回帖时用 */
   channelId?: string;
   /** 问问题的人 */
@@ -1038,8 +1118,10 @@ Expected: 全绿。
 
 ```bash
 git add apps/core/src/agent/slack/queryJob.ts apps/core/src/agent/slack/queryJob.test.ts apps/core/src/agent/runner.ts apps/core/src/agent/guard.ts apps/core/src/agent/guard.test.ts packages/shared/src/index.ts
-git commit -m "查询类问题起一个只读的 claude -p 去找答案
+git commit -m "查询类问题在后台跑一个只读的 claude -p 去找答案
 
+后台 spawn，不弹窗口——这活儿不该打断你手上的事，想看的时候再点开。
+输出落 <id>.log，进程退出自己回调 onJobExit（没有终端脚本替它报退出码）。
 只读靠 PreToolUse hook 挡 Edit/Write：--dangerously-skip-permissions 会让
 permissions.deny 失效，而原来的 Bash 守卫 matcher 只认 Bash。
 报告要求给文件路径和行号，最后一段是可直接发出去的回复草稿。
@@ -1051,7 +1133,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ### Task 6: 查询任务收工 → 挂回复草稿
 
-终端退出后解析报告，任务进 review，挂 `slack_reply` 待审。
+后台进程退出后解析报告，任务进 review，挂 `slack_reply` 待审。触发点是 Task 5 `spawnHeadless` 里 `child.on("exit")` 直接调的 `onJobExit`，不经过终端脚本那句 `curl`。
 
 **Files:**
 - Modify: `apps/core/src/agent/report.ts`（`parseReport` 认「依据」「回复草稿」两段）
@@ -1771,6 +1853,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Modify: `apps/core/src/api/tasks.ts`（`GET /tasks` 带上挂着的对话）
 - Modify: `apps/desktop/src/lib/core.ts`（加四个调用）
 - Modify: `apps/desktop/src/views/Board.tsx:1250-1305`（`.fx__source` 换数据源；删 `evidenceCheck`（:58）与 `.fx__evidence`；`consequence()`（:39）的 `thread` 参数改成对话）
+- Modify: `apps/desktop/src/views/Board.tsx:1473-1480`（后台任务的「打开终端看」按钮）
 - Modify: `apps/desktop/src/styles.css`（`.fx__slack` 一组样式）
 - Modify: `packages/shared/src/index.ts`（`Task` 加 `conversations?`）
 
@@ -1857,7 +1940,32 @@ export const conversationToTask = (conv: string) =>
   post(`/slack/${encodeURIComponent(conv)}/task`, {});
 ```
 
-- [ ] **Step 3: 样式**
+- [ ] **Step 3: 后台任务给一个「打开终端看」**
+
+后台跑的查询任务没有窗口，`.fx__acts` 里现有的「聚焦终端」（`Board.tsx:1477`，走 `jobFocus`）对它无效——`ghostty_id` 是空的。改成：`t.source.headless` 为真时按钮文案是「打开终端看」，点它走 `jobReopen`（`core.ts:317`，`reopenTerminal` 会用 `--resume` 接回同一个 Claude 会话，见 `runner.ts:280`），弹出的窗口里能看到它到目前为止做了什么。
+
+```tsx
+{t.source.jobId ? (
+  <button className="b" onClick={() => void onAct(t, () => (t.source.headless ? jobReopen(t.source.jobId!) : jobFocus(t.source.jobId!)))}>
+    {t.source.headless ? "打开终端看" : "聚焦终端"}
+  </button>
+) : null}
+```
+
+注意 `reopenTerminal` 不传 `autonomous` / `readonly`（`runner.ts:286-292`），重开的窗口**没有只读守卫**。这是可接受的：你亲手打开的窗口就是你自己的会话，权限跟平时用 claude 一致。但要在 `runner.ts` 的 `reopenTerminal` 里把 `readonly` 透传回去，免得它接着改文件：
+
+```ts
+  const { ghosttyId } = await launchClaude({
+    id: jobId,
+    dir: job.dir,
+    terminal,
+    ...(job.task ? { task: job.task } : {}),
+    ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
+    ...(findTaskBySource((s) => s.jobId === jobId, true)?.source.headless ? { readonly: true } : {}),
+  });
+```
+
+- [ ] **Step 4: 样式**
 
 `apps/desktop/src/styles.css` 加（沿用已有 token，不新增颜色）：
 
@@ -1875,12 +1983,12 @@ export const conversationToTask = (conv: string) =>
 .fx__conv-msg:hover .link { opacity: 1; }
 ```
 
-- [ ] **Step 4: 类型检查与测试**
+- [ ] **Step 5: 类型检查与测试**
 
 Run: `cd /Users/jinghaoran/hr-lys/friday-feat-slack-link-source && pnpm typecheck && cd apps/core && pnpm test`
 Expected: 全绿。
 
-- [ ] **Step 5: 浏览器里实际看一眼**
+- [ ] **Step 6: 浏览器里实际看一眼**
 
 Run（两个终端）：
 
@@ -1889,9 +1997,9 @@ cd apps/core && FRIDAY_PORT=7791 FRIDAY_DATA_DIR=/tmp/friday-slack-check FRIDAY_
 cd apps/desktop && VITE_FRIDAY_PORT=7791 pnpm vite --port 1421
 ```
 
-用 agent-browser skill 打开 `http://localhost:1421`，造一条带对话的任务，确认：这一段出现在标题下方、「不是这条」能点、「在 Slack 打开」hover 才出现、窄窗口不横向溢出。截图存下来。
+用 agent-browser skill 打开 `http://localhost:1421`，造一条带对话的任务，确认：这一段出现在标题下方、「不是这条」能点、「在 Slack 打开」hover 才出现、后台任务的按钮写的是「打开终端看」、窄窗口不横向溢出。截图存下来。
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 7: 提交**
 
 ```bash
 git add -A apps/core/src apps/desktop/src packages/shared/src
@@ -2110,10 +2218,11 @@ cd /Users/jinghaoran/hr-lys/friday-feat-slack-link-source/apps/core && pnpm dev
 
 1. **带工单链接的 @** → 对应 Meegle 任务卡出现「Slack 里的讨论」。
 2. **同人同频道 3 小时后的无链接消息** → 自动挂到同一任务，卡片显示那条边的理由。
-3. **私聊问「xx 在哪实现的」** → 「Friday 在做」出现一张卡 → 终端只读跑完 → 进 review 有草稿和依据（文件路径+行号）→ 点「看一眼再发」发出。
+3. **私聊问「xx 在哪实现的」** → 「Friday 在做」出现一张卡，**全程不弹任何终端窗口**（这是本次改动的重点，盯着屏幕确认）→ 跑完进 review，有草稿和依据（文件路径+行号）→ 点「看一眼再发」发出。
 4. **同样的问题你先在 Slack 里回了** → 下一轮同步后卡片自动 done，账本一条 `slack_settled_by_user`。
 5. **Slack 前台按 ⌘⇧Space** → 卡片显示「属于任务 X」→「挂到…」改到另一条任务 → 任务卡更新 → 同人再发消息直接挂到新任务。
-6. **只读守卫**：在查询任务的终端里让它改一个文件，确认被拒绝（`<id>.hook.log` 里能看到 deny）。
+6. **只读守卫**：查询任务跑的时候看 `<dataDir>/runs/<id>.log`，若它试过改文件，`<id>.hook.log` 里应有 deny 记录。没触发的话，手动验：在任务卡点「打开终端看」，在弹出的窗口里让它改一个文件，确认被拒绝。
+7. **后台进程收得干净**：查询任务跑完后 `ps aux | grep claude` 不应残留该 job 的进程，库里 `jobs` 那行 status 应是 done。
 
 - [ ] **Step 3: 核对成本**
 
@@ -2156,13 +2265,15 @@ git worktree prune
 | §8 测试与验收 | 各 Task 的测试步骤 + Task 13 |
 | §9 不做 | 全程不碰 |
 
-**类型一致性**：`conversationKey` / `slackNode` / `attachedTasks` / `candidateTasks` / `hardSignal` / `attachOnce` / `hasQuestionSignal` / `classifyQuery` / `startQueryJob` / `queryReplyDraft` / `settleQueryTasks` / `slackScene` 在定义处与使用处名称一致。`SMALL_MODEL`（Haiku，挂靠与查询分类）与 `SONNET_MODEL`（替代 `TRIAGE_MODEL`）分别定义在 `agent/claude.ts`。`TaskSource` 新增的四个字段（`conversation` / `channelId` / `userName` / `threadTs`）在 Task 5 定义，Task 6、8、9、10 使用。
+**类型一致性**：`conversationKey` / `slackNode` / `attachedTasks` / `candidateTasks` / `hardSignal` / `attachOnce` / `hasQuestionSignal` / `classifyQuery` / `startQueryJob` / `queryReplyDraft` / `settleQueryTasks` / `slackScene` 在定义处与使用处名称一致。`SMALL_MODEL`（Haiku，挂靠与查询分类）与 `SONNET_MODEL`（替代 `TRIAGE_MODEL`）分别定义在 `agent/claude.ts`。`TaskSource` 新增的五个字段（`conversation` / `channelId` / `userName` / `threadTs` / `headless`）在 Task 5 定义，Task 6、8、9、10 使用。`claudeArgs`（数组版，给 `spawn`）与 `claudeFlags`（字符串版，给终端脚本）都在 `agent/runner.ts`，后者调前者。
 
 **已知风险**
 
 - Task 8 是大删除，`pnpm typecheck` 会一次报十几处。Step 5 的十条清单是按 grep 结果列的，照着逐条处理即可，不要试图一次改完再跑。
 - `bridge.contextFor` 和 `desk.buildDesk` 原本读线程，Task 8 Step 5 的 4、5、8 条改写它们。`/desk` 前端已不用，`Desk.threads` 保留空数组即可，不要顺手删接口（超出本次范围）。
 - 只读守卫依赖 PreToolUse hook，Task 13 Step 2 第 6 条是它唯一的真机验证，不能跳过。
+- 后台 `spawn` 这条路没有终端脚本兜底：进程被 kill、sidecar 重启时 `child.on("exit")` 不会触发，库里会留一条 running 的 job。已有的 `reapStaleJobs`（`memory/jobs.ts`，启动时跑）会收掉它，但 `onJobExit` 不会补跑，任务停在 processing。Task 13 Step 2 第 7 条验这个；真出现了再补，本次不提前做。
+- `spawnHeadless` 动态 import `pipeline.js` 是为了避开循环依赖（pipeline 要 import queryJob 的类型）。不要改成静态 import。
 - `decideStart` 在仓库里**已经不存在**（spec 提到它是沿用旧记忆），不要去找它。`threadToTask` 现在也已不起草回复、不 addPending、不开工，Task 8 直接整个删掉即可。
 - `executePending` 的第四个参数 `override?: { text?: string }` 签名在、函数体里从没用过；用户改过的草稿实际走 `updatePending` 先写回 payload（`api/tasks.ts:80-89`）。本次不修这个，但改 `executePending` 时别被它误导。
 - `core.ts` 里 `createTask`(:419) 与 `taskCreate`(:490) 是两个同功能的重复导出，Board 用的是后者。本次不清理，不要顺手删错。
