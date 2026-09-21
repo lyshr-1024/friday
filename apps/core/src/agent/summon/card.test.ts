@@ -107,3 +107,26 @@ describe("页面报错进上下文", () => {
     expect(prompt).not.toContain("页面上的报错");
   });
 });
+
+describe("meegle_add", () => {
+  const onTicket: AllowedIds = { ...allowed, browserUrl: "https://project.larksuite.com/sp/story/detail/8899" };
+
+  it("url 与当前快照一致才放行", () => {
+    const card = parseCard(
+      '{"verdict":"x","actions":[{"kind":"meegle_add","label":"加进任务板","url":"https://project.larksuite.com/sp/story/detail/8899"}]}',
+      onTicket,
+    );
+    expect(card.actions).toEqual([{ kind: "meegle_add", label: "加进任务板", url: "https://project.larksuite.com/sp/story/detail/8899" }]);
+  });
+
+  // 模型编一个工单链接就会去拉别人的工单建成任务
+  it("模型编的 url 一律钳掉", () => {
+    const card = parseCard('{"verdict":"x","actions":[{"kind":"meegle_add","label":"加","url":"https://project.larksuite.com/sp/story/detail/1111"}]}', onTicket);
+    expect(card.actions).toEqual([]);
+  });
+
+  it("没开浏览器时这个动作根本不成立", () => {
+    const card = parseCard('{"verdict":"x","actions":[{"kind":"meegle_add","label":"加","url":"https://project.larksuite.com/sp/story/detail/8899"}]}', allowed);
+    expect(card.actions).toEqual([]);
+  });
+});

@@ -237,3 +237,23 @@ describe("pagePath", () => {
     expect(pagePath("这不是网址")).toBe("");
   });
 });
+
+describe("Meegle 工单页", () => {
+  const ticket = "https://project.larksuite.com/sp/story/detail/8899";
+
+  // 任务板上没有这条时，建普通待办会把工单号丢掉，状态和优先级也带不上
+  it("任务板上没有这条工单时给「加进任务板」", () => {
+    const acts = defaultActions(undefined, undefined, snap({ browser: { url: ticket, title: "提现规则 tab 错位" } }));
+    expect(acts).toEqual([{ kind: "meegle_add", label: "加进任务板", url: ticket }]);
+  });
+
+  it("不是工单页照旧建普通任务", () => {
+    const acts = defaultActions(undefined, undefined, snap({ browser: { url: "https://console.longbridge.xyz/x/a", title: "资金参数" } }));
+    expect(acts[0]).toMatchObject({ kind: "create_task" });
+  });
+
+  it("对上了任务就不再提建任务", () => {
+    const acts = defaultActions(task({ status: "understood", source: {} }), undefined, snap({ browser: { url: ticket, title: "t" } }));
+    expect(acts.every((a) => a.kind !== "meegle_add")).toBe(true);
+  });
+});

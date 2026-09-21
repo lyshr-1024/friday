@@ -4,6 +4,7 @@ import type { Snapshot, SummonAction, SummonRelayResult } from "@friday/shared";
 import { summon } from "../agent/summon/index.js";
 import { pagePath } from "../agent/summon/match.js";
 import { finishTask, startInteractiveJob } from "../agent/pipeline.js";
+import { addMeegleByRef } from "../agent/meegle.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -93,6 +94,11 @@ export const summonApi = new Hono()
       case "note": {
         writeMemoryFile("decisions", `${readMemoryFile("decisions")}\n- ${action.text}\n`);
         return c.json({ ok: true, message: "已记进记忆库" });
+      }
+      case "meegle_add": {
+        const added = await addMeegleByRef(action.url);
+        if ("error" in added) return c.json({ error: added.error }, 400);
+        return c.json({ ok: true, taskId: added.task.id, message: added.existed ? "任务板上已经有这条了" : "已加进任务板" });
       }
       default:
         return c.json({ error: `不支持的动作 ${action.kind}` }, 400);

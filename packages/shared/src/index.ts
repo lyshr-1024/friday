@@ -654,7 +654,8 @@ export type SummonAction =
   | { kind: "copy"; label: string; text: string }
   | { kind: "slack_query"; label: string; conv: string }
   | { kind: "slack_task"; label: string; conv: string }
-  | { kind: "slack_attach"; label: string; conv: string };
+  | { kind: "slack_attach"; label: string; conv: string }
+  | { kind: "meegle_add"; label: string; url: string };
 
 /** 规则层的产出：不调模型也能渲染的那部分 */
 export interface SummonRules {

@@ -126,6 +126,9 @@ export function candidates(input: MatchInput): Candidate[] {
 export function defaultActions(task: Task | undefined, project: Project | undefined, snapshot: Snapshot): SummonAction[] {
   if (!task) {
     const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
+    // 开着工单页而任务板上没有它：建个普通待办会把工单号丢掉，按链接拉详情才带得上状态和优先级
+    const url = snapshot.browser?.url;
+    if (url && meegleIdFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
     return title ? [{ kind: "create_task", label: "建成任务", title }] : [];
   }
   const pending = task.pending?.[0];
