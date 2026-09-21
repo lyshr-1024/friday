@@ -19,3 +19,11 @@ export function forbidden(command: string): string | undefined {
   for (const [pattern, why] of FORBIDDEN) if (new RegExp(pattern).test(command)) return why;
   return undefined;
 }
+
+// 只读任务（回答别人的问题）不许改任何文件。--dangerously-skip-permissions 让 permissions.deny 失效，
+// 而 Bash 守卫的 matcher 只认 Bash，所以改文件的工具要单独挂一条 hook。
+export const WRITE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+
+export function forbiddenTool(name: string): string | undefined {
+  return WRITE_TOOLS.includes(name) ? "这是只读任务，只查不改" : undefined;
+}

@@ -302,6 +302,16 @@ export type TaskDocs = { req?: string; tech?: string; design?: string; meegle?: 
 
 export interface TaskSource {
   threadId?: string;
+  /** 这条任务对应的 Slack 对话键（channelId:ts） */
+  conversation?: string;
+  /** 这个 job 在后台跑，没有终端窗口；想看要点「打开终端看」 */
+  headless?: boolean;
+  /** 对话所在频道，回帖时用 */
+  channelId?: string;
+  /** 问问题的人 */
+  userName?: string;
+  /** 回在哪条 thread 下面 */
+  threadTs?: string;
   meegleId?: string;
   /**
    * 合并进来的其它工单号（二期并进一期时）。同步认领工单要连它一起查，
