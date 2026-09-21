@@ -28,7 +28,8 @@ type View = BoardView | "hot" | "history" | "ask";
 const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "ask", label: "问 Friday", kbd: "⌘N" },
   { key: "queue", label: "待我决定" },
-  { key: "doing", label: "Friday 在做" },
+  // 「在做」含两组：我自己在终端里干的、全权交给 Friday 的，进去看得到区别
+  { key: "doing", label: "在做" },
   { key: "history", label: "会话历史" },
   { key: "all", label: "全部任务" },
   { key: "ledger", label: "操作记录" },
