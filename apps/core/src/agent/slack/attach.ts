@@ -55,7 +55,7 @@ export function attachPrompt(item: InboxItem, tasks: Task[], prior: string[]): {
       '只输出 JSON，不要其他文字：{"taskId": "任务 id 或 none", "why": "一句话理由"}',
     ].join("\n"),
     prompt: [
-      prior.length ? `这之前聊的是：\n${prior.map((p) => `- ${p.slice(0, 200)}`).join("\n")}\n` : "",
+      prior.length ? `这之前聊的是：\n${untrusted("slack", prior.map((p) => `- ${p.slice(0, 200)}`).join("\n"))}\n` : "",
       `${item.userName} 在 ${item.channelName} 说：\n${untrusted("slack", item.text.slice(0, 800))}`,
       "",
       "候选任务：",

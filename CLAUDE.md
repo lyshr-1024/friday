@@ -28,20 +28,28 @@ apps/core/src/
 
 第一版（已完成）：热键呼出浮窗、`POST /ask`、`POST /note`、待办同步 `GET /todos?sync=1`、记忆库初始化、开机自启。原「今日简报」`GET /today`（Claude 总结待办）已按用户要求移除，换成 `GET /hot`（AI 热点）。
 第二版（已完成）：`POST /run` 在 Ghostty 打开项目目录跑交互式 Claude Code；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
-第三版（已完成）：Slack 收件——`connectors/slack.ts` 用浏览器登录态（钥匙串 `friday-slack` 的 `token` xoxc + `cookie` xoxd，`scripts/slack-auth.sh` 写入）调 Web API：`search.messages` 查 `<@me>`、`client.counts` 找有未读的私聊再 `conversations.history`；`scheduler/index.ts` 10:00–20:00（Asia/Shanghai）每 3 分钟、其余 15 分钟拉一次；新消息交 `agent/triage.ts` 用 Sonnet 5 批量判断是否需回复 / 紧急度 / 摘要 / 回复草稿，落 `inbox` 表；只有需回复且在活跃时段才进通知队列，壳 `notify.rs` 每 20 秒 `GET /notifications` 取走弹系统通知。Friday 只读 Slack，不发消息。启动器「Slack 收件」面板 / `⌘R` 立即同步。预处理同时按项目注册表（名字、别名、`- 频道：#a, #b`）推导关联项目 `triage.project`，编码类消息给一句 `triage.task`；收件条目「在会话里处理」→ 带原文、链接、预处理结果开一个新对话（`open_chat` + initialPrompt），Friday 在会话里先给判断（项目、怎么回、要不要动代码、用哪个 skill），用户确认后再 run_claude / skill / 给草稿；操作区不直接动手。`POST /inbox/:id/handle` 仍保留给程序化调用。会话里有 `slack_inbox` 工具，"处理拂晓那条"同一流程。
+第三版（已完成，2026-09-21 重做）：Slack 关联源——见下文「Slack：关联源」一节。原「Slack 收件」那套（triage 分类 → 按人聚合线程 → 情境卡 → 起草回复 → 置信度闸门 → 经验闭环）已整体删除，约 1667 行。
 未做：项目智能匹配、自动更新、内嵌 node、Slack 发送。结构预留位置即可，不要提前实现。
 
-## 置信度门控与学习闭环
+## Slack：关联源（2026-09-21 重做）
 
-> 从 feat/prompt-guardrails 搬过来时 `TaskCategory` 和 `agent/learn.ts` 都和 main 撞名：消息诉求类别改叫 `ReplyCategory`（`TaskCategory` 留给待办分组 slack/defect/story/other），`agent/learn.ts` 改叫 `agent/lessons.ts`（当时 `agent/learn.ts` 是 main 的「每天自学一题」；那条已于 2026-09-16 删掉，见下文「自学 = 复盘人工处理」）。
+**定位**：Friday 不替代 Slack，你照旧在 Slack 里看和回。Slack 在 Friday 里只是「关联源」——把对话挂到你已有的任务上，让四端（Slack / Meegle / 终端 / 浏览器）彼此知道对方的存在。
 
-- `triage` 给每条 Slack 消息定类别（`question` / `status_ask` / `code_fix` / `review_ask` / `notice` / `other`），线程取最后一条有类别的消息。
-- 情境卡自评 `confidence`（0-100）；回复里含工期、方案、人力这类只有用户能定的承诺时压到 60 以下。解析层对越界/非数字/缺失一律钳到 0。
-- `agent/gate.ts` 纯函数判定：`needsReply && reply && confidence >= thresholds[category]` → 自动发，否则进「待我决定」。**`DEFAULT_THRESHOLD = 100`，即默认全部人工**；用户按类别调低才开启自动发送（`PUT /learn/threshold`）。阈值 100 时直接 queue，不被满分绕过。
-- 自动发送的崩溃安全点（顺序不能改）：`markAutoDone(threadId, "slack_reply_sent")` 线程级闸门 → 落一条 `pending` 账本 → `chat.postMessage` → 成功补 `undo` 并置 done，失败/空 ts 置 `failed` + 任务 `blocked` 并写明「可能已发出」。闸门 fail-closed，reject 时也会关闭，被用户否决的线程不再自动发。
-- 用户每次干预记一条 `lesson`：`approved` / `edited_approved`（改了草稿再通过）/ `rejected`（+10）/ `auto_undone`（自动发出后撤回，+20，靠 `evidence.auto` 与人工发送区分）。阈值只自动上调，下调只给建议。只有 `slack_reply` 类型的审核动作才记 lesson。
-- 每类攒够 5 条非 `approved` 的 lesson 触发 `distill`，Sonnet 重写 `<dataDir>/playbooks/<category>.md`，下次情境卡把手册与最近 3 条改稿范例注入 system prompt（范例里的原文走 `untrusted()`）。触发判定是纯函数 `shouldDistill`，真正调 Claude 那步在测试环境跳过。
-- 已发出的回复可撤回（`chat.delete` 接进账本 `undo`）；撤回失败不标 `undone`。接口 `GET /learn`、`PUT /learn/threshold`。
+**为什么推翻第三版**：那套围着「Friday 起草、你审」建，而这个前提你 2026-09-17 就否了（草稿不可用、重复建任务、待办抽象不对）。库里 `lessons` 与 `thresholds` 从投产起一条没有，情境卡每天花一块多算出来没人看，前端早已零入口。
+
+- **只挂靠，不评判**。消息进来只做三件事：`connectors/noise.ts` 挡噪音 → `agent/slack/attach.ts` 挂靠 → 带疑问信号的过一道查询分类。不判断要不要回、不起草、不自建任务、不发通知。
+- **挂靠复用 `links` 表**（`memory/links.ts`），没有新建表。两级硬信号零模型调用：①消息里的 Meegle 工单号（`memory/infer.ts` 的 `meegleIdsIn`）②同人同频道 48 小时内挂过的任务。都没中且有候选才问一次 Haiku，记成 `guess` 边。`user > rule > guess` 只升不降，`unlink` 写否决边且自动推断不会再连回来——「纠正以后不能再错」落在这里，不需要额外的映射表。
+- **对话单位是 Slack 原生粒度**：有 `thread_ts` 的整个 thread 算一段，否则单条算一段。键 `channelId:thread_ts|ts`，`conversationKey` 在 `packages/shared` 前后端共用。
+- **唯一的起草场景**：私聊或 @ 我、且带疑问信号（`？?` / 怎么 / 哪里 / 为什么 / 能不能 / 是不是 / 有没有）的消息，`agent/slack/query.ts` 判一句「读代码就能答吗 + 哪个项目」，是就 `startQueryJob` **在后台**起一个**只读**的 `claude -p` 去查。产出 `## 概要 / ## 依据（文件:行号）/ ## 回复草稿`，任务进 review 挂 `slack_reply` 待审。
+- **后台跑，不弹窗口**（你明确要求：主动点的时候才弹出来）。所以不走 `launchClaude`（那条必然 `osascript` + `activate` 抢前台），而是直接 `spawn` 子进程、输出落 `<runs>/<id>.log`、退出时自己回调 `onJobExit`。想看就点任务卡的「打开终端看」，走 `reopenTerminal` 用 `--resume` 接回同一会话，并把 `readonly` 透传回去。
+- **只读靠 PreToolUse hook**，不能靠 settings 的 `permissions.deny`——`--dangerously-skip-permissions` 会让它完全失效（实测过），而原有的 Bash 守卫 matcher 只认 `Bash`。`buildHookSettings(hook, guard, readOnly)` 多挂一条 matcher 为 `Edit|Write|MultiEdit|NotebookEdit` 的 deny。隔离验收实锤过：用同一份 settings 手工起 `claude -p` 要求改文件，Write 被拒、目标文件未变。
+- **「这是不是查询任务」统一用 `isQueryTask(source)`**（`packages/shared`，判据是 `headless && conversation`）。别单看 `kind` 或 `conversation`：HUD「建成任务」落成的 `verbal` 任务也带 `conversation`，`onJobExit` 和 `settleQueryTasks` 都因此误判过。
+- **消息状态以 Slack 为准**：每轮同步扫一遍已读已回，命中的对话上挂着的查询任务自动 done、草稿撤下、记一条 `slack_settled_by_user`。只是挂靠在别的任务上的不动它。这是「已处理的事又冒出来」的根治点。
+- **建任务只有两个入口**（Friday 自己不建，查询任务除外）：HUD 的「建成任务」、任务卡的「并入这段对话」。
+- **界面**：任务卡「Slack 里的讨论」按时间列挂着的对话，`guess` 的标「Friday 推断」并显示那条 `why`（判断依据要能核对）；HUD 在 Slack 前台时给三个零模型调用的动作（帮我查这个 / 建成任务 / 挂到…）。工作台不新增任何 Slack 列表。
+- **接口**：`POST /slack/:conv/attach`（写 user 边）、`DELETE /slack/:conv/attach/:taskId`（unlink，自动写否决边）、`POST /slack/:conv/query`、`POST /slack/:conv/task`。
+- **成本**：多数消息零模型调用，Haiku 只在硬信号全没中且有候选时跑一次。对比重做前每天约 $1.5 的 triage + brief + continuation。用量面板 label 为 `attach` / `query`。
+- **已知边界**：老消息没有 `prior`（前文）补不回来；否决的粒度是对话键而非「人+频道」，同人后续新对话仍可命中同一任务；`CONV_SCAN_LIMIT = 500`，超过这个数更早的消息聚不回任务卡。
 
 ## 从 Claude Code 历史学（2026-09-15）
 
@@ -118,27 +126,21 @@ apps/core/src/
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
 - **内嵌终端**（2026-09-11 做，2026-09-20 已删）：曾用 node-pty 在 sidecar 里跑 PTY、前端 xterm 渲染在任务卡里。现在一律外部 Ghostty，见上文「终端：外部 Ghostty」。
-- **自学 = 复盘人工处理（2026-09-16 改，`agent/lessons.ts`）**：原来的「每天自学一题」（挑题 → WebSearch 研究 → 建一条 `kind: learn` 待办）已删。它做反了事：查库时发现 `lessons` 表 0 条、`thresholds` 空——置信度闭环从投产起一次都没跑过，因为 `recordLesson` 只挂在「通过 / 打回」这两个审核动作上，而用户实际是直接 ignore / done；与此同时 Friday 每天花 $0.7 研究一道技术题，把结论抄成一条待办塞进列表，跟它研究的那条任务在界面上并排出现（用户原话：「自学是指学习人工处理的操作，以便提高置信度，而不是把待办抄过来」）。
-- **采集面**：`lessonFromTask(task, kind, final?)` 统一处理「没按草稿走」的情形，只认 `slack_reply` 草稿（`git_merge` 这类跟对话质量无关）。新增两个 `LessonKind`：`ignored`（列表里忽略 / 会话里说不用回了——Friday 判要回、你说不用，最强负信号，阈值 +10）、`done_without_reply`（收工时草稿还挂着 = 你自己回的，弱负信号 +5）。会话里改写草稿即刻记 `edited_approved`（draft 旧稿、final 新稿）并在 `payload.edited` 打标，审核通过时跳过那笔 `approved`——否则统计会被冲成「判得很准」。`backoff` 改成按 kind 查表：撤回 20 > 打回 / 忽略 10 > 自己回了 5，正信号不动。
-- **复盘**：`reviewOnce` 每天一次（`reviewDue` 同 `historyDue` 思路，只看离上次跑过多久，游标 `review:ran` 存 sync_state），只对「自上次复盘后攒了新 lesson」的类别跑 `distill` 重写 `playbooks/<category>.md`。产物是下次草稿更准，**不建任务、不进待办列表**，只记一条 `reviewed` 账。喂给模型的 lesson 带中文动作标签（原样发出 / 改了再发 / 打回不发 / 直接忽略没回 / 用户自己回的），并要求手册写清「什么时候根本不该起草回复」。
-- 入口：`POST /tasks/review`、会话工具 `review_now`、设置页「每天复盘人工处理」开关（沿用 `settings.learn` 字段）。左栏「✦ 学一题」按钮已删。`lessons.kind` 的 CHECK 约束写死在建表语句里，加类别要重建表——`db.ts` 的 `migrate` 检测旧 CHECK 后 rename → 重建 → 拷回 → drop（`db.test.ts` 守着）。
 - 历史遗留：`research/*.md` 笔记与库里已有的 `kind: learn` 任务不动，`readResearchNote` 搬到 `memory/research.ts`，任务卡照样能展开笔记。
 
-## 工作台：线程、功课、首屏
+## 收件前的处理（噪音过滤与补拉前文）
 
-- Slack 消息逐条分类后按人聚合成**线程**（`memory/threads.ts`）：私聊按人、频道 @ 按频道+人，同键 2 小时内接续（`THREAD_GAP_MS`）。`inbox.thread_id` 增量列。
-- **灰区语义归并（2026-09-14，`agent/continuation.ts`）**：起因是拂晓 02:11 说「养牛活动产品验收问题先改一波」、05:47 又说「抽空验收问题改一改」，同一件事的催办隔了 3.6 小时超过 `THREAD_GAP_MS`，被拆成两个线程两个任务，第二个还自己开了终端建了分支。纯调大时间窗不行（同一个人一天里说的几件不同的事会被粘成一条），改成两段：2 小时内直接接续；2 到 `CONTINUATION_MAX_MS`（24 小时）的灰区用 Sonnet 判一句「是不是在催同一件事」，是才接回原线程。提示词明确要求拿不准答 false——错误合并让两件事只剩一条待办，比拆开更糟；解析失败、调用异常一律当作不是。`attachToThread` 加可选的 `{ graceMs, sameTopic }`，不传就是原来的纯时间行为；调用方先用 `graceCandidate` 拿灰区候选、异步判完再传回去。
-  **`threads.anchor_ts` 增量列是必须的**：语义合并如果推进接续锚点，线程时间窗就被往后拖，下一条无关消息会因为「离得近」被顺势吸进来，等于从侧门把「调大时间窗」那个毛病放回来（测试就是这么抓到的）。所以正常接续推进锚点、语义合并不动锚点；老库该列为空时 `gapFrom` 回落到 `last_ts`，行为与改动前一致。
-- **补拉对话上下文（2026-09-14，`connectors/slack.ts` `fetchContext`）**：收件箱里存的是「@ 到我的那一条」，而 `search.messages` 只返回这一条——**真正说明是什么事的前文以前从来没被拉过**。库里的实证：「你看看志华遗留的这个问题」27 字、「晚一点吧，准备发UAT」26 字、「你搜这个关键词：in_quick_entry」37 字，全是指代句。`brief.ts` 里那句「不要写你自己的能力限制（比如无权限读 thread）」正是在盖这个洞——模型本来一直在抱怨读不到 thread，被提示词按住了。
-  做法：消息在 thread 里（`inbox.thread_ts` 增量列，从 `search.messages` / `conversations.history` 的 `thread_ts` 取，等于自身 ts 的是根消息不算回复）就 `conversations.replies` 拉整个 thread；否则 `conversations.history` 带 `latest` + `inclusive` 拉它前面 `CONTEXT_LIMIT`（10）条。**按 `subtype` 过滤系统消息**——真实 API 跑出来第一版混进了 `has joined the channel`，4 条前文里 2 条是噪音，挤掉了真正有用的内容。拉不到就返回空数组，不让整条消息的处理失败。
-  同一份上下文喂给三处：①情境卡（`Enrichment.context` → `briefPrompt` 的「这之前，#频道 里聊的是」，系统提示加了「找用户的消息常常是指代句，先读前文再判断」）；②灰区归并判断（`isContinuation` 多收 `situation` 和 `context`——之前拿两条指代句互相比对，判不准是必然的）；③界面（`ThreadBrief.priorMessages` 落库，任务卡「对方原话」上方一个默认收起的 `.fx__prior`「这之前聊的是什么 N 条」，判断依据要能核对）。
-  **边界**：`thread_ts` 是这次才加的列，**老消息补不回来**，只有新进来的消息吃得到这个能力。
+> 这一节原名「工作台：线程、功课、首屏」，线程聚合 / 情境卡 / 灰区语义归并那套已随 2026-09-21 的 Slack 重做删除，见上文「Slack：关联源」。下面三条是仍在用的部分。
+
 - **收件前挡噪音（2026-09-14，`connectors/noise.ts`）**：248 条历史收件里 21 条（8.5%）没有信息量——日历/IT 工单的空消息、`:ok_hand:` 纯表情、只 @ 一下没写字、「好」「ok」「哈哈哈」这类应答。空消息尤其有害：Friday 没有可依据的内容只能猜，之前那条「内容好像没显示出来」的错误草稿就是这么来的。挡掉的**不入库、用户完全看不到**，所以规则只认客观特征：去掉 @ 和 emoji 后一个字都不剩，或整句完全等于固定应答词（`ACK` 白名单，不做「短于 N 字就算」——「改好了」「没问题」也短但是结论）。链接保留占位符，「只发了个文档链接」是有信息的。判不准的一律放行。游标照常推进，否则挡掉的下次同步会重新捞一遍。
   **按 @ 人数挡群发广播试过但放弃了**：拿库里历史数据一验，@ 六人以上的消息里要回的 6 条、不用回的 10 条，挡掉会误杀六件真事。
   **顺序要紧**（与另一条并行任务合并后的最终形态）：先 `isBot` 挡机器人 → 再 `blocksText` 取 Block Kit 正文 → 最后拿**取出来的正文**判噪音。原来直接 `classifyNoise(m.text)` 有缺陷：Block Kit 消息的 `text` 恒为空，真事会被当空消息挡掉。
-- 每个被新消息触及的线程做功课（`agent/enrich.ts`，只读）：同一人历史线程的情境、`people.md` 里的条目、消息里 Meegle 链接用 `meegle` CLI 拉标题/状态/优先级/负责人、关联项目的 git 状态；然后 `agent/brief.ts` 用 Sonnet 出**情境卡**（situation / needs / needsReply / urgency / reply / actions / context / todo / person），最多 3 个线程并行。
-- 可逆自动写（`agent/autowrite.ts`，permission.ts 的 reversible 级）：情境卡给了 todo 就记待办，给了 person 就往 `people.md` 该人条目追加一行「备注（日期，Friday 自动）」；每个线程每类只做一次（`threads.auto_done`），结果写进 context 留痕。
-- 通知按线程发「N 个人等你回」。`GET /threads`、`POST /threads/:id/{refresh,done,ignore}`；`slack_inbox` 工具输出线程视角。启动器「Slack 找我的人」是线程卡片（情境、需要你、建议回复、背景、原文折叠、复制回复 / 在会话里处理 / 已处理 / 忽略）。
+
+- **补拉对话上下文（2026-09-14，`connectors/slack.ts` `fetchContext`）**：收件箱里存的是「@ 到我的那一条」，而 `search.messages` 只返回这一条——**真正说明是什么事的前文以前从来没被拉过**。库里的实证：「你看看志华遗留的这个问题」27 字、「晚一点吧，准备发UAT」26 字、「你搜这个关键词：in_quick_entry」37 字，全是指代句。`brief.ts` 里那句「不要写你自己的能力限制（比如无权限读 thread）」正是在盖这个洞——模型本来一直在抱怨读不到 thread，被提示词按住了。
+  做法：消息在 thread 里（`inbox.thread_ts` 增量列，从 `search.messages` / `conversations.history` 的 `thread_ts` 取，等于自身 ts 的是根消息不算回复）就 `conversations.replies` 拉整个 thread；否则 `conversations.history` 带 `latest` + `inclusive` 拉它前面 `CONTEXT_LIMIT`（10）条。**按 `subtype` 过滤系统消息**——真实 API 跑出来第一版混进了 `has joined the channel`，4 条前文里 2 条是噪音，挤掉了真正有用的内容。拉不到就返回空数组，不让整条消息的处理失败。
+  现在这份前文喂给三处：①挂靠判断（`attachPrompt` 的「这之前聊的是」）②查询分类（`queryPrompt` 同名段）③落库进 `inbox.prior`，任务卡上「这之前聊的是什么 N 条」折叠显示。**前文和主消息一样要过 `untrusted()`**——它同样来自 Slack，2026-09-21 补围栏测试时发现这两处原本是裸拼的。
+  **边界**：`thread_ts` 是这次才加的列，**老消息补不回来**，只有新进来的消息吃得到这个能力。
+
 - **首屏**（`GET /desk`，`agent/desk.ts`）：会话窗空对话不再是介绍文案，而是「Hello {name}！{时段问候}，有什么可以帮你？」+ Sonnet 写的「现在先做什么」（≤5 行，素材没变 10 分钟内用缓存）+ 等你回的人 / 待办 / 进行中任务，带一键动作。名字取 `settings.name`，缺省用 macOS 账户全名（`id -F`），设置页可改；启动器占位符同样问候。
 
 ## 附件与链接
