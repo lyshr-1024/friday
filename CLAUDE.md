@@ -47,6 +47,9 @@ apps/core/src/
 - **消息状态以 Slack 为准**：每轮同步扫一遍已读已回，命中的对话上挂着的查询任务自动 done、草稿撤下、记一条 `slack_settled_by_user`。只是挂靠在别的任务上的不动它。这是「已处理的事又冒出来」的根治点。
 - **建任务只有两个入口**（Friday 自己不建，查询任务除外）：HUD 的「建成任务」、任务卡的「并入这段对话」。
 - **界面**：任务卡「Slack 里的讨论」按时间列挂着的对话，`guess` 的标「Friday 推断」并显示那条 `why`（判断依据要能核对）；HUD 在 Slack 前台时给三个零模型调用的动作（帮我查这个 / 建成任务 / 挂到…）。工作台不新增任何 Slack 列表。
+- **HUD 认当前会话靠窗口标题，解析踩过四种形态（2026-09-21 真机逐个补齐）**：①中文界面的频道不带 `#`，跟一个全角「（频道）」标记 ②有未读时标记后面还会插段（`一起养牛（频道） - Longbridge - 1 个新项目 - Slack`），所以**不能按结尾匹配，要直接找「（频道）」这个标记，它前面那截就是频道名** ③人名普遍带英文后缀（`拂晓 (Chen Xiaofu)`），而带未读数时只剩中文名，两边都要剥括号再比 ④左侧那些视图（活动 / 私信 / 文件…）会整个占掉标题，得挡掉否则 Friday 会去找一个叫「活动」的同事。另外**「活动」视图里点开的全屏 thread 读不到频道名**（标题只有「活动」，频道只在界面元素里，Electron 应用的辅助功能接口读不到，Slack 菜单里也没有复制链接命令）——这种视图下 HUD 认不出会话，只能先点回频道。
+- **频道挂靠**：`proj-` / 需求名频道本身就约等于需求标题，但实测 13 个频道只有 2 个能字面对上（`一起养牛` 对不上 `养牛计划1.0`）。所以三层：字面够像（`MIN_OVERLAP = 6`，实测 7 字要中、3 字巧合要挡）→ 模型兜底 → 你手动登记一次写成 `user` 边永久生效。这些频道里的消息几乎不带工单号（`#一起养牛` 16 条只有 1 条），现有硬信号在这儿本来就失效。
+- **频道实时消息**：常驻群（如 `#team-fe-bo`）从没 @ 过你，本地收件箱零条，呼出时什么都不知道。改成实时拉：`search.messages` 带 `in:#频道名`，一次拿到频道 ID 和最近 10 条。**你们是 Enterprise Grid，`users.conversations` 和 `conversations.list` 都报 `enterprise_is_restricted`，只有 search 这条路通**。2.5 秒超时不阻塞呼出，私聊不拉。搜索接口返回的是账号名（`jiacheng.zhou`），拿收件箱 + `people.md` 当花名册换成显示名（`佳成 (Zhou Jiacheng)`）——只读收件箱不够，同组同事天天说话却从没 @ 过你。
 - **接口**：`POST /slack/:conv/attach`（写 user 边）、`DELETE /slack/:conv/attach/:taskId`（unlink，自动写否决边）、`POST /slack/:conv/query`、`POST /slack/:conv/task`。
 - **成本**：多数消息零模型调用，Haiku 只在硬信号全没中且有候选时跑一次。对比重做前每天约 $1.5 的 triage + brief + continuation。用量面板 label 为 `attach` / `query`。
 - **已知边界**：老消息没有 `prior`（前文）补不回来；否决的粒度是对话键而非「人+频道」，同人后续新对话仍可命中同一任务；`CONV_SCAN_LIMIT = 500`，超过这个数更早的消息聚不回任务卡。
@@ -94,7 +97,10 @@ apps/core/src/
 
 - **PATH**：Finder / 自启拉起的 app PATH 极简。壳启动 sidecar 前先用 `zsh -ilc 'echo $PATH'` 取真实 PATH 注入子进程环境；找 `node`、`claude` 都靠它。
 - **bundle ID** 固定 `com.haoran.friday`，签名用本机自签证书 `Friday Dev`（首次 `scripts/make-signing-cert.sh` 生成，只影响 `tauri build`，dev 不需要）。改 ID 或换签名会让 TCC 权限全部重置。
-- **TCC**：控制其他 app 要"自动化"权限，模拟键盘要"辅助功能"权限。第一版不需要，设置页预留权限状态区。
+- **TCC 权限**：控制其他 app 要「自动化」，读窗口标题 / 选中文字要「辅助功能」，兜底截图要「屏幕录制」。
+- **重装 .app 后辅助功能权限会失效（2026-09-21 踩过，排查了四轮）**：自签名（`TeamIdentifier=not set`）的 app 每次重新 build 替换，macOS 都可能把它从辅助功能列表里踢掉，**而且面板上看着还是勾选状态**。后果隐蔽——`snapshot.rs` 的 `front_window_title` 在无权限时返回**空字符串**而不是报错，于是呼出模式拿不到窗口标题、`slackScene` 查不到任何东西、场景上下文为空，模型只好拿记忆库里的全局待办硬凑，表现为「HUD 答非所问」，看起来像模型或提示词的问题。
+  - **一眼定位**：`<dataDir>/logs/core.log` 里每次呼出都有一行 `[summon] Slack 标题="…" 权限(辅助/自动化/录屏)=√√×`。标题空 + 辅助 × 就是这个坑，不用再怀疑解析和模型。
+  - **修**：系统设置 → 隐私与安全性 → 辅助功能，把 Friday **关掉再打开**（只看着是开的不算，要切一次），然后**重启 Friday**（TCC 状态在进程启动时才重新读）。
 - **capabilities 白名单**：WebView 能调用的插件能力必须在 `src-tauri/capabilities/` 显式声明。sidecar 由 Rust 直接 spawn，不经 shell 插件，所以不在白名单里。
 - **sidecar 生命周期**：壳退出必须杀 sidecar；sidecar 崩溃壳要重拉并发系统通知。
 
