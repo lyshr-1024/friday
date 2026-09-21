@@ -14,7 +14,7 @@ import { addMessage, conversationExists } from "../memory/conversations.js";
 import { TERMINAL_STATE_LABEL, closeJobTerminal, say, terminalState } from "./terminal.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
-import { meegleState, syncMeegleOnce } from "./meegle.js";
+import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
@@ -201,6 +201,19 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       async () => {
         const r = await syncMeegleOnce();
         return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条${r.reopened ? `，Reopen 拉回 ${r.reopened} 条` : ""}，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
+      },
+    ),
+    tool(
+      "meegle_add",
+      "用户贴了一条 Meegle 工单链接说「待办里没有这个，建一个」「加进来」「跟一下这条需求」时用它：按链接单拉工单详情，建成任务板上的待办。同步链路只认「分派给我」的工单，用户担角色但当前节点在别人手上的工单进不来，得用这个手动加。只要链接，不要追问标题和内容——工单里都有。",
+      { link: z.string().min(1).max(500).describe("Meegle 工单链接，形如 https://project.larksuite.com/projectlb/story/detail/24487610") },
+      async ({ link }) => {
+        if (!decide("reversible").allowed) return text("操作被拒绝");
+        const r = await addMeegleByRef(link).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+        if ("error" in r) return text(`加不进来：${r.error}`);
+        const { task, existed } = r;
+        if (existed) return text(`这条已经在任务板上了：${task.title}（${task.status}）。`);
+        return text(`已建进待办：${task.title}${task.priority !== "normal" ? ` · ${task.priority}` : ""}\n${task.understanding ?? ""}`);
       },
     ),
     tool(

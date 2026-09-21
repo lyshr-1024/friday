@@ -136,9 +136,10 @@ export function priorityOf(label?: string): Urgency {
   return "low";
 }
 
-export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
+export function workItemToTask(item: MeegleWorkItem, projects: Project[], manual = false) {
   const priority = priorityOf(item.priority);
-  const where = item.node ? `节点「${item.node}」在等你` : "分派给你";
+  // 手动贴链接加进来的，当前节点多半不在他手上，别谎称「分派给你」
+  const where = item.node ? `节点「${item.node}」在等你` : manual ? "你手动加进来的" : "分派给你";
   const understanding = [
     `Meegle ${item.typeName} #${item.id}，${where}，状态 ${item.status}`,
     item.priority ? `优先级 ${item.priority}` : "",
@@ -181,6 +182,32 @@ export function workItemToTask(item: MeegleWorkItem, projects: Project[]) {
     linkedStoryName: item.linkedStory?.name,
   };
   return { title: item.name.slice(0, 200), priority, understanding: full, status, source, ...(project ? { project } : {}), ...(item.due ? { due: item.due } : {}) };
+}
+
+/**
+ * 从 Meegle 链接里拆出 project key 和工单号：
+ * https://project.larksuite.com/projectlb/story/detail/24487610 → projectlb / 24487610
+ * 光给一串数字不行——project key 只能从链接来。
+ */
+export function parseMeegleRef(input: string): { projectKey: string; workItemId: string } | undefined {
+  const m = /\/([A-Za-z0-9_-]+)\/[A-Za-z0-9_]+\/detail\/(\d+)/.exec(input.trim());
+  return m ? { projectKey: m[1]!, workItemId: m[2]! } : undefined;
+}
+
+/** 按链接单拉一条 Meegle 工单建成任务。已经在板上的不重复建，直接返回那条。 */
+export async function addMeegleByRef(
+  link: string,
+  connector = new MeegleConnector(),
+): Promise<{ task: Task; existed: boolean } | { error: string }> {
+  const ref = parseMeegleRef(link);
+  if (!ref) return { error: "看不出这是哪条工单。需要完整的 Meegle 链接，形如 https://project.larksuite.com/<空间>/story/detail/<工单号>。" };
+  const existing = findTaskBySource((s) => s.meegleId === ref.workItemId || (s.mergedMeegleIds ?? []).includes(ref.workItemId), true);
+  if (existing) return { task: existing, existed: true };
+  const item = await connector.fetchOne(ref.projectKey, ref.workItemId);
+  const input = workItemToTask(item, loadProjects(), true);
+  const task = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
+  record({ taskId: task.id, action: "task_create", why: "用户贴了工单链接让 Friday 建进任务板", how: "按链接单拉 Meegle 工单", evidence: { meegleId: item.id, projectKey: ref.projectKey, status: item.status }, risk: "reversible" });
+  return { task, existed: false };
 }
 
 /** 缺陷转到这个状态就不用我修了，任务直接收掉，不必等下一次同步。 */

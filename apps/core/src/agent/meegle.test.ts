@@ -2,11 +2,11 @@ import { syncMeegleOnce as syncOnce } from "./meegle.js";
 import { createTask as mkTask, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
 import { state as schedState } from "../scheduler/index.js";
 import { describe, expect, it } from "vitest";
-import { TASK_CATEGORY_LABEL, taskCategory } from "@friday/shared";
+import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
 import type { MeegleWorkItem } from "../connectors/meegle.js";
 import { matchProjectByUrl } from "../memory/projects.js";
-import { intakeWorkItem, matchProject, priorityOf, workItemToTask } from "./meegle.js";
+import { addMeegleByRef, intakeWorkItem, matchProject, parseMeegleRef, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
   { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"] },
@@ -349,5 +349,44 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     const t = mkTask({ title: "需求 f3", kind: "meegle", source: { meegleId: "f3" }, status: "understood" });
     expect((await syncOnce(gone(true))).closed).toBe(0);
     expect(readTask(t.id)!.status).toBe("understood");
+  });
+});
+
+describe("贴链接手动加工单", () => {
+  it("从链接里拆出空间和工单号", () => {
+    expect(parseMeegleRef("https://project.larksuite.com/projectlb/story/detail/24487610")).toEqual({ projectKey: "projectlb", workItemId: "24487610" });
+    expect(parseMeegleRef(" https://project.larksuite.com/abc_1/issue/detail/99 说一下 ")).toEqual({ projectKey: "abc_1", workItemId: "99" });
+  });
+
+  it("光给工单号不行——project key 只能从链接来", () => {
+    expect(parseMeegleRef("24487610")).toBeUndefined();
+    expect(parseMeegleRef("https://project.larksuite.com/projectlb/story/24487610")).toBeUndefined();
+  });
+
+  it("拉到工单建成任务，理解里不谎称「分派给你」", async () => {
+    const conn = {
+      fetchOne: async () => ({ id: "m1", name: "【SG Guoco开业】抽奖活动", typeName: "Requirement", typeKey: "story", links: [], status: "In Progress", statusKey: "IN_PROGRESS", projectName: "demo", projectKey: "projectlb", url: "https://x/m1", createdAt: "2026-09-11T02:15:32Z", priority: "P1" }),
+    } as never;
+    const r = await addMeegleByRef("https://project.larksuite.com/projectlb/story/detail/m1".replace("m1", "1"), conn);
+    expect("error" in r).toBe(false);
+    const { task, existed } = r as { task: Task; existed: boolean };
+    expect(existed).toBe(false);
+    expect(task.title).toBe("【SG Guoco开业】抽奖活动");
+    expect(task.status).toBe("understood");
+    expect(task.understanding).toContain("你手动加进来的");
+    expect(task.understanding).not.toContain("分派给你");
+  });
+
+  it("已经在板上的不重复建", async () => {
+    const t = mkTask({ title: "旧的", kind: "meegle", source: { meegleId: "777" }, status: "understood" });
+    const conn = { fetchOne: async () => { throw new Error("不该被调用"); } } as never;
+    const r = await addMeegleByRef("https://project.larksuite.com/projectlb/story/detail/777", conn);
+    expect(r).toEqual({ task: expect.objectContaining({ id: t.id }), existed: true });
+  });
+
+  it("链接不成形就说清楚要什么，不去调 CLI", async () => {
+    const conn = { fetchOne: async () => { throw new Error("不该被调用"); } } as never;
+    const r = await addMeegleByRef("待办里没有这个需求", conn);
+    expect(r).toHaveProperty("error");
   });
 });
