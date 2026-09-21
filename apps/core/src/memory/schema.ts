@@ -192,9 +192,9 @@ CREATE INDEX IF NOT EXISTS activity_ts ON activity (ts);
 CREATE TABLE IF NOT EXISTS links (
   id TEXT PRIMARY KEY,
   -- 边的两端，kind 是实体类型，ref 是它在那一端的标识
-  from_kind TEXT NOT NULL CHECK (from_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  from_kind TEXT NOT NULL CHECK (from_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project', 'slack')),
   from_ref TEXT NOT NULL,
-  to_kind TEXT NOT NULL CHECK (to_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  to_kind TEXT NOT NULL CHECK (to_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project', 'slack')),
   to_ref TEXT NOT NULL,
   -- user 是你纠正过的，查表必中且永不被自动推翻；rule 查表推出来；guess 模型猜的，界面要标出来
   source TEXT NOT NULL CHECK (source IN ('user', 'rule', 'guess')),

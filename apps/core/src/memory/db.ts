@@ -35,6 +35,13 @@ export function migrate(d: DatabaseSync): void {
     d.exec("INSERT INTO lessons SELECT id, task_id, category, kind, draft, final, feedback, confidence, created_at FROM lessons_old");
     d.exec("DROP TABLE lessons_old");
   }
+  const linksSql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get() as { sql?: string } | undefined)?.sql ?? "";
+  if (linksSql && !linksSql.includes("'slack'")) {
+    d.exec("ALTER TABLE links RENAME TO links_old");
+    d.exec(SCHEMA);
+    d.exec("INSERT INTO links SELECT id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at FROM links_old");
+    d.exec("DROP TABLE links_old");
+  }
   const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);

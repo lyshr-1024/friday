@@ -369,7 +369,7 @@ export interface TaskSource {
 }
 
 /** 关联图里的一个端点：四端各自的实体 */
-export type LinkKind = "task" | "meegle" | "thread" | "branch" | "url" | "project";
+export type LinkKind = "task" | "meegle" | "thread" | "branch" | "url" | "project" | "slack";
 
 /** 这条边是怎么来的。user 是你纠正过的，永远压过自动推断 */
 export type LinkSource = "user" | "rule" | "guess";

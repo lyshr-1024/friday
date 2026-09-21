@@ -20,6 +20,18 @@ const OLD_LESSONS = `CREATE TABLE lessons (
   created_at TEXT NOT NULL
 )`;
 
+const OLD_LINKS = `CREATE TABLE links (
+  id TEXT PRIMARY KEY,
+  from_kind TEXT NOT NULL CHECK (from_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  from_ref TEXT NOT NULL,
+  to_kind TEXT NOT NULL CHECK (to_kind IN ('task', 'meegle', 'thread', 'branch', 'url', 'project')),
+  to_ref TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('user', 'rule', 'guess')),
+  why TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`;
+
 describe("老库迁移", () => {
   it("lessons 的 kind 取值重建，旧数据留着，新类别能写进去", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
@@ -51,5 +63,20 @@ describe("老库迁移", () => {
     expect(statusOf("only-start")).toBe("understood");
     expect(statusOf("has-reply")).toBe("review");
     expect(statusOf("has-merge")).toBe("review");
+  });
+
+  it("links 表加 slack 节点类型，旧边留着", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(OLD_LINKS);
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("old1", "task", "t1", "meegle", "24440539", "rule", "旧边", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z");
+    d.exec(SCHEMA);
+    migrate(d);
+
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("new1", "slack", "C1:1789000001.0", "task", "t1", "rule", "新边", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
+    expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
+    expect((d.prepare("SELECT why FROM links WHERE id = 'old1'").get() as { why: string }).why).toBe("旧边");
+    expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'links_old'").get() as { n: number }).n).toBe(0);
   });
 });
