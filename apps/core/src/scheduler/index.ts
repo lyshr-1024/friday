@@ -5,6 +5,7 @@ import { buildBrief } from "../agent/brief.js";
 import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
+import { sweepClosedTerminals } from "../agent/terminal.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
 import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
@@ -17,6 +18,7 @@ export const ACTIVE_HOURS: [number, number] = [10, 20];
 const ACTIVE_MS = 3 * 60_000;
 const QUIET_MS = 15 * 60_000;
 const MEEGLE_MS = 15 * 60_000;
+const TERMINAL_SWEEP_MS = 60_000;
 const LEARN_CHECK_MS = 30 * 60_000;
 
 export function hourInShanghai(d = new Date()): number {
@@ -168,4 +170,11 @@ export function startScheduler(): void {
     setTimeout(historyTick, LEARN_CHECK_MS).unref();
   };
   setTimeout(historyTick, 40_000).unref();
+  // 手动关掉的终端窗口没有回调，只能定时问一句。一分钟的滞后可以接受——
+  // 工作台窗口聚焦时也会拉一次（POST /jobs/sweep），你回来看的那一眼是准的。
+  const sweepTick = async () => {
+    await sweepClosedTerminals().catch(() => []);
+    setTimeout(sweepTick, TERMINAL_SWEEP_MS).unref();
+  };
+  setTimeout(sweepTick, 20_000).unref();
 }

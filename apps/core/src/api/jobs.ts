@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal, reopenTerminal } from "../agent/runner.js";
-import { closeJobTerminal, markStop, terminalState } from "../agent/terminal.js";
+import { closeJobTerminal, markStop, sweepClosedTerminals, terminalState } from "../agent/terminal.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
@@ -16,6 +16,9 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g;
 
 export const jobs = new Hono()
   .get("/jobs", (c) => c.json(listJobs()))
+  /** 问一遍还标着 running 的窗口在不在，没了的收掉。工作台窗口重新聚焦时前端调一次：
+      你 ⌘W 关掉终端再切回来，看到的状态就是对的，不用等调度器那一分钟。 */
+  .post("/jobs/sweep", async (c) => c.json({ closed: await sweepClosedTerminals() }))
   /** 关掉一个终端：杀进程组 + job 收尾。任务不动，用户可能还想接着做。 */
   .post("/jobs/:id/close", async (c) => {
     const id = c.req.param("id");
