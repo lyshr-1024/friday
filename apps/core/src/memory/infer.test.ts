@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { conversationKey, slackNode } from "./infer.js";
+import { conversationKey, meegleIdsIn, slackNode } from "./infer.js";
+
+describe("meegleIdsIn", () => {
+  // 7 位躲开裸 8 位数字那条回退规则，中了就说明是 URL 正则认出来的
+  it("认 project.feishu.cn", () => {
+    expect(meegleIdsIn("看下 https://project.feishu.cn/whale/story/detail/2444053")).toEqual(["2444053"]);
+  });
+
+  it("认 *.meegle.com", () => {
+    expect(meegleIdsIn("https://longbridge.meegle.com/whale/issue/9876543 这个")).toEqual(["9876543"]);
+  });
+
+  it("不相干的链接不认", () => {
+    expect(meegleIdsIn("https://example.com/detail/1234567")).toEqual([]);
+  });
+});
 
 describe("conversationKey", () => {
   it("thread 里的回复归到根消息", () => {

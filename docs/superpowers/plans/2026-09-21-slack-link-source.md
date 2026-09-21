@@ -725,7 +725,7 @@ export async function classifyQuery(item: InboxItem, prior: string[] = []): Prom
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/core && pnpm vitest run src/agent/slack/query.test.ts`
-Expected: PASS，12 个用例全绿。
+Expected: PASS，9 个 it 块全绿（共 12 条断言场景）。
 
 - [ ] **Step 5: 类型检查并提交**
 
@@ -1212,7 +1212,17 @@ Expected: PASS。
 
 - [ ] **Step 5: 在 `onJobExit` 里给查询任务分路**
 
-`apps/core/src/agent/pipeline.ts` 的 `onJobExit`，在 `const report = collectReport(jobId);` 之后、`git_merge` 那段之前插入。查询任务没有分支、不该挂 `git_merge`，要挂 `slack_reply`：
+**先改早退分支，否则下面的代码永远走不到。** `onJobExit` 在 `pipeline.ts:242` 有一句 `if (!job.task.source.autonomous)`，查询任务没有 `autonomous` 标记，会在这里就 return，`collectReport` 根本不执行。把它改成：
+
+```ts
+  if (!job.task.source.autonomous && !job.task.source.headless) {
+```
+
+这样 headless 的查询任务才能往下走到 `collectReport`。（`git_merge` 那段有 `branch &&` 判断，只读任务没建分支，天然不会误挂。）
+
+另外在 Task 5 的 `startQueryJob` 里给 `source` 补一个 `repoDir: dir`，让 `getTaskByJob` 拿到的 `dir` 语义显式，而不是靠空串兜住。
+
+然后在 `const report = collectReport(jobId);` 之后、`git_merge` 那段之前插入下面这段。查询任务没有分支、不该挂 `git_merge`，要挂 `slack_reply`：
 
 ```ts
   const conv = job.task.source.conversation;
@@ -1271,6 +1281,7 @@ describe("查询任务收工", () => {
     });
     const id = "queryjob1";
     createJob({ id, project: "whale-console", dir: "/tmp", task: "分群奖励在哪配", logPath: jobLog(id), taskId: task.id });
+    updateTask(task.id, { source: { jobId: id, headless: true } });
     mkdirSync(runsDir(), { recursive: true });
     writeFileSync(reportPath(id), "## 概要\n在分群 tab 里。\n\n## 依据\n- a.tsx:10 — 表单在这\n\n## 回复草稿\n在活动编辑页的分群 tab 里配。");
 
@@ -1291,6 +1302,7 @@ describe("查询任务收工", () => {
     });
     const id = "queryjob2";
     createJob({ id, project: "whale-console", dir: "/tmp", task: "字段哪来的", logPath: jobLog(id), taskId: task.id });
+    updateTask(task.id, { source: { jobId: id, headless: true } });
 
     const out = onJobExit(id, 1)!;
     expect(out.status).toBe("blocked");
@@ -1365,15 +1377,18 @@ describe("personNote", () => {
 
 describe("upsertPerson", () => {
   it("已有的人追加一行", () => {
-    const out = upsertPerson("拂晓", "常催养牛活动的验收", PEOPLE, () => {});
-    expect(out).toContain("产品，负责养牛活动");
-    expect(out).toContain("常催养牛活动的验收");
+    let written = "";
+    const line = upsertPerson("拂晓", "常催养牛活动的验收", PEOPLE, (_n, content) => { written = content; });
+    expect(line).toContain("常催养牛活动的验收");
+    expect(written).toContain("产品，负责养牛活动");
+    expect(written).toContain("常催养牛活动的验收");
   });
 
   it("没有的人新建一节", () => {
-    const out = upsertPerson("新人", "刚来的后端", PEOPLE, () => {});
-    expect(out).toContain("## 新人");
-    expect(out).toContain("刚来的后端");
+    let written = "";
+    upsertPerson("新人", "刚来的后端", PEOPLE, (_n, content) => { written = content; });
+    expect(written).toContain("## 新人");
+    expect(written).toContain("刚来的后端");
   });
 });
 ```

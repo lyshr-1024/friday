@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
+import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type InboxItem } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, inboxAll, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -36,11 +36,11 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
     只做能确定的检查，拿不准就不报——误报比不报更伤信任。 */
 
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
-function consequence(a: PendingAction, thread: Thread | null): string | null {
+function consequence(a: PendingAction, msgs: InboxItem[]): string | null {
   if (a.type === "slack_reply") {
     const who = String(a.payload.userName ?? "对方");
     const where = a.payload.threadTs
-      ? `回在 ${who} 那条下面${thread?.channelName ? `（${thread.channelName}）` : ""}`
+      ? `回在 ${who} 那条下面${msgs[0]?.channelName ? `（${msgs[0].channelName}）` : ""}`
       : `发到与 ${who} 的私聊`;
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
@@ -55,8 +55,7 @@ function consequence(a: PendingAction, thread: Thread | null): string | null {
   return null;
 }
 
-function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "mismatch"; text: string } | null {
-  const items = thread?.items ?? [];
+function evidenceCheck(items: InboxItem[], draft: string): { tone: "thin" | "mismatch"; text: string } | null {
   if (!items.length) return null;
   const withText = items.filter((i) => i.text.trim());
   const empty = items.length - withText.length;
@@ -68,7 +67,7 @@ function evidenceCheck(thread: Thread | null, draft: string): { tone: "thin" | "
   // Friday 说「内容没显示出来」，但其实有别的消息带文字
   if (/没显示出来|内容为空|没有内容|看不到内容/.test(draft) && withText.length > 0) {
     const last = (withText[withText.length - 1]?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
-    return { tone: "mismatch", text: `这个线程里有带文字的消息：「${last}」。草稿说内容没显示出来，和原文对不上。` };
+    return { tone: "mismatch", text: `这段对话里有带文字的消息：「${last}」。草稿说内容没显示出来，和原文对不上。` };
   }
   // 只有一条短消息，信息量不足以判断
   if (withText.length === 1 && (withText[0]?.text ?? "").trim().length <= 30) {
@@ -1005,7 +1004,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [confirming, setConfirming] = useState(false);
   const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [thread, setThread] = useState<Thread | null>(null);
+  const [msgs, setMsgs] = useState<InboxItem[]>([]);
   const [acts, setActs] = useState<Activity[]>([]);
   // 终端还开着，边框上就一直有光绕着跑；终端没了才灭
   const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
@@ -1026,9 +1025,13 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
   useEffect(() => {
-    setThread(null);
-    if (t.source.threadId) void threadById(t.source.threadId).then(setThread).catch(() => {});
-  }, [t.source.threadId]);
+    setMsgs([]);
+    const conv = t.source.conversation;
+    if (!conv) return;
+    void inboxAll()
+      .then((r) => setMsgs(r.items.filter((i) => `${i.channelId}:${i.threadTs || i.ts}` === conv)))
+      .catch(() => {});
+  }, [t.source.conversation]);
 
   const r = t.report;
   // 勾选状态存在任务上；本地先变，后端推送回来再对齐
@@ -1061,7 +1064,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
   // 需求卡的 understanding 是「节点/状态/优先级/排期/截止」的复述，StoryBody 已经逐项列过
   const situation = isStory(t) ? "" : t.understanding || t.source.note || "";
-  const links = t.kind === "meegle" ? [] : [...new Set([...(thread?.items ?? []).flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
+  const links = t.kind === "meegle" ? [] : [...new Set([...msgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
   // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
   const asked = t.attention === "intake" && Boolean(t.progress);
@@ -1077,19 +1080,19 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const derivedTodos = all.filter((x) => x.source.fromTaskId === t.id);
   const openTodos = derivedTodos.filter((c) => c.status !== "done" && c.status !== "ignored").length;
 
-  const prior = thread?.brief?.priorMessages ?? [];
-  const sourceName = thread ? thread.channelName || `与 ${thread.userName} 的私聊` : "";
+  const prior: Array<{ ts: string; userName: string; text: string }> = [];
+  const sourceName = msgs.length ? msgs[0]!.channelName || `与 ${msgs[0]!.userName} 的私聊` : "";
   // 会话级深链：拿任一条消息的 slack:// 链接去掉 message 参数就落在这个会话上；
   // 没有桌面端深链时退到网页版的频道归档页。
   const channelLink = (() => {
-    const app = thread?.items.find((i) => i.appLink)?.appLink;
+    const app = msgs.find((i) => i.appLink)?.appLink;
     if (app) return app.replace(/&message=[^&]*/, "");
-    const web = thread?.items.find((i) => i.permalink)?.permalink;
+    const web = msgs.find((i) => i.permalink)?.permalink;
     return web ? web.replace(/\/p\d+.*$/, "") : "";
   })();
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
-  const evidence = isMessage ? evidenceCheck(thread, String(first.payload.text ?? first.detail ?? "")) : null;
+  const evidence = isMessage ? evidenceCheck(msgs, String(first.payload.text ?? first.detail ?? "")) : null;
   // 开工提案优先于 Meegle 状态流转当主按钮：Friday 提的是「让我去改」，
   // 缺陷卡上又恰好有流转可选，原来 trs 一非空就把开工挤得没有任何按钮可点。
   const startJob = pending.find((p) => p.type === "start_job");
@@ -1247,7 +1250,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       {isIssue(t) && <IssueBody t={t} />}
       <TaskBody t={t} all={all} onAct={onAct} />
 
-      {thread && thread.items.length > 0 && (
+      {msgs.length > 0 && (
         <div className="fx__source">
           <div className="fx__source-head">
             <span className="k">SLACK</span>
@@ -1280,7 +1283,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
             </details>
           )}
           <ul className="fx__source-list">
-            {thread.items.map((i) => (
+            {msgs.map((i) => (
               <li key={i.id}>
                 <span className="fx__source-who">{i.userName}</span>
                 {i.text.trim()
@@ -1432,10 +1435,10 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
 
       {open && (
         <div className="fx__foot" ref={footRef}>
-          {first && consequence(first, thread) && (
+          {first && consequence(first, msgs) && (
             <div className="fx__consequence">
               <Icon name="alert" />
-              <span>{consequence(first, thread)}</span>
+              <span>{consequence(first, msgs)}</span>
             </div>
           )}
           <div className="fx__acts">

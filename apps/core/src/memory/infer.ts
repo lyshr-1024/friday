@@ -17,7 +17,7 @@ export function conversationKey(item: Pick<InboxItem, "channelId" | "ts" | "thre
 }
 
 /** 工单号：链接里的 /detail/24440539，或裸的 8 位以上数字 */
-const MEEGLE_URL = /project\.(?:larksuite|feishu)\.com\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;
+const MEEGLE_URL = /(?:project\.(?:larksuite\.com|feishu\.cn)|[a-z0-9-]+\.meegle\.com)\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;
 const TICKET_IN_TEXT = /\b(\d{8})\b/g;
 
 export function meegleIdsIn(text: string): string[] {

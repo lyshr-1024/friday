@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { lessonFromTask } from "./lessons.js";
 import { closeTaskTerminal, say } from "./terminal.js";
 import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
-import type { Task, Thread, ThreadBrief } from "@friday/shared";
-import { AUTOSTART_CATEGORY, REPLY_CATEGORY_LABEL } from "@friday/shared";
+import type { Task } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -11,7 +9,6 @@ import { createJob, getJob, setGhosttyId } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { meegleIdsIn } from "../memory/infer.js";
-import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../memory/threads.js";
 import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
@@ -33,83 +30,17 @@ export function logTail(jobId: string, chars = 300): string {
 const execFileP = promisify(execFile);
 
 /**
- * 线程做完功课后进任务中枢：
- * - 一条线程一条任务（理解 = 情境，方案 = 动作）。
- * - 需要回复且有草稿 → 挂一个待审核的 slack_reply（不可逆，等用户点）。
- * - 建议动作里有 run_claude 且能定位项目 → 自动在分支上开自主 Claude Code 任务（可逆），完成后交付报告进审核。
- */
-export interface ThreadDeps {
-  slackPost?: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }>;
-}
-
-/**
- * 任务收工时把它的 Slack 线程一并关掉。
- * 不关的话线程一直 open，对方下一条消息会接回这条老线程，
- * 带着已经处理完的旧消息重做一遍功课——用户看到的就是「处理过的又回来了」。
- */
-export function closeTaskThread(task: Task, status: "done" | "ignored" = "done"): void {
-  if (task.source.threadId) setThreadStatus(task.source.threadId, status);
-}
-
-/**
- * 任务收工的完整动作：标状态 + 记 lesson + 关终端 + 关线程 + 收 worktree。
+ * 任务收工的完整动作：标状态 + 关终端 + 收 worktree。
  * `/tasks/:id/done`、`/tasks/:id/ignore`、呼出模式 mark_done 都是这同一件事，
  * 不能有两套语义——漏关终端会留下孤儿 claude 进程（2026-09-14 已经踩过一次）。
  */
 export async function finishTask(id: string, status: "done" | "ignored", why: string): Promise<Task | undefined> {
-  const before = getTask(id);
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) {
-    if (before) lessonFromTask(before, status === "done" ? "done_without_reply" : "ignored");
     await closeTaskTerminal(t, why);
-    closeTaskThread(t, status);
     await cleanupTaskWorktree(t, why);
   }
   return t;
-}
-
-/**
- * 线程 → 任务。**Slack 不主动建任务**（2026-09-20 用户要求）：情境卡照写、通知照发，
- * 但要不要变成任务板上的一条由你定——自动建出来的那批大多是当时的临时消息，
- * 过两天就是噪音。已经存在的任务仍然跟着更新，收工后对方又催照样拉回队列。
- *
- * `create: true` 是你亲手要求的（线程「处理」按钮、手动重做功课），那时才建。
- */
-export async function threadToTask(thread: Thread, brief: ThreadBrief, project?: string, deps: ThreadDeps & { create?: boolean } = {}): Promise<Task | undefined> {
-  // 含已收工的：同一条线程只能有一条任务。上一轮标了完成之后对方又催一句时，
-  // 只找未完成的会找不到它、再建一条，同一件事就在板上出现两遍。
-  let task = findTaskBySource((s) => s.threadId === thread.id, true);
-  const title = `${thread.userName}：${brief.needs || brief.situation}`.slice(0, 80);
-  if (!task && !deps.create) return undefined;
-  if (!task) {
-    task = createTask({ title, kind: "slack", source: { threadId: thread.id }, ...(project ? { project } : {}), priority: brief.urgency, understanding: brief.situation, status: "understood" });
-    record({ taskId: task.id, action: "task_create", why: "你让 Friday 处理这条 Slack 线程", how: "从情境卡建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
-  } else {
-    // 收工过的线程又有新消息 = 这件事没完，拉回队列；用户手动忽略的不翻回来。
-    const revive = task.status === "done";
-    task = updateTask(task.id, { title, understanding: brief.situation, priority: brief.urgency, ...(project ? { project } : {}), ...(revive ? { status: "understood" as const } : {}) })!;
-    if (revive) record({ taskId: task.id, action: "task_reopen", why: "这条线程收工后对方又来消息", how: "拉回待办，不另建任务", evidence: { threadId: thread.id, situation: brief.situation }, risk: "read" });
-  }
-
-  // 消息里贴了 Meegle 工单链接就把线程接到那条工单上：聊的往往就是它，
-  // 这样缺陷、需求、Slack 讨论能在一处看全。取任务板里已有的那个，没有就记 id 备查。
-  const mentioned = meegleIdsIn(thread.items.map((i) => i.text).join("\n"));
-  if (mentioned.length && !task.source.linkedStoryId) {
-    const hit = mentioned.map((id) => findTaskBySource((s) => s.meegleId === id, true)).find(Boolean);
-    const storyId = hit?.source.meegleId ?? mentioned[0]!;
-    task = updateTask(task.id, {
-      source: { linkedStoryId: storyId, ...(hit?.title ? { linkedStoryName: hit.title } : {}) },
-      // 顺带归项目：工单那条已经归好了就跟着它
-      ...(!task.project && hit?.project ? { project: hit.project } : {}),
-    })!;
-  }
-
-  return task;
-}
-
-/** 交给 Claude Code 的任务描述：Friday 的指令在外，Slack 原文只作素材。 */
-export function codeTaskDetail(thread: Thread, detail: string): string {
-  return `${detail}\n\n来源：${thread.userName} 在 Slack 说：\n${untrusted("slack", thread.items.map((i) => i.text).join(" / ").slice(0, 800))}`;
 }
 
 /**
@@ -323,20 +254,19 @@ export function reportBackToOrigin(done: Task): void {
     attention: "review",
   })!;
 
-  const thread = origin.source.threadId ? getThread(origin.source.threadId) : undefined;
-  const first = thread?.items[0];
+  const channel = origin.source.channelId;
   const already = (next.pending ?? []).some((p) => p.type === "slack_reply");
-  if (thread && first && !already) {
+  if (origin.source.conversation && channel && !already) {
     const reply = `${summary.slice(0, 500)}`;
     next = addPending(next.id, {
       type: "slack_reply",
-      label: `回复 ${thread.userName}`,
+      label: `回复 ${origin.source.userName ?? "对方"}`,
       detail: reply,
       payload: {
-        channel: first.channelId,
+        channel,
         text: reply,
-        ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}),
-        userName: thread.userName,
+        ...(origin.source.threadTs ? { threadTs: origin.source.threadTs } : {}),
+        ...(origin.source.userName ? { userName: origin.source.userName } : {}),
       },
     })!;
   }
@@ -346,7 +276,7 @@ export function reportBackToOrigin(done: Task): void {
     action: "job_reported_back",
     why: "派出去的活做完了，来源那条还挂着",
     how: line,
-    evidence: { doneTaskId: done.id, hasReply: Boolean(thread && first) },
+    evidence: { doneTaskId: done.id, hasReply: Boolean(origin.source.conversation && channel) },
     risk: "reversible",
   });
 }

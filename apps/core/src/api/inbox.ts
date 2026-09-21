@@ -10,13 +10,15 @@ import { userSettings } from "../settings.js";
 
 /** 把一条 Slack 消息交给对应项目里的 Claude Code：摘要 + 原文 + 链接一起带过去。 */
 export function handoffTask(item: NonNullable<ReturnType<typeof getInboxItem>>): string {
-  const head = item.triage?.task ?? item.triage?.summary ?? "处理这条 Slack 消息";
+  const head = "处理这条 Slack 消息";
   return `${head}\n\n来源 Slack：${item.userName} 在 ${item.channelName} 说：\n${item.text}${item.permalink ? `\n${item.permalink}` : ""}`;
 }
 
 export const inbox = new Hono()
   .get("/inbox", (c) => {
-    const res: InboxResponse = { items: listInbox(), lastSyncAt: state.lastSyncAt, nextSyncAt: state.nextSyncAt, lastError: state.lastError, configured: state.configured };
+    // all=1：任务卡要按对话键找回自己那几条原话，含已处理的
+    const all = c.req.query("all") === "1";
+    const res: InboxResponse = { items: listInbox(all, all ? 300 : 50), lastSyncAt: state.lastSyncAt, nextSyncAt: state.nextSyncAt, lastError: state.lastError, configured: state.configured };
     return c.json(res);
   })
   .post("/inbox/sync", async (c) => {
@@ -29,7 +31,7 @@ export const inbox = new Hono()
     const item = getInboxItem(c.req.param("id"));
     if (!item) return c.json({ error: "不存在" }, 404);
     const body = (await c.req.json().catch(() => ({}))) as { project?: string };
-    const query = body.project ?? item.triage?.project;
+    const query = body.project;
     if (!query) return c.json({ error: "这条消息没推导出项目，请指定" }, 400);
     const resolved = resolveProject(query);
     if (resolved.kind === "none") return c.json({ error: `没找到项目「${query}」` }, 404);

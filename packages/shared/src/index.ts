@@ -178,18 +178,6 @@ export interface MemoryFileResponse {
 export type InboxKind = "dm" | "mention";
 export type Urgency = "high" | "normal" | "low";
 
-export interface Triage {
-  needsReply: boolean;
-  urgency: Urgency;
-  summary: string;
-  draft?: string;
-  /** 推导出的关联项目名（projects.md 里的名字），没有则缺省 */
-  project?: string;
-  /** 若是要动代码的事，一句可直接交给 Claude Code 的任务描述 */
-  task?: string;
-  category: ReplyCategory;
-}
-
 export interface InboxItem {
   id: string;
   kind: InboxKind;
@@ -205,7 +193,6 @@ export interface InboxItem {
   threadTs?: string;
   ts: string;
   receivedAt: string;
-  triage?: Triage;
   done: boolean;
 }
 
@@ -246,49 +233,6 @@ export interface Job {
   finishedAt?: string;
 }
 
-export type ThreadStatus = "open" | "done" | "ignored";
-
-/**
- * 情境卡。2026-09-18 起只备料不下结论：
- * 137 条起草的回复只发出 14 条（10%），99 条「判要回」的线程被直接忽略，
- * 说明 Friday 凭 10 条前文写不出能用的草稿，写了也是白写。
- * 现在它只回答「谁、为什么找、要什么、急不急」，回复由你来写，
- * 要动代码就把原话转给终端——那边才有完整上下文。
- */
-export interface ThreadBrief {
-  situation: string;
-  needs: string;
-  needsReply: boolean;
-  urgency: Urgency;
-  context: string[];
-  /** 这条消息之前、频道或 thread 里已经聊过的原话。判断的依据，要能被核对。 */
-  priorMessages?: Array<{ ts: string; userName: string; text: string }>;
-  person?: string;
-}
-
-export interface Thread {
-  id: string;
-  kind: InboxKind;
-  userId: string;
-  userName: string;
-  channelId: string;
-  channelName: string;
-  project?: string;
-  status: ThreadStatus;
-  firstTs: string;
-  lastTs: string;
-  updatedAt: string;
-  brief?: ThreadBrief;
-  items: InboxItem[];
-}
-
-export interface ThreadsResponse {
-  threads: Thread[];
-  lastSyncAt: string | null;
-  nextSyncAt: string | null;
-  lastError: string | null;
-  configured: boolean;
-}
 
 /* ---------- 任务中枢与账本 ---------- */
 
@@ -434,82 +378,12 @@ export const TAG_LABELS: Record<string, string> = {
   "Include Backend": "后台纳入",
 };
 
-/** Slack 消息的诉求类型，自动回复的置信度阈值按它分档 */
-export type ReplyCategory = "question" | "status_ask" | "code_fix" | "review_ask" | "notice" | "other";
-
-export const REPLY_CATEGORIES: ReplyCategory[] = ["question", "status_ask", "code_fix", "review_ask", "notice", "other"];
-
 /**
- * 「自己动手改代码」的闸门类别。和回复分开算：回复错了撤一下，
- * 开错工是在仓库里改代码，两者不该共用一个阈值。
- * 和 ReplyCategory 同构，所以阈值表、lessons、校准逻辑都能复用。
+ * 「自己动手改代码」的闸门类别。开工提案按它归档，
+ * 和回复分开算：回复错了撤一下，开错工是在仓库里改代码。
  */
 export const AUTOSTART_CATEGORY = "autostart";
 
-/**
- * 「转给终端」的闸门类别。Friday 在项目明确之后只做决定和转发，
- * 学的是转得对不对（原话有没有丢、该不该转、时机对不对），
- * 不是学怎么改代码——那是终端的事，Friday 没有项目 skill 和代码上下文。
- */
-export const RELAY_CATEGORY = "relay";
-
-/** 阈值与 lessons 的键：回复类别 + 开工 + 转给终端 */
-export type GateCategory = ReplyCategory | typeof AUTOSTART_CATEGORY | typeof RELAY_CATEGORY;
-
-/** 有手册可写的类别：回复各类 + 转给终端。开工（autostart）只有阈值，没有手册。 */
-export type PlaybookCategory = ReplyCategory | typeof RELAY_CATEGORY;
-
-export const PLAYBOOK_CATEGORIES: PlaybookCategory[] = [...REPLY_CATEGORIES, RELAY_CATEGORY];
-
-export const GATE_CATEGORY_LABEL: Record<GateCategory, string> = {
-  question: "问你一件事",
-  status_ask: "问进度",
-  code_fix: "要改代码",
-  review_ask: "要你看东西",
-  notice: "通知",
-  other: "其他",
-  autostart: "自己开工改代码",
-  relay: "转给终端",
-};
-
-export const REPLY_CATEGORY_LABEL: Record<ReplyCategory, string> = {
-  question: "问你一件事",
-  status_ask: "问进度",
-  code_fix: "要改代码",
-  review_ask: "要你看东西",
-  notice: "通知",
-  other: "其他",
-};
-
-/**
- * 人工处理这条草稿时用户做了什么。approved / edited_approved 是正信号，其余都是负信号：
- * ignored = Friday 判断要回、你直接忽略；done_without_reply = 你自己回了，草稿没用上；
- * relayed_direct = 该转给终端的话你自己敲进去了，说明 Friday 转达得不对或不够快。
- */
-export type LessonKind = "approved" | "edited_approved" | "rejected" | "auto_undone" | "ignored" | "done_without_reply" | "relayed_direct";
-
-export interface Lesson {
-  id: string;
-  taskId?: string;
-  /** 回复类别，或 autostart（自己开工）——两者共用这张表做校准 */
-  category: GateCategory;
-  kind: LessonKind;
-  draft?: string;
-  final?: string;
-  feedback?: string;
-  confidence: number;
-  createdAt: string;
-}
-
-export interface LearnStats {
-  category: GateCategory;
-  label: string;
-  threshold: number;
-  suggested?: number;
-  lessons: number;
-  approved: number;
-  calibrationError: number;
-}
 
 export type TaskCategory = "slack" | "defect" | "story" | "other";
 
@@ -628,12 +502,10 @@ export const USAGE_RANGE_LABEL: Record<UsageRange, string> = { today: "今天", 
 /** 调用点的中文名。key 是 askStream 的 label，模型那一档直接显示模型 id。 */
 export const USAGE_LABELS: Record<string, string> = {
   ask: "和 Friday 对话",
-  triage: "Slack 消息分类",
-  brief: "情境卡",
+  attach: "挂到哪条任务",
+  query: "查代码答问题",
   route: "接哪段会话",
-  continuation: "是不是同一件事",
   intake: "问工单归属",
-  review: "复盘人工处理",
   handbook: "从历史学手册",
   hot: "AI 热点",
   desk: "首屏建议",

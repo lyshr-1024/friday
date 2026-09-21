@@ -1,4 +1,4 @@
-import type { InboxItem, Triage } from "@friday/shared";
+import type { InboxItem } from "@friday/shared";
 import { db } from "./db.js";
 
 interface Row {
@@ -13,7 +13,7 @@ interface Row {
   ts: string;
   thread_ts: string | null;
   received_at: string;
-  triage: string | null;
+  prior: string | null;
   done: number;
 }
 
@@ -41,11 +41,10 @@ const toItem = (r: Row): InboxItem => ({
   ...(r.thread_ts ? { threadTs: r.thread_ts } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
-  ...(r.triage ? { triage: JSON.parse(r.triage) as Triage } : {}),
   done: r.done === 1,
 });
 
-export type NewInboxItem = Omit<InboxItem, "receivedAt" | "triage" | "done">;
+export type NewInboxItem = Omit<InboxItem, "receivedAt" | "done">;
 
 /** 插入新消息，已存在的跳过；返回真正新增的条目。 */
 export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
@@ -60,10 +59,6 @@ export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
     if (res.changes > 0) added.push({ ...it, receivedAt: now, done: false });
   }
   return added;
-}
-
-export function setTriage(id: string, triage: Triage): void {
-  db().prepare("UPDATE inbox SET triage = ? WHERE id = ?").run(JSON.stringify(triage), id);
 }
 
 export function listInbox(includeDone = false, limit = 50): InboxItem[] {

@@ -4,7 +4,6 @@ import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
-import { RELAY_CATEGORY } from "@friday/shared";
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>

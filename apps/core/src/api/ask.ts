@@ -5,7 +5,6 @@ import type { AskEvent } from "../agent/claude.js";
 import { friday } from "../agent/prompt.js";
 import { cancelRun, isRunning, startRun, subscribe } from "../agent/runs.js";
 import { config } from "../config.js";
-import { RELAY_CATEGORY } from "@friday/shared";
 import { loadMemoryContext } from "../memory/context.js";
 import { contextFor } from "../agent/bridge.js";
 import { TERMINAL_STATE_LABEL, terminalState } from "../agent/terminal.js";

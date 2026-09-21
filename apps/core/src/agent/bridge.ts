@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { DeliveryReport, Job, Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
-import { lessonFromRelay } from "./lessons.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { listThreads } from "../memory/threads.js";
+import { listInbox } from "../memory/inbox.js";
+import { conversationKey } from "../memory/infer.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
@@ -101,9 +101,11 @@ async function currentBranch(dir: string): Promise<string> {
  *   那是你和它在前几轮聊定的结论（task_update 写进去的），丢了它就忘了你已经拍过的板。
  */
 export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday" = "terminal"): string {
-  const thread = task.source.threadId ? listThreads("all", 300).find((t) => t.id === task.source.threadId) : undefined;
+  const conv = task.source.conversation;
+  const msgs = conv ? listInbox(true, 200).filter((i) => conversationKey(i) === conv) : [];
+  const who = task.source.userName ?? msgs[0]?.userName;
   const project = loadProjects().find((p) => p.name === (task.project ?? job?.project));
-  const person = thread ? personNote(thread.userName) : undefined;
+  const person = who ? personNote(who) : undefined;
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
     task.understanding ? `这件事是什么：${task.understanding}` : "",
@@ -113,9 +115,9 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
     task.source.url ? `用户给的链接：${task.source.url}` : "",
     task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}` : "",
     task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）"}` : "",
-    thread ? `Slack 原文（${thread.channelName || "私聊"} · ${thread.userName}）：\n${thread.items.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000)}` : "",
+    msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000)}` : "",
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${project.note ? `，说明：${project.note}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
-    person ? `人物：${thread!.userName} — ${person}` : "",
+    person ? `人物：${who} — ${person}` : "",
     task.pending?.length ? `等用户点头的动作：${task.pending.map((p) => p.label).join("、")}` : "",
     audience === "terminal" ? "\n以上都是 Friday 收集到的事实，它没读过这个项目的代码，也没有项目的 skill。改哪里、怎么改、分几步由你自己看代码判断。" : "",
   ]

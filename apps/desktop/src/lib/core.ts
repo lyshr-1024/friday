@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -261,6 +261,13 @@ export async function inbox(sync = false, signal?: AbortSignal): Promise<InboxRe
   return res.json();
 }
 
+/** 收件箱全量（含已处理的）：任务卡按对话键过滤出自己那几条原话 */
+export async function inboxAll(): Promise<InboxResponse> {
+  const res = await fetch(`${await coreBaseUrl()}/inbox?all=1`);
+  if (!res.ok) throw new Error(`收件箱获取失败：core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function inboxDone(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/done`, { method: "POST" });
   if (!res.ok) throw new Error(`标记失败：core 返回 ${res.status}`);
@@ -345,36 +352,6 @@ export async function attachmentUrl(id: string): Promise<string> {
   return `${await coreBaseUrl()}/attachments/${encodeURIComponent(id)}`;
 }
 
-export async function threads(): Promise<ThreadsResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/threads`);
-  if (!res.ok) throw new Error(`threads ${res.status}`);
-  return res.json();
-}
-
-export async function threadById(id: string): Promise<Thread> {
-  const res = await fetch(`${await coreBaseUrl()}/threads/${encodeURIComponent(id)}`);
-  if (!res.ok) throw new Error(`thread ${res.status}`);
-  return res.json();
-}
-
-export async function threadAction(id: string, action: "done" | "ignore" | "refresh"): Promise<Thread | null> {
-  const res = await fetch(`${await coreBaseUrl()}/threads/${encodeURIComponent(id)}/${action}`, { method: "POST" });
-  if (!res.ok) throw new Error(`thread ${action} ${res.status}`);
-  return action === "refresh" ? res.json() : null;
-}
-
-
-/** 把一个线程连同 Friday 做好的功课带进会话窗开新对话。 */
-export function threadPrompt(t: Thread): string {
-  const b = t.brief;
-  return [
-    `帮我处理 ${t.userName} 在 Slack 找我的这件事（${t.kind === "dm" ? "私聊" : t.channelName}）。`,
-    `原文：`,
-    ...t.items.map((i) => `- ${i.text}${i.permalink ? `（${i.permalink}）` : ""}`),
-    b ? `你做的功课：${b.situation}。需要我：${b.needs}。${b.context.length ? `背景：${b.context.join("；")}。` : ""}` : "",
-    `先给判断和方案，等我确认再动手。`,
-  ].filter(Boolean).join("\n");
-}
 
 export async function searchAll(q: string): Promise<SearchResult> {
   const res = await fetch(`${await coreBaseUrl()}/search?q=${encodeURIComponent(q)}`);
@@ -564,12 +541,6 @@ export async function audit(taskId?: string, limit = 200): Promise<AuditEvent[]>
 export async function auditUndo(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/audit/${encodeURIComponent(id)}/undo`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `撤销失败 ${res.status}`);
-}
-
-export async function learnStats(): Promise<LearnStats[]> {
-  const res = await fetch(`${await coreBaseUrl()}/learn`);
-  if (!res.ok) throw new Error(`core 返回 ${res.status}`);
-  return res.json();
 }
 
 /** 用量统计：按调用点和模型分组的 token 与折合金额 */

@@ -48,8 +48,7 @@ CREATE TABLE IF NOT EXISTS inbox (
   ts TEXT NOT NULL,
   thread_ts TEXT,
   received_at TEXT NOT NULL,
-  triage TEXT,
-  category TEXT,
+  prior TEXT,
   done INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS inbox_open ON inbox (done, ts);
@@ -76,26 +75,6 @@ CREATE TABLE IF NOT EXISTS attachments (
   path TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS threads (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('dm', 'mention')),
-  user_id TEXT NOT NULL,
-  user_name TEXT NOT NULL,
-  channel_id TEXT NOT NULL,
-  channel_name TEXT NOT NULL,
-  project TEXT,
-  status TEXT NOT NULL CHECK (status IN ('open', 'done', 'ignored')),
-  first_ts TEXT NOT NULL,
-  last_ts TEXT NOT NULL,
-  -- 接续判断的锚点。正常接续时跟着走，语义合并进来的消息不更新它，
-  -- 否则一次合并会把线程的时间窗往后拖，把后面无关的消息也吸进来。
-  anchor_ts TEXT,
-  updated_at TEXT NOT NULL,
-  brief TEXT,
-  auto_done TEXT
-);
-CREATE INDEX IF NOT EXISTS threads_open ON threads (status, last_ts);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -141,25 +120,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at TEXT NOT NULL,
   finished_at TEXT
 );
-
-CREATE TABLE IF NOT EXISTS thresholds (
-  category TEXT PRIMARY KEY,
-  value INTEGER NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS lessons (
-  id TEXT PRIMARY KEY,
-  task_id TEXT,
-  category TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('approved','edited_approved','rejected','auto_undone','ignored','done_without_reply','relayed_direct')),
-  draft TEXT,
-  final TEXT,
-  feedback TEXT,
-  confidence INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS lessons_category ON lessons (category, created_at);
 
 CREATE TABLE IF NOT EXISTS usage (
   id TEXT PRIMARY KEY,

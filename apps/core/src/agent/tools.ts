@@ -5,7 +5,6 @@ import { TERMINAL_LABEL } from "@friday/shared";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { currentBranchSync, gitInspect } from "./git.js";
-import { reviewOnce } from "./lessons.js";
 import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
@@ -17,10 +16,12 @@ import { updateTaskFromChat } from "./taskUpdate.js";
 import { meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskBySource, updateTask } from "../memory/tasks.js";
+import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
-import { listThreads } from "../memory/threads.js";
+import { listInbox } from "../memory/inbox.js";
+import { conversationKey } from "../memory/infer.js";
+import { attachedTasks } from "./slack/attach.js";
 import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { userSettings } from "../settings.js";
@@ -87,22 +88,22 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
     ),
     tool(
       "slack_inbox",
-      "列出 Slack 上找用户的人（按人聚合的线程，Friday 已做完功课：情境、需要用户做什么、建议回复、关联工单与项目、原文和链接）。用户问“Slack 有什么”“谁找我”“处理 XX 那件事”时先用它。",
+      "列出 Slack 上最近找用户的人：谁说了什么、挂到了哪条任务上。用户问“Slack 有什么”“谁找我”“处理 XX 那件事”时先用它。",
       {},
       async () => {
-        const list = listThreads("open");
-        if (!list.length) return text("没有等处理的 Slack 线程。");
+        const list = listInbox(false, 30);
+        if (!list.length) return text("没有等处理的 Slack 消息。");
         return text(
           list
-            .map((th, i) => {
-              const b = th.brief;
+            .map((it, i) => {
+              const tasks = attachedTasks(conversationKey(it))
+                .map((id) => getTask(id))
+                .filter(Boolean);
               return [
-                `${i + 1}. ${th.userName}（${th.kind === "dm" ? "私聊" : th.channelName}，${th.items.length} 条）${b ? ` · ${b.urgency}${b.needsReply ? " · 等你回" : ""}` : ""}${th.project ? ` · 项目 ${th.project}` : ""}`,
-                b ? `   情境：${b.situation}` : "",
-                b ? `   需要你：${b.needs}` : "",
-                b?.context.length ? `   背景：${b.context.join("；")}` : "",
-                `   原文：${th.items.map((it) => it.text.slice(0, 200)).join(" / ")}`,
-                th.items.some((it) => it.permalink) ? `   链接：${th.items.map((it) => it.permalink).filter(Boolean).join(" ")}` : "",
+                `${i + 1}. ${it.userName}（${it.kind === "dm" ? "私聊" : it.channelName}）`,
+                `   原话：${it.text.slice(0, 300)}`,
+                tasks.length ? `   挂在：${tasks.map((t) => `${t!.title}（${t!.status}）`).join("、")}` : "   还没挂到任务上",
+                it.permalink ? `   链接：${it.permalink}` : "",
               ]
                 .filter(Boolean)
                 .join("\n");
@@ -240,15 +241,6 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       },
     ),
     tool(
-      "review_now",
-      "让 Friday 现在复盘一次人工处理：看你最近怎么处置它判过的 Slack 消息（直接忽略 / 自己回的）、哪些话你绕过它自己敲进了终端，重写对应的经验手册，下次判得更准、转得更到位。用户说“复盘一下”“学学我是怎么处理的”“为什么老是判不准”时用。只在你说的时候跑，不自动。",
-      {},
-      async () => {
-        const r = await reviewOnce();
-        return text("skipped" in r ? `这次没复盘：${r.skipped}` : `复盘完了，重写了 ${r.categories.length} 份手册：${r.categories.join("、") || "无"}。`);
-      },
-    ),
-    tool(
       "learn_history",
       "从用户过去在 Claude Code 里说过的话里提炼「在某个项目怎么干活」的手册（技术口径、分支流程、踩过的坑），每条带原话出处。用户说“从历史学一下”“把我以前说过的规矩学了”“更新项目手册”时用。结果不会直接写记忆库，会挂成一条待审任务等用户点头。要花一两分钟。平时每周自动学一轮（设置里可关）。",
       {},
@@ -314,7 +306,6 @@ export const FRIDAY_TOOL_NAMES = [
   "mcp__friday__task_update",
   "mcp__friday__meegle_sync",
   "mcp__friday__slack_sync",
-  "mcp__friday__review_now",
   "mcp__friday__learn_history",
   "mcp__friday__close_terminals",
 ];
