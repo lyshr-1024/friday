@@ -173,8 +173,10 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
-  // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
-  const conv = job.task.source.conversation;
+  // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply。
+  // 判据必须是 headless && conversation：手动建的 verbal 任务也可能写 conversation（task-9 的 POST /slack/:conv/task），
+  // 但它不是只读查询任务，不能按这条分支处理。
+  const conv = job.task.source.headless ? job.task.source.conversation : undefined;
   if (conv) {
     const draft = report ? queryReplyDraft(report) : undefined;
     let t = updateTask(job.task.id, {

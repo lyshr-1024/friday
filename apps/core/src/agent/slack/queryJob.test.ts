@@ -89,4 +89,22 @@ describe("查询任务收工", () => {
     expect(out.status).toBe("blocked");
     expect(out.pending ?? []).toHaveLength(0);
   });
+
+  it("手动建的带 conversation 的任务挂上终端 job（非 headless），退出时不走查询分支", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const task = createTask({
+      title: "帮忙看下导出",
+      kind: "verbal",
+      source: { conversation: "A3:1", channelId: "A3", userName: "柠萌" },
+      status: "processing",
+    });
+    const id = "queryjob3";
+    createJob({ id, project: "whale-console", dir: "/tmp", task: "帮忙看下导出", logPath: jobLog(id), taskId: task.id });
+    // 走终端派单（autonomous），不是 headless 查询任务——但 source.conversation 仍然存在
+    updateTask(task.id, { source: { jobId: id, autonomous: true } });
+
+    const out = onJobExit(id, 0)!;
+    expect(out.pending?.map((p) => p.type) ?? []).not.toContain("slack_reply");
+    expect(out.status).toBe("done");
+  });
 });

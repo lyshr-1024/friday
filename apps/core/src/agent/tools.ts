@@ -91,25 +91,14 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
       "列出 Slack 上最近找用户的人：谁说了什么、挂到了哪条任务上。用户问“Slack 有什么”“谁找我”“处理 XX 那件事”时先用它。",
       {},
       async () => {
-        const list = listInbox(false, 30);
-        if (!list.length) return text("没有等处理的 Slack 消息。");
-        return text(
-          list
-            .map((it, i) => {
-              const tasks = attachedTasks(conversationKey(it))
-                .map((id) => getTask(id))
-                .filter(Boolean);
-              return [
-                `${i + 1}. ${it.userName}（${it.kind === "dm" ? "私聊" : it.channelName}）`,
-                `   原话：${it.text.slice(0, 300)}`,
-                tasks.length ? `   挂在：${tasks.map((t) => `${t!.title}（${t!.status}）`).join("、")}` : "   还没挂到任务上",
-                it.permalink ? `   链接：${it.permalink}` : "",
-              ]
-                .filter(Boolean)
-                .join("\n");
-            })
-            .join("\n"),
-        );
+        const items = listInbox(false, 30);
+        if (!items.length) return text("没有等处理的 Slack 消息。");
+        const lines = items.map((i) => {
+          const conv = conversationKey(i);
+          const tasks = attachedTasks(conv).map((id) => getTask(id)?.title).filter(Boolean);
+          return `${i.userName}（${i.channelName}）：${i.text.slice(0, 120)}${tasks.length ? `\n  → 挂在：${tasks.join("、")}` : "\n  → 还没挂到任何任务"}`;
+        });
+        return text(lines.join("\n"));
       },
     ),
     tool(
