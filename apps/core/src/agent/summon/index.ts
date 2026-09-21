@@ -16,7 +16,10 @@ const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm
 function slackContext(scene: SlackScene | undefined): string | undefined {
   if (!scene) return undefined;
   const note = personNote(scene.userName);
-  return [`${scene.userName} 在 ${scene.channelName} 最近说：${scene.text}`, note ? `这个人：${note}` : ""].filter(Boolean).join("\n");
+  const recent = scene.recent?.length
+    ? [`频道 ${scene.channelName} 最近在聊：`, ...scene.recent.map((l) => `  ${l.userName}：${l.text}`)].join("\n")
+    : "";
+  return [`${scene.userName} 在 ${scene.channelName} 最近说：${scene.text}`, note ? `这个人：${note}` : "", recent].filter(Boolean).join("\n");
 }
 
 /** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */
@@ -65,12 +68,12 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
   const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
-  const input = { snapshot, tasks, projects, channel, person };
+  const slack = snapshot.app.bundleId === SLACK_BUNDLE ? await slackScene(channel, person) : undefined;
+  const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}) };
   const rules = buildRules(input);
   yield { type: "rules", rules };
 
   try {
-    const slack = snapshot.app.bundleId === SLACK_BUNDLE ? slackScene(channel, person) : undefined;
     const scene = sceneContext(snapshot, projects, slack);
     const card = await summonCard({
       snapshot,

@@ -1,7 +1,7 @@
 import type { Project } from "../../memory/projects.js";
 import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
-import { slackScene } from "./slack.js";
+import type { SlackScene } from "./slack.js";
 
 export interface MatchInput {
   snapshot: Snapshot;
@@ -9,6 +9,8 @@ export interface MatchInput {
   projects: Project[];
   channel?: string;
   person?: string;
+  /** Slack 场景在 summon() 里算好一次传进来，规则层和卡片层共用，别各自重算 */
+  scene?: SlackScene;
 }
 
 export interface Candidate {
@@ -71,8 +73,7 @@ export function candidates(input: MatchInput): Candidate[] {
   }
 
   if (snapshot.app.bundleId === SLACK_BUNDLE && (channel || person)) {
-    const scene = slackScene(channel, person);
-    const task = scene?.taskId ? getTask(scene.taskId) : undefined;
+    const task = input.scene?.taskId ? getTask(input.scene.taskId) : undefined;
     if (task) push(task, "这段 Slack 对话挂着这条任务", "sure");
   }
 
@@ -126,7 +127,7 @@ function describe(snapshot: Snapshot, channel?: string): string {
 }
 
 /** HUD 在 Slack 前台：帮我查这个 / 建成任务（只在没挂上时）/ 挂到…，零模型调用。 */
-function slackActions(scene: ReturnType<typeof slackScene>): SummonAction[] | undefined {
+function slackActions(scene: SlackScene | undefined): SummonAction[] | undefined {
   if (!scene) return undefined;
   const actions: SummonAction[] = [{ kind: "slack_query", label: "帮我查这个", conv: scene.conv }];
   if (!scene.taskId) actions.push({ kind: "slack_task", label: "建成任务", conv: scene.conv });
@@ -138,11 +139,10 @@ export function buildRules(input: MatchInput): SummonRules {
   const hits = candidates(input);
   const top = hits[0];
   const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
-  const scene = input.snapshot.app.bundleId === SLACK_BUNDLE ? slackScene(input.channel, input.person) : undefined;
   return {
     saw: describe(input.snapshot, input.channel),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
-    actions: slackActions(scene) ?? defaultActions(top?.task, project, input.snapshot),
+    actions: slackActions(input.scene) ?? defaultActions(top?.task, project, input.snapshot),
     // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。
     // 以前没命中就闭嘴，用户只看到「我看到了 Chrome」加一个建任务按钮，那是登记表不是助理。
     willThink: true,
