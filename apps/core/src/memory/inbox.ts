@@ -39,6 +39,7 @@ const toItem = (r: Row): InboxItem => ({
   permalink: r.permalink,
   ...(appLink(r) ? { appLink: appLink(r)! } : {}),
   ...(r.thread_ts ? { threadTs: r.thread_ts } : {}),
+  ...(r.prior ? { prior: JSON.parse(r.prior) as string[] } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
   done: r.done === 1,
@@ -71,6 +72,10 @@ export function listInbox(includeDone = false, limit = 50): InboxItem[] {
 export function getInboxItem(id: string): InboxItem | undefined {
   const row = db().prepare("SELECT * FROM inbox WHERE id = ?").get(id) as unknown as Row | undefined;
   return row ? toItem(row) : undefined;
+}
+
+export function setPrior(id: string, lines: string[]): void {
+  db().prepare("UPDATE inbox SET prior = ? WHERE id = ?").run(JSON.stringify(lines), id);
 }
 
 export function markInboxDone(id: string): boolean {

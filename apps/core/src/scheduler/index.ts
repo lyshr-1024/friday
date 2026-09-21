@@ -17,7 +17,7 @@ import {
   slackCaller,
   type SlackCreds,
 } from "../connectors/slack.js";
-import { addInboxItems, getCursor, setCursor, setSlackTeam, sweepRepliedInbox } from "../memory/inbox.js";
+import { addInboxItems, getCursor, setCursor, setPrior, setSlackTeam, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
 export const ACTIVE_HOURS: [number, number] = [10, 20];
@@ -59,6 +59,7 @@ async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem)
   const hit = priorCache.get(item.id);
   if (hit) return hit;
   const lines = (await fetchContext(call, item, async (id) => id)).map((c) => `${c.userName}：${c.text}`);
+  if (lines.length) setPrior(item.id, lines);
   priorCache.set(item.id, lines);
   if (priorCache.size > 200) priorCache.clear();
   return lines;

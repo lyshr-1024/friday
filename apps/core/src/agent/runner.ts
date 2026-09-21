@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { config } from "../config.js";
 import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
 import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
+import { findTaskBySource } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
@@ -308,6 +309,8 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
     terminal,
     ...(job.task ? { task: job.task } : {}),
     ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
+    // 后台查询任务是只读的，接回来的窗口不能顺手开始改文件
+    ...(findTaskBySource((s) => s.jobId === jobId, true)?.source.headless ? { readonly: true } : {}),
   });
   reviveJob(jobId);
   if (ghosttyId) setGhosttyId(jobId, ghosttyId);

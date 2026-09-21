@@ -1,4 +1,4 @@
-import type { InboxItem, LinkNode, Task } from "@friday/shared";
+import type { LinkNode, Task } from "@friday/shared";
 import { linkUp } from "./links.js";
 import { loadProjects, matchProjectByUrl, normalizeUrlPrefix } from "./projects.js";
 
@@ -11,10 +11,7 @@ export const branchNode = (project: string, branch: string): LinkNode => ({ kind
 export const urlNode = (url: string): LinkNode => ({ kind: "url", ref: normalizeUrlPrefix(url) });
 export const slackNode = (conversation: string): LinkNode => ({ kind: "slack", ref: conversation });
 
-/** 一段对话：thread 里的回复归到根消息，散消息自己算一段 */
-export function conversationKey(item: Pick<InboxItem, "channelId" | "ts" | "threadTs">): string {
-  return `${item.channelId}:${item.threadTs || item.ts}`;
-}
+export { conversationKey } from "@friday/shared";
 
 /** 工单号：链接里的 /detail/24440539，或裸的 8 位以上数字 */
 const MEEGLE_URL = /(?:project\.(?:larksuite\.com|feishu\.cn)|[a-z0-9-]+\.meegle\.com)\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;

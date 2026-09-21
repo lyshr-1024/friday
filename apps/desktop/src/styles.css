@@ -3779,35 +3779,118 @@ body,
    基础面保持平（GPUI：Elevation 只解释叠放，不表达重要程度）。 */
 /* 原话是核对依据，要读得清楚：不套灰底（fg-1 压在 bg-4 上对比最低），
    只用一条分隔线划出范围，正文直接落在卡片底色上 */
-.fx__source {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
+/* Slack 里的讨论：判断依据要能核对，所以摆在标题下面、情境之上 */
+.fx__slack {
+  margin: var(--s-4) 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.fx__slack-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+/* 推断出来的要标明白，理由挂在 title 上 */
+.k--guess {
+  padding: 0 4px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  color: var(--fg-4);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.fx__conv + .fx__conv {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
   border-top: 1px solid var(--line-1);
 }
-.fx__source-head {
+.fx__conv-meta {
   display: flex;
   align-items: baseline;
   gap: var(--s-2);
-  margin-bottom: var(--s-3);
+  min-width: 0;
+  color: var(--fg-3);
+  font-size: var(--t-aux);
 }
-.fx__source-head .k {
-  margin-bottom: 0;
+.fx__conv-who {
+  flex: none;
+  color: var(--fg-2);
+  font-weight: 500;
 }
-.fx__source-where {
+.fx__conv-where {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.fx__conv-drop {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.fx__conv-drop:hover {
+  color: var(--fg-2);
+}
+.fx__conv-drop:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.fx__conv-why {
+  margin-top: var(--s-1);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  line-height: var(--lh-aux);
+  overflow-wrap: anywhere;
+}
+.fx__conv-msg {
+  margin-top: var(--s-2);
+  min-width: 0;
+  color: var(--fg-1);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+/* 「在 Slack 打开」：hover 才显形，不和原文抢注意力，
+   但键盘 Tab 到时必须可见（GPUI：focus 始终可见） */
+.fx__conv-msg .link {
+  margin-left: var(--s-2);
   color: var(--fg-4);
   font-size: var(--t-micro);
   letter-spacing: var(--tr-micro);
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-a.fx__source-where {
-  color: var(--fg-3);
-  transition: color var(--dur) var(--ease);
+.fx__conv-msg:hover .link,
+.fx__conv-msg .link:focus-visible {
+  opacity: 1;
 }
-a.fx__source-where:hover {
-  color: var(--fg-1);
+.fx__conv-msg .link:hover {
+  color: var(--fg-2);
+}
+.fx__prior-line {
+  margin-top: var(--s-2);
+  color: var(--fg-2);
+  font-size: var(--t-aux);
+  line-height: var(--lh-aux);
+  overflow-wrap: anywhere;
 }
 /* 前文：默认收起（它是背景不是主体），但要能一眼看到有多少条可核对 */
 .fx__prior {
@@ -3854,89 +3937,11 @@ a.fx__source-where:hover {
   color: var(--fg-4);
   font-variant-numeric: tabular-nums;
 }
-.fx__prior-list {
-  margin-top: var(--s-3);
-}
-.fx__prior-list .fx__source-text {
-  color: var(--fg-2);
-}
-.fx__source-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-}
-.fx__source-list li {
-  display: flex;
-  gap: var(--s-3);
-  align-items: baseline;
-  min-width: 0;
-}
-.fx__source-who {
-  flex: none;
-  color: var(--fg-3);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tr-micro);
-}
-.fx__source-text {
-  min-width: 0;
-  color: var(--fg-1);
-  font-size: var(--t-body);
-  letter-spacing: var(--tr-body);
-  line-height: var(--lh-body);
-  overflow-wrap: anywhere;
-}
 /* 空消息也要显示——Friday 可能正是因为读到空消息才判断错的 */
 .fx__source-empty {
   color: var(--fg-4);
   font-size: var(--t-aux);
   font-style: italic;
-}
-
-/* 「在 Slack 打开」：hover 才显形，不和原文抢注意力，
-   但键盘 Tab 到时必须可见（GPUI：focus 始终可见） */
-.fx__source-open {
-  flex: none;
-  margin-left: auto;
-  color: var(--fg-4);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tr-micro);
-  text-decoration: none;
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.fx__source-list li:hover .fx__source-open,
-.fx__source-open:focus-visible {
-  opacity: 1;
-}
-.fx__source-open:hover {
-  color: var(--fg-2);
-}
-
-/* 证据不足 / 和草稿对不上：明说，不藏 */
-.fx__evidence {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-2);
-  margin-top: var(--s-3);
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--line-1);
-  color: var(--fg-2);
-  font-size: var(--t-aux);
-  letter-spacing: var(--tr-aux);
-  line-height: var(--lh-aux);
-}
-.fx__evidence .icon {
-  flex: none;
-  margin-top: 2px;
-}
-.fx__evidence--thin .icon {
-  color: var(--amber);
-}
-.fx__evidence--mismatch .icon {
-  color: var(--red);
 }
 
 /* 后果预览：不可逆的动作点下去会发生什么，就在按钮上方说清楚 */

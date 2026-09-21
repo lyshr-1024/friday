@@ -261,13 +261,6 @@ export async function inbox(sync = false, signal?: AbortSignal): Promise<InboxRe
   return res.json();
 }
 
-/** 收件箱全量（含已处理的）：任务卡按对话键过滤出自己那几条原话 */
-export async function inboxAll(): Promise<InboxResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/inbox?all=1`);
-  if (!res.ok) throw new Error(`收件箱获取失败：core 返回 ${res.status}`);
-  return res.json();
-}
-
 export async function inboxDone(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/done`, { method: "POST" });
   if (!res.ok) throw new Error(`标记失败：core 返回 ${res.status}`);
@@ -528,6 +521,28 @@ export async function taskSet(id: string, action: "done" | "ignore"): Promise<Ta
 export async function taskBindConversation(id: string, conversationId: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/conversation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId }) });
   if (!res.ok) throw new Error(`task conversation ${res.status}`);
+  return res.json();
+}
+
+export async function attachConversation(conv: string, taskId: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/${encodeURIComponent(conv)}/attach`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
+export async function detachConversation(conv: string, taskId: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/${encodeURIComponent(conv)}/attach/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
+export async function queryConversation(conv: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/${encodeURIComponent(conv)}/query`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function conversationToTask(conv: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/${encodeURIComponent(conv)}/task`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }
 

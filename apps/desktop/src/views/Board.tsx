@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type InboxItem } from "@friday/shared";
+import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, inboxAll, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
-import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, detachConversation, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
 export type BoardView = "queue" | "doing" | "all" | "ledger";
@@ -32,15 +32,12 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 }
 
 
-/** 原文够不够支撑判断。够不着就得明说，不能让用户自己去折叠里发现。
-    只做能确定的检查，拿不准就不报——误报比不报更伤信任。 */
-
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
-function consequence(a: PendingAction, msgs: InboxItem[]): string | null {
+function consequence(a: PendingAction, conv?: SlackConversation): string | null {
   if (a.type === "slack_reply") {
     const who = String(a.payload.userName ?? "对方");
     const where = a.payload.threadTs
-      ? `回在 ${who} 那条下面${msgs[0]?.channelName ? `（${msgs[0].channelName}）` : ""}`
+      ? `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`
       : `发到与 ${who} 的私聊`;
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
@@ -51,27 +48,6 @@ function consequence(a: PendingAction, msgs: InboxItem[]): string | null {
     const p = String(a.payload.project ?? "这个项目");
     const conf = typeof a.payload.confidence === "number" ? `Friday 对这次判断的把握是 ${a.payload.confidence} 分。` : "";
     return `在 ${p} 起一个终端，让 Claude Code 按上面这段去改。它在新分支上动手、不推远端也不合并，改完交报告给你验。${conf}`;
-  }
-  return null;
-}
-
-function evidenceCheck(items: InboxItem[], draft: string): { tone: "thin" | "mismatch"; text: string } | null {
-  if (!items.length) return null;
-  const withText = items.filter((i) => i.text.trim());
-  const empty = items.length - withText.length;
-
-  // 一条带文字的都没有——Friday 是在对着空消息写草稿
-  if (withText.length === 0) {
-    return { tone: "thin", text: items.length === 1 ? "唯一这条消息没有文字（图片或表情）。Friday 没有可依据的内容，这条草稿是猜的。" : `${items.length} 条消息都没有文字（图片或表情）。Friday 没有可依据的内容，这条草稿是猜的。` };
-  }
-  // Friday 说「内容没显示出来」，但其实有别的消息带文字
-  if (/没显示出来|内容为空|没有内容|看不到内容/.test(draft) && withText.length > 0) {
-    const last = (withText[withText.length - 1]?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
-    return { tone: "mismatch", text: `这段对话里有带文字的消息：「${last}」。草稿说内容没显示出来，和原文对不上。` };
-  }
-  // 只有一条短消息，信息量不足以判断
-  if (withText.length === 1 && (withText[0]?.text ?? "").trim().length <= 30) {
-    return { tone: "thin", text: empty > 0 ? `全部原文就这一句，另有 ${empty} 条没有文字。` : "全部原文就这一句，信息不多。" };
   }
   return null;
 }
@@ -1004,7 +980,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [confirming, setConfirming] = useState(false);
   const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [msgs, setMsgs] = useState<InboxItem[]>([]);
   const [acts, setActs] = useState<Activity[]>([]);
   // 终端还开着，边框上就一直有光绕着跑；终端没了才灭
   const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
@@ -1024,15 +999,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
-  useEffect(() => {
-    setMsgs([]);
-    const conv = t.source.conversation;
-    if (!conv) return;
-    void inboxAll()
-      .then((r) => setMsgs(r.items.filter((i) => `${i.channelId}:${i.threadTs || i.ts}` === conv)))
-      .catch(() => {});
-  }, [t.source.conversation]);
-
   const r = t.report;
   // 勾选状态存在任务上；本地先变，后端推送回来再对齐
   const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
@@ -1064,7 +1030,9 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
   // 需求卡的 understanding 是「节点/状态/优先级/排期/截止」的复述，StoryBody 已经逐项列过
   const situation = isStory(t) ? "" : t.understanding || t.source.note || "";
-  const links = t.kind === "meegle" ? [] : [...new Set([...msgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
+  const convs = t.conversations ?? [];
+  const convMsgs = convs.flatMap((c) => c.items);
+  const links = t.kind === "meegle" ? [] : [...new Set([...convMsgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   const open = t.status !== "done" && t.status !== "ignored";
   // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
   const asked = t.attention === "intake" && Boolean(t.progress);
@@ -1080,19 +1048,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const derivedTodos = all.filter((x) => x.source.fromTaskId === t.id);
   const openTodos = derivedTodos.filter((c) => c.status !== "done" && c.status !== "ignored").length;
 
-  const prior: Array<{ ts: string; userName: string; text: string }> = [];
-  const sourceName = msgs.length ? msgs[0]!.channelName || `与 ${msgs[0]!.userName} 的私聊` : "";
-  // 会话级深链：拿任一条消息的 slack:// 链接去掉 message 参数就落在这个会话上；
-  // 没有桌面端深链时退到网页版的频道归档页。
-  const channelLink = (() => {
-    const app = msgs.find((i) => i.appLink)?.appLink;
-    if (app) return app.replace(/&message=[^&]*/, "");
-    const web = msgs.find((i) => i.permalink)?.permalink;
-    return web ? web.replace(/\/p\d+.*$/, "") : "";
-  })();
   const first = pending[0];
   const isMessage = first?.type === "slack_reply";
-  const evidence = isMessage ? evidenceCheck(msgs, String(first.payload.text ?? first.detail ?? "")) : null;
   // 开工提案优先于 Meegle 状态流转当主按钮：Friday 提的是「让我去改」，
   // 缺陷卡上又恰好有流转可选，原来 trs 一非空就把开工挤得没有任何按钮可点。
   const startJob = pending.find((p) => p.type === "start_job");
@@ -1106,7 +1063,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     ? isMessage
       ? {
           // 原文和草稿对不上时，默认动作应该是「改」而不是「发」
-          label: evidence?.tone === "mismatch" ? "改一下再发…" : pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
+          label: pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
           run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); },
         }
       : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
@@ -1248,64 +1205,48 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       )}
 
       {isIssue(t) && <IssueBody t={t} />}
-      <TaskBody t={t} all={all} onAct={onAct} />
-
-      {msgs.length > 0 && (
-        <div className="fx__source">
-          <div className="fx__source-head">
-            <span className="k">SLACK</span>
-            {channelLink ? (
-              <a
-                href={channelLink}
-                className="link fx__source-where"
-                title="在 Slack 里打开这个会话"
-                onClick={(e) => { e.preventDefault(); void openUrl(channelLink); }}
-              >{sourceName}</a>
-            ) : (
-              <span className="fx__source-where">{sourceName}</span>
-            )}
-          </div>
-          {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
-          {prior.length > 0 && (
-            <details className="fx__prior">
-              <summary>
-                <span>这之前聊的是什么</span>
-                <span className="fx__prior-count">{prior.length} 条</span>
-              </summary>
-              <ul className="fx__source-list fx__prior-list">
-                {prior.map((p) => (
-                  <li key={p.ts}>
-                    <span className="fx__source-who">{p.userName}</span>
-                    <span className="fx__source-text"><Linkified text={p.text} /></span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <ul className="fx__source-list">
-            {msgs.map((i) => (
-              <li key={i.id}>
-                <span className="fx__source-who">{i.userName}</span>
-                {i.text.trim()
-                  ? <span className="fx__source-text"><Linkified text={i.text} /></span>
-                  : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
-                <a
-                  href={i.permalink}
-                  className="link fx__source-open"
-                  title="在 Slack 里打开这条"
-                  onClick={(e) => { e.preventDefault(); void openUrl(i.appLink ?? i.permalink); }}
-                >在 Slack 打开</a>
-              </li>
-            ))}
-          </ul>
-          {evidence && (
-            <div className={`fx__evidence fx__evidence--${evidence.tone}`}>
-              <Icon name="alert" />
-              <span>{evidence.text}</span>
+      {convs.length > 0 && (
+        <div className="fx__slack">
+          <div className="fx__slack-head">Slack 里的讨论</div>
+          {convs.map((c) => (
+            <div key={c.conv} className="fx__conv">
+              <div className="fx__conv-meta">
+                <span className="fx__conv-who">{c.userName}</span>
+                <span className="fx__conv-where mono">{c.channelName || "私聊"}</span>
+                {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
+                {c.source === "guess" && <span className="k k--guess" title={c.why}>Friday 推断</span>}
+                <button className="fx__conv-drop" onClick={() => void onAct(t, () => detachConversation(c.conv, t.id))}>不是这条</button>
+              </div>
+              {c.source === "guess" && c.why && <div className="fx__conv-why">{c.why}</div>}
+              {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
+              {c.prior.length > 0 && (
+                <details className="fx__prior">
+                  <summary>
+                    <span>这之前聊的是什么</span>
+                    <span className="fx__prior-count">{c.prior.length} 条</span>
+                  </summary>
+                  {c.prior.map((p, i) => <div key={i} className="fx__prior-line">{p}</div>)}
+                </details>
+              )}
+              {c.items.map((m) => (
+                <div key={m.ts} className="fx__conv-msg">
+                  {m.text.trim()
+                    ? <Linkified text={decodeSlack(m.text)} />
+                    : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
+                  <a
+                    href={m.appLink ?? m.permalink}
+                    className="link"
+                    title="在 Slack 里打开这条"
+                    onClick={(e) => { e.preventDefault(); void openUrl(m.appLink ?? m.permalink); }}
+                  >在 Slack 打开</a>
+                </div>
+              ))}
             </div>
-          )}
+          ))}
         </div>
       )}
+
+      <TaskBody t={t} all={all} onAct={onAct} />
 
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
@@ -1435,10 +1376,10 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
 
       {open && (
         <div className="fx__foot" ref={footRef}>
-          {first && consequence(first, msgs) && (
+          {first && consequence(first, convs[0]) && (
             <div className="fx__consequence">
               <Icon name="alert" />
-              <span>{consequence(first, msgs)}</span>
+              <span>{consequence(first, convs[0])}</span>
             </div>
           )}
           <div className="fx__acts">
@@ -1472,9 +1413,10 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
             {/* 终端是外部 Ghostty 窗口了，「拉到前台」是常用操作，得摆在动手的这一排。
                 窗口关掉之后不是就完了——重开一个 --resume 接回原来那个 Claude 会话 */}
             {t.source.jobId && (
-              t.terminal === "gone" ? (
-                <button className="b b--ghost" title="窗口已经关了，重开一个并接回原来的会话" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
-                  <Icon name="terminal" />重开终端
+              // 后台跑的查询任务压根没开窗口，聚焦无从谈起，只能重开一个 --resume 接回去看
+              t.source.headless || t.terminal === "gone" ? (
+                <button className="b b--ghost" title={t.source.headless ? "它在后台跑，没有窗口；开一个接回同一个会话，能看到它做了什么" : "窗口已经关了，重开一个并接回原来的会话"} onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
+                  <Icon name="terminal" />{t.source.headless ? "打开终端看" : "重开终端"}
                 </button>
               ) : (
                 <button className="b b--ghost" title="把这条任务的终端窗口拉到前台；窗口没了就重开一个接回原会话" onClick={() => void onAct(t, () => jobFocus(t.source.jobId!))}>

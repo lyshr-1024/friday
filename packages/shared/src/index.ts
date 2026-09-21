@@ -191,9 +191,16 @@ export interface InboxItem {
   appLink?: string;
   /** 这条消息所在 thread 的根 ts。有值说明它是某个 thread 里的回复，前文要去 conversations.replies 取。 */
   threadTs?: string;
+  /** 这条之前聊的是什么，同步时拉下来存着。老消息补不回来。 */
+  prior?: string[];
   ts: string;
   receivedAt: string;
   done: boolean;
+}
+
+/** 一段对话：thread 里的回复归到根消息，散消息自己算一段 */
+export function conversationKey(item: Pick<InboxItem, "channelId" | "ts" | "threadTs">): string {
+  return `${item.channelId}:${item.threadTs || item.ts}`;
 }
 
 export interface InboxResponse {
@@ -441,8 +448,20 @@ export interface Task {
   attention?: TaskAttention;
   /** 用户星标关注：列表最顶上单独一组 */
   pinned?: boolean;
+  /** 只在 GET /tasks 里有：这条任务牵着的 Slack 对话 */
+  conversations?: SlackConversation[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SlackConversation {
+  conv: string;
+  channelName: string;
+  userName: string;
+  items: Array<{ ts: string; text: string; permalink: string; appLink?: string }>;
+  prior: string[];
+  source: LinkSource;
+  why: string;
 }
 
 /**
