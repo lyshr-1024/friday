@@ -156,7 +156,7 @@ export function onSlackAccepted(taskId: string, text: string, userName: string):
   return onSignal(taskId, {
     signal: "slack_accepted",
     to: "accepted",
-    ask: `${userName} 在 Slack 里说验收过了，这条可以转「验收完待发布」吗？`,
+    ask: `${userName} 在 Slack 里说验收过了，这条可以转「${STAGE_LABEL.accepted}」吗？`,
     why: `${userName} 在 Slack 里说验收通过`,
   });
 }

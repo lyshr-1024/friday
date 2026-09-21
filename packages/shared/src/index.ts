@@ -253,13 +253,20 @@ export type Risk = "read" | "reversible" | "irreversible";
  */
 export type Stage = "todo" | "dev" | "testing" | "accepted" | "released";
 
+/** 流程顺序：阶段条按它排，判断往前推还是往回拨也靠它 */
 export const STAGE_ORDER: Stage[] = ["todo", "dev", "testing", "accepted", "released"];
 
+/**
+ * 列表分组的顺序，跟流程顺序不是一回事：在办的事排前面，
+ * 没动的和已经完了的沉底——列表是用来看「现在手上有什么」的。
+ */
+export const STAGE_GROUP_ORDER: Stage[] = ["dev", "testing", "accepted", "todo", "released"];
+
 export const STAGE_LABEL: Record<Stage, string> = {
-  todo: "没开始",
-  dev: "开始了",
+  todo: "未开始",
+  dev: "进行中",
   testing: "测试中",
-  accepted: "验收完待发布",
+  accepted: "待发布",
   released: "已上线",
 };
 
