@@ -1,4 +1,4 @@
-import { AUTOSTART_CATEGORY, type StateTransition, type Task, type TaskStatus, type Urgency } from "@friday/shared";
+import { AUTOSTART_CATEGORY, taskCategory, type StateTransition, type Task, type TaskStatus, type Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
@@ -6,6 +6,7 @@ import { judgeIntake } from "./intake.js";
 import { startAutonomousJob } from "./pipeline.js";
 import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
+import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
@@ -284,12 +285,15 @@ export async function undoTransition(plan: { projectKey: string; workItemId: str
   return true;
 }
 
+const isDefect = (typeKey: string | undefined) => taskCategory({ meegleType: typeKey }) === "defect";
+
 /** 拉一次分派给我的 Meegle 工单：新工单建任务，已有的更新，不再分派给我的自动完成。 */
 export async function syncMeegleOnce(connector = new MeegleConnector()): Promise<{ added: number; closed: number; reopened: number }> {
   if (meegleState.running) return { added: 0, closed: 0, reopened: 0 };
   meegleState.running = true;
   try {
-    const items = await connector.fetchWorkItems();
+    const defects = userSettings().meegleDefects;
+    const items = (await connector.fetchWorkItems()).filter((it) => defects || !isDefect(it.typeKey));
     syncSourceTodos("meegle", items.map(toTodoLike));
     const projects = loadProjects();
     let added = 0;
@@ -332,6 +336,8 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     let closed = 0;
     for (const t of listTasks(OPEN, 500)) {
       if (t.kind !== "meegle" || !t.source.meegleId || live.has(t.source.meegleId)) continue;
+      // 关了缺陷拉取就不知道它还在不在分派列表里，不能当作「不再分派给你」收掉
+      if (!defects && isDefect(t.source.meegleType)) continue;
       // 需求容器本来就不在分派列表里（当前节点在别人手上），这正是它要当容器的原因——
       // 不能按「不再分派给你」把它收掉，否则建出来下次同步就没了。
       // 它的收尾由名下缺陷决定：缺陷都完了才跟着收。

@@ -1,11 +1,12 @@
 import { syncMeegleOnce as syncOnce } from "./meegle.js";
-import { createTask as mkTask, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
+import { createTask as mkTask, findTaskBySource, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
 import { state as schedState } from "../scheduler/index.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
 import type { MeegleWorkItem } from "../connectors/meegle.js";
 import { matchProjectByUrl } from "../memory/projects.js";
+import { updateSettings } from "../settings.js";
 import { addMeegleByRef, intakeWorkItem, matchProject, parseMeegleRef, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
@@ -388,5 +389,32 @@ describe("贴链接手动加工单", () => {
     const conn = { fetchOne: async () => { throw new Error("不该被调用"); } } as never;
     const r = await addMeegleByRef("待办里没有这个需求", conn);
     expect(r).toHaveProperty("error");
+  });
+});
+
+describe("关掉「拉 Meegle 缺陷」", () => {
+  const defect = (id: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Open", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" });
+  const fake = (items: ReturnType<typeof defect>[]) => ({ fetchWorkItems: async () => items }) as never;
+
+  afterEach(() => { updateSettings({ meegleDefects: true }); });
+
+  it("关掉之后缺陷不再建任务", async () => {
+    updateSettings({ meegleDefects: false });
+    const r = await syncOnce(fake([defect("off1")]));
+    expect(r.added).toBe(0);
+    expect(findTaskBySource((s) => s.meegleId === "off1", true)).toBeUndefined();
+  });
+
+  it("已经在列表里的缺陷不会被当成「不再分派给你」收掉", async () => {
+    const t = mkTask({ title: "缺陷 off2", kind: "meegle", status: "understood", source: { meegleId: "off2", meegleType: "issue" } });
+    updateSettings({ meegleDefects: false });
+    await syncOnce(fake([]));
+    expect(readTask(t.id)!.status).toBe("understood");
+  });
+
+  it("开着时缺陷照常参与同步", async () => {
+    const t = mkTask({ title: "旧标题", kind: "meegle", status: "understood", source: { meegleId: "on1", meegleType: "issue" } });
+    await syncOnce(fake([defect("on1")]));
+    expect(readTask(t.id)!.title).toBe("缺陷 on1");
   });
 });

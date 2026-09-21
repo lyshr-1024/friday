@@ -138,6 +138,7 @@ export interface SettingsResponse {
   /** 盖在背景图上那层主题底色的不透明度 0-100，越大图越淡 */
   backgroundOpacity: number;
   learnHistory: boolean;
+  meegleDefects: boolean;
   summon: SummonSettings;
   dataDir: string;
   projects: string[];
@@ -153,6 +154,7 @@ export interface SettingsUpdate {
   background?: string;
   backgroundOpacity?: number;
   learnHistory?: boolean;
+  meegleDefects?: boolean;
   summon?: Partial<SummonSettings>;
 }
 

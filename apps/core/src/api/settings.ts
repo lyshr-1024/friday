@@ -17,6 +17,7 @@ const patch = z.object({
   backgroundOpacity: z.number().min(0).max(100).optional(),
   learn: z.boolean().optional(),
   learnHistory: z.boolean().optional(),
+  meegleDefects: z.boolean().optional(),
   summon: z.object({
     screenshotFallback: z.boolean().optional(),
     urlAllowlist: z.array(z.string()).optional(),
