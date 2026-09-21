@@ -369,6 +369,26 @@ export class MeegleConnector implements Connector {
     }
   }
 
+  /**
+   * 按 project key + 工单号单拉一条，拼成和同步链路同构的 MeegleWorkItem。
+   * 用户贴链接手动加进来的工单当前节点多半不在他手上（所以进不了 mywork todo），
+   * 因此没有 node / 排期，只能拿工单自身的字段。
+   */
+  async fetchOne(projectKey: string, workItemId: string): Promise<MeegleWorkItem> {
+    const auth = await runJson<AuthStatus>(this.bin, ["auth", "status", "--format", "json"]);
+    if (!auth.authenticated || !auth.host) throw new Error("Meegle 未登录，请在终端执行 meegle auth login");
+    const d = await runJson<WorkItem>(this.bin, [
+      "workitem", "get",
+      "--work-item-id", workItemId,
+      "--project-key", projectKey,
+      "--fields", "priority,tags,description,_field_linked_story,field_8fe714,field_8190c7,field_1f7126",
+      "--format", "json",
+    ]);
+    const a = d.work_item_attribute;
+    const todo: TodoItem = { project_key: projectKey, work_item_info: { work_item_id: Number(a.work_item_id), work_item_type_key: a.work_item_type.key } };
+    return toWorkItem(auth.host, todo, d);
+  }
+
   async listRawTransitions(projectKey: string, workItemId: string): Promise<RawTransition[]> {
     const res = await runJson<{ transition?: RawTransition[] | null }>(this.bin, [
       "workflow", "list-state-transitions",
