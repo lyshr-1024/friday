@@ -30,8 +30,8 @@ describe("parseTerminalTitle", () => {
 
 describe("projectByDirName", () => {
   const projects: Project[] = [
-    { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: [], urls: [] },
-    { name: "friday", dir: "/Users/me/hr-lys/friday", aliases: [], channels: [], urls: [] },
+    { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: [], urls: [], envs: [], extra: {} },
+    { name: "friday", dir: "/Users/me/hr-lys/friday", aliases: [], channels: [], urls: [], envs: [], extra: {} },
   ];
 
   it("按目录最后一段匹配", () => {

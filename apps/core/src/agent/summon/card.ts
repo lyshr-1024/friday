@@ -31,9 +31,11 @@ export interface AllowedIds {
   projects: string[];
   /** Slack 场景命中的对话键，slack_query/slack_task/slack_attach 只能指向它 */
   slackConv?: string;
+  /** 此刻浏览器停的地址，meegle_add 只能指向它，防止模型编一个工单链接 */
+  browserUrl?: string;
 }
 
-const KINDS = ["open_task", "approve_pending", "start_work", "create_task", "mark_done", "note", "copy", "slack_query", "slack_task", "slack_attach"] as const;
+const KINDS = ["open_task", "approve_pending", "start_work", "create_task", "mark_done", "note", "copy", "slack_query", "slack_task", "slack_attach", "meegle_add"] as const;
 
 export function cardPrompt(input: CardInput): { system: string; prompt: string } {
   const { snapshot, candidates, recent } = input;
@@ -55,6 +57,7 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     `app：${snapshot.app.name}${title ? `，标题：${title}` : ""}`,
     snapshot.browser?.url ? `网址：${snapshot.browser.url}` : "",
     snapshot.browser?.text ? `页面正文：${snapshot.browser.text.slice(0, 4000)}` : "",
+    snapshot.browser?.errors?.length ? `页面上的报错与失败请求：\n${snapshot.browser.errors.slice(0, 10).join("\n")}` : "",
     snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
     input.scene ?? "",
   ]
@@ -119,6 +122,10 @@ function clampAction(raw: unknown, allowed: AllowedIds): SummonAction | undefine
       return text ? { kind, label, text } : undefined;
     case "copy":
       return text ? { kind, label, text } : undefined;
+    case "meegle_add": {
+      const url = typeof a.url === "string" ? a.url : "";
+      return url && url === allowed.browserUrl ? { kind, label, url } : undefined;
+    }
     case "slack_query":
     case "slack_task":
     case "slack_attach": {
@@ -185,6 +192,7 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
     ),
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
     ...(input.slackConv ? { slackConv: input.slackConv } : {}),
+    ...(input.snapshot.browser?.url ? { browserUrl: input.snapshot.browser.url } : {}),
   };
   const { system, prompt } = cardPrompt(input);
   const ctrl = new AbortController();

@@ -55,8 +55,8 @@ describe("parseQuery", () => {
 describe("queryPrompt", () => {
   it("列出全部项目名，消息过 untrusted", () => {
     const projects = [
-      { name: "whale-console", dir: "/w", aliases: ["后台"], channels: [], urls: [] },
-      { name: "fe-wealth-admin", dir: "/f", aliases: [], channels: [], urls: [] },
+      { name: "whale-console", dir: "/w", aliases: ["后台"], channels: [], urls: [], envs: [], extra: {} },
+      { name: "fe-wealth-admin", dir: "/f", aliases: [], channels: [], urls: [], envs: [], extra: {} },
     ];
     const { system, prompt } = queryPrompt(item("分群奖励在哪配置？"), [], projects);
     expect(system).toContain("whale-console");

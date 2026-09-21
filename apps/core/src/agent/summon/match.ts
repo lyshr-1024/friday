@@ -1,7 +1,7 @@
 import type { Project } from "../../memory/projects.js";
 import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
-import { matchProjectByUrl } from "../../memory/projects.js";
+import { matchEnv } from "../../memory/projects.js";
 import type { SlackScene } from "./slack.js";
 
 export interface MatchInput {
@@ -56,6 +56,21 @@ export function projectByCwd(cwd: string, projects: Project[]): Project | undefi
   return best;
 }
 
+/** 浏览器停在哪个项目的哪个环境；没开浏览器、或地址谁都对不上就是 undefined。 */
+export function browserEnv(snapshot: Snapshot, projects: Project[]): { project: Project; env?: string } | undefined {
+  return snapshot.browser?.url ? matchEnv(snapshot.browser.url, projects) : undefined;
+}
+
+/** 「https://console.x/x/wbo/funds?a=1」→「/x/wbo/funds」，交给终端里的 Claude 自己去找对应文件。 */
+export function pagePath(url: string): string {
+  try {
+    const path = new URL(url.includes("://") ? url : `https://${url}`).pathname;
+    return path === "/" ? "" : path;
+  } catch {
+    return "";
+  }
+}
+
 function projectByChannel(channel: string, projects: Project[]): Project | undefined {
   return projects.find((p) => p.channels.includes(channel));
 }
@@ -96,12 +111,13 @@ export function candidates(input: MatchInput): Candidate[] {
   // 你开着某个项目的页面调试，那个项目上正跑着的活就是你手头的事。
   // 不接这条的话，只要 URL 不是工单页就一个候选都没有，HUD 只能另起一个终端——
   // 而你要的正是它已经开着的那个。
-  const urlProject = snapshot.browser ? matchProjectByUrl([snapshot.browser.url], projects)?.name : undefined;
-  if (urlProject) {
-    const mine = tasks.filter((t) => t.project === urlProject);
+  const hit = browserEnv(snapshot, projects);
+  if (hit) {
+    const where = hit.env ? `${hit.project.name} 的${hit.env}环境` : `${hit.project.name} 的页面`;
+    const mine = tasks.filter((t) => t.project === hit.project.name);
     // 终端在跑的排前面：那才是此刻手上的活
     for (const t of [...mine].sort((a, b) => rank(b) - rank(a)))
-      push(t, t.source.jobId ? `你开着 ${urlProject} 的页面，这条正在终端里跑` : `你开着 ${urlProject} 的页面`, "maybe");
+      push(t, t.source.jobId ? `你开着 ${where}，这条正在终端里跑` : `你开着 ${where}`, "maybe");
   }
 
   return out;
@@ -110,6 +126,9 @@ export function candidates(input: MatchInput): Candidate[] {
 export function defaultActions(task: Task | undefined, project: Project | undefined, snapshot: Snapshot): SummonAction[] {
   if (!task) {
     const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
+    // 开着工单页而任务板上没有它：建个普通待办会把工单号丢掉，按链接拉详情才带得上状态和优先级
+    const url = snapshot.browser?.url;
+    if (url && meegleIdFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
     return title ? [{ kind: "create_task", label: "建成任务", title }] : [];
   }
   const pending = task.pending?.[0];
@@ -134,8 +153,11 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
     : [{ kind: "open_task", label: "打开任务", taskId: task.id }];
 }
 
-function describe(snapshot: Snapshot, channel?: string): string {
+function describe(snapshot: Snapshot, projects: Project[], channel?: string): string {
   const bits = [snapshot.app.name];
+  const hit = browserEnv(snapshot, projects);
+  if (hit?.env) bits.push(`${hit.project.name} ${hit.env}环境`);
+  else if (hit) bits.push(hit.project.name);
   // 私聊解析出的是人名不是频道，原来会退到原始标题，
   // 把「(2) - Longbridge - Slack」这串未读数字和后缀也显示出来
   const slack = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : undefined;
@@ -162,7 +184,7 @@ export function buildRules(input: MatchInput): SummonRules {
   const top = hits[0];
   const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
   return {
-    saw: describe(input.snapshot, input.channel),
+    saw: describe(input.snapshot, input.projects, input.channel),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
     actions: slackActions(input.scene) ?? defaultActions(top?.task, project, input.snapshot),
     // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。

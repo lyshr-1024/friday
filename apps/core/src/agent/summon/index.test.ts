@@ -69,6 +69,17 @@ describe("trimUrl", () => {
     expect(trimUrl(sn, allow).browser?.url).toBe("https://a.longbridge.sg/p?q=1");
   });
 
+  // 报错文字里常带完整接口地址和参数，白名单外一起丢掉
+  it("白名单外的页面报错也一起丢掉", () => {
+    const sn = snap({ browser: { url: "https://bank.example.com/a", title: "t", errors: ["500 https://bank.example.com/api?token=secret"] } });
+    expect(trimUrl(sn, allow).browser?.errors).toBeUndefined();
+  });
+
+  it("白名单内的页面报错留着", () => {
+    const sn = snap({ browser: { url: "https://project.meegle.com/x", title: "t", errors: ["请求失败"] } });
+    expect(trimUrl(sn, allow).browser?.errors).toEqual(["请求失败"]);
+  });
+
   it("非法 URL 整个清掉", () => {
     const sn = snap({ browser: { url: "不是网址", title: "t" } });
     expect(trimUrl(sn, allow).browser).toEqual({ url: "", title: "" });

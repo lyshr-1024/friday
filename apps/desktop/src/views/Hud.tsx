@@ -218,7 +218,12 @@ export function Hud() {
       .join("\n");
     try {
       for await (const ev of summonRelay(
-        { text, ...(rules?.match ? { taskId: rules.match.taskId } : {}), ...(scene ? { scene } : {}) },
+        {
+          text,
+          ...(rules?.match ? { taskId: rules.match.taskId } : {}),
+          ...(scene ? { scene } : {}),
+          ...(snapshot?.browser?.url ? { url: snapshot.browser.url } : {}),
+        },
         ctrl.signal,
       )) {
         if (ctrl.signal.aborted) return;

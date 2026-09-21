@@ -629,8 +629,8 @@ export interface UsageSummary {
 export interface Snapshot {
   at: number;
   app: { bundleId: string; name: string; title: string };
-  /** 浏览器当前 tab，AppleScript 拿的 */
-  browser?: { url: string; title: string; text?: string };
+  /** 浏览器当前 tab，AppleScript 拿的；errors 是此刻页面上可见的报错与失败请求，拿不到就没有 */
+  browser?: { url: string; title: string; text?: string; errors?: string[] };
   /** 选中文字，最多 8000 字 */
   selection?: string;
   /** 兜底截图的本地绝对路径，前端用 convertFileSrc 显示 */
@@ -654,7 +654,8 @@ export type SummonAction =
   | { kind: "copy"; label: string; text: string }
   | { kind: "slack_query"; label: string; conv: string }
   | { kind: "slack_task"; label: string; conv: string }
-  | { kind: "slack_attach"; label: string; conv: string };
+  | { kind: "slack_attach"; label: string; conv: string }
+  | { kind: "meegle_add"; label: string; url: string };
 
 /** 规则层的产出：不调模型也能渲染的那部分 */
 export interface SummonRules {

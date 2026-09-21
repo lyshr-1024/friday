@@ -17,7 +17,7 @@ const task = (id: string): Task => ({
   priority: "normal", createdAt: "2026-09-20T00:00:00Z", updatedAt: "2026-09-20T00:00:00Z",
 });
 
-const project = { name: "demo", dir: "/d", aliases: [], channels: [], urls: [] };
+const project = { name: "demo", dir: "/d", aliases: [], channels: [], urls: [], envs: [], extra: {} };
 
 /** 三个新入口都会把 Slack 原文塞进提示词，原文必须关在定界符里，且不能让它自己闭合。 */
 describe("Slack 原文进 prompt 前都过 untrusted", () => {

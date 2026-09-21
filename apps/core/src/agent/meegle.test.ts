@@ -9,8 +9,8 @@ import { matchProjectByUrl } from "../memory/projects.js";
 import { addMeegleByRef, intakeWorkItem, matchProject, parseMeegleRef, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
-  { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"] },
-  { name: "lb-app", dir: "/x/lb-app", aliases: ["长桥 app"], channels: [], urls: [] },
+  { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], extra: {} },
+  { name: "lb-app", dir: "/x/lb-app", aliases: ["长桥 app"], channels: [], urls: [], envs: [], extra: {} },
 ];
 
 describe("Meegle 工单进任务中枢", () => {
@@ -63,7 +63,7 @@ describe("Meegle 工单进任务中枢", () => {
   });
 
   it("中文两个字的别名够独特，拉丁字母短词仍要三个字符", () => {
-    const ps = [{ name: "whale-console", dir: "/x/w", aliases: ["风控", "bo"], channels: [], urls: [] }];
+    const ps = [{ name: "whale-console", dir: "/x/w", aliases: ["风控", "bo"], channels: [], urls: [], envs: [], extra: {} }];
     expect(matchProject("【风控-提醒查询】欠款余额对不上", ps)).toBe("whale-console");
     expect(matchProject("bond 报表导出时区错乱", ps)).toBeUndefined();
   });
@@ -282,8 +282,8 @@ describe("extractLinks", () => {
 
 describe("matchProjectByUrl", () => {
   const ps = [
-    { name: "老后台", dir: "/o", aliases: [], channels: [], urls: ["console.longbridge.xyz"] },
-    { name: "新后台", dir: "/n", aliases: [], channels: [], urls: ["console.longbridge.xyz/wbo"] },
+    { name: "老后台", dir: "/o", aliases: [], channels: [], urls: ["console.longbridge.xyz"], envs: [], extra: {} },
+    { name: "新后台", dir: "/n", aliases: [], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], extra: {} },
   ];
   it("前缀更长的赢：迁移期同域名下新旧并存", () => {
     expect(matchProjectByUrl(["https://console.longbridge.xyz/wbo/risk/x"], ps)?.name).toBe("新后台");

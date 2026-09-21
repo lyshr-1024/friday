@@ -26,7 +26,7 @@ describe("会话路由", () => {
   });
 
   it("提示词带上这句话、候选标题和项目别名，规则偏保守", () => {
-    const { system, prompt } = routePrompt("那个多语言的事再看下", convs, [{ name: "whale-console", dir: "/w", aliases: ["鲸鱼后台"], channels: [], urls: [] }]);
+    const { system, prompt } = routePrompt("那个多语言的事再看下", convs, [{ name: "whale-console", dir: "/w", aliases: ["鲸鱼后台"], channels: [], urls: [], envs: [], extra: {} }]);
     expect(prompt).toContain("那个多语言的事再看下");
     expect(prompt).toContain("1. 提款规则加多语言字段");
     expect(system).toContain("鲸鱼后台");
