@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot, Task } from "@friday/shared";
 import type { Project } from "../../memory/projects.js";
-import { buildRules, candidates, defaultActions, meegleIdFromUrl, parseSlackTitle, projectByCwd } from "./match.js";
+import { buildRules, browserEnv, candidates, defaultActions, meegleIdFromUrl, pagePath, parseSlackTitle, projectByCwd } from "./match.js";
 
 const projects: Project[] = [
   { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: ["#wealth-fe"], urls: [], envs: [], extra: {} },
@@ -182,5 +182,58 @@ describe("buildRules", () => {
   it("saw 里写清看到的是什么", () => {
     const rules = buildRules({ snapshot: snap({ browser: { url: "https://project.feishu.cn/x/issue/detail/1234", title: "提现规则" } }), tasks: [], projects });
     expect(rules.saw).toContain("Chrome");
+  });
+});
+
+describe("认出环境", () => {
+  // 两个项目共用域名，靠路径段分：/x/ 是新后台，裸域名是老后台
+  const envProjects: Project[] = [
+    { name: "whale-console", dir: "/w", aliases: [], channels: [], urls: [], envs: [{ name: "测试", url: "console.longbridge.xyz/x" }], extra: {} },
+    { name: "fe-wealth-admin", dir: "/f", aliases: [], channels: [], urls: [], envs: [{ name: "线上", url: "console.longbridge.xyz" }], extra: {} },
+  ];
+
+  it("候选的理由里说得出是哪个环境", () => {
+    const t = task({ id: "t-env", project: "whale-console", status: "understood", source: {} });
+    const got = candidates({
+      snapshot: snap({ browser: { url: "https://console.longbridge.xyz/x/wbo/funds", title: "资金参数" } }),
+      tasks: [t],
+      projects: envProjects,
+    });
+    expect(got[0]!.why).toBe("你开着 whale-console 的测试环境");
+  });
+
+  it("裸域名归老后台，同一份注册表不会串", () => {
+    const hit = browserEnv(snap({ browser: { url: "https://console.longbridge.xyz/next/subjects", title: "话题" } }), envProjects);
+    expect(hit).toMatchObject({ project: { name: "fe-wealth-admin" }, env: "线上" });
+  });
+
+  it("saw 带上环境名", () => {
+    const rules = buildRules({
+      snapshot: snap({ app: { bundleId: "com.google.Chrome", name: "Chrome", title: "x" }, browser: { url: "https://console.longbridge.xyz/x/a", title: "资金参数" } }),
+      tasks: [],
+      projects: envProjects,
+    });
+    expect(rules.saw).toContain("whale-console 测试环境");
+  });
+
+  it("没写环境的项目照常按地址匹配，理由不提环境", () => {
+    const old: Project[] = [{ ...envProjects[0]!, envs: [], urls: ["console.longbridge.xyz/x"] }];
+    const t = task({ id: "t-old", project: "whale-console", status: "understood", source: {} });
+    const got = candidates({ snapshot: snap({ browser: { url: "https://console.longbridge.xyz/x/a", title: "x" } }), tasks: [t], projects: old });
+    expect(got[0]!.why).toBe("你开着 whale-console 的页面");
+  });
+});
+
+describe("pagePath", () => {
+  it("只取路径，丢掉查询串", () => {
+    expect(pagePath("https://console.longbridge.xyz/x/wbo/funds/params?tab=1#a")).toBe("/x/wbo/funds/params");
+  });
+
+  it("没有协议也认", () => {
+    expect(pagePath("console.longbridge.xyz/x/a")).toBe("/x/a");
+  });
+
+  it("不是网址就返回空串，不抛", () => {
+    expect(pagePath("这不是网址")).toBe("");
   });
 });

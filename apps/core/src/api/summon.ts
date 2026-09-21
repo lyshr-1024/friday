@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { Snapshot, SummonAction, SummonRelayResult } from "@friday/shared";
 import { summon } from "../agent/summon/index.js";
+import { pagePath } from "../agent/summon/match.js";
 import { finishTask, startInteractiveJob } from "../agent/pipeline.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
@@ -9,7 +10,7 @@ import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { getJob } from "../memory/jobs.js";
 import { say } from "../agent/terminal.js";
 import { reopenTerminal } from "../agent/runner.js";
-import { resolveProject } from "../memory/projects.js";
+import { loadProjects, matchEnv, resolveProject } from "../memory/projects.js";
 import { askStream } from "../agent/claude.js";
 import { friday } from "../agent/prompt.js";
 import { untrusted } from "../agent/fence.js";
@@ -17,27 +18,45 @@ import { loadMemoryContext } from "../memory/context.js";
 import { config } from "../config.js";
 
 /**
+ * 终端里的 Claude 有完整代码上下文和项目 skill，路由文件它自己找得比这边猜得准，
+ * 所以只把「哪个环境、哪个页面路径、项目在哪」交过去，不替它推断文件。
+ */
+export function pageHint(url: string | undefined, dir: string): string {
+  if (!url) return "";
+  const hit = matchEnv(url, loadProjects());
+  const path = pagePath(url);
+  return [
+    hit ? `我开着的是 ${hit.project.name}${hit.env ? ` 的${hit.env}环境` : ""}。` : "",
+    path ? `页面路径 ${path}${dir ? `，项目在 ${dir}` : ""}，先按路由约定找到对应文件再动手。` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+/**
  * HUD 里打的字优先转给这条需求自己的终端——那里有项目上下文和 skill，
  * 比丢给一个只知道窗口标题的通用对话强得多。转不过去才返回 undefined 落回通用对话。
  */
-async function relayToTerminal(text: string, taskId?: string, scene?: string): Promise<SummonRelayResult | undefined> {
+async function relayToTerminal(text: string, taskId?: string, scene?: string, url?: string): Promise<SummonRelayResult | undefined> {
   const task = taskId ? getTask(taskId) : undefined;
   if (!task) return undefined;
 
   const jobId = task.source.jobId;
   if (jobId) {
-    if (getJob(jobId)?.status === "running" && (await say(jobId, text)) === "sent") {
+    const job = getJob(jobId);
+    const said = [text, pageHint(url, job?.dir ?? "")].filter(Boolean).join(" ");
+    if (job?.status === "running" && (await say(jobId, said)) === "sent") {
       return { kind: "said", message: "已转达给终端", taskId: task.id, jobId };
     }
     if ((await reopenTerminal(jobId)) === "no-job") return undefined;
-    await say(jobId, text);
+    await say(jobId, said);
     return { kind: "opened", message: "终端没开，已重开并接回原会话", taskId: task.id, jobId };
   }
 
   if (!task.project) return undefined;
   const resolved = resolveProject(task.project);
   if (resolved.kind !== "match") return undefined;
-  const detail = [text, scene ? untrusted("当前场景", scene) : ""].filter(Boolean).join("\n\n");
+  const detail = [text, pageHint(url, resolved.project.dir), scene ? untrusted("当前场景", scene) : ""].filter(Boolean).join("\n\n");
   const started = await startInteractiveJob(task, resolved.project.name, resolved.project.dir, detail);
   return {
     kind: "started",
@@ -80,12 +99,12 @@ export const summonApi = new Hono()
     }
   })
   .post("/summon/relay", async (c) => {
-    const { text, taskId, scene } = (await c.req.json().catch(() => ({}))) as { text?: string; taskId?: string; scene?: string };
+    const { text, taskId, scene, url } = (await c.req.json().catch(() => ({}))) as { text?: string; taskId?: string; scene?: string; url?: string };
     if (!text?.trim()) return c.json({ error: "缺 text" }, 400);
     const said = text.trim();
 
     return streamSSE(c, async (stream) => {
-      const relayed = await relayToTerminal(said, taskId, scene);
+      const relayed = await relayToTerminal(said, taskId, scene, url);
       if (relayed) {
         await stream.writeSSE({ data: JSON.stringify({ type: "result", result: relayed }) });
         await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });

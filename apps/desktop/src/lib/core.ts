@@ -64,7 +64,7 @@ export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerato
  * HUD 里说的话：先试着转给这条需求的终端，转不过去才落回通用对话（那一条是流式的）。
  */
 export async function* summonRelay(
-  body: { text: string; taskId?: string; scene?: string },
+  body: { text: string; taskId?: string; scene?: string; url?: string },
   signal: AbortSignal,
 ): AsyncGenerator<SummonRelayEvent> {
   const res = await fetch(`${await coreBaseUrl()}/summon/relay`, {
