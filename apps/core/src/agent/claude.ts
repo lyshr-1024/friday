@@ -29,6 +29,9 @@ export interface AskOptions {
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
 
+/** 只答一个 JSON 的小判断都用它：挂靠、查询分类、接哪段会话 */
+export const SMALL_MODEL = "claude-haiku-4-5";
+
 /** 带图片/文档时走流式输入：一条 SDKUserMessage 就结束。 */
 async function* single(content: MessageParam["content"]): AsyncGenerator<SDKUserMessage> {
   yield { type: "user", message: { role: "user", content }, parent_tool_use_id: null };

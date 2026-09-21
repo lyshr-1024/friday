@@ -112,3 +112,12 @@ export function setCursor(key: string, cursor: string): void {
     .prepare("INSERT INTO sync_state (source, last_synced_at, cursor) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET last_synced_at = excluded.last_synced_at, cursor = excluded.cursor")
     .run(key, new Date().toISOString(), cursor);
 }
+
+/** 同一人在同一频道、这条之前 48 小时内的消息，用来判断是不是在催同一件事 */
+export function listInboxNear(item: Pick<InboxItem, "channelId" | "userId" | "ts">, hours = 48, limit = 20): InboxItem[] {
+  const since = String(Number(item.ts) - hours * 3600);
+  const rows = db()
+    .prepare("SELECT * FROM inbox WHERE channel_id = ? AND user_id = ? AND ts < ? AND ts > ? ORDER BY ts DESC LIMIT ?")
+    .all(item.channelId, item.userId, item.ts, since, limit) as unknown as Row[];
+  return rows.map(toItem);
+}
