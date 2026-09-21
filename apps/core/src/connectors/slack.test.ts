@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksText, fetchContext, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
+import { blocksText, fetchChannelRecent, fetchContext, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -382,5 +382,34 @@ describe("取全部会话的已读位置", () => {
   it("接口报错时返回空表，调用方按「不知道」处理", async () => {
     const call = async () => { throw new Error("token 过期"); };
     expect(await fetchLastRead(call)).toEqual({});
+  });
+});
+
+describe("频道里最近的对话", () => {
+  const matches = [
+    { ts: "1757000300.000100", text: "没有人在用了", user: "U2", username: "浩然", channel: { id: "C9", name: "team-fe-bo" } },
+    { ts: "1757000200.000100", text: "菜单去掉 anyOf", user: "U3", channel: { id: "C9", name: "team-fe-bo" } },
+    { ts: "1757000250.000100", text: "join", user: "U4", subtype: "channel_join", channel: { id: "C9" } },
+    { ts: "1757000260.000100", text: "   ", user: "U5", channel: { id: "C9" } },
+  ];
+
+  it("查这个频道、按时间正序给回，系统消息与空消息都不要", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const call = async (_m: string, params: Record<string, string>) => {
+      seen.push(params);
+      return { messages: { matches } } as Record<string, unknown>;
+    };
+    const res = await fetchChannelRecent(call, "#team-fe-bo", 6);
+    expect(seen[0]).toEqual({ query: "in:#team-fe-bo", count: "6", sort: "timestamp", sort_dir: "desc" });
+    expect(res.channelId).toBe("C9");
+    expect(res.lines.map((l) => [l.userName, l.text])).toEqual([
+      ["U3", "菜单去掉 anyOf"],
+      ["浩然", "没有人在用了"],
+    ]);
+  });
+
+  it("接口报错时返回空，不让呼出失败", async () => {
+    const call = async () => { throw new Error("enterprise_is_restricted"); };
+    expect(await fetchChannelRecent(call, "team-fe-bo")).toEqual({ lines: [] });
   });
 });

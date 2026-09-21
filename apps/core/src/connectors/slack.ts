@@ -352,3 +352,36 @@ export async function postMessage(call: Call, channel: string, text: string, thr
 export async function deleteMessage(call: Call, channel: string, ts: string): Promise<void> {
   await call("chat.delete", { channel, ts });
 }
+
+/** 频道里最近的对话。HUD 呼出时用——用户常驻的群未必 @ 过他，本地收件箱里可能一条都没有。 */
+export async function fetchChannelRecent(
+  call: Call,
+  channelName: string,
+  limit = CONTEXT_LIMIT,
+): Promise<{ channelId?: string; lines: SlackContextLine[] }> {
+  let matches: SearchMatch[] = [];
+  try {
+    const res = (await call("search.messages", {
+      query: `in:#${channelName.replace(/^#/, "")}`,
+      count: String(limit),
+      sort: "timestamp",
+      sort_dir: "desc",
+    })) as { messages?: { matches?: SearchMatch[] } };
+    matches = res.messages?.matches ?? [];
+  } catch {
+    // 拿不到实时上下文不该让整个呼出失败
+    return { lines: [] };
+  }
+
+  let channelId: string | undefined;
+  const lines: SlackContextLine[] = [];
+  for (const m of matches) {
+    channelId ??= m.channel?.id;
+    if ((m as { subtype?: string }).subtype) continue;
+    const text = (m.text ?? "").trim();
+    if (!text) continue;
+    lines.push({ ts: m.ts, userName: m.username ?? m.user ?? "未知", text });
+  }
+  lines.sort((a, b) => Number(a.ts) - Number(b.ts));
+  return { ...(channelId ? { channelId } : {}), lines };
+}

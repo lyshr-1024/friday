@@ -1,5 +1,6 @@
 import { conversationKey } from "../../memory/infer.js";
 import { listInbox } from "../../memory/inbox.js";
+import { fetchChannelRecent, loadSlackCreds, slackCaller, type SlackContextLine } from "../../connectors/slack.js";
 import { attachedTasks } from "../slack/attach.js";
 
 export interface SlackScene {
@@ -8,13 +9,25 @@ export interface SlackScene {
   userName: string;
   channelName: string;
   taskId?: string;
+  recent?: SlackContextLine[];
 }
 
 /** HUD 在 Slack 前台：按窗口标题解析出的频道或人名，找该处最近一段对话。 */
 /** Slack 显示名常带英文后缀（「拂晓 (Chen Xiaofu)」），窗口标题里可能只剩中文名，两边都剥一次再比 */
 const bareName = (s: string) => s.replace(/\s*[（(][^（）()]*[）)]\s*/g, "").trim();
 
-export function slackScene(channel?: string, person?: string): SlackScene | undefined {
+// 呼出路径上用户在等，拉不回来就当没有
+const LIVE_TIMEOUT_MS = 2_500;
+
+type Live = { channelId?: string; lines: SlackContextLine[] };
+
+async function liveChannel(channel: string): Promise<Live> {
+  const creds = await loadSlackCreds();
+  if (!creds) return { lines: [] };
+  return fetchChannelRecent(slackCaller(creds), channel);
+}
+
+export async function slackScene(channel?: string, person?: string): Promise<SlackScene | undefined> {
   if (!channel && !person) return undefined;
   // 库里的频道名带 #（#proj-xxx），窗口标题里不带——两侧都剥一次再比，只剥一边等于永远对不上
   const want = channel?.replace(/^#/, "");
@@ -22,8 +35,33 @@ export function slackScene(channel?: string, person?: string): SlackScene | unde
   const hit = listInbox(true, 200)
     .filter((i) => (want ? i.kind === "mention" && i.channelName.replace(/^#/, "") === want : i.kind === "dm" && bareName(i.userName) === who))
     .sort((a, b) => Number(b.ts) - Number(a.ts))[0];
-  if (!hit) return undefined;
-  const conv = conversationKey(hit);
+
+  // 私聊本来就在收件箱里，只有频道才需要实时补
+  const live: Live = channel
+    ? await Promise.race<Live>([
+        liveChannel(channel).catch(() => ({ lines: [] })),
+        new Promise<Live>((r) => setTimeout(() => r({ lines: [] }), LIVE_TIMEOUT_MS)),
+      ])
+    : { lines: [] };
+  const recent = live.lines.length ? { recent: live.lines } : {};
+
+  if (hit) {
+    const conv = conversationKey(hit);
+    const taskId = attachedTasks(conv)[0];
+    return { conv, text: hit.text, userName: hit.userName, channelName: hit.channelName, ...(taskId ? { taskId } : {}), ...recent };
+  }
+
+  // 本地一条都没有：常驻的群从没 @ 过他，只靠实时消息也要能给出场景
+  const last = live.lines.at(-1);
+  if (!channel || !last || !live.channelId) return undefined;
+  const conv = `${live.channelId}:${last.ts}`;
   const taskId = attachedTasks(conv)[0];
-  return { conv, text: hit.text, userName: hit.userName, channelName: hit.channelName, ...(taskId ? { taskId } : {}) };
+  return {
+    conv,
+    text: last.text,
+    userName: last.userName,
+    channelName: channel.startsWith("#") ? channel : `#${channel}`,
+    ...(taskId ? { taskId } : {}),
+    ...recent,
+  };
 }

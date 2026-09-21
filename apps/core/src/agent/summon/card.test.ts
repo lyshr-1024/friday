@@ -68,6 +68,13 @@ describe("cardPrompt", () => {
     expect(prompt).toContain('<untrusted source="用户此刻在做什么">');
   });
 
+  it("频道实时消息在定界符内", () => {
+    const scene = "频道 #team-fe-bo 最近在聊：\n  佳成：菜单去掉 anyOf";
+    const { prompt } = cardPrompt({ snapshot, rules, candidates: [], scene });
+    const block = /<untrusted source="用户此刻在做什么">([\s\S]*?)<\/untrusted>/.exec(prompt)?.[1] ?? "";
+    expect(block).toContain("菜单去掉 anyOf");
+  });
+
   it("system 里写明只能用给定的动作类型", () => {
     const { system } = cardPrompt({ snapshot, rules, candidates: [] });
     expect(system).toContain("open_task");
