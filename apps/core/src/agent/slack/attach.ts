@@ -2,22 +2,28 @@ import type { InboxItem, Task } from "@friday/shared";
 import { askStream, SMALL_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";
-import { conversationKey, meegleIdsIn, slackNode, taskNode } from "../../memory/infer.js";
+import { channelNode, conversationKey, meegleIdsIn, slackNode, taskNode } from "../../memory/infer.js";
 import { listInboxNear } from "../../memory/inbox.js";
 import { linkUp, neighbors, rejected } from "../../memory/links.js";
 import { listTasks } from "../../memory/tasks.js";
+import { matchChannelTask } from "./channelMatch.js";
 
 export interface AttachHit {
   taskId: string;
   why: string;
+  /** 靠频道名字面对上的：调用方要顺手把频道也挂上，同频道后续消息直接查表 */
+  byChannelName?: boolean;
 }
 
 /** 同一人同一频道近期挂过哪些任务。上层给实现，纯函数测试里给桩。 */
 export type RecentLookup = (item: InboxItem) => Array<{ taskId: string; userName: string; hoursAgo: number }>;
 
+/** 这个频道已经挂靠到哪些任务上。上层给实现，纯函数测试里给桩。 */
+export type ChannelLookup = (channelName: string) => string[];
+
 export const RECENT_MAX_HOURS = 48;
 
-export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup): AttachHit | undefined {
+export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup, channelTasks: ChannelLookup): AttachHit | undefined {
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
   for (const id of meegleIdsIn(item.text)) {
@@ -29,7 +35,12 @@ export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup)
     if (r.hoursAgo > RECENT_MAX_HOURS || !byId.has(r.taskId)) continue;
     return { taskId: r.taskId, why: `${r.userName} ${r.hoursAgo} 小时前在这个频道说的也是这条` };
   }
-  return undefined;
+
+  for (const taskId of channelTasks(item.channelName)) {
+    if (byId.has(taskId)) return { taskId, why: `#${item.channelName.replace(/^#/, "")} 这个频道对应的就是这条需求` };
+  }
+  const literal = matchChannelTask(item.channelName, tasks);
+  return literal ? { ...literal, byChannelName: true } : undefined;
 }
 
 /** 候选：还没收工的任务，减去你说过「不是这条」的 */
@@ -78,6 +89,10 @@ export function parseAttach(text: string, ids: string[]): string | undefined {
 }
 
 /** 同一人同一频道近期挂过的任务：查 links 里这个频道其它对话的邻居 */
+function tasksOfChannel(channelName: string): string[] {
+  return neighbors(channelNode(channelName), "task").map((n) => n.ref);
+}
+
 function recentInChannel(item: InboxItem): Array<{ taskId: string; userName: string; hoursAgo: number }> {
   const now = Number(item.ts) * 1000;
   return listInboxNear(item).flatMap((prev) =>
@@ -97,9 +112,10 @@ export async function attachOnce(item: InboxItem, prior: string[] = []): Promise
   const tasks = candidateTasks(conv, listTasks([...OPEN], 200));
   if (!tasks.length) return undefined;
 
-  const hard = hardSignal(item, tasks, recentInChannel);
+  const hard = hardSignal(item, tasks, recentInChannel, tasksOfChannel);
   if (hard) {
     linkUp(slackNode(conv), taskNode(hard.taskId), "rule", hard.why);
+    if (hard.byChannelName) linkUp(channelNode(item.channelName), taskNode(hard.taskId), "rule", hard.why);
     return hard;
   }
 

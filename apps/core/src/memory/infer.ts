@@ -10,6 +10,8 @@ export const projectNode = (name: string): LinkNode => ({ kind: "project", ref: 
 export const branchNode = (project: string, branch: string): LinkNode => ({ kind: "branch", ref: `${project}:${branch}` });
 export const urlNode = (url: string): LinkNode => ({ kind: "url", ref: normalizeUrlPrefix(url) });
 export const slackNode = (conversation: string): LinkNode => ({ kind: "slack", ref: conversation });
+// 库里存的频道名带 #，窗口标题里不带，统一剥掉再存
+export const channelNode = (name: string): LinkNode => ({ kind: "channel", ref: name.replace(/^#/, "") });
 
 export { conversationKey } from "@friday/shared";
 

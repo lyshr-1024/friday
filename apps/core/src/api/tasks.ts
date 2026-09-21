@@ -6,7 +6,7 @@ import { z } from "zod";
 import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
-import { taskNode } from "../memory/infer.js";
+import { channelNode, taskNode } from "../memory/infer.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
@@ -50,6 +50,8 @@ function slackOf(all: InboxItem[]) {
         return {
           conv: n.ref,
           channelName: head.channelName,
+          kind: head.kind,
+          channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
           items: items.map((i) => ({ ts: i.ts, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
           prior: head.prior ?? [],

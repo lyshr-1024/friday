@@ -3664,6 +3664,35 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.fx__conv-chan {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  padding: 1px var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.fx__conv-chan:hover {
+  border-color: var(--line-2);
+  color: var(--fg-2);
+}
+.fx__conv-chan.is-on {
+  border-color: var(--line-2);
+  background: var(--bg-3);
+  color: var(--fg-3);
+}
+.fx__conv-chan:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 .fx__conv-drop {
   flex: none;
   margin-left: auto;

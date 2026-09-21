@@ -540,6 +540,16 @@ export async function detachConversation(conv: string, taskId: string): Promise<
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
 }
 
+export async function linkChannel(channelName: string, taskId: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/channel/${encodeURIComponent(channelName)}/task`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
+export async function unlinkChannel(channelName: string, taskId: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/slack/channel/${encodeURIComponent(channelName)}/task/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
 export async function queryConversation(conv: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/slack/${encodeURIComponent(conv)}/query`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);

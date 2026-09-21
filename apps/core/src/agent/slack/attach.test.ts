@@ -16,23 +16,23 @@ const task = (id: string, over: Partial<Task> = {}): Task => ({
 describe("hardSignal", () => {
   it("消息里贴了工单链接就挂到那条工单的任务上", () => {
     const tasks = [task("t1", { source: { meegleId: "24440539" } }), task("t2")];
-    const hit = hardSignal(item("这个问题看下 https://project.larksuite.com/projectlb/story/detail/24440539"), tasks, () => []);
+    const hit = hardSignal(item("这个问题看下 https://project.larksuite.com/projectlb/story/detail/24440539"), tasks, () => [], () => []);
     expect(hit?.taskId).toBe("t1");
     expect(hit?.why).toContain("24440539");
   });
 
   it("裸工单号也算", () => {
     const tasks = [task("t1", { source: { meegleId: "24440539" } })];
-    expect(hardSignal(item("24440539 这条改完了吗"), tasks, () => [])?.taskId).toBe("t1");
+    expect(hardSignal(item("24440539 这条改完了吗"), tasks, () => [], () => [])?.taskId).toBe("t1");
   });
 
   it("工单号没对应任务时不硬挂", () => {
-    expect(hardSignal(item("24440539 看下"), [task("t2")], () => [])).toBeUndefined();
+    expect(hardSignal(item("24440539 看下"), [task("t2")], () => [], () => [])).toBeUndefined();
   });
 
   it("没有工单时用同一人同一频道近期挂过的任务", () => {
     const tasks = [task("t5")];
-    const hit = hardSignal(item("抽空改一下"), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 3 }]);
+    const hit = hardSignal(item("抽空改一下"), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 3 }], () => []);
     expect(hit?.taskId).toBe("t5");
     expect(hit?.why).toContain("拂晓");
     expect(hit?.why).toContain("3 小时前");
@@ -40,16 +40,40 @@ describe("hardSignal", () => {
 
   it("工单优先于近期", () => {
     const tasks = [task("t1", { source: { meegleId: "24440539" } }), task("t5")];
-    const hit = hardSignal(item("24440539 改完了"), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 1 }]);
+    const hit = hardSignal(item("24440539 改完了"), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 1 }], () => []);
     expect(hit?.taskId).toBe("t1");
   });
 
   it("近期命中的任务已经不在候选里就不挂", () => {
-    expect(hardSignal(item("抽空改一下"), [task("t9")], () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 3 }])).toBeUndefined();
+    expect(hardSignal(item("抽空改一下"), [task("t9")], () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 3 }], () => [])).toBeUndefined();
   });
 
-  it("两样都没有就交给上层去问模型", () => {
-    expect(hardSignal(item("抽空改一下"), [task("t9")], () => [])).toBeUndefined();
+  it("频道已经登记过挂靠就直接用", () => {
+    const tasks = [task("t7", { title: "养牛计划1.0" })];
+    const hit = hardSignal(item("抽空改一下", { channelName: "一起养牛" }), tasks, () => [], () => ["t7"]);
+    expect(hit?.taskId).toBe("t7");
+    expect(hit?.why).toContain("一起养牛");
+  });
+
+  it("登记过的任务不在候选里就不挂", () => {
+    expect(hardSignal(item("抽空改一下", { channelName: "一起养牛" }), [task("t9")], () => [], () => ["t7"])).toBeUndefined();
+  });
+
+  it("没登记过时频道名能跟需求字面对上也算", () => {
+    const tasks = [task("t8", { title: "财富首页新增whatsapp入口" })];
+    const hit = hardSignal(item("这个什么时候发", { channelName: "财富首页新增whatsapp入口-需求" }), tasks, () => [], () => []);
+    expect(hit?.taskId).toBe("t8");
+    expect(hit?.byChannelName).toBe(true);
+  });
+
+  it("近期优先于频道名", () => {
+    const tasks = [task("t5"), task("t8", { title: "财富首页新增whatsapp入口" })];
+    const hit = hardSignal(item("改一下", { channelName: "财富首页新增whatsapp入口-需求" }), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 2 }], () => []);
+    expect(hit?.taskId).toBe("t5");
+  });
+
+  it("三样都没有就交给上层去问模型", () => {
+    expect(hardSignal(item("抽空改一下"), [task("t9")], () => [], () => [])).toBeUndefined();
   });
 });
 
