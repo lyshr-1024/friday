@@ -4963,11 +4963,15 @@ body:has(.hud)::-webkit-scrollbar {
 .deck__card:has(.fx--live)::after {
   content: "";
   position: absolute;
-  left: -1px;
-  right: -1px;
-  top: -1px;
-  /* --foot 由 Board 量出来写进来（操作栏高度 + 间距），没有操作栏时是 0 */
-  bottom: calc(var(--foot, 0px) - 1px);
+  /* 四边归零：环要和 .fx 自己那条 1px 边框重合。
+     原来用 -1px 往外扩，结果贴在边框外侧一格、又正好落在 .deck__scroll
+     （overflow:auto）的裁剪线外——左右顶三条边被整个切掉，只剩底边露在外面。 */
+  left: 0;
+  right: 0;
+  top: 0;
+  /* --foot 由 Board 量出来写进来：卡片底到 .fx 底的实际距离，
+     没有操作栏时是 0。环的底边因此正好压在 .fx 的下边框上。 */
+  bottom: var(--foot, 0px);
   border-radius: 2px;
   /* 1px：跟卡片自己的边框同宽，像边框亮起来了而不是多贴了一条带子。
      细到这个程度还能一眼看见，靠的是下面那道发光而不是线宽。 */

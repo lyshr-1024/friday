@@ -1085,22 +1085,40 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     return () => window.removeEventListener("keydown", onKey);
   }, [t.id, t.updatedAt, primary?.label, confirming]);
 
-  // 绕框那道光贴着卡片主体走，下边界要避开底部操作栏——它高度会变（后果提示、
-  // 按钮换行），量出来写进 --foot 给 CSS 用
+  // 绕框那道光要跟 .fx 那个有边框的盒子严丝合缝，而卡片底下还有块操作栏
+  // （高度会变：后果提示、按钮换行，没展开时整个不存在）。直接量卡片底到
+  // .fx 底的距离写进 --foot——不管有没有操作栏都是对的，比拿它的高度再加个
+  // 猜出来的间距可靠。
   const footRef = useRef<HTMLDivElement>(null);
+  const fxRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    const foot = footRef.current;
-    const card = foot?.closest(".deck__card") as HTMLElement | null;
-    if (!card) return;
-    if (!foot) { card.style.removeProperty("--foot"); return; }
-    const ro = new ResizeObserver(() => card.style.setProperty("--foot", `${foot.offsetHeight + 8}px`));
-    ro.observe(foot);
+    const fx = fxRef.current;
+    const card = fx?.closest(".deck__card") as HTMLElement | null;
+    if (!fx || !card) return;
+    const sync = () => {
+      const foot = footRef.current;
+      if (!foot) { card.style.setProperty("--foot", "0px"); return; }
+      const cs = getComputedStyle(foot);
+      const gap = foot.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom);
+      card.style.setProperty("--foot", `${gap}px`);
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(card);
+    if (footRef.current) ro.observe(footRef.current);
     return () => { ro.disconnect(); card.style.removeProperty("--foot"); };
   }, [open]);
 
   return (
     <>
-    <article className={`fx ${live ? "fx--live" : ""} ${running ? "fx--run" : ""}`} ref={ref as React.Ref<HTMLDivElement>}>
+    <article
+      className={`fx ${live ? "fx--live" : ""} ${running ? "fx--run" : ""}`}
+      ref={(el) => {
+        fxRef.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) (ref as React.RefObject<HTMLElement | null>).current = el;
+      }}
+    >
       <div className="fx__meta">
         <span className={`dot dot--${t.attention ?? t.status}`} />
         {/* 状态文字去掉了：在不在跑由顶部那条流线说，要看细节有圆点和下面的进展 */}
