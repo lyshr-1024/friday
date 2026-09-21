@@ -4949,12 +4949,6 @@ body:has(.hud)::-webkit-scrollbar {
   pointer-events: none;
   z-index: 1;
 }
-/* 开着终端：整条顶边亮起来，一眼看出这条还没了结 */
-.deck__card .fx--live::before {
-  opacity: 1;
-  background: linear-gradient(90deg, transparent, var(--live) 12%, var(--live) 88%, transparent);
-  box-shadow: 0 0 10px rgba(95, 227, 255, 0.55);
-}
 /*
  * 终端正在干活：一道光绕着整个边框跑一圈。
  * 做法是一个铺满卡片的 conic-gradient 在转，再用两层 mask 相减只留边框
@@ -4966,7 +4960,7 @@ body:has(.hud)::-webkit-scrollbar {
  * （.fx__foot 自带边框圆角，是独立一块），所以下边界收到操作栏上沿，
  * 靠 --foot 这个变量传高度，没有操作栏时是 0。
  */
-.deck__card:has(.fx--run)::after {
+.deck__card:has(.fx--live)::after {
   content: "";
   position: absolute;
   left: -1px;
@@ -4975,7 +4969,23 @@ body:has(.hud)::-webkit-scrollbar {
   /* --foot 由 Board 量出来写进来（操作栏高度 + 间距），没有操作栏时是 0 */
   bottom: calc(var(--foot, 0px) - 1px);
   border-radius: 2px;
-  padding: 2px;
+  /* 1px：跟卡片自己的边框同宽，像边框亮起来了而不是多贴了一条带子。
+     细到这个程度还能一眼看见，靠的是下面那道发光而不是线宽。 */
+  padding: 1px;
+  /* 开着但没在敲：整圈常亮不动。跟「在敲」同一圈形状，差别只在动不动——
+     余光先认出「整圈亮着 = 有窗口」，再看动不动分辨它在干活还是在等你。 */
+  background: var(--live);
+  opacity: 0.5;
+  filter: drop-shadow(0 0 4px var(--live-dim));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+.deck__card:has(.fx--run)::after {
+  opacity: 1;
   /* 用 --live-0（同色零透明）而不是 transparent：transparent 是 rgba(0,0,0,0)，
      跟青色插值会经过一段发灰的中间色，光带看着脏 */
   background: conic-gradient(
@@ -4987,13 +4997,8 @@ body:has(.hud)::-webkit-scrollbar {
     var(--live) 350deg,
     var(--live-0) 360deg
   );
-  filter: drop-shadow(0 0 6px var(--live));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 1;
+  /* 线收到 1px 之后光晕要加厚，否则远看就没了 */
+  filter: drop-shadow(0 0 8px var(--live));
 }
 @property --ang {
   syntax: "<angle>";
@@ -5008,11 +5013,16 @@ body:has(.hud)::-webkit-scrollbar {
     to { --ang: 360deg; }
   }
 }
-/* 关了动效：整圈边框常亮，靠亮度而不是运动表示在跑 */
+/* 关了动效：两档都是整圈常亮，只能靠亮度分——在敲的满亮带光晕，
+   开着在等你的压到 0.3 且不发光 */
 @media (prefers-reduced-motion: reduce) {
   .deck__card:has(.fx--run)::after {
     background: var(--live);
-    opacity: 0.7;
+    opacity: 0.85;
+  }
+  .deck__card:has(.fx--live):not(:has(.fx--run))::after {
+    opacity: 0.3;
+    filter: none;
   }
 }
 
