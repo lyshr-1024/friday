@@ -16,6 +16,19 @@ export interface UserSettings {
   summon: SummonSettings;
 }
 
+/**
+ * 白名单是并集不是覆盖：存过一次之后，代码里新加的默认域名就再也进不来了
+ * （larksuite 就是这么漏掉的，工单页的 URL 被裁成光域名，动作全没了）。
+ */
+function mergeSummon(raw: unknown): SummonSettings {
+  const saved = typeof raw === "object" && raw !== null ? (raw as Partial<SummonSettings>) : {};
+  return {
+    ...DEFAULT_SUMMON_SETTINGS,
+    ...saved,
+    urlAllowlist: [...new Set([...DEFAULT_SUMMON_SETTINGS.urlAllowlist, ...(saved.urlAllowlist ?? [])])],
+  };
+}
+
 const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
@@ -41,7 +54,7 @@ export function userSettings(): UserSettings {
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
-    summon: { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}) },
+    summon: mergeSummon(raw.summon),
   };
 }
 
@@ -53,7 +66,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
-  if (patch.summon !== undefined) raw.summon = { ...DEFAULT_SUMMON_SETTINGS, ...(typeof raw.summon === "object" && raw.summon !== null ? (raw.summon as Partial<SummonSettings>) : {}), ...patch.summon };
+  if (patch.summon !== undefined) raw.summon = { ...mergeSummon(raw.summon), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());
   return userSettings();

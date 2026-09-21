@@ -39,4 +39,18 @@ describe("settings", () => {
     expect(after.summon.screenshotFallback).toBe(false);
     expect(after.summon.urlAllowlist).toEqual(DEFAULT_SUMMON_SETTINGS.urlAllowlist);
   });
+
+  // 白名单是并集：存过一次之后代码里新加的默认域名还得能进来，
+  // 否则「加了默认值却不生效」——larksuite 就是这么漏掉的
+  it("自定义白名单不会顶掉后来新增的默认域名", async () => {
+    await app.request("/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ summon: { urlAllowlist: ["my.internal.site"] } }),
+    });
+    const res = await app.request("/settings");
+    const got = ((await res.json()) as SettingsResponse).summon.urlAllowlist;
+    expect(got).toContain("my.internal.site");
+    for (const d of DEFAULT_SUMMON_SETTINGS.urlAllowlist) expect(got).toContain(d);
+  });
 });

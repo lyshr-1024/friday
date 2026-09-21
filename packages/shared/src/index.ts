@@ -705,5 +705,5 @@ export interface SummonSettings {
 
 export const DEFAULT_SUMMON_SETTINGS: SummonSettings = {
   screenshotFallback: true,
-  urlAllowlist: ["meegle.com", "project.feishu.cn", "longbridge.sg", "longbridge-inc.com"],
+  urlAllowlist: ["meegle.com", "project.feishu.cn", "project.larksuite.com", "longbridge.sg", "longbridge-inc.com"],
 };
