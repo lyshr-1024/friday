@@ -230,7 +230,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     const branch = String(args.branch ?? "").trim() || (dir ? currentBranchSync(dir) : "");
     // 新一轮开始干活了，上一轮"等你看/卡住"的标记清掉
     updateTask(task.id, { progress: text, attention: undefined, ...(branch ? { source: { branch } } : {}) });
-    // 分支起好了就是真的动手了，这条信号本机可查，直接推到「开始了」
+    // 分支起好了就是真的动手了，这条信号本机可查，直接推到「进行中」
     if (branch) onSignal(task.id, { signal: "branch_commit", to: "dev", ask: "开始动手了？", why: `终端在 ${branch} 上干活` });
     setJobMessage(jobId, text);
     return { text: "记下了，用户能在任务卡上看到。" };
@@ -251,7 +251,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在「Friday 在做」里标黄等用户看；任务完不完成由用户说
       const t = updateTask(task.id, { report, attention: "review", progress: `这轮做完了：${report.summary}` })!;
-      // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「开始了」
+      // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「进行中」
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       notify(t, job, "这轮做完了，等你看", report.summary, "finished");

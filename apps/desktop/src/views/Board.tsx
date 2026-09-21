@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_LABEL, STAGE_ORDER, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
@@ -613,7 +613,7 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
         ? ALL_ORDER.map((st) => ({ label: STATUS[st], items: tasks.filter((t) => t.status === st) }))
         : [
             { label: "关注", items: pinned },
-            ...STAGE_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: byStage(st) })),
+            ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: byStage(st) })),
             { label: "没有阶段", items: noStage },
           ];
     const k = q.trim().toLowerCase();
@@ -707,10 +707,10 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
         <div className="gauges">
           {/* 读数条跟列表同一套口径：五个阶段各多少件，外加终端在跑几个 */}
           <Gauge k="TERMINALS" v={liveTerminals} u="ACTIVE" tone={liveTerminals ? "hot" : ""} max={4} />
-          <Gauge k="没开始" v={byStage("todo").length} u="ITEMS" tone="" max={20} />
-          <Gauge k="开始了" v={byStage("dev").length} u="ITEMS" tone={byStage("dev").length ? "hot" : ""} max={8} />
-          <Gauge k="测试中" v={byStage("testing").length} u="ITEMS" tone="" max={8} />
-          <Gauge k="待发布" v={byStage("accepted").length} u="ITEMS" tone={byStage("accepted").length ? "warn" : ""} max={8} />
+          <Gauge k={STAGE_LABEL.dev} v={byStage("dev").length} u="ITEMS" tone={byStage("dev").length ? "hot" : ""} max={8} />
+          <Gauge k={STAGE_LABEL.testing} v={byStage("testing").length} u="ITEMS" tone="" max={8} />
+          <Gauge k={STAGE_LABEL.accepted} v={byStage("accepted").length} u="ITEMS" tone={byStage("accepted").length ? "warn" : ""} max={8} />
+          <Gauge k={STAGE_LABEL.todo} v={byStage("todo").length} u="ITEMS" tone="" max={20} />
         </div>
       )}
       {view === "ledger" ? (

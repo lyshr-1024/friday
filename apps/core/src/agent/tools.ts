@@ -279,7 +279,7 @@ const fridayToolList = (conversationId?: string) => [
         stage: z
           .enum(["todo", "dev", "testing", "accepted", "released"])
           .optional()
-          .describe("开发走到哪一步了，用户说了才改：还没开始=todo，在写代码/联调=dev，提测了或产品在验收=testing，验收完等发布=accepted，上线了=released（上线即完成，会自动收走）。往回拨也用它，比如测试打回就从 testing 拨回 dev"),
+          .describe("开发走到哪一步了，用户说了才改：未开始=todo，在写代码/联调=dev，提测了或产品在验收=testing，验收完等发布=accepted，上线了=released（上线即完成，会自动收走）。往回拨也用它，比如测试打回就从 testing 拨回 dev"),
         stageReason: z
           .enum(["misjudged", "bounced"])
           .optional()
