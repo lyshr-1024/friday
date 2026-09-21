@@ -1009,9 +1009,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     void taskVerify(t.id, i, v).catch(() => {});
   }
   const [undoing, setUndoing] = useState(false);
-  const gateEvent = events.find((e) => e.action === "slack_reply_prepared" || e.action === "slack_reply_sent");
-  const confidence = typeof gateEvent?.evidence.confidence === "number" ? gateEvent.evidence.confidence : undefined;
-  const threshold = typeof gateEvent?.evidence.threshold === "number" ? gateEvent.evidence.threshold : undefined;
   // evidence.auto 是 pipeline.ts 自动发送分支打的标记（撤销路由也靠它区分）；
   // 人工审核通过走 executePending，记的同样是 slack_reply_sent 但没有这个标记，两者文案不能混为一谈。
   const sentEvent = events.find((e) => e.action === "slack_reply_sent" && e.reversible && e.status !== "undone");
@@ -1260,7 +1257,6 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
             <div>
               <span className="k">
                 {pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
-                {confidence !== undefined && <span className="fx__conf">置信度 {confidence}{threshold !== undefined ? ` / 阈值 ${threshold}` : ""}</span>}
               </span>
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
