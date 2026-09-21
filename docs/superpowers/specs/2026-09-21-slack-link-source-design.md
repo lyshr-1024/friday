@@ -29,7 +29,7 @@ Slack 在 Friday 里的角色从「收件箱」变成「关联源」：
 1. **只挂靠，不评判。** 消息作为「一段对话」落库并挂到已有任务上，Friday 不判断要不要回、不起草、不建任务、不通知。
 2. **建任务只有用户明确要求这一个入口**（HUD「建成任务」、任务卡「并入这段对话」）。唯一例外是 Friday 自己接的查询活（见 §4.3）。
 3. **查询类问题 Friday 替用户查代码并起草回复。** 这是保留的唯一起草场景，走「Friday 在做」→ review → `slack_reply` 待审。
-4. **推断可以错，纠正后不能再错。** 用户改一次挂靠，沉淀成映射，同样的人 / 频道下次不再问模型。
+4. **推断可以错，纠正后不能再错。** 用户改一次挂靠写成一条 `user` 边，摘掉一条写成否决边；`links` 的可信度只升不降，自动推断不会把纠正推翻。
 5. **消息状态以 Slack 为准。** 用户在 Slack 里读过或回过，Friday 这边对应的东西自动收掉。
 
 ## 2. 留什么、删什么
@@ -54,28 +54,16 @@ Slack 在 Friday 里的角色从「收件箱」变成「关联源」：
 
 **对话单位**改用 Slack 原生粒度：有 `thread_ts` 的整个 thread 算一段（键 `channelId:thread_ts`），否则单条消息算一段（键 `channelId:ts`）。原「按人两小时聚合 + 灰区语义归并」解决的「同一人隔几小时催同一件事」，由挂靠硬信号「同一人同一频道近期挂过的任务」覆盖。
 
-```sql
--- 对话 → 任务，一段对话可挂多条任务
-CREATE TABLE slack_links (
-  conversation TEXT NOT NULL,      -- channelId:thread_ts 或 channelId:ts
-  task_id TEXT NOT NULL,
-  how TEXT NOT NULL CHECK (how IN ('link','mapping','recent','model','manual')),
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (conversation, task_id)
-);
+**挂靠复用已有的 `links` 表，不新建表。** `memory/links.ts` 已经实现了本设计需要的全部语义，浏览器那一端（`urlNode` ↔ 任务）也已经在用它：
 
--- 用户纠正沉淀的映射；命中直接挂，不问模型。negative=1 表示「这个人在这个频道说的不是这条任务」
-CREATE TABLE slack_mappings (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  channel_id TEXT NOT NULL,
-  keyword TEXT,                    -- 可空；非空时消息正文须包含
-  task_id TEXT,                    -- 与 project 二选一
-  project TEXT,
-  negative INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-```
+- 边无向、同一条边只留一行（`links_edge` 唯一索引），重复推断走 UPSERT。
+- 可信度 `user` > `rule` > `guess` **只升不降**：用户纠正过的不会被后来的自动推断覆盖。
+- `unlink(a, b)` 断开并写一条否决边（另一端加 `!` 前缀），`rejected(a, b)` 查它；`linkUp` 在 `source !== "user"` 时先查否决，**被否决过的自动推断不会再连回来**。这正是「纠正以后不能再错」，不需要另造映射表。
+- 每条边带 `why`（一句话说明凭什么这么连），界面直接显示，出错时能看出是哪条规则的锅。
+
+新增一个节点类型：`LinkKind` 加 `"slack"`，`ref` 是对话键（`channelId:thread_ts` 或 `channelId:ts`）。`memory/infer.ts` 加 `slackNode(conversation: string): LinkNode`，与已有的 `taskNode` / `meegleNode` / `urlNode` 并列。
+
+三级硬信号映射到 `LinkSource`：工单链接、近期同人同频道 → `"rule"`；模型推断 → `"guess"`（界面标「Friday 推断」）；用户手动挂 → `"user"`。`how` 的细分不再单独存列，写进 `why` 那句话里。
 
 `inbox` 表：去掉 `triage` / `category` / `thread_id` 列，保留 `thread_ts`；`done` 改名 `settled`（用户在 Slack 里读过或回过）；加 `prior TEXT`（JSON，`fetchContext` 拉到的前文），供任务卡和 HUD 展示、供查询任务作为输入。
 
@@ -91,17 +79,18 @@ CREATE TABLE slack_mappings (
 
 ### 4.2 挂靠 `agent/slack/attach.ts`（纯函数 + 一处可选模型调用）
 
-候选任务 = 状态不是 done / ignored 的全部任务。按优先级取第一个命中的硬信号：
+候选任务 = 状态不是 done / ignored 的全部任务，减去被 `rejected()` 否决过的。按优先级取第一个命中的硬信号，命中即 `linkUp(slackNode(conv), taskNode(id), "rule", why)`：
 
-1. **link**：消息正文含 Meegle 工单链接或工单号 → `source.meegleId` 相同的任务。
-2. **mapping**：`slack_mappings` 里 `user_id + channel_id (+ keyword)` 命中 → 映射到的任务；映射到项目的，只把候选缩到该项目。`negative` 命中的任务从候选里剔除。
-3. **recent**：同一人同一频道 48 小时内已挂过的任务。
+1. **工单**：消息正文含 Meegle 工单链接或工单号（复用 `infer.ts` 的 `meegleIdsIn`）→ `source.meegleId` 相同的任务。`why`：「消息里贴了工单 24440539」。
+2. **近期**：同一人同一频道 48 小时内已挂过的任务（查 `links` 里该频道其他对话的邻居）。`why`：「拂晓 3 小时前在这个频道说的也是这条」。
 
-硬信号全没中且候选非空 → Haiku 一次：给消息正文（`untrusted`）、前文、候选任务的标题与一句理解，要求答一个任务 id 或 `none`；提示词写明拿不准答 `none`。答了就挂上 `how: model`。没候选或答 `none` → 静默留库。
+硬信号全没中且候选非空 → Haiku 一次：给消息正文（`untrusted`）、前文、候选任务的标题与一句理解，要求答一个任务 id 或 `none`；提示词写明拿不准答 `none`。答了就 `linkUp(..., "guess", why)`。没候选或答 `none` → 静默留库，不写任何边。
 
-同一段对话后续消息进来时，先看这段对话已挂的任务，直接沿用，不重跑。
+同一段对话后续消息进来时，先看 `neighbors(slackNode(conv), "task")`，已有边就沿用，不重跑。
 
-**纠正**：任务卡「不是这条」摘掉 → 删 `slack_links` 行 + 写一条 `negative` 映射；HUD / 任务卡「挂到…」→ 写 `slack_links(how: manual)` + 写一条正向映射（人 + 频道 → 任务）。
+**纠正**：任务卡「不是这条」→ `unlink(slackNode(conv), taskNode(id))`，自动写否决边；HUD / 任务卡「挂到…」→ `linkUp(..., "user", "你手动挂的")`。两者都不需要额外的映射表，`links` 的可信度规则天然保证不被推翻。
+
+**沉淀到人**：用户手动挂过之后，「近期」那条规则下次就会命中同一个人在同一频道的新消息，等价于 spec 早先设想的「人 + 频道 → 任务」映射。
 
 ### 4.3 查询分类与查代码 `agent/slack/query.ts`
 
@@ -128,14 +117,14 @@ CREATE TABLE slack_mappings (
 
 ### 4.5 建任务的两个入口
 
-- HUD「建成任务」：`addNoteTask`，`kind: verbal`，`source` 带 `conversation`，同时写 `slack_links(how: manual)`。
-- 任务卡「并入这段对话」：从最近 7 天未挂靠的对话里挑，写 `slack_links(how: manual)` + 正向映射。
+- HUD「建成任务」：`addNoteTask`，`kind: verbal`，`source` 带 `conversation`，同时 `linkUp(slackNode(conv), taskNode(new.id), "user", "你在 HUD 里把这段对话建成了任务")`。
+- 任务卡「并入这段对话」：从最近 7 天未挂靠的对话里挑，同样写一条 `user` 边。
 
 「派出任务完成后回帖」照旧：`job_reported_back` 时若原任务挂着 Slack 对话，挂 `slack_reply` 待审，回帖到那段对话。
 
 ## 5. 界面
 
-- **任务卡**新增一段「Slack 里的讨论」：按时间列该任务挂着的对话，每段显示人、频道、首条正文、前文折叠、「在 Slack 打开」、「不是这条」。`how: model` 的标一个小字「Friday 推断」，让用户知道哪些该核对。
+- **任务卡**新增一段「Slack 里的讨论」：按时间列该任务挂着的对话，每段显示人、频道、首条正文、前文折叠、「在 Slack 打开」、「不是这条」。边的 `source` 是 `guess` 的标一个小字「Friday 推断」并显示那条 `why`，让用户知道哪些该核对、凭什么连的。
 - **HUD 在 Slack 前台**：按窗口标题解析频道或人名，取该频道 / 私聊最近一段对话。卡片「我看到了」写对话首句；匹配区写「属于任务 X · {进展一句}」或「没对上任务」；动作固定三个：帮我查这个（建 `slack_query` 任务，跳过疑问信号判定）/ 建成任务 / 挂到…（下拉列未完成任务）。零模型调用。
 - **工作台**：不新增任何 Slack 列表或分组。`slack_query` 任务走现有「Friday 在做」→「待我决定」，卡片来源标识「Slack 查询」。「↻ Slack」按钮保留。
 - **设置页**：去掉「每天复盘人工处理」；「系统通知」那行的说明改成「任务结束、终端在等你回答」。
@@ -144,7 +133,7 @@ CREATE TABLE slack_mappings (
 
 - 删：`GET /threads`、`POST /threads/:id/*`、`GET /learn`、`PUT /learn/threshold`、`POST /tasks/review`。
 - 改：`GET /inbox` 返回对话视图（含挂靠）；`POST /inbox/sync` 不动。
-- 增：`POST /slack/:conversation/attach {taskId}`、`DELETE /slack/:conversation/attach/:taskId`（同时写映射）、`POST /slack/:conversation/query`（HUD「帮我查这个」）、`POST /slack/:conversation/task`（建成任务）。
+- 增：`POST /slack/:conversation/attach {taskId}`（写 `user` 边）、`DELETE /slack/:conversation/attach/:taskId`（`unlink`，自动写否决边）、`POST /slack/:conversation/query`（HUD「帮我查这个」）、`POST /slack/:conversation/task`（建成任务）。
 - 会话工具：`slack_inbox` 改为输出对话与挂靠视图；删 `review_now`；`task_update` 不动。
 
 ## 7. 成本
@@ -158,16 +147,16 @@ CREATE TABLE slack_mappings (
 
 **单测（vitest）**
 
-- `attach.test.ts`：link > mapping > recent 优先级；negative 映射剔除候选；命中映射不调模型；无候选不调模型；同一对话后续消息沿用已挂任务。
+- `attach.test.ts`：工单 > 近期 的优先级；被 `unlink` 否决过的任务不再进候选、也不被模型重连；硬信号命中时不调模型；无候选不调模型；同一对话后续消息沿用 `neighbors` 查到的已有边；手动挂过之后同人同频道的新消息走「近期」直接命中。
 - `query.test.ts`：疑问信号判定（含全角问号、无问号但有「怎么」）；私聊与 @ 以外不跑；解析报告取出草稿并钳长度；项目判不出时提示词列全部项目。
 - `settle.test.ts`：用户已回 → `slack_query` 任务 done 且待审动作撕掉；仅挂靠的任务不动。
 - `guard` 只读放行集：Edit / Write / `git push` 被拦。
-- `db.test.ts`：`threads` / `lessons` / `thresholds` 表 drop，`slack_links` / `slack_mappings` 建表，老库升级不报错。
+- `db.test.ts`：`threads` / `lessons` / `thresholds` 表 drop，`inbox` 去列与加 `prior` / `settled`，老库升级不报错。`links` 表不动。
 
 **真机（每步截图进交付报告）**
 
 1. 一条带工单链接的 @ → 对应 Meegle 任务卡出现「Slack 里的讨论」。
-2. 同一人同一频道 3 小时后再发一条无链接消息 → 自动挂到同一任务，标 recent 或「Friday 推断」。
+2. 同一人同一频道 3 小时后再发一条无链接消息 → 自动挂到同一任务，卡片上显示那条边的 `why`。
 3. 私聊「xx 在哪实现的」→「Friday 在做」出现一张卡 → 进 review 有草稿与依据 → 「看一眼再发」发出。
 4. 同样一条问题，用户先在 Slack 里回了 → 下一轮同步后卡片自动 done，账本一条 `slack_settled_by_user`。
 5. Slack 前台呼出 HUD → 卡片显示「属于任务 X」，「挂到…」改到另一条任务 → 任务卡更新，同一人再发消息直接挂到新任务。
