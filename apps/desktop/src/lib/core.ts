@@ -510,6 +510,13 @@ export async function taskSetProject(id: string, project: string | null): Promis
   return res.json();
 }
 
+/** 手填文档链接。空串表示删掉那一栏。 */
+export async function taskSetDocs(id: string, docs: Record<string, string>): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/docs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(docs) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 /** 把另一条需求并进这条：二期跟一期是同一件事，板上只留一条。 */
 export async function taskMerge(id: string, fromTaskId: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/merge`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fromTaskId }) });

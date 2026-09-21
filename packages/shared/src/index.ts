@@ -296,6 +296,10 @@ export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" 
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
+/** 任务上挂的文档链接。前三个 Meegle 同步会写，meegle 那个是手贴的一篇文档，
+    跟 meegleId 那条同步链路无关——贴了不会让任务被 Meegle 接管。 */
+export type TaskDocs = { req?: string; tech?: string; design?: string; meegle?: string };
+
 export interface TaskSource {
   threadId?: string;
   meegleId?: string;
@@ -308,7 +312,7 @@ export interface TaskSource {
    * 合并进来的那些需求：名字、链接、以及它自己的文档。被合掉的任务已经删了，
    * 不在这儿存一份，卡片上就只剩一串号码、文档也跟着丢了。
    */
-  merged?: Array<{ meegleId: string; title: string; url?: string; docs?: { req?: string; tech?: string; design?: string } }>;
+  merged?: Array<{ meegleId: string; title: string; url?: string; docs?: TaskDocs }>;
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
   meegleType?: string;
   /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
@@ -330,8 +334,11 @@ export interface TaskSource {
   summon?: boolean;
   reporter?: string;
   description?: string;
-  /** 需求文档 / 技术文档 / 设计稿，没填的键不出现 */
-  docs?: { req?: string; tech?: string; design?: string };
+  /** 需求文档 / 技术文档 / 设计稿 / Meegle 链接，没填的键不出现。
+      Meegle 任务的前三个由同步写入；口头任务四个都可以手填。
+      注意 docs.meegle 只是一篇文档的链接，跟 meegleId 那条同步链路无关——
+      手贴它不会让这条任务被 Meegle 接管。 */
+  docs?: TaskDocs;
   /** 当前节点的 node_key，节点流转要用 */
   nodeKey?: string;
   nodeName?: string;

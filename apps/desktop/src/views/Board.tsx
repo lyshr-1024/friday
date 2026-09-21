@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -111,8 +111,7 @@ function dueLabel(iso: string): string {
 
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
-const ISSUE_STATUS: Record<string, string> = { OPEN: "待处理", REOPENED: "重新打开", "IN PROGRESS": "开发中" };
-const DOC_LABELS: Array<[keyof NonNullable<Task["source"]["docs"]>, string]> = [["req", "需求文档"], ["tech", "技术文档"], ["design", "设计稿"]];
+const DOC_LABELS: Array<[keyof NonNullable<Task["source"]["docs"]>, string]> = [["req", "需求文档"], ["tech", "技术文档"], ["design", "设计稿"], ["meegle", "Meegle"]];
 
 function OpenLink({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} className="link" onClick={(e) => { e.preventDefault(); void openUrl(href); }}>{children}</a>;
@@ -133,7 +132,7 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-function MeegleChips({ t }: { t: Task; extra?: string }) {
+function MeegleChips({ t }: { t: Task }) {
   // 只留优先级和回原工单的链接。迭代标签、当前节点、提出人跟「这条要写什么代码」无关
   if (t.priority !== "high" && !t.source.url) return null;
   return (
@@ -147,9 +146,9 @@ function MeegleChips({ t }: { t: Task; extra?: string }) {
 function IssueBody({ t }: { t: Task }) {
   const [full, setFull] = useState(false);
   const desc = t.source.description ?? "";
+  // 芯片归 TaskBody 统一渲染，这儿只管缺陷描述
   return (
     <>
-      <MeegleChips t={t} extra={ISSUE_STATUS[t.source.statusKey ?? ""] ?? t.source.statusKey} />
       {desc && (
         <div>
           <span className="k">DEFECT</span>
@@ -161,8 +160,51 @@ function IssueBody({ t }: { t: Task }) {
   );
 }
 
-function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
-  const { feDue, beDue, docs, nodeName } = t.source;
+/** 四个链接栏，存下来就是一篇文档的地址。Meegle 那栏跟同步无关，只是个链接。 */
+function DocsEditor({ t, onAct, onDone }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onDone: () => void }) {
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(DOC_LABELS.map(([k]) => [k, t.source.docs?.[k] ?? ""])),
+  );
+  const [err, setErr] = useState("");
+  const save = async () => {
+    const bad = DOC_LABELS.find(([k]) => draft[k] && !/^https?:\/\//i.test(draft[k]!.trim()));
+    if (bad) { setErr(`${bad[1]} 得是 http/https 开头的完整链接`); return; }
+    setErr("");
+    await onAct(t, () => taskSetDocs(t.id, Object.fromEntries(DOC_LABELS.map(([k]) => [k, draft[k]?.trim() ?? ""]))));
+    onDone();
+  };
+  return (
+    <div className="fx__docs-edit">
+      {DOC_LABELS.map(([k, label]) => (
+        <label key={k} className="fx__docs-row">
+          <span className="fx__docs-label">{label}</span>
+          <input
+            className="fx__docs-input"
+            type="url"
+            inputMode="url"
+            placeholder="贴链接，留空就是没有"
+            value={draft[k] ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); onDone(); } }}
+          />
+        </label>
+      ))}
+      {err && <span className="fx__docs-err">{err}</span>}
+      <div className="fx__docs-acts">
+        <button className="b b--primary" onClick={() => void save()}>保存</button>
+        <button className="b b--text" onClick={onDone}>取消</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 任务卡的主体。所有任务都渲染同一套结构——项目、并入、排期、文档——
+ * 每块按「有没有数据」决定露不露面，而不是按来源。口头交代的事和 Meegle
+ * 同步下来的工单长得一样，差别只在它没有工单号、排期这些同步来的字段。
+ */
+function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
+  const { feDue, beDue, docs } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
   // 合并进来的需求各自带着文档：一期二期的资料都要在这儿点得到
   const mergedDocs = (t.source.merged ?? [])
@@ -170,16 +212,17 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
     .filter((m) => m.links.length > 0);
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
   const [merging, setMerging] = useState<Task | null>(null);
+  const [editDocs, setEditDocs] = useState(false);
   // to 用 null 表示「改成没定」，所以开合得另拿一个字段，不能靠 null 兼职
   const [switching, setSwitching] = useState<{ to: string | null } | null>(null);
   const hasTerm = Boolean(t.source.jobId) && t.terminal !== "gone" && t.status === "processing";
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
-  // 能并进来的：别的需求，不看项目也不看状态。
-  // 项目现在是手动指定的，多数需求还没定；而要合的那条也可能已经收工了。
-  const bases = all.filter((x) => x.id !== t.id && isStory(x));
+  // 能并进来的：别的任务，不看项目也不看状态。Slack 线程除外——那是一段对话，
+  // 并进来没有意义。项目多数还没定，要合的那条也可能已经收工了，都不拦。
+  const bases = all.filter((x) => x.id !== t.id && taskCategory(x.source) !== "slack" && x.status !== "done" && x.status !== "ignored");
   return (
     <div className="fx__story">
-      <MeegleChips t={t} extra={nodeName} />
+      <MeegleChips t={t} />
       <div>
         <span className="k">项目</span>
         <div className="fx__base">
@@ -253,21 +296,26 @@ function StoryBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, f
           </div>
         </div>
       )}
-      {(links.length > 0 || mergedDocs.length > 0) && (
-        <div>
+      <div>
+        <div className="fx__docs-head">
           <span className="k">DOCS</span>
-          {links.length > 0 && (
-            <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
-          )}
-          {/* 并进来那些需求的文档也要点得到，标明是谁的 */}
-          {mergedDocs.map((m) => (
-            <div key={m.meegleId} className="fx__docs fx__docs--merged">
-              <span className="fx__meta-dim">#{m.meegleId} {m.title.slice(0, 16)}</span>
-              {m.links.map(([k, label]) => <OpenLink key={k} href={m.docs[k]!}>{label} ↗</OpenLink>)}
-            </div>
-          ))}
+          <button className="b b--text" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>
+            {editDocs ? "收起" : links.length ? "改链接" : "贴链接"}
+          </button>
         </div>
-      )}
+        {links.length > 0 && !editDocs && (
+          <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
+        )}
+        {!links.length && !editDocs && <span className="fx__meta-dim">还没有链接</span>}
+        {editDocs && <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} />}
+        {/* 并进来那些需求的文档也要点得到，标明是谁的 */}
+        {mergedDocs.map((m) => (
+          <div key={m.meegleId} className="fx__docs fx__docs--merged">
+            <span className="fx__meta-dim">#{m.meegleId} {m.title.slice(0, 16)}</span>
+            {m.links.map(([k, label]) => <OpenLink key={k} href={m.docs[k]!}>{label} ↗</OpenLink>)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1049,7 +1097,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     ? { label: `开工：${String(startJob.payload.project ?? "")}`.trim(), run: () => taskApprove(t.id, startJob.id) }
     : isIssue(t) && trs[0]
     ? { label: trs[0].label, run: () => taskTransition(t.id, trs[0]!) }
-    : isStory(t) && t.project && !t.source.jobId
+    : t.project && !t.source.jobId
     ? { label: "开始做", run: () => taskStart(t.id) }
     : first
     ? isMessage
@@ -1197,7 +1245,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
       )}
 
       {isIssue(t) && <IssueBody t={t} />}
-      {isStory(t) && <StoryBody t={t} all={all} onAct={onAct} />}
+      <TaskBody t={t} all={all} onAct={onAct} />
 
       {thread && thread.items.length > 0 && (
         <div className="fx__source">
@@ -1400,7 +1448,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
             )}
             {/* 全权代理是重的一档：开 worktree、无人值守、跑完自己进 review。
                 日常是「开始做」自己动手，所以这条摆在次按钮里 */}
-            {isStory(t) && t.project && !t.source.jobId && (
+            {t.project && !t.source.jobId && (
               <button className="b b--ghost" title="Friday 独立在 worktree 里改完再交你验收，中途不问你" onClick={() => void onAct(t, () => taskRetry(t.id))}>
                 交给 Friday 改
               </button>
