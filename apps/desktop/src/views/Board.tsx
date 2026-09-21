@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, taskCategory, type AuditEvent, type PendingAction, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_LABEL, STAGE_ORDER, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type Thread } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, threadById, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -374,6 +374,7 @@ function queuedRight(t: Task): string {
   if (beDue) return `服务端 ${beDue.slice(5)}`;
   if (t.due) return dueLabel(t.due);
   if (t.progress) return t.progress.slice(0, 40);
+  if (t.stage) return `${STAGE_LABEL[t.stage]}${t.priority === "high" ? " · 高优先级" : ""}`;
   return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
 }
 
@@ -385,7 +386,8 @@ const ATTENTION_NOTE: Record<string, string> = {
 };
 
 function meta(t: Task): string {
-  return [KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
+  // 阶段排在来源前面：要写代码的活，「走到哪一步」比「哪来的」更值得先看见
+  return [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
 }
 
 /** 活跃的排前面：终端在输出 / Friday 在回 > 最近更新 */
@@ -996,6 +998,92 @@ function Gauge({ k, v, u, tone, max }: { k: string; v: number; u: string; tone: 
   );
 }
 
+/**
+ * 阶段条：五档从左到右，当前那档高亮。
+ * 点任意一档直接拨过去；往回拨会先问是「Friday 推错了」还是「确实被打回了」——
+ * 这两个的区别是学习闭环的关键，推错了要学，被打回了不能学（学了会越来越不敢推）。
+ */
+function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<unknown>) => Promise<void> }) {
+  const [back, setBack] = useState<Stage | null>(null);
+  const [note, setNote] = useState("");
+  if (!t.stage) return null;
+  const at = STAGE_ORDER.indexOf(t.stage);
+
+  const go = (to: Stage) => {
+    if (to === t.stage) return;
+    if (STAGE_ORDER.indexOf(to) < at) {
+      setBack(to);
+      setNote("");
+      return;
+    }
+    void onAct(t, () => taskStage(t.id, to));
+  };
+
+  return (
+    <div className="stage">
+      <div className="stage__row" role="group" aria-label="开发阶段">
+        {STAGE_ORDER.map((s, i) => (
+          <button
+            key={s}
+            className={`stage__step${i === at ? " is-on" : ""}${i < at ? " is-past" : ""}`}
+            aria-current={i === at ? "step" : undefined}
+            title={i === at ? `现在在「${STAGE_LABEL[s]}」` : i < at ? `拨回「${STAGE_LABEL[s]}」` : `推到「${STAGE_LABEL[s]}」`}
+            onClick={() => go(s)}
+          >
+            {STAGE_LABEL[s]}
+          </button>
+        ))}
+      </div>
+      {t.stageBy === "auto" && (
+        <span className="stage__by">Friday 推的{t.stagePrev ? ` · 原来在「${STAGE_LABEL[t.stagePrev]}」` : ""}</span>
+      )}
+
+      {/* Friday 想推进但信号不够硬，问一句。答什么都算一次经验，攒够了以后这类就不问了 */}
+      {t.stageHint && (
+        <div className="stage__hint">
+          <Icon name="alert" />
+          <span className="stage__hint-q">{t.stageHint.ask}</span>
+          <button className="b b--primary" onClick={() => void onAct(t, () => taskStageHint(t.id, true))}>
+            是，转「{STAGE_LABEL[t.stageHint.to]}」
+          </button>
+          <button className="b b--ghost" onClick={() => void onAct(t, () => taskStageHint(t.id, false))}>不是</button>
+        </div>
+      )}
+
+      {/* 往回拨：分清推错了还是被打回了。这不是走流程，是决定 Friday 学不学这一次 */}
+      {back && (
+        <div className="stage__back">
+          <span className="k">拨回「{STAGE_LABEL[back]}」是因为</span>
+          <input
+            className="stage__note"
+            placeholder="怎么回事？（选填，会记进进展和账本）"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            autoFocus
+          />
+          <div className="stage__back-acts">
+            <button
+              className="b b--ghost"
+              title="Friday 之前判错了，它会记下这次教训，下次别再这么判"
+              onClick={() => void onAct(t, () => taskStage(t.id, back, "misjudged", note.trim() || undefined)).then(() => setBack(null))}
+            >
+              {ROLLBACK_LABEL.misjudged}
+            </button>
+            <button
+              className="b b--primary"
+              title="确实被打回了，是客观事实，Friday 不会因此变保守"
+              onClick={() => void onAct(t, () => taskStage(t.id, back, "bounced", note.trim() || undefined)).then(() => setBack(null))}
+            >
+              {ROLLBACK_LABEL.bounced}
+            </button>
+            <button className="b b--text" onClick={() => setBack(null)}>算了</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
   t: Task;
   /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
@@ -1183,6 +1271,15 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
+      <StageBar t={t} onAct={onAct} />
+      {/* Meegle 那边的状态只作参考：它依赖别人及时更新，不参与 Friday 的阶段判断 */}
+      {t.source.statusKey && (
+        <div className="fx__meegle-state">
+          Meegle: {t.source.statusKey}
+          {t.source.nodeName ? ` · 节点 ${t.source.nodeName}` : ""}
+          <span className="fx__meegle-note">仅供参考，不影响上面的阶段</span>
+        </div>
+      )}
 
       {asked && (
         <div className="fx__ask">

@@ -5323,3 +5323,88 @@ body:has(.hud)::-webkit-scrollbar {
   color: var(--fg-4);
   white-space: nowrap;
 }
+
+/* 阶段条：五档从左到右，当前那档实心。只给「要写代码的活」，Slack 回消息类没有 */
+.stage {
+  margin: var(--s-3) 0 var(--s-4);
+}
+.stage__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+.stage__step {
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-4);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tr-xs);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.stage__step:hover { color: var(--fg-2); border-color: var(--line-2); }
+.stage__step:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.stage__step:active { transform: scale(0.985); }
+/* 走过的那几档留个印子，但不抢当前这档 */
+.stage__step.is-past { color: var(--fg-3); border-color: var(--line-2); }
+.stage__step.is-on {
+  background: var(--bg-4);
+  border-color: var(--line-3);
+  color: var(--fg-1);
+  font-weight: 500;
+}
+.stage__by {
+  display: inline-block;
+  margin-top: var(--s-2);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+}
+/* Friday 想推进但信号不够硬时的一问 */
+.stage__hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+}
+.stage__hint-q { flex: 1; min-width: 200px; color: var(--fg-2); font-size: var(--t-aux); }
+/* 往回拨时问原因：这不是走流程，是决定 Friday 学不学这一次 */
+.stage__back {
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+}
+.stage__note {
+  width: 100%;
+  margin: var(--s-2) 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: var(--t-aux);
+}
+.stage__note:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.stage__back-acts { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage__step:active { transform: none; }
+}
+
+/* Meegle 状态只作参考，压到最低层级——它不准，不该跟 Friday 自己的阶段抢注意力 */
+.fx__meegle-state {
+  margin: calc(-1 * var(--s-2)) 0 var(--s-3);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+.fx__meegle-note { margin-left: var(--s-2); opacity: 0.7; }

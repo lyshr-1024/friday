@@ -5,6 +5,7 @@ import { buildBrief } from "../agent/brief.js";
 import { enrichThread, slackContext } from "../agent/enrich.js";
 import { triage } from "../agent/triage.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
+import { watchStageSignals } from "../agent/stageWatch.js";
 import { sweepClosedTerminals } from "../agent/terminal.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
@@ -177,4 +178,10 @@ export function startScheduler(): void {
     setTimeout(sweepTick, TERMINAL_SWEEP_MS).unref();
   };
   setTimeout(sweepTick, 20_000).unref();
+  // 分支推没推上去：本机 git 就能看到，跟 Meegle 同一个节奏扫
+  const stageTick = async () => {
+    await watchStageSignals().catch(() => 0);
+    setTimeout(stageTick, MEEGLE_MS).unref();
+  };
+  setTimeout(stageTick, 30_000).unref();
 }

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, SettingsResponse, SettingsUpdate, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
+import type { UsageRange, UsageSummary, LearnStats, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, Task, TaskBoard, TerminalState, Thread, ThreadsResponse, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -475,6 +475,28 @@ export async function taskEdit(id: string, patch: { title?: string; understandin
 export async function taskDelete(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
+/** 把阶段拨到某一档。往回拨要说清是 Friday 推错了（misjudged，会学）还是真被打回了（bounced，不学）。 */
+export async function taskStage(id: string, stage: Stage, reason?: RollbackReason, note?: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/stage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ stage, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `stage ${res.status}`);
+  return res.json();
+}
+
+/** 回答卡片上那一问（「看起来提测了？」）。答什么都算一次经验 */
+export async function taskStageHint(id: string, yes: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/stage-hint`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ yes }),
+  });
+  if (!res.ok) throw new Error(`stage-hint ${res.status}`);
+  return res.json();
 }
 
 export async function taskVerify(id: string, index: number, checked: boolean): Promise<Task> {

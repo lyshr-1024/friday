@@ -15,6 +15,7 @@ import { getThread, markAutoDone, setThreadStatus, threadCategory } from "../mem
 import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
+import { onSignal } from "./stage.js";
 import { collectReport } from "./report.js";
 import { untrusted } from "./fence.js";
 import { worktreeDirt } from "./git.js";
@@ -104,7 +105,34 @@ export async function threadToTask(thread: Thread, brief: ThreadBrief, project?:
     })!;
   }
 
+  // 对方在 Slack 里说验收过了：这是弱信号（依赖别人发言，也可能只是随口一句），
+  // 交给 stage 那边在卡片上问一句，不直接推。找的是这条线程聊的那个工单任务，不是线程自己。
+  acceptedInSlack(thread, task);
+
   return task;
+}
+
+/** 「验收通过」这类话。只认说得很死的几种，含糊的（「看起来没问题」）不算 */
+const ACCEPTED = /(验收(通过|过了|完了|没问题)|验收ok|测试通过|测完了没问题|可以发布|可以上线)/i;
+
+/**
+ * 线程里有人说验收过了，就给它聊的那条工单任务挂一问。
+ * 不直接推——说这话的是别人，而且可能只是随口一句。
+ */
+function acceptedInSlack(thread: Thread, task: Task): void {
+  const said = thread.items.map((i) => i.text).join("\n");
+  if (!ACCEPTED.test(said)) return;
+  // 线程自己那条任务没有阶段（Slack 回消息类不走阶段），要找的是它聊的那个工单
+  const storyId = task.source.linkedStoryId;
+  if (!storyId) return;
+  const code = findTaskBySource((s) => s.meegleId === storyId);
+  if (!code?.stage) return;
+  onSignal(code.id, {
+    signal: "slack_accepted",
+    to: "accepted",
+    ask: `${thread.userName} 在 Slack 里说验收过了，这条可以转「验收完待发布」吗？`,
+    why: `${thread.userName} 在 Slack 里说验收通过`,
+  });
 }
 
 /** 交给 Claude Code 的任务描述：Friday 的指令在外，Slack 原文只作素材。 */

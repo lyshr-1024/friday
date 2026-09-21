@@ -3,7 +3,7 @@ import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
+import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, STAGE_ORDER, type ReplyCategory, type RollbackReason, type Stage, type StateTransition, type Task } from "@friday/shared";
 import { undoWrite } from "../agent/autowrite.js";
 import { reviewOnce } from "../agent/lessons.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
@@ -11,6 +11,7 @@ import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal, terminalState } from "../agent/terminal.js";
 import { setVerified } from "../agent/bridge.js";
+import { answerHint, setStage } from "../agent/stage.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
@@ -287,6 +288,27 @@ export const tasks = new Hono()
     const t = updateTask(c.req.param("id"), { pinned: parsed.data.pinned });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  // 阶段：想拨哪拨哪，不限方向——测试打回、上线回滚都是常事。
+  // 往回拨要说清是「Friday 推错了」还是「确实被打回了」，只有前者进学习。
+  .post("/tasks/:id/stage", async (c) => {
+    const parsed = z
+      .object({
+        stage: z.enum(STAGE_ORDER as [Stage, ...Stage[]]),
+        reason: z.enum(["misjudged", "bounced"]).optional(),
+        note: z.string().max(500).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "stage 必填，且得是五个阶段之一" }, 400);
+    const t = setStage(c.req.param("id"), parsed.data.stage, parsed.data.reason as RollbackReason | undefined, parsed.data.note);
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
+  // 回答卡片上那一问（「看起来提测了？」）。答什么都算一次经验
+  .post("/tasks/:id/stage-hint", async (c) => {
+    const parsed = z.object({ yes: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "yes 必填" }, 400);
+    const t = answerHint(c.req.param("id"), parsed.data.yes);
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
   .get("/tasks/:id/transitions", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
@@ -398,6 +420,16 @@ export const tasks = new Hono()
           });
         }
       }
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "stage_set") {
+      // 撤回一次阶段变更：拨回它变更前停的那一档。
+      // 从 released 撤回时任务要回板上，交给 setStage 的回滚分支处理。
+      const cur = getTask(plan.taskId);
+      if (!cur) return c.json({ error: "任务已不在" }, 409);
+      if (plan.stage) setStage(plan.taskId, plan.stage as Stage, "misjudged", "你撤回了这次阶段变更");
+      else updateTask(plan.taskId, { stage: undefined, stageBy: undefined, stagePrev: undefined });
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

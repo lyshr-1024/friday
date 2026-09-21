@@ -26,6 +26,7 @@ export type Undo =
   | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
   | { kind: "restore_memory"; snapshot: { handbooks: Record<string, string>; decisions: string; people: string; projects: string } }
   | { kind: "restore_task"; row: Record<string, string | number | null> }
+  | { kind: "stage_set"; taskId: string; stage: string | null }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

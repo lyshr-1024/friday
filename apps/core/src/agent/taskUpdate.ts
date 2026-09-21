@@ -1,4 +1,5 @@
-import type { Task, TaskStatus } from "@friday/shared";
+import type { RollbackReason, Stage, Task, TaskStatus } from "@friday/shared";
+import { STAGE_LABEL } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { lessonFromTask } from "./lessons.js";
 import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
@@ -7,6 +8,7 @@ import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { closeTaskThread } from "./pipeline.js";
+import { setStage } from "./stage.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -22,6 +24,10 @@ export interface TaskPatch {
   verify?: string[];
   /** 用户回答「这条是哪个项目的」：归属写到任务上，线索沉淀进 projects.md */
   project?: string;
+  /** 用户在会话里说到哪一步了（「提测了」「验收过了」「上线了」）。往回拨也走这儿 */
+  stage?: Stage;
+  /** 往回拨时说清是 Friday 推错了还是真被打回了：只有前者进学习 */
+  stageReason?: RollbackReason;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "Friday 在做", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -130,6 +136,15 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
       closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done");
       const t = task;
       void import("./pipeline.js").then((m) => m.cleanupTaskWorktree(t, "用户在会话里说这条任务收工了")).catch(() => {});
+    }
+  }
+
+  // 阶段：用户在会话里说的话是最硬的信号，直接落。setStage 自己记账和判方向
+  if (patch.stage && patch.stage !== task.stage) {
+    const moved = setStage(taskId, patch.stage, patch.stageReason, why);
+    if (moved) {
+      task = moved;
+      changed.push(`阶段 → ${STAGE_LABEL[patch.stage]}`);
     }
   }
 
