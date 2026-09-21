@@ -5,6 +5,7 @@ import { startQueryJob } from "../agent/slack/queryJob.js";
 import { settleQueryTasks } from "../agent/slack/settle.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { watchStageSignals } from "../agent/stageWatch.js";
+import { onSlackAccepted } from "../agent/stage.js";
 import { sweepClosedTerminals } from "../agent/terminal.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
@@ -109,7 +110,9 @@ export async function syncSlackOnce(): Promise<number> {
 
     for (const item of added) {
       try {
-        await attachOnce(item, await priorLines(call, item));
+        const hit = await attachOnce(item, await priorLines(call, item));
+        // 挂上了才看这条消息说没说「验收过了」：要推的是它挂靠的那条任务
+        if (hit) onSlackAccepted(hit.taskId, item.text, item.userName);
       } catch (e) {
         console.error(`[slack] ${item.id} 挂靠失败：${e instanceof Error ? e.message : String(e)}`);
       }

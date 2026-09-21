@@ -137,3 +137,26 @@ function lastSignal(taskId: string): string | undefined {
   const e = listAudit({ taskId, limit: 20 }).find((x) => x.action === "stage_advance" && x.evidence.by === "auto");
   return typeof e?.evidence.signal === "string" ? e.evidence.signal : undefined;
 }
+
+/**
+ * 「验收通过」这类话。只认说得很死的几种——
+ * 含糊的（「看起来没问题」「应该可以」）不算，它是弱信号，宁可漏判不要误判。
+ */
+const ACCEPTED = /(验收(通过|过了|完了|没问题|ok)|测试通过|测完了没问题|可以发布|可以上线|没问题了?可以发)/i;
+
+export const saysAccepted = (text: string): boolean => ACCEPTED.test(text);
+
+/**
+ * Slack 里有人说验收过了，就给这条消息挂靠到的任务提一问。
+ * 不直接推：说这话的是别人，也可能只是随口一句。
+ * 比旧版可靠——挂靠是新链路算出来的真任务，不再依赖消息里贴没贴工单链接。
+ */
+export function onSlackAccepted(taskId: string, text: string, userName: string): StageOutcome {
+  if (!saysAccepted(text)) return { kind: "skipped", why: "没说验收过" };
+  return onSignal(taskId, {
+    signal: "slack_accepted",
+    to: "accepted",
+    ask: `${userName} 在 Slack 里说验收过了，这条可以转「验收完待发布」吗？`,
+    why: `${userName} 在 Slack 里说验收通过`,
+  });
+}

@@ -7,14 +7,11 @@ import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, setti
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
-export type BoardView = "queue" | "doing" | "all" | "ledger";
+export type BoardView = "queue" | "all" | "ledger";
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
-const DECIDE: TaskStatus[] = ["review", "blocked"];
-const DOING: TaskStatus[] = ["processing"];
-const QUEUED: TaskStatus[] = ["understood", "collected"];
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 
@@ -373,21 +370,13 @@ function byActivity(active: (t: Task) => boolean) {
   return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
 }
 
-function sortDecide(a: Task, b: Task): number {
-  const pa = a.pending?.length ? 0 : 1;
-  const pb = b.pending?.length ? 0 : 1;
-  if (pa !== pb) return pa - pb;
-  return b.updatedAt.localeCompare(a.updatedAt);
-}
-
-export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange, runningConvs }: {
+export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningConvs }: {
   view: BoardView;
   /** 顶栏那一行视图切换，由 Chat 给——它知道当前是哪个视图 */
   nav?: React.ReactNode;
   tools: React.ReactNode;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
   runningConvs?: Set<string>;
-  onCounts?: (c: { decide: number; doing: number }) => void;
   /** 待办四组各有几条，左栏锚点用 */
   onQueueCounts?: (c: Record<TaskCategory, number>) => void;
   onFocusChange?: (t: Task | null) => void;
@@ -440,11 +429,6 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
       });
       setErr("");
       failures.current = 0;
-      // 侧栏「Friday 在做」的数字要和页面上那个分组一致：只算 processing，待办另有分组
-      // 在等你回答的（终端问的 / Friday 问的）不管什么状态都算进「待我决定」，和列表分组保持一致；
-      // review / blocked 已经在 counts 里，别重复计一遍
-      const waiting = b.tasks.filter((t) => (t.attention === "question" || t.attention === "intake") && t.status !== "review" && t.status !== "blocked").length;
-      onCounts?.({ decide: b.counts.review + b.counts.blocked + waiting, doing: b.counts.processing });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       failures.current++;
@@ -588,20 +572,12 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   // 星标的单独一组放最顶上，其余分组里不再出现
   const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
-  const asking = (t: Task) => t.attention === "question" || t.attention === "intake";
   // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
   // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
   const storyIds = new Set(
     tasks.flatMap((t) => [...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]),
   );
   const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
-  // 有人在等你回答（终端问的，或 Friday 自己问的）= 阻塞，不管状态都进「待我决定」并排最前
-  const decide = rest.filter((t) => (DECIDE.includes(t.status) || asking(t)) && !nested(t)).sort((a, b) => Number(asking(b)) - Number(asking(a)) || sortDecide(a, b));
-  // 在做的分两组，不能混：「Friday 在做」是全权代理（claude -p，无人值守，
-  // 跑完自己进 review），「我在做」是我点「开始做」自己在终端里干的活。
-  // 两者的下一步完全不同——前者等它交付，后者等我自己收工。
-  const doing = rest.filter((t) => DOING.includes(t.status) && t.source.autonomous && !asking(t) && !nested(t)).sort(byActivity(active));
-  const mine = rest.filter((t) => DOING.includes(t.status) && !t.source.autonomous && !asking(t) && !nested(t)).sort(byActivity(active));
   /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
   const nestedCount = (t: Task) => {
     const mine = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
@@ -613,7 +589,15 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
   const liveIds = new Set(tasks.filter((t) => t.status !== "done" && t.status !== "ignored").map((t) => t.id));
   const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
   const derivedCount = (t: Task) => tasks.filter((x) => x.source.fromTaskId === t.id && x.status !== "done" && x.status !== "ignored").length;
-  const queued = rest.filter((t) => QUEUED.includes(t.status) && !nested(t) && !derived(t)).sort(byTier);
+  // 列表只按五个开发阶段分组。「要不要你拍板」不再单独列一组——终端在问什么、
+  // 卡在哪，自己开终端看；列表管的是这些活各自走到哪一步。
+  const onBoard = rest.filter((t) => t.status !== "done" && t.status !== "ignored" && !nested(t) && !derived(t));
+  const byStage = (st: Stage) => onBoard.filter((t) => t.stage === st).sort(byActivity(active));
+  // 没有阶段的（Slack 回消息这类）单独兜底一组，否则它们会从列表里消失
+  const noStage = onBoard.filter((t) => !t.stage).sort(byActivity(active));
+  // 按来源计数给外面用（Slack / 缺陷 / 需求 / 其他）。这里必须复制一份再排，
+  // sort 是原地改——直接排 onBoard 会把上面按阶段分好的顺序搅乱
+  const queued = [...onBoard].sort(byTier);
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
@@ -628,11 +612,9 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
       view === "all"
         ? ALL_ORDER.map((st) => ({ label: STATUS[st], items: tasks.filter((t) => t.status === st) }))
         : [
-            { label: "待我决定", items: decide },
-            { label: "关注", items: pinned.filter((t) => !DECIDE.includes(t.status)) },
-            { label: "我在做", items: mine },
-            { label: "Friday 在做", items: doing },
-            { label: "待办", items: queued },
+            { label: "关注", items: pinned },
+            ...STAGE_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: byStage(st) })),
+            { label: "没有阶段", items: noStage },
           ];
     const k = q.trim().toLowerCase();
     const hit = (t: Task) =>
@@ -641,7 +623,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(k));
     return raw.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length);
-  }, [tasks, decide, pinned, mine, doing, queued, view, q]);
+  }, [tasks, pinned, onBoard, view, q]);
   const flat = useMemo(() => anchorGroups.flatMap((g) => g.items), [anchorGroups]);
   // 处理完一条自动跳到相邻那条，顺序就是轮播的顺序
   orderRef.current = flat.map((t) => t.id);
@@ -700,10 +682,9 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [ids, focus?.id]);
-  const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "待我决定";
-  const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : decide.length;
+  const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "任务";
+  const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : onBoard.length;
   const liveTerminals = tasks.filter((t) => t.terminal === "busy" || (t.status === "processing" && t.source.jobId)).length;
-  const blockedCount = tasks.filter((t) => t.status === "blocked" || t.attention === "blocked" || t.attention === "question").length;
 
   // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
   /** 一组里的行：同一个需求下的缺陷先收成一包，剩下的照常一条一行 */
@@ -724,12 +705,12 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
       </header>
       {board && view !== "ledger" && (
         <div className="gauges">
-          <Gauge k="AWAITING YOU" v={decide.length} u="TASKS" tone={decide.length ? "warn" : ""} max={8} />
+          {/* 读数条跟列表同一套口径：五个阶段各多少件，外加终端在跑几个 */}
           <Gauge k="TERMINALS" v={liveTerminals} u="ACTIVE" tone={liveTerminals ? "hot" : ""} max={4} />
-          <Gauge k="BLOCKED" v={blockedCount} u="TASK" tone={blockedCount ? "bad" : ""} max={4} />
-          {/* 在做的两组加一起：读数条只报总量，谁在做由页面上那两个分组说清 */}
-          <Gauge k="IN PROGRESS" v={doing.length + mine.length} u="ITEMS" tone="" max={8} />
-          <Gauge k="QUEUED" v={queued.length} u="ITEMS" tone="" max={20} />
+          <Gauge k="没开始" v={byStage("todo").length} u="ITEMS" tone="" max={20} />
+          <Gauge k="开始了" v={byStage("dev").length} u="ITEMS" tone={byStage("dev").length ? "hot" : ""} max={8} />
+          <Gauge k="测试中" v={byStage("testing").length} u="ITEMS" tone="" max={8} />
+          <Gauge k="待发布" v={byStage("accepted").length} u="ITEMS" tone={byStage("accepted").length ? "warn" : ""} max={8} />
         </div>
       )}
       {view === "ledger" ? (

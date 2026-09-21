@@ -3,7 +3,7 @@ import { initMemory } from "../memory/db.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { signalScore } from "../memory/stageSignals.js";
-import { PROMOTE_AFTER, answerHint, isAdvance, onSignal, setStage } from "./stage.js";
+import { PROMOTE_AFTER, answerHint, isAdvance, onSignal, onSlackAccepted, saysAccepted, setStage } from "./stage.js";
 
 const mk = (stage: "todo" | "dev" | "testing" | "accepted" | "released" = "todo") => {
   const t = createTask({ title: `活 ${Math.random()}`, kind: "meegle", source: { meegleId: String(Math.random()) }, project: "demo" });
@@ -110,6 +110,36 @@ describe("任务阶段", () => {
     const back = getTask(t.id)!;
     expect(back.status).not.toBe("done");
     expect(back.releasedAt).toBeUndefined();
+  });
+
+  it("认得出说死了的验收，含糊的不认", () => {
+    expect(saysAccepted("这个验收通过了")).toBe(true);
+    expect(saysAccepted("验收过了，可以发")).toBe(true);
+    expect(saysAccepted("测试通过")).toBe(true);
+    expect(saysAccepted("可以上线")).toBe(true);
+    // 含糊的不能算——误判会把没验收的活推到「待发布」
+    expect(saysAccepted("看起来没问题")).toBe(false);
+    expect(saysAccepted("应该可以吧")).toBe(false);
+    expect(saysAccepted("我再看看")).toBe(false);
+    expect(saysAccepted("验收不通过")).toBe(false);
+  });
+
+  it("Slack 说验收过了：挂一问，不直接推", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = mk("testing");
+    const r = onSlackAccepted(t.id, "这个我验收过了，可以发", "拂晓");
+    expect(r.kind).toBe("asked");
+    const after = getTask(t.id)!;
+    expect(after.stage).toBe("testing");
+    expect(after.stageHint?.to).toBe("accepted");
+    expect(after.stageHint?.ask).toContain("拂晓");
+  });
+
+  it("Slack 里没说验收的话不动它", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = mk("testing");
+    expect(onSlackAccepted(t.id, "这个什么时候能好", "拂晓").kind).toBe("skipped");
+    expect(getTask(t.id)!.stageHint).toBeUndefined();
   });
 
   it("答「不是」只清掉那一问，阶段不动", () => {
