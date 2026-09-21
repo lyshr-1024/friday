@@ -20,9 +20,14 @@ export interface Candidate {
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const SLACK_SUFFIX = /\s*-\s*[^-]*-\s*Slack\s*$/;
 
+// 中文界面的标题不带 # 而是跟一个「（频道）」后缀（team-fe-bo（频道） - Longbridge - Slack），
+// 只按 # 开头判断会把整个频道当成人名，场景上下文全空，模型只能拿全局材料硬凑。
+const CHANNEL_TAG = /\s*[（(](?:频道|channel)[）)]\s*$/i;
+
 export function parseSlackTitle(title: string): { channel?: string; person?: string } {
   const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+(?:\s+new items?)?\)\s*/i, "").trim();
   if (!head) return {};
+  if (CHANNEL_TAG.test(head)) return { channel: head.replace(CHANNEL_TAG, "").trim() };
   return head.startsWith("#") ? { channel: head } : { person: head };
 }
 

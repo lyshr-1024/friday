@@ -38,6 +38,14 @@ describe("HUD 在 Slack 前台", () => {
     expect(slackScene(undefined, "查无此人")).toBeUndefined();
   });
 
+  // 库里的频道名带 #（同步时那么存的），窗口标题里不带——只剥一边等于永远对不上
+  it("库里带 # 的频道名也能对上不带 # 的标题", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    addInboxItems([{ id: "H5:1", kind: "mention", channelId: "H5", channelName: "#proj-推荐feed页迭代", userId: "U5", userName: "佳成", text: "这个下周能出吗", permalink: "p", ts: "500" }]);
+    expect(slackScene("proj-推荐feed页迭代", undefined)?.conv).toBe("H5:500");
+    expect(slackScene("#proj-推荐feed页迭代", undefined)?.conv).toBe("H5:500");
+  });
+
   // Slack 显示名普遍是「中文名 (English Name)」，而窗口标题带未读数时只剩中文名，
   // 严格相等会永远匹配不上——真机上就是这么漏的
   it("显示名带英文后缀也能对上", () => {

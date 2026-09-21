@@ -41,6 +41,14 @@ describe("parseSlackTitle", () => {
     expect(parseSlackTitle("拂晓 - Longbridge - Slack")).toEqual({ person: "拂晓" });
   });
 
+  // 中文界面的真实标题：不带 #，跟一个全角「（频道）」后缀。按 # 判断会把它当成人名
+  it("中文界面的频道标题（不带 # 带「（频道）」后缀）", () => {
+    expect(parseSlackTitle("team-fe-bo（频道） - Longbridge - Slack")).toEqual({ channel: "team-fe-bo" });
+    expect(parseSlackTitle("proj-推荐feed页迭代与实验多组分流能力（频道） - Longbridge - Slack")).toEqual({
+      channel: "proj-推荐feed页迭代与实验多组分流能力",
+    });
+  });
+
   it("私聊未读徽标是纯数字也取人名", () => {
     expect(parseSlackTitle("拂晓 (2) - Longbridge - Slack")).toEqual({ person: "拂晓" });
   });
