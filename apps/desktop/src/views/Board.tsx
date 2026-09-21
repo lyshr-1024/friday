@@ -86,6 +86,9 @@ function dueLabel(iso: string): string {
 
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
+// 交付报告和验收点是 Friday 自己跑完一轮后写的，只有它自己派出去的任务才有可验之物。
+// Meegle 同步来的需求状态在多方节点上流转，本机勾不出结论。
+const selfRun = (t: Task) => t.source.autonomous === true;
 const DOC_LABELS: Array<[keyof NonNullable<Task["source"]["docs"]>, string]> = [["req", "需求文档"], ["tech", "技术文档"], ["design", "设计稿"], ["meegle", "Meegle"]];
 
 function OpenLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -333,7 +336,7 @@ function anchorSub(t: Task, nested = 0, derived = 0): string {
 function factRight(t: Task): string {
   const bits: string[] = [];
   if (t.pending?.length) bits.push(`${t.pending.length} 个动作等你点头`);
-  if (t.report?.verify.length) bits.push(`${t.report.verify.length} 个验收点`);
+  if (selfRun(t) && t.report?.verify.length) bits.push(`${t.report.verify.length} 个验收点`);
   const { feDue, beDue } = t.source;
   const due = feDue ?? beDue ?? t.due;
   if (due) bits.push(dueLabel(due.length === 10 ? `${due}T00:00:00` : due));
@@ -1007,7 +1010,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
-  const r = t.report;
+  // 非自主任务的 report 不往卡上放：那几条验收点本机确认不了，摊在这儿只会逼你勾一个假结论
+  const r = selfRun(t) ? t.report : undefined;
   // 勾选状态存在任务上；本地先变，后端推送回来再对齐
   const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
   useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
