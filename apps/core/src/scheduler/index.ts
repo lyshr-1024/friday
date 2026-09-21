@@ -129,9 +129,9 @@ export async function syncSlackOnce(): Promise<number> {
           console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
         }
       });
-      if (needReply.length && isActive()) {
-        state.notices.push({ title: `Slack ${needReply.length} 个人等你回`, body: needReply.slice(0, 3).join("\n") });
-      }
+      // Slack 这块正在重做，先不弹通知——判得准不准还没定论，弹出来只是打扰。
+      // 重做完按新设计接回来。
+      void needReply;
     }
     state.lastSyncAt = new Date().toISOString();
     state.lastError = null;
