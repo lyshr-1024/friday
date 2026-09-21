@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { Icon } from "./Icon";
 
@@ -1300,6 +1300,12 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
               <div className="fx__conv-meta">
                 <span className="fx__conv-who">{c.userName}</span>
                 <span className="fx__conv-where mono">{c.channelName || "私聊"}</span>
+                {/* 按需求建的群：频道名约等于需求名，整个挂过去，后面的消息不用再逐条判 */}
+                {c.kind === "mention" && c.channelName && (
+                  c.channelLinked
+                    ? <button className="fx__conv-chan is-on" title="点掉就不再把这个频道归到本条需求" onClick={() => void onAct(t, () => unlinkChannel(c.channelName, t.id))}>频道已对应本需求</button>
+                    : <button className="fx__conv-chan" onClick={() => void onAct(t, () => linkChannel(c.channelName, t.id))}>把 #{c.channelName.replace(/^#/, "")} 都归到这条</button>
+                )}
                 {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
                 {c.source === "guess" && <span className="k k--guess" title={c.why}>Friday 推断</span>}
                 <button className="fx__conv-drop" onClick={() => void onAct(t, () => detachConversation(c.conv, t.id))}>不是这条</button>

@@ -527,6 +527,10 @@ export interface Task {
 export interface SlackConversation {
   conv: string;
   channelName: string;
+  /** mention 才是频道，dm 是私聊——只有频道能整个挂到需求上 */
+  kind: InboxKind;
+  /** 这个频道是不是已经整个挂到本条需求上了 */
+  channelLinked: boolean;
   userName: string;
   items: Array<{ ts: string; text: string; permalink: string; appLink?: string }>;
   prior: string[];
