@@ -4975,8 +4975,10 @@ body:has(.hud)::-webkit-scrollbar {
   /* 开着但没在敲：整圈常亮不动。跟「在敲」同一圈形状，差别只在动不动——
      余光先认出「整圈亮着 = 有窗口」，再看动不动分辨它在干活还是在等你。 */
   background: var(--live);
-  opacity: 0.5;
-  filter: drop-shadow(0 0 4px var(--live-dim));
+  /* 0.85 而不是更低：量过一次，0.5 对近黑底只有 3.84:1，1px 的线上等于看不见。
+     和「在敲」的区别本来就该落在动不动上，不是靠把它压暗。 */
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px var(--live-dim));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);

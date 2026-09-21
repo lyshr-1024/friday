@@ -101,20 +101,6 @@ function greeting(): string {
   return "晚上好";
 }
 
-function needs(t: Task): string {
-  if (t.attention === "question") return `马上回：${(t.progress ?? "终端在问你").replace(/^终端在问：/, "")}`;
-  if (t.attention === "intake") return `回答一下：${t.progress ?? "Friday 有个问题要问你"}`;
-  const first = t.pending?.[0];
-  if (first) return `需要你：${first.label}`;
-  // 只有验收列表（Friday 在会话里写的）不算交付报告，别让左栏说「看交付报告」却没有报告
-  if (t.report?.summary?.trim()) return "需要你：看交付报告";
-  if (t.report?.verify.length) return `需要你：确认 ${t.report.verify.length} 个验收点`;
-  if (t.plan) return "需要你：定方案";
-  if (t.status === "review") return "需要你：过一眼";
-  if (t.status === "blocked") return "需要你：介入";
-  return "";
-}
-
 function dueLabel(iso: string): string {
   const days = Math.round((new Date(iso).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
   if (days < 0) return `逾期 ${-days} 天`;
@@ -308,15 +294,27 @@ function byTier(a: Task, b: Task): number {
 }
 
 /**
- * 锚点上那行小字：按任务此刻的状态挑最要紧的一句。
- * 名下还挂着缺陷或待办时先说那个——那是它现在最要紧的信息。
+ * 锚点上那行小字：只说客观事实——数得出来的（几条缺陷、几个验收点）、
+ * 日期算出来的（逾期几天）、别处已经写好的（工单优先级）。
+ * 不放 Friday 自己的判断（「这轮做完了」「等你看」「卡住了」这类）：
+ * 那是它的结论不是事实，真要看结论展开卡片自己读。
  */
 function anchorSub(t: Task, nested = 0, derived = 0): string {
   const kids = nested > 0 ? `${nested} 条缺陷要改` : derived > 0 ? `${derived} 条待办要跟进` : "";
-  if (DECIDE.includes(t.status)) return kids ? `${needs(t)} · ${kids}` : needs(t);
-  if (t.status === "processing") return kids ? `${doingRight(t)} · ${kids}` : doingRight(t);
   if (t.status === "done" || t.status === "ignored") return fmtTime(t.updatedAt);
-  return kids || queuedRight(t);
+  const fact = factRight(t);
+  return [kids, fact].filter(Boolean).join(" · ") || queuedRight(t);
+}
+
+/** 数得出来、算得出来的那些；一条都没有就返回空，交给 queuedRight 兜底 */
+function factRight(t: Task): string {
+  const bits: string[] = [];
+  if (t.pending?.length) bits.push(`${t.pending.length} 个动作等你点头`);
+  if (t.report?.verify.length) bits.push(`${t.report.verify.length} 个验收点`);
+  const { feDue, beDue } = t.source;
+  const due = feDue ?? beDue ?? t.due;
+  if (due) bits.push(dueLabel(due.length === 10 ? `${due}T00:00:00` : due));
+  return bits.join(" · ");
 }
 
 function queuedRight(t: Task): string {
@@ -329,23 +327,6 @@ function queuedRight(t: Task): string {
   if (t.due) return dueLabel(t.due);
   if (t.progress) return t.progress.slice(0, 40);
   return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
-}
-
-/** 「Friday 在做」右侧：先说终端的真实状态，再带一句进展 */
-function doingRight(t: Task): string {
-  const p = t.progress?.slice(0, 40);
-  if (t.attention === "question") return `马上回：${(t.progress ?? "").replace(/^终端在问：/, "")}`;
-  if (t.attention === "intake") return `回答一下：${t.progress ?? ""}`;
-  if (t.attention === "review") return `这轮做完了 · 等你看${t.report ? `：${t.report.summary.slice(0, 30)}` : ""}`;
-  if (t.attention === "blocked") return p ?? "卡住了，需要你";
-  switch (t.terminal) {
-    case "gone":
-      return p ?? "终端已关掉";
-    case "idle":
-      return p ? `等你指示 · ${p}` : "等你指示";
-    default:
-      return p ?? STATUS[t.status];
-  }
 }
 
 const ATTENTION_NOTE: Record<string, string> = {
