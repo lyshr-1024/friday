@@ -663,6 +663,8 @@ export interface SummonRules {
   actions: SummonAction[];
   /** 这次会不会调模型，前端据此决定要不要显示「正在判断」 */
   willThink: boolean;
+  /** 当前场景的文字描述，HUD 里说的话转给终端时一并带上 */
+  scene?: string;
 }
 
 /** 模型层的产出 */
@@ -672,6 +674,20 @@ export interface SummonCard {
   actions: SummonAction[];
   matchTaskId?: string;
 }
+
+/** HUD 里说的话去了哪：转给终端 / 重开终端后转达 / 新开终端 / 落回通用对话 */
+export interface SummonRelayResult {
+  kind: "said" | "opened" | "started" | "asked";
+  message: string;
+  taskId?: string;
+  jobId?: string;
+}
+
+export type SummonRelayEvent =
+  | { type: "delta"; text: string }
+  | { type: "reset" }
+  | { type: "result"; result: SummonRelayResult }
+  | { type: "done" };
 
 export type SummonEvent =
   | { type: "rules"; rules: SummonRules }

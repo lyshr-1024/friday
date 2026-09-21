@@ -70,11 +70,11 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
   const slack = snapshot.app.bundleId === SLACK_BUNDLE ? await slackScene(channel, person) : undefined;
   const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}) };
-  const rules = buildRules(input);
+  const scene = sceneContext(snapshot, projects, slack);
+  const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
 
   try {
-    const scene = sceneContext(snapshot, projects, slack);
     const card = await summonCard({
       snapshot,
       rules,

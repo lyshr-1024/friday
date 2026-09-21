@@ -3,7 +3,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
-import { ask as askCore, attachConversation, coreBaseUrl, taskBoard } from "../lib/core";
+import { attachConversation, coreBaseUrl, summonRelay, taskBoard } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
 
@@ -204,23 +204,33 @@ export function Hud() {
     askAbortRef.current = ctrl;
     setAsking(true);
     setAnswer("");
+    setNote(null);
     setAsk("");
-    // 带上此刻的环境，否则 Friday 不知道「这个」「这条」指的是什么
-    const ctx = [
+    // 带上此刻的环境，否则不管落到终端还是通用对话都不知道「这个」「这条」指的是什么
+    const scene = [
+      rules?.scene ?? "",
       snapshot ? `我此刻在 ${snapshot.app.name}${snapshot.app.title ? `（${snapshot.app.title}）` : ""}` : "",
       snapshot?.browser?.url ? `网址 ${snapshot.browser.url}` : "",
       snapshot?.selection ? `选中的文字：${snapshot.selection.slice(0, 2000)}` : "",
-      rules?.match ? `相关任务：${rules.match.title}` : "",
+      card?.verdict ? `Friday 的判断：${card.verdict}` : "",
     ]
       .filter(Boolean)
       .join("\n");
     try {
-      for await (const ev of askCore({ prompt: ctx ? `${ctx}\n\n${text}` : text }, ctrl.signal)) {
+      for await (const ev of summonRelay(
+        { text, ...(rules?.match ? { taskId: rules.match.taskId } : {}), ...(scene ? { scene } : {}) },
+        ctrl.signal,
+      )) {
         if (ctrl.signal.aborted) return;
         if (ev.type === "delta") setAnswer((v) => v + ev.text);
-        if (ev.type === "reset") setAnswer("");
-        if (ev.type === "error") setAnswer(ev.message);
+        else if (ev.type === "reset") setAnswer("");
+        else if (ev.type === "result" && ev.result.kind !== "asked") {
+          setNote({ text: ev.result.message, err: false });
+          setTimeout(() => void invoke("hide_hud"), 1500);
+        }
       }
+    } catch (e) {
+      if (!ctrl.signal.aborted) setNote({ text: e instanceof Error ? e.message : "转达失败", err: true });
     } finally {
       if (!ctrl.signal.aborted) setAsking(false);
     }
@@ -361,7 +371,7 @@ export function Hud() {
             ref={inputRef}
             className="hud__ask-input"
             rows={1}
-            placeholder={asking ? "Friday 在想…" : "跟 Friday 说点什么"}
+            placeholder={asking ? "Friday 在想…" : rules?.match ? "让终端做点什么" : "跟 Friday 说点什么"}
             value={ask}
             disabled={asking}
             onChange={(e) => setAsk(e.target.value)}
