@@ -311,11 +311,6 @@ function byTier(a: Task, b: Task): number {
  * 锚点上那行小字：按任务此刻的状态挑最要紧的一句。
  * 名下还挂着缺陷或待办时先说那个——那是它现在最要紧的信息。
  */
-/** 这条任务名下还有个活着的终端窗口——别再给它开第二个 */
-function hasLiveTerm(t: Task): boolean {
-  return Boolean(t.source.jobId) && t.status === "processing" && t.terminal !== "gone";
-}
-
 function anchorSub(t: Task, nested = 0, derived = 0): string {
   const kids = nested > 0 ? `${nested} 条缺陷要改` : derived > 0 ? `${derived} 条待办要跟进` : "";
   if (DECIDE.includes(t.status)) return kids ? `${needs(t)} · ${kids}` : needs(t);
@@ -795,17 +790,7 @@ export function Board({ view, nav, tools, onCounts, onQueueCounts, onFocusChange
                       >
                         <span className={`dot dot--${t.attention ?? t.status}`} />
                         <span className="an__main">
-                          <span className="an__t">
-                            <span className="an__t-text">{t.title}</span>
-                            {hasLiveTerm(t) && (
-                              <i
-                                className={`an__term${t.terminal === "busy" ? " an__term--busy" : ""}`}
-                                title={t.terminal === "busy" ? "终端正在跑，别再开一个" : "终端开着，在等你"}
-                              >
-                                <Icon name="terminal" />
-                              </i>
-                            )}
-                          </span>
+                          <span className="an__t">{t.title}</span>
                           <span className="an__sub">{anchorSub(t, nestedCount(t), derivedCount(t))}</span>
                         </span>
                       </div>
