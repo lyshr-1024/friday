@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -58,6 +58,39 @@ export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerato
     signal,
   });
   yield* readSse(res);
+}
+
+/**
+ * HUD 里说的话：先试着转给这条需求的终端，转不过去才落回通用对话（那一条是流式的）。
+ */
+export async function* summonRelay(
+  body: { text: string; taskId?: string; scene?: string },
+  signal: AbortSignal,
+): AsyncGenerator<SummonRelayEvent> {
+  const res = await fetch(`${await coreBaseUrl()}/summon/relay`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const err = ((await res.json().catch(() => null)) as { error?: string } | null)?.error;
+    throw new Error(err ?? `core 返回 ${res.status}`);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const data = frame.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
+      if (data) yield JSON.parse(data) as SummonRelayEvent;
+    }
+  }
 }
 
 /** 重新订阅某个会话进行中的生成（切回会话时用），会先回放已生成的部分。 */
