@@ -11,6 +11,9 @@ export const summonApi = new Hono()
   .post("/summon", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { snapshot?: Snapshot };
     if (!body.snapshot?.app) return c.json({ error: "缺 snapshot" }, 400);
+    // 判断不对时第一个要问的是「它到底看到了什么」：标题空多半是辅助功能权限没给
+    const a = body.snapshot.app;
+    console.log(`[summon] ${a.name} 标题=${JSON.stringify(a.title)} 权限(辅助/自动化/录屏)=${[body.snapshot.permissions.accessibility, body.snapshot.permissions.automation, body.snapshot.permissions.screen].map((x) => (x ? "√" : "×")).join("")}`);
     return streamSSE(c, async (stream) => {
       for await (const ev of summon(body.snapshot!)) await stream.writeSSE({ data: JSON.stringify(ev) });
     });

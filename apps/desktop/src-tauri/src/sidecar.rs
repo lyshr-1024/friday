@@ -129,10 +129,22 @@ fn spawn(node: &PathBuf, core_dir: &PathBuf, path: &str, port: u16) -> std::io::
     }
     cmd.current_dir(core_dir).env("PATH", path).env("FRIDAY_PORT", port.to_string());
     cmd.env("FRIDAY_DATA_DIR", crate::settings::data_dir());
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
+    // 从 Finder 启动时没有终端，inherit 等于把日志丢掉——出了问题只能靠猜。落一份文件。
+    let log_dir = std::path::Path::new(&crate::settings::data_dir()).join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join("core.log");
+    // 每次启动前超过 5MB 就清掉，免得跑几个月变成几百兆
+    if std::fs::metadata(&log_path).map(|m| m.len() > 5 * 1024 * 1024).unwrap_or(false) {
+        let _ = std::fs::remove_file(&log_path);
+    }
+    let (out, err) = match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(f) => match f.try_clone() {
+            Ok(f2) => (Stdio::from(f), Stdio::from(f2)),
+            Err(_) => (Stdio::inherit(), Stdio::inherit()),
+        },
+        Err(_) => (Stdio::inherit(), Stdio::inherit()),
+    };
+    cmd.stdin(Stdio::null()).stdout(out).stderr(err).spawn()
 }
 
 pub fn health_ok(port: u16) -> bool {
