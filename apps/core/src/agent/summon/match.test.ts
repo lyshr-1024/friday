@@ -115,6 +115,21 @@ describe("candidates", () => {
     expect(got).toEqual([]);
   });
 
+  // 真机踩过：开着 whale-console 的调试页按热键，URL 不是工单页于是一个候选都没有，
+  // HUD 只好另起一个终端——而那个项目明明正有终端在跑
+  it("开着某个项目的页面，该项目在办的任务就是候选，终端在跑的排最前", () => {
+    const withUrl: Project[] = [{ ...projects[0]!, urls: ["console.longbridge.xyz/x"] }, projects[1]!];
+    const running = task({ id: "t-run", title: "后台项目的反馈问题处理", status: "processing", source: { jobId: "j1" } });
+    const idle = task({ id: "t-idle", title: "别的活", status: "understood", source: {} });
+    const got = candidates({
+      snapshot: snap({ browser: { url: "https://console.longbridge.xyz/x/wbo/funds", title: "加密货币" } }),
+      tasks: [idle, running],
+      projects: withUrl,
+    });
+    expect(got.map((c) => c.task.id)).toEqual(["t-run", "t-idle"]);
+    expect(got[0]!.why).toContain("正在终端里跑");
+  });
+
   it("什么都对不上返回空", () => {
     const got = candidates({ snapshot: snap(), tasks: [task()], projects });
     expect(got).toEqual([]);
