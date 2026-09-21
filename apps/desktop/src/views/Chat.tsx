@@ -27,9 +27,8 @@ type View = BoardView | "hot" | "history" | "ask";
 
 const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "ask", label: "问 Friday", kbd: "⌘N" },
-  { key: "queue", label: "待我决定" },
-  // 「在做」含两组：我自己在终端里干的、全权交给 Friday 的，进去看得到区别
-  { key: "doing", label: "在做" },
+  // 任务按五个开发阶段分组。要不要你拍板不再单独列——终端在问什么自己开终端看
+  { key: "queue", label: "任务" },
   { key: "history", label: "会话历史" },
   { key: "all", label: "全部任务" },
   { key: "ledger", label: "操作记录" },
@@ -44,7 +43,6 @@ export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [view, setView] = useState<View>("queue");
   // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
-  const [counts, setCounts] = useState({ decide: 0, doing: 0 });
   const [hotData, setHotData] = useState<HotResponse | null>(null);
   const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
@@ -287,8 +285,6 @@ export function Chat() {
       <span className="topnav__brand" data-tauri-drag-region>FRIDAY</span>
       {NAV.map((n) => (
         <button key={n.key} className={`topnav__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)} title={n.kbd ? `${n.label} ${n.kbd}` : n.label}>
-          {n.key === "queue" && counts.decide > 0 && <span className="dot dot--decide" />}
-          {n.key === "doing" && counts.doing > 0 && <span className="dot dot--processing" />}
           {n.label}
         </button>
       ))}
@@ -391,7 +387,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} nav={nav} tools={tools} onCounts={setCounts} runningConvs={runningConvs} />
+          <Board view={view} nav={nav} tools={tools} runningConvs={runningConvs} />
         )}
       </div>
       {searching && (
