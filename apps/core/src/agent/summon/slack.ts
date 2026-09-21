@@ -1,5 +1,3 @@
-import { readMemoryFile } from "../../memory/files.js";
-
 /** people.md 里某人的条目（"## 姓名" 到下一个 "## " 之前）。找不到返回 undefined。 */
 export function personEntry(markdown: string, name: string): string | undefined {
   const lines = markdown.split("\n");

@@ -1865,6 +1865,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **改造已有的 `.fx__source` 块，不要新建一段。** `Board.tsx:1250-1305` 现在就在渲染 Slack 原文（head 1252-1263、`.fx__prior` 前情 1266-1280、原文列表 1282-1296、`.fx__evidence` 1298-1303），数据来自 `thread`。Task 8 删掉线程后这块会拿不到数据，这个 Task 把它的数据源换成 `task.conversations`，并补上「不是这条」。`.fx__evidence`（证据不足提示）依赖情境卡草稿，一并删掉。
 
 **Files:**
+- Modify: `apps/core/src/scheduler/index.ts` 的 `priorLines`（**把拉到的前文落库**，见 Step 0）
+- Modify: `apps/core/src/memory/inbox.ts`（加 `setPrior(id, lines)`，并让 `toItem` 读出 `prior`）
 - Modify: `apps/core/src/api/tasks.ts`（`GET /tasks` 带上挂着的对话）
 - Modify: `apps/desktop/src/lib/core.ts`（加四个调用）
 - Modify: `apps/desktop/src/views/Board.tsx:1250-1305`（`.fx__source` 换数据源；删 `evidenceCheck`（:58）与 `.fx__evidence`；`consequence()`（:39）的 `thread` 参数改成对话）
@@ -1877,6 +1879,35 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Produces:
   - `SlackConversation = { conv: string; channelName: string; userName: string; items: Array<{ ts: string; text: string; permalink: string; appLink?: string }>; prior: string[]; source: LinkSource; why: string }`
   - `Task.conversations?: SlackConversation[]`（只在 `GET /tasks` 里填）
+
+- [ ] **Step 0: 把前文落库（补 Task 8 留下的缺口）**
+
+`inbox.prior` 列在 Task 8 已经建好，但没有写入端——前文在同步时拉了却没存，界面永远显示空。`scheduler/index.ts` 的 `priorLines` 已经调了 `fetchContext`，在它缓存那一步顺手写库：
+
+```ts
+async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem): Promise<string[]> {
+  const key = item.id;
+  const hit = priorCache.get(key);
+  if (hit) return hit;
+  const lines = (await fetchContext(call, item, async (id) => id)).map((c) => `${c.userName}：${c.text}`);
+  if (lines.length) setPrior(item.id, lines);
+  priorCache.set(key, lines);
+  if (priorCache.size > 200) priorCache.clear();
+  return lines;
+}
+```
+
+`memory/inbox.ts` 加写入与读出：
+
+```ts
+export function setPrior(id: string, lines: string[]): void {
+  db().prepare("UPDATE inbox SET prior = ? WHERE id = ?").run(JSON.stringify(lines), id);
+}
+```
+
+`Row` 接口加 `prior: string | null`，`toItem` 加 `...(r.prior ? { prior: JSON.parse(r.prior) as string[] } : {})`，`InboxItem` 类型加 `prior?: string[]`。
+
+**边界**：老消息补不回来，只有这次改动之后新进来的消息才有前文。
 
 - [ ] **Step 1: 后端带上对话**
 

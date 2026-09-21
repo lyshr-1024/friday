@@ -7,13 +7,11 @@ import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { createJob, getJob, setGhosttyId } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { meegleIdsIn } from "../memory/infer.js";
+import { addPending, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
 import { collectReport, queryReplyDraft } from "./report.js";
-import { untrusted } from "./fence.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 
