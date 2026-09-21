@@ -42,7 +42,10 @@ const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 export const fridayTools = (conversationId?: string) => createSdkMcpServer({
   name: "friday",
   version: "0.1.0",
-  tools: [
+  tools: fridayToolList(conversationId),
+});
+
+const fridayToolList = (conversationId?: string) => [
     tool(
       "memory_read",
       "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册。",
@@ -302,8 +305,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
         return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "用户点「看一眼再发」时会看到这段草稿、可以再改，确认后才发。" : ""}` : "和卡片上一样，没改。");
       },
     ),
-  ],
-});
+  ];
 
 /** 这条会话正在讨论的任务的终端：先看任务绑定，再看 run_claude 从这条会话开的 job */
 function boundJob(conversationId?: string): { jobId: string; taskId?: string } | undefined {
@@ -314,20 +316,4 @@ function boundJob(conversationId?: string): { jobId: string; taskId?: string } |
   return j ? { jobId: j.id } : undefined;
 }
 
-export const FRIDAY_TOOL_NAMES = [
-  "mcp__friday__memory_read",
-  "mcp__friday__memory_write",
-  "mcp__friday__todo_add",
-  "mcp__friday__git_inspect",
-  "mcp__friday__slack_inbox",
-  "mcp__friday__jobs_list",
-  "mcp__friday__run_claude",
-  "mcp__friday__terminal_say",
-  "mcp__friday__jobs_activity",
-  "mcp__friday__task_update",
-  "mcp__friday__meegle_sync",
-  "mcp__friday__slack_sync",
-  "mcp__friday__review_now",
-  "mcp__friday__learn_history",
-  "mcp__friday__close_terminals",
-];
+export const FRIDAY_TOOL_NAMES = fridayToolList().map((t) => `mcp__friday__${t.name}`);
