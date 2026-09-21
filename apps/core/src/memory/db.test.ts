@@ -20,6 +20,9 @@ const OLD_LINKS = `CREATE TABLE links (
   updated_at TEXT NOT NULL
 )`;
 
+const SLACK_LINKS = OLD_LINKS
+  .replace(/'project'\)\)/g, "'project', 'slack'))");
+
 describe("老库迁移", () => {
   it("线程、经验、阈值三张表清掉，inbox 补 prior 列", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
@@ -52,7 +55,7 @@ describe("老库迁移", () => {
     expect(statusOf("has-merge")).toBe("review");
   });
 
-  it("links 表加 slack 节点类型，旧边留着", () => {
+  it("links 表加 channel 节点类型，旧边留着", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(OLD_LINKS);
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -61,9 +64,23 @@ describe("老库迁移", () => {
     migrate(d);
 
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("new1", "slack", "C1:1789000001.0", "task", "t1", "rule", "新边", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
+      .run("new1", "channel", "一起养牛", "task", "t1", "rule", "新边", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
     expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
     expect((d.prepare("SELECT why FROM links WHERE id = 'old1'").get() as { why: string }).why).toBe("旧边");
     expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'links_old'").get() as { n: number }).n).toBe(0);
+  });
+
+  it("已经加过 slack 的库会再重建一次补上 channel", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SLACK_LINKS);
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("s1", "slack", "C1:1789000001.0", "task", "t1", "rule", "旧边", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z");
+    d.exec(SCHEMA);
+    migrate(d);
+
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("c1", "channel", "一起养牛", "task", "t1", "user", "手动登记", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
+    expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
+    expect((d.prepare("SELECT why FROM links WHERE id = 's1'").get() as { why: string }).why).toBe("旧边");
   });
 });
