@@ -15,7 +15,7 @@ export function settleQueryTasks(): number {
   let n = 0;
   for (const t of listTasks([...OPEN], 200)) {
     const conv = t.source.conversation;
-    if (!conv || !settled.has(conv) || t.kind !== "slack") continue;
+    if (!conv || !settled.has(conv) || !t.source.headless) continue;
     for (const p of t.pending ?? []) if (p.type === "slack_reply") removePending(t.id, p.id);
     updateTask(t.id, { status: "done", attention: undefined, progress: "你自己在 Slack 里回了" });
     record({

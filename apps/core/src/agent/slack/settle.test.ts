@@ -11,7 +11,7 @@ describe("你自己在 Slack 回了", () => {
       { id: "S1:1", kind: "dm", channelId: "S1", channelName: "私聊", userId: "U1", userName: "拂晓", text: "在哪配", permalink: "p", ts: "1" },
     ]);
     markInboxDone("S1:1");
-    let t = createTask({ title: "回答拂晓", kind: "slack", source: { conversation: "S1:1", channelId: "S1" }, status: "review" });
+    let t = createTask({ title: "回答拂晓", kind: "slack", source: { conversation: "S1:1", channelId: "S1", headless: true }, status: "review" });
     t = addPending(t.id, { type: "slack_reply", label: "回复拂晓", detail: "草稿", payload: { channel: "S1", text: "草稿" } })!;
 
     expect(settleQueryTasks()).toBe(1);
@@ -25,8 +25,19 @@ describe("你自己在 Slack 回了", () => {
     addInboxItems([
       { id: "S2:1", kind: "dm", channelId: "S2", channelName: "私聊", userId: "U2", userName: "夕瑶", text: "在哪配", permalink: "p", ts: "1" },
     ]);
-    const t = createTask({ title: "回答夕瑶", kind: "slack", source: { conversation: "S2:1", channelId: "S2" }, status: "review" });
+    const t = createTask({ title: "回答夕瑶", kind: "slack", source: { conversation: "S2:1", channelId: "S2", headless: true }, status: "review" });
     settleQueryTasks();
+    expect(getTask(t.id)!.status).toBe("review");
+  });
+
+  it("HUD 手动建成的任务不是 headless 查询，不被自动收掉", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    addInboxItems([
+      { id: "S3:1", kind: "dm", channelId: "S3", channelName: "私聊", userId: "U3", userName: "千一", text: "在哪配", permalink: "p", ts: "1" },
+    ]);
+    markInboxDone("S3:1");
+    const t = createTask({ title: "回答千一", kind: "verbal", source: { conversation: "S3:1", channelId: "S3" }, status: "review" });
+    expect(settleQueryTasks()).toBe(0);
     expect(getTask(t.id)!.status).toBe("review");
   });
 });
