@@ -142,6 +142,34 @@ export const tasks = new Hono()
     }
     return c.json(t);
   })
+  /** 手填文档链接：口头交代的任务没有 Meegle 同步下来的资料，得能自己贴。
+      Meegle 任务同步会覆盖 req/tech/design，手填的 meegle 键它不碰。 */
+  .post("/tasks/:id/docs", async (c) => {
+    const url = z.string().trim().url().max(2000).or(z.literal(""));
+    const parsed = z
+      .object({ req: url.optional(), tech: url.optional(), design: url.optional(), meegle: url.optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "链接得是完整的 URL（http/https）" }, 400);
+    const before = getTask(c.req.param("id"));
+    if (!before) return c.json({ error: "任务不存在" }, 404);
+    // 空串表示删掉这一栏；没传的键保持原样
+    const docs = { ...(before.source.docs ?? {}) };
+    for (const [k, v] of Object.entries(parsed.data)) {
+      if (v === undefined) continue;
+      if (v === "") delete docs[k as keyof typeof docs];
+      else docs[k as keyof typeof docs] = v;
+    }
+    const t = updateTask(c.req.param("id"), { source: { docs } })!;
+    record({
+      taskId: t.id,
+      action: "docs_set",
+      why: "你手动贴了文档链接",
+      how: Object.keys(docs).length ? `现在有 ${Object.keys(docs).length} 个链接` : "清空了",
+      evidence: { docs, from: before.source.docs ?? {} },
+      risk: "reversible",
+    });
+    return c.json(t);
+  })
   /**
    * 把另一条需求并进这条：二期跟一期是同一件事、同一个分支，板上不该并排两条。
    * 被并掉那条的工单号记进 mergedMeegleIds，同步才认得出它、不会重新建一条。
