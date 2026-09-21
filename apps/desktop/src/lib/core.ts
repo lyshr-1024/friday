@@ -306,6 +306,13 @@ export async function jobLog(id: string): Promise<{ tail: string; lines: number 
   return res.json();
 }
 
+/** 问一遍还标着在跑的终端窗口还在不在，手动关掉的收尾。窗口重新聚焦时调。 */
+export async function jobsSweep(): Promise<string[]> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/sweep`, { method: "POST" }).catch(() => null);
+  if (!res?.ok) return [];
+  return ((await res.json().catch(() => null)) as { closed?: string[] } | null)?.closed ?? [];
+}
+
 /** 终端窗口关了但任务没完：重开一个，接回原来那个 Claude 会话。 */
 export async function jobReopen(id: string): Promise<{ status: string }> {
   const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/reopen`, { method: "POST" });

@@ -93,11 +93,12 @@ export function finishJob(id: string, exitCode: number): Job | undefined {
   return getJob(id);
 }
 
-/** 启动时收尸：PTY 只活在 sidecar 内存里，进程重启后还标着 running 的
-    必然已经死了，留着会让「N 个终端在跑」越攒越多。 */
-export async function reapStaleJobs(alive?: (ghosttyId: string) => Promise<boolean>): Promise<number> {
+/** 收尸：把标着 running 但窗口已经没了的 job 收掉，返回被收掉的 id。
+    启动时跑一次（sidecar 重启后的残留），之后调度器定时跑——用户 ⌘W 手动
+    关掉的窗口没有任何回调，不主动问一句就永远发现不了。 */
+export async function reapStaleJobs(alive?: (ghosttyId: string) => Promise<boolean>): Promise<string[]> {
   const rows = db().prepare("SELECT id, ghostty_id FROM jobs WHERE status = 'running'").all() as unknown as { id: string; ghostty_id: string | null }[];
-  if (!rows.length) return 0;
+  if (!rows.length) return [];
   // 终端是外部 Ghostty 窗口，sidecar 重启它并不会跟着死——不能再像 PTY 时代那样
   // 一律当僵尸收掉，否则用户手上还开着的终端会被标成已完成、任务也就断了关联。
   const dead: string[] = [];
@@ -105,11 +106,11 @@ export async function reapStaleJobs(alive?: (ghosttyId: string) => Promise<boole
     if (alive && r.ghostty_id && (await alive(r.ghostty_id))) continue;
     dead.push(r.id);
   }
-  if (!dead.length) return 0;
+  if (!dead.length) return [];
   const now = new Date().toISOString();
   const stmt = db().prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE id = ?");
   for (const id of dead) stmt.run(now, id);
-  return dead.length;
+  return dead;
 }
 
 /** 10 秒内同目录同任务的运行中记录，用来挡住重复启动。 */

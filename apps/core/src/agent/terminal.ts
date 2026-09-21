@@ -1,6 +1,6 @@
 import type { TerminalState } from "@friday/shared";
 import type { Task } from "@friday/shared";
-import { finishJob, getJob } from "../memory/jobs.js";
+import { finishJob, getJob, reapStaleJobs } from "../memory/jobs.js";
 import { record } from "../memory/audit.js";
 import { closeTerminalById, inputText, isAlive } from "./ghostty.js";
 import { publish } from "../bus.js";
@@ -59,6 +59,20 @@ export function terminalState(jobId: string): TerminalState {
   const job = getJob(jobId);
   if (!job || job.status !== "running") return "gone";
   return isIdle(jobId) ? "idle" : "busy";
+}
+
+/**
+ * 扫一遍还标着 running 的 job，窗口已经没了的收尾并推给前端。
+ *
+ * 用户 ⌘W 手动关掉窗口没有任何回调，不主动问一句就永远发现不了——卡片上那圈光
+ * 会一直跑、「N 个终端在跑」也一直算着它。所以定时扫 + 工作台窗口聚焦时扫。
+ * 每个 job 一次 osascript，所以不放在读状态的路径上（任务板 30 秒一拉还有 SSE，
+ * 摊到每次渲染就太贵了）。
+ */
+export async function sweepClosedTerminals(): Promise<string[]> {
+  const dead = await reapStaleJobs(isAlive);
+  for (const jobId of dead) publish({ type: "terminal", jobId, state: "gone" });
+  return dead;
 }
 
 /**

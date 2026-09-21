@@ -12,7 +12,7 @@ describe("启动收尸：外部窗口不跟着 sidecar 死", () => {
     mk("dead-1", "G-DEAD");
     mk("no-id");
     const reaped = await reapStaleJobs(async (id) => id === "G-ALIVE");
-    expect(reaped).toBe(2);
+    expect(reaped.sort()).toEqual(["dead-1", "no-id"]);
     expect(getJob("alive-1")?.status).toBe("running");
     expect(getJob("dead-1")?.status).toBe("done");
     // 没记下 terminal id 的问不了，只能当它死了
@@ -22,7 +22,7 @@ describe("启动收尸：外部窗口不跟着 sidecar 死", () => {
   it("不给判定函数就全收（Terminal.app 那条路没有 id 可问）", async () => {
     mk("legacy", "G-ALIVE");
     // 上一个 case 留下的 alive-1 还开着，这次不给判定函数，两条一起收
-    expect(await reapStaleJobs()).toBe(2);
+    expect((await reapStaleJobs()).sort()).toEqual(["alive-1", "legacy"]);
     expect(getJob("legacy")?.status).toBe("done");
     expect(getJob("alive-1")?.status).toBe("done");
   });

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, hot, jobs as fetchJobs, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
+import { cancelAsk, conversations, hot, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { HotList, LinkMenuHost, fmtTime } from "./shared";
@@ -65,6 +65,10 @@ export function Chat() {
     // 「聚焦终端」：任务板在别的视图时先切回去，Board 挂上后自己去选中那条任务
     const onFocusJob = () => setView("queue");
     window.addEventListener("friday:focus-job", onFocusJob);
+    // 回到工作台时问一遍终端还在不在：你 ⌘W 关掉窗口没有任何回调，
+    // 不问就一直显示着在跑。收掉的会走 SSE 推回来，这里不用管返回值。
+    const onWindowFocus = () => { void jobsSweep(); };
+    window.addEventListener("focus", onWindowFocus);
     const stopEvents = connectEvents();
     // 会话生成开始 / 结束：左栏青条要立刻变
     const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
@@ -74,6 +78,7 @@ export function Chat() {
       stopTheme();
       stopEvents();
       window.removeEventListener("friday:focus-job", onFocusJob);
+      window.removeEventListener("focus", onWindowFocus);
       window.removeEventListener("friday:event", onEvent);
     };
   }, []);
