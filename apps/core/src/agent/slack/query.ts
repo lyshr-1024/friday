@@ -20,7 +20,7 @@ export function queryPrompt(item: InboxItem, prior: string[], projects: Project[
       '只输出 JSON，不要其他文字：{"codeAnswerable": true, "ask": "把问题写成一句完整的话", "project": "项目名"}',
     ].join("\n"),
     prompt: [
-      prior.length ? `这之前聊的是：\n${prior.map((p) => `- ${p.slice(0, 200)}`).join("\n")}\n` : "",
+      prior.length ? `这之前聊的是：\n${untrusted("slack", prior.map((p) => `- ${p.slice(0, 200)}`).join("\n"))}\n` : "",
       `${item.userName} 问：\n${untrusted("slack", item.text.slice(0, 800))}`,
     ]
       .filter(Boolean)
