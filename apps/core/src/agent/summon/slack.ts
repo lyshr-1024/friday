@@ -16,10 +16,11 @@ const bareName = (s: string) => s.replace(/\s*[（(][^（）()]*[）)]\s*/g, "")
 
 export function slackScene(channel?: string, person?: string): SlackScene | undefined {
   if (!channel && !person) return undefined;
+  // 库里的频道名带 #（#proj-xxx），窗口标题里不带——两侧都剥一次再比，只剥一边等于永远对不上
   const want = channel?.replace(/^#/, "");
   const who = person ? bareName(person) : "";
   const hit = listInbox(true, 200)
-    .filter((i) => (want ? i.kind === "mention" && i.channelName === want : i.kind === "dm" && bareName(i.userName) === who))
+    .filter((i) => (want ? i.kind === "mention" && i.channelName.replace(/^#/, "") === want : i.kind === "dm" && bareName(i.userName) === who))
     .sort((a, b) => Number(b.ts) - Number(a.ts))[0];
   if (!hit) return undefined;
   const conv = conversationKey(hit);
