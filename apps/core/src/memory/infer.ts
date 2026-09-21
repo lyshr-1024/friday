@@ -9,9 +9,12 @@ export const projectNode = (name: string): LinkNode => ({ kind: "project", ref: 
 /** 分支要带项目名：不同仓库里同名的 main / feat/x 不是一条分支 */
 export const branchNode = (project: string, branch: string): LinkNode => ({ kind: "branch", ref: `${project}:${branch}` });
 export const urlNode = (url: string): LinkNode => ({ kind: "url", ref: normalizeUrlPrefix(url) });
+export const slackNode = (conversation: string): LinkNode => ({ kind: "slack", ref: conversation });
+
+export { conversationKey } from "@friday/shared";
 
 /** 工单号：链接里的 /detail/24440539，或裸的 8 位以上数字 */
-const MEEGLE_URL = /project\.(?:larksuite|feishu)\.com\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;
+const MEEGLE_URL = /(?:project\.(?:larksuite\.com|feishu\.cn)|[a-z0-9-]+\.meegle\.com)\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;
 const TICKET_IN_TEXT = /\b(\d{8})\b/g;
 
 export function meegleIdsIn(text: string): string[] {

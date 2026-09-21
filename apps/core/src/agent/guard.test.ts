@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildHookSettings } from "./runner.js";
-import { forbidden } from "./guard.js";
+import { forbidden, forbiddenTool } from "./guard.js";
 
 describe("自主任务禁止的命令", () => {
   it("拦下不可逆或越权的操作", () => {
@@ -33,5 +33,21 @@ describe("hook 设置", () => {
       (JSON.parse(buildHookSettings("/r/x.hook.sh", guard)) as { hooks: { PreToolUse: Array<{ matcher: string }> } }).hooks.PreToolUse.map((h) => h.matcher);
     expect(matchers("/r/x.guard.sh")).toEqual(["Bash", "AskUserQuestion|ExitPlanMode"]);
     expect(matchers()).toEqual(["AskUserQuestion|ExitPlanMode"]);
+  });
+});
+
+describe("只读任务的工具守卫", () => {
+  it("改文件的工具一律拦下", () => {
+    expect(forbiddenTool("Edit")).toBeTruthy();
+    expect(forbiddenTool("Write")).toBeTruthy();
+    expect(forbiddenTool("MultiEdit")).toBeTruthy();
+    expect(forbiddenTool("NotebookEdit")).toBeTruthy();
+  });
+
+  it("读和搜不拦", () => {
+    expect(forbiddenTool("Read")).toBeUndefined();
+    expect(forbiddenTool("Grep")).toBeUndefined();
+    expect(forbiddenTool("Glob")).toBeUndefined();
+    expect(forbiddenTool("Bash")).toBeUndefined();
   });
 });

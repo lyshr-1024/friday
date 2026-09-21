@@ -1,17 +1,23 @@
-import type { Notice } from "@friday/shared";
-import { applyReversibleWrites } from "../agent/autowrite.js";
-import { threadToTask } from "../agent/pipeline.js";
-import { buildBrief } from "../agent/brief.js";
-import { enrichThread, slackContext } from "../agent/enrich.js";
-import { triage } from "../agent/triage.js";
+import type { InboxItem, Notice } from "@friday/shared";
+import { attachOnce } from "../agent/slack/attach.js";
+import { classifyQuery } from "../agent/slack/query.js";
+import { startQueryJob } from "../agent/slack/queryJob.js";
+import { settleQueryTasks } from "../agent/slack/settle.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { sweepClosedTerminals } from "../agent/terminal.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
-import { attachToThread, closeSettledThreads, getThread, graceCandidate, setThreadBrief } from "../memory/threads.js";
-import { CONTINUATION_MAX_MS, isContinuation } from "../agent/continuation.js";
-import { fetchLastRead, fetchSlack, isRead, loadSlackCreds, postMessage, repliedSince, slackCaller, type SlackCreds } from "../connectors/slack.js";
-import { addInboxItems, getCursor, setCursor, setSlackTeam, setTriage, sweepRepliedInbox } from "../memory/inbox.js";
+import {
+  fetchContext,
+  fetchLastRead,
+  fetchSlack,
+  isRead,
+  loadSlackCreds,
+  repliedSince,
+  slackCaller,
+  type SlackCreds,
+} from "../connectors/slack.js";
+import { addInboxItems, getCursor, setCursor, setPrior, setSlackTeam, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
 export const ACTIVE_HOURS: [number, number] = [10, 20];
@@ -46,6 +52,19 @@ export const state = {
 let me = "";
 let creds: SlackCreds | undefined;
 
+// 挂靠和查询分类都要前文，拉一次两边共用
+const priorCache = new Map<string, string[]>();
+
+async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem): Promise<string[]> {
+  const hit = priorCache.get(item.id);
+  if (hit) return hit;
+  const lines = (await fetchContext(call, item, async (id) => id)).map((c) => `${c.userName}：${c.text}`);
+  if (lines.length) setPrior(item.id, lines);
+  priorCache.set(item.id, lines);
+  if (priorCache.size > 200) priorCache.clear();
+  return lines;
+}
+
 export async function syncSlackOnce(): Promise<number> {
   if (state.running) return 0;
   state.running = true;
@@ -73,7 +92,7 @@ export async function syncSlackOnce(): Promise<number> {
         );
         if (swept) {
           console.log(`把 ${swept} 条我已在 Slack 读过或回过的消息标成已处理`);
-          closeSettledThreads();
+          settleQueryTasks();
         }
       } catch (e) {
         console.error(`[slack] 收件箱对齐失败：${e instanceof Error ? e.message : String(e)}`);
@@ -87,52 +106,22 @@ export async function syncSlackOnce(): Promise<number> {
     const added = addInboxItems(items);
     for (const [k, v] of Object.entries(next)) setCursor(k, v);
 
-    if (added.length) {
-      const result = await triage(added);
-      added.forEach((it, i) => {
-        const t = result.get(i + 1);
-        if (t) setTriage(it.id, t);
-      });
-      // 逐条分类之后按人聚合成线程，对每个被触及的线程做功课、出情境卡、做可逆自动写。
-      const touched = new Set<string>();
-      for (const [i, it] of added.entries()) {
-        const t = result.get(i + 1);
-        const item = { ...it, ...(t ? { triage: t } : {}) };
-        // 隔了两小时以上的，先问一句是不是在催同一件事，是就接回原线程而不是新起一条。
-        // 两条消息常常都是指代句，所以把线程已有的情境和频道前文一起交给它判断。
-        const candidate = graceCandidate(item, CONTINUATION_MAX_MS);
-        const same = candidate
-          ? await isContinuation(candidate.items, item, {
-              ...(candidate.brief?.situation ? { situation: candidate.brief.situation } : {}),
-              context: (await slackContext(item)).map((c) => `${c.userName}：${c.text}`),
-            })
-          : false;
-        touched.add(attachToThread(item, Date.now(), { graceMs: CONTINUATION_MAX_MS, sameTopic: () => same }));
+    for (const item of added) {
+      try {
+        await attachOnce(item, await priorLines(call, item));
+      } catch (e) {
+        console.error(`[slack] ${item.id} 挂靠失败：${e instanceof Error ? e.message : String(e)}`);
       }
-      const needReply: string[] = [];
-      await mapLimit([...touched], 3, async (id) => {
-        const thread = getThread(id, true);
-        if (!thread) return;
-        try {
-          const enrichment = await enrichThread(thread);
-          const brief = await buildBrief(thread, enrichment);
-          if (!brief) return;
-          // 不传 create：自动同步不建任务，只更新已经存在的那条
-          const task = await threadToTask(getThread(id, true)!, brief, enrichment.project?.name, {
-            slackPost: (channel, text, threadTs) => postMessage(call, channel, text, threadTs),
-          });
-          const writes = applyReversibleWrites(thread, brief, task?.id);
-          setThreadBrief(id, { ...brief, context: [...brief.context, ...writes], ...(enrichment.context.length ? { priorMessages: enrichment.context } : {}) }, enrichment.project?.name);
-          // Friday 已经自动回过（任务已 done）就不用再推「等你回」的通知，用户点开只会看到一件已经处理完的事。
-          if (brief.needsReply && task?.status !== "done") needReply.push(`${thread.userName}：${brief.situation}`);
-        } catch (e) {
-          console.error(`[thread] ${id} 做功课失败：${e instanceof Error ? e.message : String(e)}`);
-        }
-      });
-      // Slack 这块正在重做，先不弹通知——判得准不准还没定论，弹出来只是打扰。
-      // 重做完按新设计接回来。
-      void needReply;
     }
+    // 只有私聊和 @ 我、且带疑问信号的，才值得花一次分类
+    await mapLimit(added, 2, async (item) => {
+      try {
+        const q = await classifyQuery(item, await priorLines(call, item));
+        if (q) await startQueryJob(item, q.ask, q.project);
+      } catch (e) {
+        console.error(`[slack] ${item.id} 查询判定失败：${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
     state.lastSyncAt = new Date().toISOString();
     state.lastError = null;
     return added.length;

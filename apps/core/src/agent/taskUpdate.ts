@@ -1,12 +1,9 @@
 import type { Task, TaskStatus } from "@friday/shared";
 import { record } from "../memory/audit.js";
-import { lessonFromTask } from "./lessons.js";
 import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
-import { listThreads } from "../memory/threads.js";
 import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
-import { closeTaskThread } from "./pipeline.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -101,33 +98,31 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
         task = updatePending(taskId, reply.id, { detail: text, payload: { ...reply.payload, text, edited: true } }) ?? task;
         changed.push("回复草稿");
       }
-    } else if (task.source.threadId) {
-      // 之前没挂回复动作：从 Slack 线程补齐频道 / 线程 ts
-      const thread = listThreads("all", 300).find((t) => t.id === task!.source.threadId);
-      const first = thread?.items[0];
-      if (thread && first) {
-        task = addPending(taskId, {
-          type: "slack_reply",
-          label: `回复 ${thread.userName}`,
-          detail: text,
-          payload: { channel: first.channelId, text, ...(thread.kind === "mention" ? { threadTs: thread.items.at(-1)!.ts } : {}), userName: thread.userName },
-        }) ?? task;
-        changed.push("新挂回复草稿");
-      }
+    } else if (task.source.conversation && task.source.channelId) {
+      // 之前没挂回复动作：频道和线程 ts 从任务来源上取
+      task = addPending(taskId, {
+        type: "slack_reply",
+        label: `回复 ${task.source.userName ?? "对方"}`,
+        detail: text,
+        payload: {
+          channel: task.source.channelId,
+          text,
+          ...(task.source.threadTs ? { threadTs: task.source.threadTs } : {}),
+          ...(task.source.userName ? { userName: task.source.userName } : {}),
+        },
+      }) ?? task;
+      changed.push("新挂回复草稿");
     }
   }
 
   if (patch.status && patch.status !== task.status) {
     // 收工 / 忽略时把"等你看"标记和没发出去的待审动作一起清掉，不然列表里还挂着
     const closing = patch.status === "done" || patch.status === "ignored";
-    // 收工时草稿还挂着 = 没用上它，跟列表里点完成 / 忽略记一样的经验
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
-    if (closing) lessonFromTask(task, patch.status === "ignored" ? "ignored" : "done_without_reply");
     if (closing) {
       // 即发即忘：关窗口失败不该挡住任务状态更新（这个函数是同步的）
       void closeTaskTerminal(task, "用户在会话里说这条任务收工了");
-      closeTaskThread(task, patch.status === "ignored" ? "ignored" : "done");
       const t = task;
       void import("./pipeline.js").then((m) => m.cleanupTaskWorktree(t, "用户在会话里说这条任务收工了")).catch(() => {});
     }

@@ -337,43 +337,6 @@ kbd {
   overflow: hidden;
   font-size: var(--t-sm);
 }
-.todo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  line-height: 1.45;
-  font-size: var(--t-body);
-}
-.todo + .todo {
-  border-top: 1px solid var(--separator);
-}
-.todo:hover {
-  background: var(--fill-2);
-}
-.todo a,
-.todo > span:nth-child(2) {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--label);
-  text-decoration: none;
-}
-.todo__source {
-  font-family: var(--font);
-  flex: none;
-  width: 48px;
-  color: var(--label-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 10px;
-  font-weight: 600;
-}
-.todo--meegle .todo__source {
-  color: var(--label-2);
-}
 .todo__due {
   font-family: var(--font);
   flex: none;
@@ -596,29 +559,6 @@ kbd {
 }
 .msg + .msg--user {
   margin-top: 18px;
-}
-
-.todos-fold {
-  margin-top: 8px;
-  font-family: var(--font);
-}
-.todos-fold summary {
-  font-size: var(--t-xs);
-  color: var(--label-2);
-  cursor: default;
-  list-style: none;
-}
-.todos-fold summary::before {
-  content: "›";
-  display: inline-block;
-  width: 12px;
-  transition: transform 120ms;
-}
-.todos-fold[open] summary::before {
-  transform: rotate(90deg);
-}
-.todos-fold .todos {
-  margin-top: 8px;
 }
 
 @keyframes sweep {
@@ -1248,110 +1188,6 @@ kbd {
   opacity: var(--o-disabled);
 }
 
-/* ---------- Slack 收件 ---------- */
-
-.inbox {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.inbox__item {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--fill);
-  border-left: 3px solid var(--separator);
-}
-.inbox__item--high {
-  border-left-color: var(--live);
-}
-.inbox__item--low {
-  opacity: 0.75;
-}
-.inbox__head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--t-aux);
-}
-.inbox__who {
-  font-weight: 600;
-}
-.inbox__where {
-  color: var(--label-3);
-}
-.inbox__tag {
-  font-size: 10.5px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-5);
-  color: var(--fg-1);
-  font-weight: 600;
-}
-.inbox__time {
-  margin-left: auto;
-  color: var(--label-3);
-}
-.inbox__summary {
-  margin-top: 4px;
-  font-size: var(--t-body);
-  line-height: 1.5;
-}
-.inbox__draft {
-  margin-top: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--card);
-  font-size: var(--t-aux);
-  line-height: 1.5;
-  color: var(--label-2);
-}
-.inbox__actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 12px;
-  font-size: var(--t-xs);
-}
-.inbox__actions a,
-.inbox__actions button {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: var(--t-xs);
-  color: var(--label-2);
-  text-decoration: none;
-  cursor: default;
-}
-.inbox__actions a:hover,
-.inbox__actions button:hover {
-  color: var(--label);
-  text-decoration: underline;
-}
-
-.inbox__project {
-  font-size: 10.5px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--fill-2);
-  color: var(--label-2);
-}
-.inbox__actions .inbox__go {
-  color: var(--label);
-  font-weight: 500;
-}
-
-.inbox__text {
-  margin-top: 4px;
-  font-size: var(--t-xs);
-  line-height: 1.5;
-  color: var(--label-2);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 .side__spin {
   display: inline-block;
   width: 1em;
@@ -1598,9 +1434,6 @@ kbd {
 .answer,
 .link,
 .msg,
-.inbox__summary,
-.inbox__text,
-.inbox__draft,
 .hot__title,
 .hot__summary,
 .job__last,
@@ -3779,35 +3612,118 @@ body,
    基础面保持平（GPUI：Elevation 只解释叠放，不表达重要程度）。 */
 /* 原话是核对依据，要读得清楚：不套灰底（fg-1 压在 bg-4 上对比最低），
    只用一条分隔线划出范围，正文直接落在卡片底色上 */
-.fx__source {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
+/* Slack 里的讨论：判断依据要能核对，所以摆在标题下面、情境之上 */
+.fx__slack {
+  margin: var(--s-4) 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.fx__slack-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+/* 推断出来的要标明白，理由挂在 title 上 */
+.k--guess {
+  padding: 0 4px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  color: var(--fg-4);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.fx__conv + .fx__conv {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
   border-top: 1px solid var(--line-1);
 }
-.fx__source-head {
+.fx__conv-meta {
   display: flex;
   align-items: baseline;
   gap: var(--s-2);
-  margin-bottom: var(--s-3);
+  min-width: 0;
+  color: var(--fg-3);
+  font-size: var(--t-aux);
 }
-.fx__source-head .k {
-  margin-bottom: 0;
+.fx__conv-who {
+  flex: none;
+  color: var(--fg-2);
+  font-weight: 500;
 }
-.fx__source-where {
+.fx__conv-where {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.fx__conv-drop {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.fx__conv-drop:hover {
+  color: var(--fg-2);
+}
+.fx__conv-drop:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.fx__conv-why {
+  margin-top: var(--s-1);
+  color: var(--fg-4);
+  font-size: var(--t-micro);
+  line-height: var(--lh-aux);
+  overflow-wrap: anywhere;
+}
+.fx__conv-msg {
+  margin-top: var(--s-2);
+  min-width: 0;
+  color: var(--fg-1);
+  font-size: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+/* 「在 Slack 打开」：hover 才显形，不和原文抢注意力，
+   但键盘 Tab 到时必须可见（GPUI：focus 始终可见） */
+.fx__conv-msg .link {
+  margin-left: var(--s-2);
   color: var(--fg-4);
   font-size: var(--t-micro);
   letter-spacing: var(--tr-micro);
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-a.fx__source-where {
-  color: var(--fg-3);
-  transition: color var(--dur) var(--ease);
+.fx__conv-msg:hover .link,
+.fx__conv-msg .link:focus-visible {
+  opacity: 1;
 }
-a.fx__source-where:hover {
-  color: var(--fg-1);
+.fx__conv-msg .link:hover {
+  color: var(--fg-2);
+}
+.fx__prior-line {
+  margin-top: var(--s-2);
+  color: var(--fg-2);
+  font-size: var(--t-aux);
+  line-height: var(--lh-aux);
+  overflow-wrap: anywhere;
 }
 /* 前文：默认收起（它是背景不是主体），但要能一眼看到有多少条可核对 */
 .fx__prior {
@@ -3854,89 +3770,11 @@ a.fx__source-where:hover {
   color: var(--fg-4);
   font-variant-numeric: tabular-nums;
 }
-.fx__prior-list {
-  margin-top: var(--s-3);
-}
-.fx__prior-list .fx__source-text {
-  color: var(--fg-2);
-}
-.fx__source-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-}
-.fx__source-list li {
-  display: flex;
-  gap: var(--s-3);
-  align-items: baseline;
-  min-width: 0;
-}
-.fx__source-who {
-  flex: none;
-  color: var(--fg-3);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tr-micro);
-}
-.fx__source-text {
-  min-width: 0;
-  color: var(--fg-1);
-  font-size: var(--t-body);
-  letter-spacing: var(--tr-body);
-  line-height: var(--lh-body);
-  overflow-wrap: anywhere;
-}
 /* 空消息也要显示——Friday 可能正是因为读到空消息才判断错的 */
 .fx__source-empty {
   color: var(--fg-4);
   font-size: var(--t-aux);
   font-style: italic;
-}
-
-/* 「在 Slack 打开」：hover 才显形，不和原文抢注意力，
-   但键盘 Tab 到时必须可见（GPUI：focus 始终可见） */
-.fx__source-open {
-  flex: none;
-  margin-left: auto;
-  color: var(--fg-4);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tr-micro);
-  text-decoration: none;
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.fx__source-list li:hover .fx__source-open,
-.fx__source-open:focus-visible {
-  opacity: 1;
-}
-.fx__source-open:hover {
-  color: var(--fg-2);
-}
-
-/* 证据不足 / 和草稿对不上：明说，不藏 */
-.fx__evidence {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-2);
-  margin-top: var(--s-3);
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--line-1);
-  color: var(--fg-2);
-  font-size: var(--t-aux);
-  letter-spacing: var(--tr-aux);
-  line-height: var(--lh-aux);
-}
-.fx__evidence .icon {
-  flex: none;
-  margin-top: 2px;
-}
-.fx__evidence--thin .icon {
-  color: var(--amber);
-}
-.fx__evidence--mismatch .icon {
-  color: var(--red);
 }
 
 /* 后果预览：不可逆的动作点下去会发生什么，就在按钮上方说清楚 */
@@ -4310,17 +4148,6 @@ a.fx__source-where:hover {
   font-size: 11px;
 }
 
-/* 自动回复的门控：这条草稿 Friday 自己打了多少分、该类阈值是多少 */
-.fx__conf {
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-4);
-  color: var(--fg-3);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0;
-}
 .fx__undo {
   display: flex;
   align-items: center;
@@ -4754,6 +4581,19 @@ a.fx__source-where:hover {
   margin: 0;
   font-size: var(--t-aux);
   color: var(--fg-2);
+}
+
+.hud__attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.hud__attach-list .b {
+  width: 100%;
+  text-align: left;
 }
 
 .hud__actions {

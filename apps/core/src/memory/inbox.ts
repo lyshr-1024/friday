@@ -1,4 +1,4 @@
-import type { InboxItem, Triage } from "@friday/shared";
+import type { InboxItem } from "@friday/shared";
 import { db } from "./db.js";
 
 interface Row {
@@ -13,7 +13,7 @@ interface Row {
   ts: string;
   thread_ts: string | null;
   received_at: string;
-  triage: string | null;
+  prior: string | null;
   done: number;
 }
 
@@ -39,13 +39,13 @@ const toItem = (r: Row): InboxItem => ({
   permalink: r.permalink,
   ...(appLink(r) ? { appLink: appLink(r)! } : {}),
   ...(r.thread_ts ? { threadTs: r.thread_ts } : {}),
+  ...(r.prior ? { prior: JSON.parse(r.prior) as string[] } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
-  ...(r.triage ? { triage: JSON.parse(r.triage) as Triage } : {}),
   done: r.done === 1,
 });
 
-export type NewInboxItem = Omit<InboxItem, "receivedAt" | "triage" | "done">;
+export type NewInboxItem = Omit<InboxItem, "receivedAt" | "done">;
 
 /** 插入新消息，已存在的跳过；返回真正新增的条目。 */
 export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
@@ -62,10 +62,6 @@ export function addInboxItems(items: NewInboxItem[]): InboxItem[] {
   return added;
 }
 
-export function setTriage(id: string, triage: Triage): void {
-  db().prepare("UPDATE inbox SET triage = ? WHERE id = ?").run(JSON.stringify(triage), id);
-}
-
 export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   const rows = db()
     .prepare(`SELECT * FROM inbox ${includeDone ? "" : "WHERE done = 0"} ORDER BY ts DESC LIMIT ?`)
@@ -73,9 +69,8 @@ export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   return rows.map(toItem);
 }
 
-export function getInboxItem(id: string): InboxItem | undefined {
-  const row = db().prepare("SELECT * FROM inbox WHERE id = ?").get(id) as unknown as Row | undefined;
-  return row ? toItem(row) : undefined;
+export function setPrior(id: string, lines: string[]): void {
+  db().prepare("UPDATE inbox SET prior = ? WHERE id = ?").run(JSON.stringify(lines), id);
 }
 
 export function markInboxDone(id: string): boolean {
@@ -111,4 +106,13 @@ export function setCursor(key: string, cursor: string): void {
   db()
     .prepare("INSERT INTO sync_state (source, last_synced_at, cursor) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET last_synced_at = excluded.last_synced_at, cursor = excluded.cursor")
     .run(key, new Date().toISOString(), cursor);
+}
+
+/** 同一人在同一频道、这条之前 48 小时内的消息，用来判断是不是在催同一件事 */
+export function listInboxNear(item: Pick<InboxItem, "channelId" | "userId" | "ts">, hours = 48, limit = 20): InboxItem[] {
+  const since = String(Number(item.ts) - hours * 3600);
+  const rows = db()
+    .prepare("SELECT * FROM inbox WHERE channel_id = ? AND user_id = ? AND ts < ? AND ts > ? ORDER BY ts DESC LIMIT ?")
+    .all(item.channelId, item.userId, item.ts, since, limit) as unknown as Row[];
+  return rows.map(toItem);
 }

@@ -3,10 +3,12 @@ import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import { AUTOSTART_CATEGORY, REPLY_CATEGORIES, type ReplyCategory, type StateTransition, type Task } from "@friday/shared";
-import { undoWrite } from "../agent/autowrite.js";
-import { reviewOnce } from "../agent/lessons.js";
+import { conversationKey, type InboxItem, type SlackConversation, type StateTransition, type Task } from "@friday/shared";
+import { listInbox } from "../memory/inbox.js";
+import { neighbors } from "../memory/links.js";
+import { taskNode } from "../memory/infer.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
+import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal, terminalState } from "../agent/terminal.js";
@@ -15,12 +17,6 @@ import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigure
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
-import { getThread, markAutoDone, threadCategory } from "../memory/threads.js";
-
-const replyCategory = (t?: Task): ReplyCategory => {
-  const th = t?.source.threadId ? getThread(t.source.threadId) : undefined;
-  return th ? threadCategory(th) : "other";
-};
 
 const transitionInput = z.object({
   id: z.string().min(1),
@@ -36,20 +32,50 @@ const newTask = z.object({
   due: z.iso.date().optional(),
 });
 
+/** 任务牵着的 Slack 对话。整个收件箱只读一次，别每条任务各读一遍。 */
+function slackOf(all: InboxItem[]) {
+  const byConv = new Map<string, InboxItem[]>();
+  for (const i of all) {
+    const key = conversationKey(i);
+    (byConv.get(key) ?? byConv.set(key, []).get(key)!).push(i);
+  }
+  for (const items of byConv.values()) items.sort((a, b) => Number(a.ts) - Number(b.ts));
+  return (t: Task): Task => {
+    const conversations = neighbors(taskNode(t.id), "slack")
+      .map((n) => {
+        const items = byConv.get(n.ref) ?? [];
+        const head = items[0];
+        if (!head) return undefined;
+        return {
+          conv: n.ref,
+          channelName: head.channelName,
+          userName: head.userName,
+          items: items.map((i) => ({ ts: i.ts, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
+          prior: head.prior ?? [],
+          source: n.source,
+          why: n.why,
+        };
+      })
+      .filter((x): x is SlackConversation => Boolean(x));
+    return conversations.length ? { ...t, conversations } : t;
+  };
+}
+
 export const tasks = new Hono()
   .get("/tasks/:id/research", (c) => {
     const t = getTask(c.req.param("id"));
     if (!t?.source.researchFile) return c.json({ error: "这条任务没有研究笔记" }, 404);
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
-  .post("/tasks/review", async (c) => c.json(await reviewOnce()))
   .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
+    const withTerminal = (t: Task): Task => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t);
+    const withSlack = slackOf(listInbox(true, 500));
     return c.json({
       ...board,
-      tasks: board.tasks.map((t) => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t)),
+      tasks: board.tasks.map((t) => withSlack(withTerminal(t))),
       meegleSyncedAt: meegleState.lastSyncAt,
       slackConfigured: await slackConfigured(),
     });
@@ -115,8 +141,6 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
-    // 打回 = 「这条不要发」：关掉这条线程的自动发送闸门
-    if (t.source.threadId) markAutoDone(t.source.threadId, "slack_reply_sent");
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
   // 卡住的任务重新开工（比如用量上限恢复后）

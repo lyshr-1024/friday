@@ -6,13 +6,14 @@ import { promisify } from "node:util";
 import { config } from "../config.js";
 import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
 import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
+import { findTaskBySource } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { publish } from "../bus.js";
 import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
 import { handbookBlock } from "../memory/handbooks.js";
 import { terminalBridgePrompt } from "./prompt.js";
-import { FORBIDDEN } from "./guard.js";
+import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
 
 const execFileP = promisify(execFile);
@@ -26,6 +27,8 @@ export interface LaunchRequest {
   autonomous?: boolean;
   /** 重开这条任务的终端：用 --resume 接回原来那个 Claude 会话，而不是从头开始 */
   resumeSessionId?: string;
+  /** 只读任务：查代码回答问题，不许改文件 */
+  readonly?: boolean;
 }
 
 export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
@@ -123,7 +126,7 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
 }
 
 /** SessionStart 一开始就把 session id 回传，不然 Claude 第一轮没说完 Friday 就重启，这条任务就再也接不上了；Stop 每轮回传最后一段回答。 */
-export function buildHookSettings(hookScript: string, guardScript?: string): string {
+export function buildHookSettings(hookScript: string, guardScript?: string, readOnly = false): string {
   const hook = [{ hooks: [{ type: "command", command: shellQuote(hookScript), timeout: 10 }] }];
   // 交互式提问（选项题 / plan 确认）不会发 Stop，PTY 也安静，不接这两个 hook 就感知不到它在等人
   const asking = [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: hook[0]!.hooks }];
@@ -141,9 +144,19 @@ export function buildHookSettings(hookScript: string, guardScript?: string): str
         }],
       }]
     : [];
+  const refuseWrite = readOnly
+    ? [{
+        matcher: WRITE_TOOLS.join("|"),
+        hooks: [{
+          type: "command",
+          command: `printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"这是只读任务：只查代码回答问题，不要改任何文件。把结论写进报告。"}}'`,
+          timeout: 5,
+        }],
+      }]
+    : [];
   const askHooks = guardScript ? refuseAsking : asking;
   return JSON.stringify(
-    { hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...askHooks], PostToolUse: guardScript ? [] : asking, Notification: hook } },
+    { hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...refuseWrite, ...askHooks], PostToolUse: guardScript ? [] : asking, Notification: hook } },
     null,
     2,
   );
@@ -159,7 +172,7 @@ export function transcriptPath(dir: string, sessionId: string): string {
 }
 
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
-  const flags = claudeFlags(files, req.autonomous);
+  const flags = claudeFlags(files, req.autonomous || req.readonly);
   // 重开：接回这条任务原来那个 Claude 会话；transcript 可能还没落盘，交给 claude 自己判断，接不上就新开
   const resume = req.resumeSessionId
     ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)} || ${shellQuote(claudePath)} ${flags}`
@@ -220,41 +233,48 @@ export function buildMcpConfig(id: string, port: number): string {
   return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
 }
 
-function writeHookFiles(id: string, autonomous = false): ClaudeFiles {
+export function writeHookFiles(id: string, autonomous = false, readOnly = false): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
   chmodSync(hook, 0o755);
   let guard: string | undefined;
-  if (autonomous) {
+  if (autonomous || readOnly) {
     guard = join(runsDir(), `${id}.guard.sh`);
     writeFileSync(guard, buildGuardScript());
     chmodSync(guard, 0o755);
   }
   const settings = join(runsDir(), `${id}.settings.json`);
-  writeFileSync(settings, buildHookSettings(hook, guard));
+  writeFileSync(settings, buildHookSettings(hook, guard, readOnly));
   const mcp = join(runsDir(), `${id}.mcp.json`);
   writeFileSync(mcp, buildMcpConfig(id, config.port));
   return { settings, mcp };
 }
 
 /** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
-export function claudeFlags(files: ClaudeFiles, autonomous = false): string {
+export function claudeArgs(files: ClaudeFiles, headless = false): string[] {
   return [
-    ...(autonomous ? ["-p"] : []),
+    ...(headless ? ["-p"] : []),
     "--dangerously-skip-permissions",
     "--settings",
-    shellQuote(files.settings),
+    files.settings,
     "--mcp-config",
-    shellQuote(files.mcp),
+    files.mcp,
     "--append-system-prompt",
-    shellQuote(terminalBridgePrompt()),
-  ].join(" ");
+    terminalBridgePrompt(),
+  ];
+}
+
+/** 选项本身不带引号，只有取值要 quote——脚本里那条命令的形状得跟以前一样 */
+export function claudeFlags(files: ClaudeFiles, headless = false): string {
+  return claudeArgs(files, headless)
+    .map((a) => (a.startsWith("-") ? a : shellQuote(a)))
+    .join(" ");
 }
 
 export async function launchClaude(req: LaunchRequest): Promise<{ script: string; ghosttyId?: string }> {
   const claudePath = await findClaude();
-  const files = writeHookFiles(req.id, req.autonomous);
+  const files = writeHookFiles(req.id, req.autonomous, req.readonly);
 
   const ext = req.terminal === "terminal" ? ".command" : ".sh";
   const script = join(runsDir(), `${req.id}${ext}`);
@@ -290,6 +310,8 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
     terminal,
     ...(job.task ? { task: job.task } : {}),
     ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
+    // 后台查询任务是只读的，接回来的窗口不能顺手开始改文件
+    ...(findTaskBySource((s) => s.jobId === jobId, true)?.source.headless ? { readonly: true } : {}),
   });
   reviveJob(jobId);
   if (ghosttyId) setGhosttyId(jobId, ghosttyId);

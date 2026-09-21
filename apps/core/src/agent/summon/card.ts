@@ -19,6 +19,8 @@ export interface CardInput {
   global?: string;
   /** 终端 / Slack 这类场景专属上下文 */
   scene?: string;
+  /** Slack 场景命中的对话键，供模型的 slack_query/slack_task/slack_attach 动作使用 */
+  slackConv?: string;
   signal?: AbortSignal;
 }
 
@@ -27,9 +29,11 @@ export interface AllowedIds {
   /** key 是 taskId，值是该任务下允许的 pending：actionId → 类型。类型取自真实任务数据，模型伪造不了 */
   actionIds: Record<string, Record<string, PendingActionType>>;
   projects: string[];
+  /** Slack 场景命中的对话键，slack_query/slack_task/slack_attach 只能指向它 */
+  slackConv?: string;
 }
 
-const KINDS = ["open_task", "approve_pending", "start_work", "create_task", "mark_done", "note", "copy"] as const;
+const KINDS = ["open_task", "approve_pending", "start_work", "create_task", "mark_done", "note", "copy", "slack_query", "slack_task", "slack_attach"] as const;
 
 export function cardPrompt(input: CardInput): { system: string; prompt: string } {
   const { snapshot, candidates, recent } = input;
@@ -115,6 +119,12 @@ function clampAction(raw: unknown, allowed: AllowedIds): SummonAction | undefine
       return text ? { kind, label, text } : undefined;
     case "copy":
       return text ? { kind, label, text } : undefined;
+    case "slack_query":
+    case "slack_task":
+    case "slack_attach": {
+      const conv = typeof a.conv === "string" ? a.conv : "";
+      return conv && conv === allowed.slackConv ? ({ kind, label, conv } as SummonAction) : undefined;
+    }
     default:
       return undefined;
   }
@@ -174,6 +184,7 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
       input.candidates.map((c) => [c.task.id, Object.fromEntries((c.task.pending ?? []).map((p) => [p.id, p.type]))]),
     ),
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
+    ...(input.slackConv ? { slackConv: input.slackConv } : {}),
   };
   const { system, prompt } = cardPrompt(input);
   const ctrl = new AbortController();

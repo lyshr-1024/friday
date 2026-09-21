@@ -1,9 +1,7 @@
 import type { Desk } from "@friday/shared";
-import { askStream } from "./claude.js";
-import { TRIAGE_MODEL } from "./triage.js";
+import { askStream, SONNET_MODEL } from "./claude.js";
 import { config } from "../config.js";
 import { runningJobs } from "../memory/jobs.js";
-import { listThreads } from "../memory/threads.js";
 import { listOpenTodos } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
 
@@ -18,24 +16,18 @@ function greeting(now = new Date()): string {
 /** 汇总等你回的人、到期待办、进行中的任务，让 Sonnet 写三五行“现在先做什么”。素材没变时 10 分钟内直接用缓存。 */
 export async function buildDesk(): Promise<Desk> {
   const { name } = userSettings();
-  const threads = listThreads("open")
-    .filter((t) => t.brief?.needsReply)
-    .sort((a, b) => rank(a.brief!.urgency) - rank(b.brief!.urgency) || Number(b.lastTs) - Number(a.lastTs))
-    .slice(0, 6)
-    .map((t) => ({ id: t.id, userName: t.userName, situation: t.brief!.situation, needs: t.brief!.needs, urgency: t.brief!.urgency }));
+  const threads: Desk["threads"] = [];
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
   const todos = listOpenTodos()
     .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"))
     .slice(0, 8);
   const jobs = runningJobs();
-  const key = JSON.stringify([threads.map((t) => t.id + t.situation), todos.map((t) => t.id), jobs.map((j) => j.id)]);
+  const key = JSON.stringify([todos.map((t) => t.id), jobs.map((j) => j.id)]);
   if (cache && cache.key === key && Date.now() - new Date(cache.desk.generatedAt).getTime() < CACHE_MS) {
     return { ...cache.desk, greeting: greeting() };
   }
 
   const prompt = [
-    `等回复的人（${threads.length}）：`,
-    ...threads.map((t) => `- ${t.userName}［${t.urgency}］${t.situation}｜需要你：${t.needs}`),
     `待办（${todos.length}，今天 ${today}）：`,
     ...todos.map((t) => `- ${t.text}${t.due ? `（截止 ${t.due}${t.due < today ? "，已过期" : t.due === today ? "，今天" : ""}）` : ""}`),
     `进行中的终端任务（${jobs.length}）：`,
@@ -49,7 +41,7 @@ export async function buildDesk(): Promise<Desk> {
         `现在是 ${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。`,
       ].join("\n"),
       cwd: config.dataDir,
-      model: TRIAGE_MODEL,
+      model: SONNET_MODEL,
       label: "desk",
     })) {
       if (ev.type === "delta") advice += ev.text;
@@ -63,4 +55,3 @@ export async function buildDesk(): Promise<Desk> {
   return desk;
 }
 
-const rank = (u: string) => (u === "high" ? 0 : u === "normal" ? 1 : 2);

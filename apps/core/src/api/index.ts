@@ -13,13 +13,13 @@ import { events } from "./events.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
-import { threads } from "./threads.js";
 import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
 import { links } from "./links.js";
 import { memory } from "./memory.js";
 import { searchApi } from "./search.js";
+import { slack } from "./slack.js";
 import { usage } from "./usage.js";
 import { summonApi } from "./summon.js";
 
@@ -41,13 +41,13 @@ export const app = new Hono()
   .route("/", inbox)
   .route("/", jobs)
   .route("/", attachments)
-  .route("/", threads)
   .route("/", desk)
   .route("/", tasks)
   .route("/", route)
   .route("/", mcp)
   .route("/", events)
   .route("/", links)
+  .route("/", slack)
   .route("/", usage)
   .route("/", activity)
   .route("/", summonApi);
