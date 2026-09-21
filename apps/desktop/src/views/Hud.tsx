@@ -102,7 +102,7 @@ export function Hud() {
       setNote(null);
       try {
         const board = await taskBoard();
-        setAttaching({ conv: a.conv, tasks: board.tasks });
+        setAttaching({ conv: a.conv, tasks: board.tasks.filter((t) => t.status !== "done").slice(0, 12) });
       } catch (e) {
         setNote({ text: e instanceof Error ? e.message : "拿不到任务列表", err: true });
       } finally {

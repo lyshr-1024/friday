@@ -2215,6 +2215,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 `apps/core/src/settings.ts` 与 `packages/shared/src/index.ts` 的 `SettingsUpdate` 删 `learn?: boolean`。
 
+连带删掉整条已断的链路：`Settings.tsx` 的 `runReview` 函数与 `reviewing` / `review` 两个 state、`lib/core.ts` 的 `reviewNow`。它的后端接口 `POST /tasks/review` 已在 Task 8 删除，这个按钮现在点下去必然报错。**注意别和并排的「从 Claude Code 学」搞混**（`learnHistory` 开关 + `runLearn` + `learnHistory()` API，后端 `POST /tasks/learn-history` 仍在），那条保留不动。
+
 - [ ] **Step 2: 确认通知面**
 
 `apps/core/src/scheduler/index.ts` 里原先被注释掉的 `needReply` 通知那三行（连同 `void needReply;`）整段删掉。确认 `state.notices` 只剩任务结束与终端提问两处推入。
@@ -2222,19 +2224,35 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 Run: `grep -rn "state.notices.push" apps/core/src`
 Expected: 只在 `api/jobs.ts`（任务结束）、`agent/bridge.ts`（终端在等你回答）、`api/inbox.ts`（测试通知）三处。
 
-- [ ] **Step 3: 删前端死代码**
+- [ ] **Step 2.5: HUD「挂到…」下拉只列还在办的任务**
+
+`apps/desktop/src/views/Hud.tsx:105` 把 `taskBoard().tasks` 原样渲染成挂靠候选。`taskBoard` 只滤掉了 `ignored`，`done` 仍在列表里——把新对话挂到已完成的任务上没有意义，且列表不排序、不限条数，任务一多就难用。改成：
+
+```tsx
+setAttaching({ conv: a.conv, tasks: board.tasks.filter((t) => t.status !== "done").slice(0, 12) });
+```
+
+（`board.tasks` 已按更新时间倒序，取前 12 条即最近在办的。）
+
+- [ ] **Step 3: 删掉旧收件箱的转发死路径**
+
+`apps/core/src/api/inbox.ts` 的 `handoffTask` 与 `POST /inbox/:id/handle` 是旧收件箱时代的「把这条消息交给 Claude Code」入口。Task 8 删掉判断层后，`handoffTask` 的标题已退化成固定文案「处理这条 Slack 消息」，而前端 `lib/core.ts` 的 `inboxHandle` 包装函数**没有任何界面调用**（已 grep 确认）。整条路径删掉：`api/inbox.ts` 的 `handoffTask` 函数与那个路由、`lib/core.ts` 的 `inboxHandle`。
+
+删完确认 `apps/core/src/api/inbox.ts` 里 `randomUUID` / `launchClaude` / `createJob` / `setGhosttyId` / `resolveProject` / `userSettings` 这些只被该路由使用的 import 也一并清掉，别留孤儿。
+
+- [ ] **Step 4: 删前端死代码**
 
 `apps/desktop/src/views/shared.tsx` 里 `TodoList`(:7)、`InboxList`(:183)、`ThreadCard`(:270) 三个组件**全前端零引用**（已 grep 确认，`Hud.tsx` 也没用），连同它们用到的 `Thread` / `Todo` / `InboxItem` 类型 import 一起删。
 
 Run: `grep -rn "InboxList\|ThreadCard\|TodoList\|threadAction\|learnStats\|reviewNow\|triage" apps/desktop/src`
 Expected: 无命中。
 
-- [ ] **Step 4: 全量验证**
+- [ ] **Step 5: 全量验证**
 
 Run: `cd /Users/jinghaoran/hr-lys/friday-feat-slack-link-source && pnpm typecheck && pnpm test`
 Expected: 全绿。
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
 git add -A

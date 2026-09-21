@@ -11,7 +11,6 @@ export interface UserSettings {
   skills: boolean;
   name: string;
   theme: ThemeId;
-  /** 每天复盘一次人工处理：看用户怎么处置草稿，重写经验手册 */
   /** 每周从 Claude Code 历史提炼项目手册 */
   learnHistory: boolean;
   summon: SummonSettings;

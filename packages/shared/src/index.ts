@@ -120,7 +120,6 @@ export interface SettingsUpdate {
   skills?: boolean;
   name?: string;
   theme?: ThemeId;
-  learn?: boolean;
   learnHistory?: boolean;
   summon?: Partial<SummonSettings>;
 }

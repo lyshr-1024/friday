@@ -1,28 +1,8 @@
 import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
-import type { Attachment, HotItem, InboxItem, Job, Message, RunResponse, Todo } from "@friday/shared";
+import type { Attachment, HotItem, Job, Message, RunResponse } from "@friday/shared";
 import { attachmentUrl, jobFocus } from "../lib/core";
-
-export function TodoList({ todos }: { todos: Todo[] }) {
-  return (
-    <ul className="todos">
-      {todos.map((t) => (
-        <li key={t.id} className={`todo todo--${t.source}`}>
-          <span className="todo__source mono">{t.source}</span>
-          {t.sourceUrl ? (
-            <a href={t.sourceUrl} onClick={(e) => { e.preventDefault(); void openUrl(t.sourceUrl!); }}>
-              {t.text}
-            </a>
-          ) : (
-            <span>{t.text}</span>
-          )}
-          {t.due && <span className="todo__due mono">{t.due}</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   if (m.kind === "error") return <div className="err">{m.content}</div>;
@@ -177,46 +157,6 @@ export function HotList({ items }: { items: HotItem[] }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-export function InboxList({
-  items,
-  onDone,
-  onOpen,
-}: {
-  items: InboxItem[];
-  onDone?: (id: string) => void;
-  /** 在会话窗里带着这条消息开新对话 */
-  onOpen?: (item: InboxItem) => void;
-}) {
-  if (!items.length) return <div className="empty">没有待处理的 Slack 消息，有人找你时会出现在这里</div>;
-  return (
-    <ul className="inbox">
-      {items.map((it) => (
-        <li key={it.id} className="inbox__item inbox__item--normal">
-          <div className="inbox__head">
-            <span className="inbox__who">{it.userName}</span>
-            <span className="inbox__where mono">{it.channelName}</span>
-            <span className="inbox__time mono">{fmtTime(new Date(Number(it.ts) * 1000).toISOString())}</span>
-          </div>
-          <div className="inbox__summary">{it.text}</div>
-          <div className="inbox__actions">
-            {onOpen && (
-              <button className="inbox__go" onClick={() => onOpen(it)}>
-                在会话里处理
-              </button>
-            )}
-            {(it.appLink || it.permalink) && (
-              <a href={it.permalink} onClick={(e) => { e.preventDefault(); void openUrl(it.appLink ?? it.permalink); }}>
-                在 Slack 打开
-              </a>
-            )}
-            {onDone && <button onClick={() => onDone(it.id)}>已处理</button>}
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }
 

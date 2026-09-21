@@ -337,43 +337,6 @@ kbd {
   overflow: hidden;
   font-size: var(--t-sm);
 }
-.todo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  line-height: 1.45;
-  font-size: var(--t-body);
-}
-.todo + .todo {
-  border-top: 1px solid var(--separator);
-}
-.todo:hover {
-  background: var(--fill-2);
-}
-.todo a,
-.todo > span:nth-child(2) {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--label);
-  text-decoration: none;
-}
-.todo__source {
-  font-family: var(--font);
-  flex: none;
-  width: 48px;
-  color: var(--label-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 10px;
-  font-weight: 600;
-}
-.todo--meegle .todo__source {
-  color: var(--label-2);
-}
 .todo__due {
   font-family: var(--font);
   flex: none;
@@ -596,29 +559,6 @@ kbd {
 }
 .msg + .msg--user {
   margin-top: 18px;
-}
-
-.todos-fold {
-  margin-top: 8px;
-  font-family: var(--font);
-}
-.todos-fold summary {
-  font-size: var(--t-xs);
-  color: var(--label-2);
-  cursor: default;
-  list-style: none;
-}
-.todos-fold summary::before {
-  content: "›";
-  display: inline-block;
-  width: 12px;
-  transition: transform 120ms;
-}
-.todos-fold[open] summary::before {
-  transform: rotate(90deg);
-}
-.todos-fold .todos {
-  margin-top: 8px;
 }
 
 @keyframes sweep {
@@ -1248,110 +1188,6 @@ kbd {
   opacity: var(--o-disabled);
 }
 
-/* ---------- Slack 收件 ---------- */
-
-.inbox {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.inbox__item {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--fill);
-  border-left: 3px solid var(--separator);
-}
-.inbox__item--high {
-  border-left-color: var(--live);
-}
-.inbox__item--low {
-  opacity: 0.75;
-}
-.inbox__head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--t-aux);
-}
-.inbox__who {
-  font-weight: 600;
-}
-.inbox__where {
-  color: var(--label-3);
-}
-.inbox__tag {
-  font-size: 10.5px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-5);
-  color: var(--fg-1);
-  font-weight: 600;
-}
-.inbox__time {
-  margin-left: auto;
-  color: var(--label-3);
-}
-.inbox__summary {
-  margin-top: 4px;
-  font-size: var(--t-body);
-  line-height: 1.5;
-}
-.inbox__draft {
-  margin-top: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--card);
-  font-size: var(--t-aux);
-  line-height: 1.5;
-  color: var(--label-2);
-}
-.inbox__actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 12px;
-  font-size: var(--t-xs);
-}
-.inbox__actions a,
-.inbox__actions button {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: var(--t-xs);
-  color: var(--label-2);
-  text-decoration: none;
-  cursor: default;
-}
-.inbox__actions a:hover,
-.inbox__actions button:hover {
-  color: var(--label);
-  text-decoration: underline;
-}
-
-.inbox__project {
-  font-size: 10.5px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--fill-2);
-  color: var(--label-2);
-}
-.inbox__actions .inbox__go {
-  color: var(--label);
-  font-weight: 500;
-}
-
-.inbox__text {
-  margin-top: 4px;
-  font-size: var(--t-xs);
-  line-height: 1.5;
-  color: var(--label-2);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 .side__spin {
   display: inline-block;
   width: 1em;
@@ -1598,9 +1434,6 @@ kbd {
 .answer,
 .link,
 .msg,
-.inbox__summary,
-.inbox__text,
-.inbox__draft,
 .hot__title,
 .hot__summary,
 .job__last,

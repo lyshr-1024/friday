@@ -223,12 +223,6 @@ export async function learnHistory(): Promise<{ taskId?: string; groups?: number
   return res.json();
 }
 
-export async function reviewNow(): Promise<{ skipped?: string; categories?: string[] }> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/review`, { method: "POST" });
-  if (!res.ok) throw new Error(`core 返回 ${res.status}`);
-  return res.json();
-}
-
 export async function readMemory(name: MemoryFile): Promise<MemoryFileResponse> {
   const res = await fetch(`${await coreBaseUrl()}/memory/${name}`);
   if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);
@@ -264,16 +258,6 @@ export async function inbox(sync = false, signal?: AbortSignal): Promise<InboxRe
 export async function inboxDone(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/done`, { method: "POST" });
   if (!res.ok) throw new Error(`标记失败：core 返回 ${res.status}`);
-}
-
-export async function inboxHandle(id: string, project?: string): Promise<RunResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/inbox/${encodeURIComponent(id)}/handle`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(project ? { project } : {}),
-  });
-  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
-  return res.json();
 }
 
 export async function deleteConversation(id: string): Promise<void> {
