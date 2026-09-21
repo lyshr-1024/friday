@@ -4976,13 +4976,24 @@ body:has(.hud)::-webkit-scrollbar {
   /* 1px：跟卡片自己的边框同宽，像边框亮起来了而不是多贴了一条带子。
      细到这个程度还能一眼看见，靠的是下面那道发光而不是线宽。 */
   padding: 1px;
-  /* 开着但没在敲：整圈常亮不动。跟「在敲」同一圈形状，差别只在动不动——
-     余光先认出「整圈亮着 = 有窗口」，再看动不动分辨它在干活还是在等你。 */
-  background: var(--live);
-  /* 0.85 而不是更低：量过一次，0.5 对近黑底只有 3.84:1，1px 的线上等于看不见。
-     和「在敲」的区别本来就该落在动不动上，不是靠把它压暗。 */
-  opacity: 0.85;
-  filter: drop-shadow(0 0 6px var(--live-dim));
+  /* 终端还开着就一直有光绕着跑，不分它在不在敲——要表达的是「这条有窗口」，
+     忙不忙下面「终端在做」那段已经在说了。终端没了（gone）整圈才消失。
+     conic-gradient 只有一段是亮的，其余透明，所以底下垫一层极淡的常亮兜底，
+     免得光扫过去之后那几条边整个不见。 */
+  background:
+    conic-gradient(
+      from var(--ang),
+      var(--live-0) 0deg,
+      var(--live-0) 200deg,
+      var(--live) 300deg,
+      #eafbff 340deg,
+      var(--live) 350deg,
+      var(--live-0) 360deg
+    ),
+    linear-gradient(var(--live-dim) 0 0);
+  opacity: 1;
+  /* 线收到 1px 之后光晕要加厚，否则远看就没了 */
+  filter: drop-shadow(0 0 8px var(--live));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -4990,29 +5001,13 @@ body:has(.hud)::-webkit-scrollbar {
   pointer-events: none;
   z-index: 1;
 }
-.deck__card:has(.fx--run)::after {
-  opacity: 1;
-  /* 用 --live-0（同色零透明）而不是 transparent：transparent 是 rgba(0,0,0,0)，
-     跟青色插值会经过一段发灰的中间色，光带看着脏 */
-  background: conic-gradient(
-    from var(--ang),
-    var(--live-0) 0deg,
-    var(--live-0) 200deg,
-    var(--live) 300deg,
-    #eafbff 340deg,
-    var(--live) 350deg,
-    var(--live-0) 360deg
-  );
-  /* 线收到 1px 之后光晕要加厚，否则远看就没了 */
-  filter: drop-shadow(0 0 8px var(--live));
-}
 @property --ang {
   syntax: "<angle>";
   initial-value: 0deg;
   inherits: false;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .deck__card:has(.fx--run)::after {
+  .deck__card:has(.fx--live)::after {
     animation: hud-orbit 3.2s linear infinite;
   }
   @keyframes hud-orbit {
@@ -5022,13 +5017,9 @@ body:has(.hud)::-webkit-scrollbar {
 /* 关了动效：两档都是整圈常亮，只能靠亮度分——在敲的满亮带光晕，
    开着在等你的压到 0.3 且不发光 */
 @media (prefers-reduced-motion: reduce) {
-  .deck__card:has(.fx--run)::after {
+  .deck__card:has(.fx--live)::after {
     background: var(--live);
     opacity: 0.85;
-  }
-  .deck__card:has(.fx--live):not(:has(.fx--run))::after {
-    opacity: 0.3;
-    filter: none;
   }
 }
 

@@ -959,9 +959,8 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
   const [acts, setActs] = useState<Activity[]>([]);
-  // 边框流线分两档，同一圈形状：正在敲是光绕着跑，开着在等你是常亮不动
+  // 终端还开着，边框上就一直有光绕着跑；终端没了才灭
   const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
-  const running = live && t.terminal === "busy";
   // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
   useEffect(() => {
     const jobId = t.source.jobId;
@@ -1112,7 +1111,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   return (
     <>
     <article
-      className={`fx ${live ? "fx--live" : ""} ${running ? "fx--run" : ""}`}
+      className={`fx ${live ? "fx--live" : ""}`}
       ref={(el) => {
         fxRef.current = el;
         if (typeof ref === "function") ref(el);
