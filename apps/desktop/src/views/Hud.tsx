@@ -294,6 +294,8 @@ export function Hud() {
 
   return (
     <div className="hud" ref={rootRef}>
+      {/* 背景图单独一层：.hud 的 ::before/::after 被四角标记占着 */}
+      <div className="hud__bg" aria-hidden="true" />
       <div
         className="hud__bar"
         onMouseDown={(e) => {
