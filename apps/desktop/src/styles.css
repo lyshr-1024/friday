@@ -5354,19 +5354,35 @@ body:has(.hud)::-webkit-scrollbar {
 /* 读数条那五格、轮播里的任务卡、右侧锚点栏：这三处都是按纯色底调的实心面板，
    铺了图之后边缘显得很硬（用户反馈「这两块还是这么尖锐」）。统一改成：
    跟着 --veil-floor 半透 + 圆角 + 模糊，让它们落在图上而不是切在图上。 */
+/* 读数条：.gauges 是占满版心的布局盒（left 50 / right 1450），而看得见的格子
+   .g 只从 138 排到 1166——圆角加在 .gauges 上等于加在两边的空白内边距上，
+   格子本身仍然是直角。所以底和圆角都要画在 .g 这一层，并且让整条的
+   左右边缘对齐下面 .find / .fx 那根 138 的轴。 */
+/* 读数条原本和 .deck__stage 共用同一套 padding（含窄窗时让开红绿灯的 88px），
+   本来就是对齐的——不要去动它的盒子。这里只让右边缘停在锚点栏左侧，
+   跟下面的 .find / 卡片同宽。 */
+:root[data-bg="on"] .gauges {
+  padding-right: calc(var(--s-4) + 248px + var(--s-5));
+}
 :root[data-bg="on"] .g {
   background: color-mix(in srgb, var(--bg-1) calc(var(--veil-floor) * 100%), transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-color: color-mix(in srgb, var(--line-1) 60%, transparent);
+  /* 边框用前景色兑出来：--line-* 是给纯色底调的冷灰，压在图上跟画面完全不搭 */
+  border-color: color-mix(in srgb, var(--fg-1) 12%, transparent);
+  padding-left: var(--s-3);
+  padding-right: var(--s-3);
 }
-:root[data-bg="on"] .gauges {
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
+/* 整条只在两头收圆，中间那几格保持平接，看起来是一条而不是五个盒子 */
 :root[data-bg="on"] .g:first-child {
   border-left-width: 1px;
-  border-left-color: transparent;
+  border-top-left-radius: var(--r-md);
+  border-bottom-left-radius: var(--r-md);
+}
+:root[data-bg="on"] .g:last-child {
+  border-right-width: 1px;
+  border-top-right-radius: var(--r-md);
+  border-bottom-right-radius: var(--r-md);
 }
 
 :root[data-bg="on"] .deck__card .fx {
@@ -5378,7 +5394,7 @@ body:has(.hud)::-webkit-scrollbar {
   background: color-mix(in srgb, var(--bg-2) calc(min(1, var(--veil-floor) + 0.08) * 100%), transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-color: color-mix(in srgb, var(--line-2) 70%, transparent);
+  border-color: color-mix(in srgb, var(--fg-1) 14%, transparent);
   border-radius: var(--r-lg);
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.28),
@@ -5396,7 +5412,7 @@ body:has(.hud)::-webkit-scrollbar {
   background: color-mix(in srgb, var(--bg-2) calc(var(--veil-floor) * 100%), transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-color: color-mix(in srgb, var(--line-2) 70%, transparent);
+  border-color: color-mix(in srgb, var(--fg-1) 14%, transparent);
 }
 
 /* 内容抬到图层之上 */
