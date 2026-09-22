@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { TASK_CATEGORY_LABEL, type SearchHit, type SearchResult } from "@friday/shared";
 import { searchAll } from "../lib/core";
 import { fmtTime } from "./shared";
+import { useImeGuard } from "../lib/ime";
 
 const EMPTY: SearchResult = { tasks: [], messages: [] };
 
@@ -19,6 +20,7 @@ export function Search({ onClose, onPickTask, onPickConversation }: {
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const ime = useImeGuard();
   // 快打时前一个请求可能后到，用序号丢掉过期结果
   const seq = useRef(0);
 
@@ -75,6 +77,7 @@ export function Search({ onClose, onPickTask, onPickConversation }: {
       e.preventDefault();
       setActive((i) => (flat.length ? (i - 1 + flat.length) % flat.length : 0));
     } else if (e.key === "Enter") {
+      if (ime.isImeEnter(e)) return;
       e.preventDefault();
       const hit = flat[active];
       if (hit) pick(hit);
@@ -93,6 +96,7 @@ export function Search({ onClose, onPickTask, onPickConversation }: {
             onChange={(e) => setQ(e.target.value)}
             placeholder="搜需求、缺陷、对话…"
             spellCheck={false}
+            {...ime.handlers}
           />
           {busy && <span className="side__spin" />}
           <kbd>Esc</kbd>

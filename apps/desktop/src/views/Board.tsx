@@ -5,6 +5,7 @@ import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
+import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 
 export type BoardView = "queue" | "all" | "ledger";
@@ -141,6 +142,7 @@ function DocsEditor({ t, onAct, onDone }: { t: Task; onAct: (t: Task, fn: () => 
     Object.fromEntries(DOC_LABELS.map(([k]) => [k, t.source.docs?.[k] ?? ""])),
   );
   const [err, setErr] = useState("");
+  const ime = useImeGuard();
   const save = async () => {
     const bad = DOC_LABELS.find(([k]) => draft[k] && !/^https?:\/\//i.test(draft[k]!.trim()));
     if (bad) { setErr(`${bad[1]} 得是 http/https 开头的完整链接`); return; }
@@ -160,7 +162,8 @@ function DocsEditor({ t, onAct, onDone }: { t: Task; onAct: (t: Task, fn: () => 
             placeholder="贴链接，留空就是没有"
             value={draft[k] ?? ""}
             onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); onDone(); } }}
+            {...ime.handlers}
+            onKeyDown={(e) => { if (e.key === "Enter") { if (ime.isImeEnter(e)) return; e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); onDone(); } }}
           />
         </label>
       ))}
@@ -848,6 +851,7 @@ function NewTask({ projects, onClose, onDone }: { projects: Array<{ name: string
   const [project, setProject] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const ime = useImeGuard();
   async function submit() {
     if (!title.trim() || busy) return;
     setBusy(true);
@@ -870,7 +874,8 @@ function NewTask({ projects, onClose, onDone }: { projects: Array<{ name: string
           value={title}
           placeholder="要做什么"
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
+          {...ime.handlers}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { if (ime.isImeEnter(e)) return; e.preventDefault(); void submit(); } if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
         />
         <textarea
           value={note}
@@ -917,6 +922,7 @@ function DeleteConfirm({ t, onClose, onConfirm }: { t: Task; onClose: () => void
 function TaskEditor({ t, onClose, onSaved }: { t: Task; onClose: () => void; onSaved: (fn: () => Promise<unknown>) => void }) {
   const [title, setTitle] = useState(t.title);
   const [understanding, setUnderstanding] = useState(t.understanding ?? "");
+  const ime = useImeGuard();
   const dirty = title.trim() !== t.title || understanding !== (t.understanding ?? "");
   const save = () => {
     if (!title.trim() || !dirty) return;
@@ -931,7 +937,7 @@ function TaskEditor({ t, onClose, onSaved }: { t: Task; onClose: () => void; onS
       <div className="modal__box" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="编辑任务">
         <label className="modal__row">
           <span className="k">标题</span>
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} {...ime.handlers} onKeyDown={(e) => { if (e.key === "Enter") { if (ime.isImeEnter(e)) return; e.preventDefault(); save(); } }} />
         </label>
         <label className="modal__row">
           <span className="k">理解</span>

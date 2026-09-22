@@ -6,6 +6,7 @@ import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@fri
 import { attachConversation, coreBaseUrl, summonRelay, taskBoard } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
+import { useImeGuard } from "../lib/ime";
 
 const HUD_WIDTH = 560;
 
@@ -27,6 +28,7 @@ export function Hud() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
+  const ime = useImeGuard();
 
   const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
   // 键盘不代劳不可逆动作：起 Claude Code 干活、标完成都会真的改东西，
@@ -380,8 +382,10 @@ export function Hud() {
             value={ask}
             disabled={asking}
             onChange={(e) => setAsk(e.target.value)}
+            {...ime.handlers}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
+                if (ime.isImeEnter(e)) return;
                 e.preventDefault();
                 e.stopPropagation();
                 void sendAsk();
