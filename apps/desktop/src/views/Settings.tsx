@@ -1,7 +1,7 @@
 import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
+import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
 import { applyTheme, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
@@ -164,7 +164,7 @@ export function Settings() {
         <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
           <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>
-        <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write。开着时每轮都要读 skill 文档、最多跑 30 轮，一次提问可能到 $1；不常用 skill 就关掉">
+        <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write。开着时每轮都要读 skill 文档、最多跑 30 轮，比关掉贵不少；不常用 skill 就关掉">
           <button
             className={`switch ${prefs?.skills ? "switch--on" : ""}`}
             role="switch"
@@ -173,6 +173,18 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ skills: !prefs.skills }).then(setPrefs)}
           />
         </Row>
+        {prefs?.skills && (
+          <Row label="放行哪些 skill" hint="全放会把本机每个 skill 的描述都塞进每轮上下文（实测 51KB，占注入量六成）。精选只放助理类那几个（飞书、Meegle、浏览器），改代码的 skill 归终端">
+            <select
+              className="model-select"
+              value={prefs.skillList === "all" ? "all" : "curated"}
+              onChange={(e) => void updateSettings({ skillList: e.target.value === "all" ? "all" : [...DEFAULT_SKILL_LIST] }).then(setPrefs)}
+            >
+              <option value="curated">精选 {DEFAULT_SKILL_LIST.length} 个</option>
+              <option value="all">全部（贵）</option>
+            </select>
+          </Row>
+        )}
         <Row label="从 Claude Code 学" hint="每周扫一次你在 Claude Code 里说过的话，提炼成项目手册挂成待审；一轮约 $0.2，冷启动那次约 $1">
           <button
             className={`switch ${prefs?.learnHistory ? "switch--on" : ""}`}

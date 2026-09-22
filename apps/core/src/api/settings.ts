@@ -9,6 +9,7 @@ const patch = z.object({
   terminal: z.enum(["ghostty", "terminal"]).optional(),
   model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
   skills: z.boolean().optional(),
+  skillList: z.union([z.literal("all"), z.array(z.string().min(1).max(80)).max(200)]).optional(),
   name: z.string().max(40).optional(),
   theme: z.enum(THEME_OPTIONS.map((t) => t.id) as [string, ...string[]]).optional(),
   learn: z.boolean().optional(),

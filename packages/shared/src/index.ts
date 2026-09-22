@@ -102,10 +102,35 @@ export const THEME_OPTIONS = [
 ] as const;
 export type ThemeId = (typeof THEME_OPTIONS)[number]["id"];
 
+/**
+ * Skill 模式默认只放行这几个 skill。
+ * 放行全部会把本机所有 skill 的描述塞进每轮上下文（实测 51KB，占注入量的六成），
+ * 而 Friday 用得上的只有助理类这几个——改代码的 skill 归终端里的 Claude Code。
+ * 名字对应 SKILL.md 的 name / 目录名，settings.json 里 skillList 可覆盖。
+ */
+export const DEFAULT_SKILL_LIST = [
+  "lark-calendar",
+  "lark-im",
+  "lark-doc",
+  "lark-task",
+  "lark-mail",
+  "lark-contact",
+  "lark-wiki",
+  "lark-minutes",
+  "lark-vc",
+  "lark-approval",
+  "lark-shared",
+  "meegle",
+  "harua-work-summary",
+  "agent-browser",
+] as const;
+
 export interface SettingsResponse {
   terminal: TerminalApp;
   model: ModelId;
   skills: boolean;
+  /** Skill 模式放行哪些 skill；"all" 表示全放（贵） */
+  skillList: string[] | "all";
   name: string;
   theme: ThemeId;
   learnHistory: boolean;
@@ -118,6 +143,7 @@ export interface SettingsUpdate {
   terminal?: TerminalApp;
   model?: ModelId;
   skills?: boolean;
+  skillList?: string[] | "all";
   name?: string;
   theme?: ThemeId;
   learnHistory?: boolean;

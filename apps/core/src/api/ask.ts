@@ -77,6 +77,7 @@ export const ask = new Hono()
         systemPrompt: friday(loadMemoryContext(), prefs.skills, taskBlock(conv)),
         cwd: config.dataDir,
         skills: prefs.skills,
+        skillList: prefs.skillList,
         ...(resume ? { resume } : {}),
         ...(prefs.model ? { model: prefs.model } : {}),
       },

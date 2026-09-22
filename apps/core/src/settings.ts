@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
+import { DEFAULT_SKILL_LIST, DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
 
 export type TerminalApp = "ghostty" | "terminal";
@@ -9,6 +9,8 @@ export interface UserSettings {
   terminal: TerminalApp;
   model: ModelId;
   skills: boolean;
+  /** Skill 模式放行哪些 skill；"all" 全放，会把每个 skill 的描述都塞进上下文 */
+  skillList: string[] | "all";
   name: string;
   theme: ThemeId;
   /** 每周从 Claude Code 历史提炼项目手册 */
@@ -29,7 +31,17 @@ function mergeSummon(raw: unknown): SummonSettings {
   };
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
+
+/** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
+function readSkillList(raw: unknown): string[] | "all" {
+  if (raw === "all") return "all";
+  if (Array.isArray(raw)) {
+    const names = raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim());
+    if (names.length) return names;
+  }
+  return [...DEFAULT_SKILL_LIST];
+}
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
@@ -51,6 +63,7 @@ export function userSettings(): UserSettings {
     terminal: raw.terminal === "terminal" || raw.terminal === "ghostty" ? raw.terminal : DEFAULTS.terminal,
     model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
+    skillList: readSkillList(raw.skillList),
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
@@ -63,6 +76,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.terminal !== undefined) raw.terminal = patch.terminal;
   if (patch.model !== undefined) raw.model = patch.model;
   if (patch.skills !== undefined) raw.skills = patch.skills;
+  if (patch.skillList !== undefined) raw.skillList = patch.skillList;
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;

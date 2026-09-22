@@ -247,7 +247,30 @@ apps/core/src/
 - **记忆库按需读**（`memory/context.ts`）：`projects.md` 留着内联（判断「说的是哪个项目」几乎每次都要拿名字和别名对一遍），`people.md`（实测 3746 字符）和 `decisions.md`（2178）改成提示里说一句「需要时 `memory_read` 读，不要凭印象编」。按真实记忆库实测**每轮 system prompt 从 12644 降到 6840 字符，省 46%**。文件为空时不提那句，免得让它去读空文件。实测问「拂晓是谁」它会自己去读 people.md，问待办则直接用内联块不多跑一轮。
   `MemoryContext` 因此从 `{projects, decisions, people, todos}` 变成 `{projects, todos, hasPeople, hasDecisions}`。待办块顺带从 `todos` 表改读 `tasks`（记待办已统一建任务，原来注入的是陈旧内容）。
 - **`route` 与 `continuation` 换 Haiku**（`claude-haiku-4-5`，实测可用）：两个都是「输出一个 JSON 做二选一」的小任务，判错代价也小（route 接错有「其实是新话题」可点，continuation 判不准时提示词要求答 false 偏保守）。**`triage` 和 `brief` 留 Sonnet**——要读懂中文语境、写能直接发出去的草稿，brief 更是界面的核心输出，降级会明显变差。
-- **Skill 模式开关补成本说明**：「开着时每轮都要读 skill 文档、最多跑 30 轮，一次提问可能到 $1；不常用 skill 就关掉」。**默认值没动**（仍是 `skills: true`）——那是使用习惯，留给用户自己决定。
+- **Skill 模式开关补成本说明**：「开着时每轮都要读 skill 文档、最多跑 30 轮，比关掉贵不少；不常用 skill 就关掉」。**默认值没动**（仍是 `skills: true`）——那是使用习惯，留给用户自己决定。
+
+## /ask 的大头是 skill_listing，不是多轮上下文（2026-09-22 量过）
+
+2026-09-17 的 `2e3143f 去掉多轮会话` 把 $233 的账算在 resume 头上，方向判错了。扒 transcript 里
+`type: "attachment"` 各项的体积才看出来：**Skill 模式每轮注入的整份 skill 目录（`skill_listing`）
+一项就 51KB，占注入量六成**；而带 resume 那轮反倒是唯一一次真正命中缓存的（cache_read 18k），
+同一轮内部的工具调用之间 cache_read 本来就是 0。
+
+- **resume 已恢复**（`api/ask.ts`）：没有上下文的代价是用户贴个链接下一轮就不认得，得重问一遍。
+  保留「transcript 文件还在才带」的判断（de94529），文件被清掉时 resume 会直接报错。
+- **skill 放行清单**：SDK 的 `skills?: string[] | "all"` 是个上下文过滤器——没列出的 skill 不进
+  模型看到的清单、Skill 工具也调不动，但**文件还在磁盘上，Read / Bash 照样够得着，所以它不是沙箱**。
+  默认只放 `DEFAULT_SKILL_LIST`（`packages/shared`）那 14 个助理类的（飞书各件、meegle、
+  agent-browser、harua-work-summary）——改代码的 skill 归终端里的 Claude Code，Friday 用不上。
+  `settings.json` 的 `skillList` 可覆盖，设置页「放行哪些 skill」能切「精选 / 全部」。
+  **空数组当没配处理**，否则等于一个都不放，Skill 模式会静悄悄失效。
+- **实测**（同一句话、同一模型，Opus）：skill_listing 51780 → 7958 字节（−85%），
+  整轮注入 84KB → 34KB，cache_write 97k → 56k，单轮 $0.98 → $0.57。
+- **还剩的**：`settingSources: ["user"]` 会把用户 `~/.claude` 里的 MCP server 一起带进来，实测
+  `okr` 一家就挂了 33 个工具；剩下 28k 注入里还有 CLAUDE.md（8KB）和 SessionStart hook（12KB）。
+  没动——那些是用户自己的配置，Friday 不该替他裁。
+- **再遇到「Friday 太贵」**：先按 `attachment.type` 分组量 `~/.claude/projects/<编码过的 dataDir>/<session>.jsonl`
+  的体积，别先怀疑会话轮数。
 
 ## 用量展示（2026-09-16，左栏底部）
 
