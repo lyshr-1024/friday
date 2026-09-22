@@ -5287,7 +5287,7 @@ body:has(.hud)::-webkit-scrollbar {
 
 /* ---- 自定义背景图 ---- */
 /* 图铺在 .chat 上，但正文区 .wb 自己没有底色（一直靠 .chat 的纯色透上来），
-   所以必须在 .wb 上再盖一层веil，否则文字直接压在图上完全没法读。
+   所以必须在 .wb 上再盖一层 veil，否则文字直接压在图上完全没法读。
    面板（.fx / .rail）本来就是实心 token，这里让它们按同一个滑块半透，
    图能透出来一点而对比度仍由 --bg-veil 兜住。 */
 :root[data-bg="on"] .chat::before {
@@ -5308,6 +5308,12 @@ body:has(.hud)::-webkit-scrollbar {
    所以给一个 62% 的下限——滑块仍能调，但不会调到读不了。 */
 :root[data-bg="on"] {
   --veil-floor: max(0.62, var(--bg-veil, 0.82));
+}
+/* 浅色主题的 --bg-1 是 #f4f5f7，往它盖等于往白里盖：图一亮，面板就糊成
+   一块白板，正文和导航反而比深色更不可读（用户实测浅色下最糟）。
+   所以浅色单独抬下限，并给正文区兜一层更实的底。 */
+:root[data-theme="light"][data-bg="on"] {
+  --veil-floor: max(0.88, var(--bg-veil, 0.82));
 }
 :root[data-bg="on"] .wb,
 :root[data-bg="on"] .rail {
@@ -5382,6 +5388,15 @@ body:has(.hud)::-webkit-scrollbar {
 /* 面板下方那道青色辉光是给纯色底加的，压在图上会变成一圈没来由的光晕 */
 :root[data-bg="on"] .anchors::after {
   opacity: 0.35;
+}
+
+/* 幽灵按钮（问 Friday 那个）本来是 background:none，只靠边框。压在图上就是
+   一圈没有面的矩形缝——补一层与面板同源的底，让它也落在图上。 */
+:root[data-bg="on"] .b--ghost {
+  background: color-mix(in srgb, var(--bg-2) calc(var(--veil-floor) * 100%), transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: color-mix(in srgb, var(--line-2) 70%, transparent);
 }
 
 /* 内容抬到图层之上 */
