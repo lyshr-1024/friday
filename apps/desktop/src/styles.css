@@ -4913,8 +4913,7 @@ body:has(.hud)::-webkit-scrollbar {
   padding: 1px;
   /* 终端还开着就一直有光绕着跑，不分它在不在敲——要表达的是「这条有窗口」，
      忙不忙下面「终端在做」那段已经在说了。终端没了（gone）整圈才消失。
-     conic-gradient 只有一段是亮的，其余透明，所以底下垫一层极淡的常亮兜底，
-     免得光扫过去之后那几条边整个不见。 */
+     底色透明：只留转动的那一段，扫过之后其余几条边就空着，不垫常亮兜底。 */
   background:
     conic-gradient(
       from var(--ang),
@@ -4924,8 +4923,7 @@ body:has(.hud)::-webkit-scrollbar {
       var(--live-hi) 340deg,
       var(--live) 350deg,
       var(--live-0) 360deg
-    ),
-    linear-gradient(var(--live-dim) 0 0);
+    );
   opacity: 1;
   /* 线收到 1px 之后光晕要加厚，否则远看就没了 */
   filter: drop-shadow(0 0 8px var(--live));
