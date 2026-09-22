@@ -5286,10 +5286,11 @@ body:has(.hud)::-webkit-scrollbar {
 .fx__meegle-note { margin-left: var(--s-2); opacity: 0.7; }
 
 /* ---- 自定义背景图 ---- */
-/* 图铺在最底层，上面盖一层主题底色（--bg-veil 控浓度），所以四套主题和卡片
-   全都照旧不透明，只有底噪透出图来。没设图时这些规则整个不生效。 */
-:root[data-bg="on"] .chat::before,
-:root[data-bg="on"] .hud::before {
+/* 图铺在 .chat 上，但正文区 .wb 自己没有底色（一直靠 .chat 的纯色透上来），
+   所以必须在 .wb 上再盖一层веil，否则文字直接压在图上完全没法读。
+   面板（.fx / .rail）本来就是实心 token，这里让它们按同一个滑块半透，
+   图能透出来一点而对比度仍由 --bg-veil 兜住。 */
+:root[data-bg="on"] .chat::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -5301,21 +5302,47 @@ body:has(.hud)::-webkit-scrollbar {
   background-repeat: no-repeat;
 }
 
-:root[data-bg="on"] .chat::after,
+/* 正文区的底：图之上、内容之下。
+   --bg-veil 是滑块给的原值，--veil-floor 是实际用的：二级文字（--fg-3/--fg-4）
+   本来就是按纯色底调的对比度，veil 太低时「项目」「还没有链接」这类会糊掉，
+   所以给一个 62% 的下限——滑块仍能调，但不会调到读不了。 */
+:root[data-bg="on"] {
+  --veil-floor: max(0.62, var(--bg-veil, 0.82));
+}
+:root[data-bg="on"] .wb,
+:root[data-bg="on"] .rail {
+  position: relative;
+  background: color-mix(in srgb, var(--bg-1) calc(var(--veil-floor) * 100%), transparent);
+}
+
+/* 卡片和列表：比正文区再实一点，保证长文可读 */
+:root[data-bg="on"] .fx {
+  background: color-mix(in srgb, var(--bg-3) calc(min(1, var(--veil-floor) + 0.12) * 100%), transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* HUD 自己是毛玻璃材质，图压在材质之下 */
+:root[data-bg="on"] .hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: var(--bg-image);
+  background-size: cover;
+  background-position: center;
+}
 :root[data-bg="on"] .hud::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: var(--bg-1);
-  opacity: var(--bg-veil, 0.82);
-}
-
-/* HUD 是毛玻璃，图要压在材质之下、但仍在内容之下 */
-:root[data-bg="on"] .hud::before,
-:root[data-bg="on"] .hud::after {
   border-radius: inherit;
+  background: var(--bg-1);
+  opacity: var(--veil-floor, 0.82);
 }
 
 /* 内容抬到图层之上 */

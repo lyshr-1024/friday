@@ -172,7 +172,7 @@ export function Settings() {
             </div>
           </Row>
           {prefs?.background ? (
-            <Row label="背景浓度" hint="往右图越淡；卡片和列表始终不透明，只有底噪透出图来">
+            <Row label="背景浓度" hint="往右图越淡。为了二级文字还能读，实际浓度不会低于 62%，再往左拖只是图更显但字不会更糊">
               <div className="bgpick">
                 <input
                   type="range"
