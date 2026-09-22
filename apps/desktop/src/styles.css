@@ -5345,6 +5345,45 @@ body:has(.hud)::-webkit-scrollbar {
   opacity: var(--veil-floor, 0.82);
 }
 
+/* 读数条那五格、轮播里的任务卡、右侧锚点栏：这三处都是按纯色底调的实心面板，
+   铺了图之后边缘显得很硬（用户反馈「这两块还是这么尖锐」）。统一改成：
+   跟着 --veil-floor 半透 + 圆角 + 模糊，让它们落在图上而不是切在图上。 */
+:root[data-bg="on"] .g {
+  background: color-mix(in srgb, var(--bg-1) calc(var(--veil-floor) * 100%), transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: color-mix(in srgb, var(--line-1) 60%, transparent);
+}
+:root[data-bg="on"] .gauges {
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+:root[data-bg="on"] .g:first-child {
+  border-left-width: 1px;
+  border-left-color: transparent;
+}
+
+:root[data-bg="on"] .deck__card .fx {
+  border-radius: var(--r-lg);
+}
+
+/* 右侧锚点栏：那圈纯黑描边和青色辉光是给纯色底调的，压在图上就是一道生硬的黑边 */
+:root[data-bg="on"] .anchors {
+  background: color-mix(in srgb, var(--bg-2) calc(min(1, var(--veil-floor) + 0.08) * 100%), transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: color-mix(in srgb, var(--line-2) 70%, transparent);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, var(--fg-1) 8%, transparent);
+}
+
+/* 面板下方那道青色辉光是给纯色底加的，压在图上会变成一圈没来由的光晕 */
+:root[data-bg="on"] .anchors::after {
+  opacity: 0.35;
+}
+
 /* 内容抬到图层之上 */
 :root[data-bg="on"] .chat > *,
 :root[data-bg="on"] .hud > * {
