@@ -13,6 +13,10 @@ export interface UserSettings {
   skillList: string[] | "all";
   name: string;
   theme: ThemeId;
+  /** 背景图的本地绝对路径，空串 = 不用 */
+  background: string;
+  /** 盖在图上那层底色的不透明度 0-100 */
+  backgroundOpacity: number;
   /** 每周从 Claude Code 历史提炼项目手册 */
   learnHistory: boolean;
   summon: SummonSettings;
@@ -31,7 +35,7 @@ function mergeSummon(raw: unknown): SummonSettings {
   };
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, summon: DEFAULT_SUMMON_SETTINGS };
 
 /** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
 function readSkillList(raw: unknown): string[] | "all" {
@@ -66,6 +70,10 @@ export function userSettings(): UserSettings {
     skillList: readSkillList(raw.skillList),
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),
     theme: typeof raw.theme === "string" && THEME_IDS.has(raw.theme) ? (raw.theme as ThemeId) : DEFAULTS.theme,
+    background: typeof raw.background === "string" ? raw.background.trim() : DEFAULTS.background,
+    backgroundOpacity: typeof raw.backgroundOpacity === "number" && Number.isFinite(raw.backgroundOpacity)
+      ? Math.min(100, Math.max(0, Math.round(raw.backgroundOpacity)))
+      : DEFAULTS.backgroundOpacity,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
     summon: mergeSummon(raw.summon),
   };
@@ -79,6 +87,8 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.skillList !== undefined) raw.skillList = patch.skillList;
   if (patch.name !== undefined) raw.name = patch.name;
   if (patch.theme !== undefined) raw.theme = patch.theme;
+  if (patch.background !== undefined) raw.background = patch.background;
+  if (patch.backgroundOpacity !== undefined) raw.backgroundOpacity = patch.backgroundOpacity;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
   if (patch.summon !== undefined) raw.summon = { ...mergeSummon(raw.summon), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));

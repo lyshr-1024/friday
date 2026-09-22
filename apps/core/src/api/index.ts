@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { activity } from "./activity.js";
 import { ask } from "./ask.js";
 import { attachments } from "./attachments.js";
+import { background } from "./background.js";
 import { conversation } from "./conversation.js";
 import { desk } from "./desk.js";
 import { health } from "./health.js";
@@ -41,6 +42,7 @@ export const app = new Hono()
   .route("/", inbox)
   .route("/", jobs)
   .route("/", attachments)
+  .route("/", background)
   .route("/", desk)
   .route("/", tasks)
   .route("/", route)

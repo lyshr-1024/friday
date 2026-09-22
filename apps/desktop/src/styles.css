@@ -5284,3 +5284,65 @@ body:has(.hud)::-webkit-scrollbar {
   font-variant-numeric: tabular-nums;
 }
 .fx__meegle-note { margin-left: var(--s-2); opacity: 0.7; }
+
+/* ---- 自定义背景图 ---- */
+/* 图铺在最底层，上面盖一层主题底色（--bg-veil 控浓度），所以四套主题和卡片
+   全都照旧不透明，只有底噪透出图来。没设图时这些规则整个不生效。 */
+:root[data-bg="on"] .chat::before,
+:root[data-bg="on"] .hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+:root[data-bg="on"] .chat::after,
+:root[data-bg="on"] .hud::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--bg-1);
+  opacity: var(--bg-veil, 0.82);
+}
+
+/* HUD 是毛玻璃，图要压在材质之下、但仍在内容之下 */
+:root[data-bg="on"] .hud::before,
+:root[data-bg="on"] .hud::after {
+  border-radius: inherit;
+}
+
+/* 内容抬到图层之上 */
+:root[data-bg="on"] .chat > *,
+:root[data-bg="on"] .hud > * {
+  position: relative;
+  z-index: 1;
+}
+
+.bgpick {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.bgpick input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--live);
+}
+.bgpick__val {
+  min-width: 3.5em;
+  text-align: right;
+  font-size: var(--t-xs);
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.bgpick__err {
+  font-size: var(--t-xs);
+  color: var(--bad);
+}

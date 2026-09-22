@@ -2,7 +2,8 @@ import { useEffect, useState, cloneElement, isValidElement, useId, type ReactEle
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
-import { applyTheme, broadcastTheme } from "../lib/theme";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
@@ -19,7 +20,30 @@ export function Settings() {
   const [learning, setLearning] = useState(false);
   const [learnNote, setLearnNote] = useState("");
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
+  const [bgNote, setBgNote] = useState("");
+  const [coreUrl, setCoreUrl] = useState("");
   const ime = useImeGuard();
+
+  /** 存背景图；core 会校验类型/大小，失败就把原因显示出来，不动当前设置。 */
+  async function saveBackground(path: string) {
+    setBgNote("");
+    try {
+      const next = await updateSettings({ background: path });
+      setPrefs(next);
+      broadcastBackground({ background: next.background, backgroundOpacity: next.backgroundOpacity }, coreUrl);
+    } catch (e) {
+      setBgNote(e instanceof Error ? e.message : "存不了这张图");
+    }
+  }
+
+  async function pickBackground() {
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp"] }],
+    });
+    if (typeof picked === "string") await saveBackground(picked);
+  }
 
   function refreshPerms() {
     void invoke<PermissionStatus>("permission_status").then(setPerms);
@@ -29,10 +53,11 @@ export function Settings() {
     void isEnabled().then(setAutostart);
     void listHandbooks().then(setHandbooks).catch(() => {});
     void invoke<string>("current_hotkey").then(setHotkey);
-    void settings().then((p) => { setPrefs(p); applyTheme(p.theme); }).catch(() => setPrefs(null));
+    void settings().then(async (p) => { setPrefs(p); applyTheme(p.theme); applyBackground(p, await coreBaseUrl()); }).catch(() => setPrefs(null));
     refreshPerms();
     void (async () => {
       const url = await coreBaseUrl();
+      setCoreUrl(url);
       try {
         const h = await health();
         setCore({ url, version: h.version, ok: true });
@@ -132,6 +157,41 @@ export function Settings() {
               ))}
             </div>
           </Row>
+          <Row label="背景图" hint={prefs?.background ? prefs.background : "工作台和呼出浮窗的底图，支持 png / jpg / webp，10MB 以内"}>
+            <div className="bgpick">
+              <button
+                className="b"
+                disabled={!prefs}
+                onClick={() => { void pickBackground(); }}
+              >
+                选文件…
+              </button>
+              {prefs?.background ? (
+                <button className="b" onClick={() => { void saveBackground(""); }}>清除</button>
+              ) : null}
+            </div>
+          </Row>
+          {prefs?.background ? (
+            <Row label="背景浓度" hint="往右图越淡；卡片和列表始终不透明，只有底噪透出图来">
+              <div className="bgpick">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={prefs.backgroundOpacity}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setPrefs({ ...prefs, backgroundOpacity: v });
+                    broadcastBackground({ background: prefs.background, backgroundOpacity: v }, coreUrl);
+                  }}
+                  onPointerUp={() => { void updateSettings({ backgroundOpacity: prefs.backgroundOpacity }); }}
+                  onKeyUp={() => { void updateSettings({ backgroundOpacity: prefs.backgroundOpacity }); }}
+                />
+                <span className="bgpick__val">{prefs.backgroundOpacity}%</span>
+              </div>
+            </Row>
+          ) : null}
+          {bgNote ? <Row label=""><span className="bgpick__err">{bgNote}</span></Row> : null}
         </div>
       </section>
 

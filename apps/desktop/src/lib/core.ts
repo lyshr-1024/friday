@@ -278,7 +278,10 @@ export async function updateSettings(patch: SettingsUpdate): Promise<SettingsRes
     headers: { "content-type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`保存设置失败：core 返回 ${res.status}`);
+  if (!res.ok) {
+    const why = await res.json().then((d: { error?: string }) => d.error).catch(() => undefined);
+    throw new Error(why ?? `保存设置失败：core 返回 ${res.status}`);
+  }
   return res.json();
 }
 

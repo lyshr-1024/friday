@@ -3,10 +3,11 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
-import { attachConversation, coreBaseUrl, summonRelay, taskBoard } from "../lib/core";
+import { attachConversation, coreBaseUrl, settings, summonRelay, taskBoard } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
 import { useImeGuard } from "../lib/ime";
+import { applyBackground, applyTheme, onBackgroundChange, onThemeChange } from "../lib/theme";
 
 const HUD_WIDTH = 560;
 
@@ -66,6 +67,22 @@ export function Hud() {
       }
     })();
   }
+
+  // 缓存只够先铺上不闪，真值还是要问一次 core——否则改完设置再呼出，
+  // HUD 会一直用上一次缓存的浓度。
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await settings();
+        applyTheme(s.theme);
+        applyBackground(s, await coreBaseUrl());
+      } catch {
+      }
+    })();
+    const stopTheme = onThemeChange(applyTheme);
+    const stopBg = onBackgroundChange((p) => { void coreBaseUrl().then((url) => applyBackground(p, url)); });
+    return () => { stopTheme(); stopBg(); };
+  }, []);
 
   useEffect(() => {
     // 壳每次呼出既暂存快照又发事件，两条路径都跑的话后一条会取消前一条，
