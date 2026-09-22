@@ -1,4 +1,4 @@
-import { conversationKey } from "../../memory/infer.js";
+import { conversationKey, meegleIdsIn, slackNode, taskNode, urlsIn } from "../../memory/infer.js";
 import { listInbox } from "../../memory/inbox.js";
 import {
   fetchChannelRecent,
@@ -9,6 +9,8 @@ import {
   type SlackContextLine,
 } from "../../connectors/slack.js";
 import { attachedTasks } from "../slack/attach.js";
+import { linkUp } from "../../memory/links.js";
+import { listTasks } from "../../memory/tasks.js";
 import { readMemoryFile } from "../../memory/files.js";
 
 export interface SlackScene {
@@ -64,6 +66,43 @@ async function liveConversation(channel?: string, person?: string): Promise<Live
   return fetchDmRecent(call, person, await slackSelfId(call));
 }
 
+
+const OPEN = ["collected", "understood", "processing", "review", "blocked"] as const;
+
+/**
+ * 整段对话里提到过的 Meegle 工单号 → 对应任务，零模型调用。
+ *
+ * 收件箱那条挂靠链路（attachOnce）只在同步时跑，而私聊消息要入库得先满足「未读、
+ * 非噪音、我还没回过」——你已经回过的对话根本不入库，于是 HUD 永远查不到挂靠。
+ * 这里按屏幕上这段对话自己认一次：工单号是硬信号，比收件箱那条更全（它只有一条）。
+ */
+function attachByTicket(conv: string, lines: SlackContextLine[]): string | undefined {
+  const ids = new Set(lines.flatMap((l) => meegleIdsIn(l.text)));
+  // Slack 的链接是 <url|标题> 形式，urlsIn 取到的尾部会带 "|标题"，按分隔符切掉
+  const urls = new Set(lines.flatMap((l) => urlsIn(l.text)).map((u) => u.split("|")[0]!.replace(/[>）)]+$/, "")));
+  if (!ids.size && !urls.size) return undefined;
+
+  const tasks = listTasks([...OPEN], 200);
+  const byTicket = ids.size
+    ? tasks.find((t) => (t.source.meegleId && ids.has(t.source.meegleId)) || (t.source.linkedStoryId && ids.has(t.source.linkedStoryId)))
+    : undefined;
+  if (byTicket) {
+    linkUp(slackNode(conv), taskNode(byTicket.id), "rule", `这段对话里提到了工单 ${byTicket.source.meegleId ?? byTicket.source.linkedStoryId}`);
+    return byTicket.id;
+  }
+
+  // 产品经理发的多是需求文档链接而不是工单号（实测频道里 16 条只有 1 条带工单号），
+  // 而任务上本来就存着 docs.req / tech / design——同一篇文档就是同一件事。
+  for (const t of tasks) {
+    const docs = Object.values(t.source.docs ?? {}).filter(Boolean) as string[];
+    const same = docs.find((d) => urls.has(d));
+    if (!same) continue;
+    linkUp(slackNode(conv), taskNode(t.id), "rule", "这段对话里贴的就是这条任务的需求文档");
+    return t.id;
+  }
+  return undefined;
+}
+
 /**
  * HUD 在 Slack 前台：按窗口标题解析出的频道或人名，找出你正在看的那段对话。
  *
@@ -96,7 +135,7 @@ export async function slackScene(channel?: string, person?: string): Promise<Sla
   const last = lines.at(-1);
   if (last && live.channelId) {
     const conv = `${live.channelId}:${last.ts}`;
-    const taskId = attachedTasks(conv)[0];
+    const taskId = attachedTasks(conv)[0] ?? attachByTicket(conv, lines);
     return {
       conv,
       text: last.text,

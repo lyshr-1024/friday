@@ -44,6 +44,7 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     "先想清楚：他眼前这个东西是什么、跟他今天要做的哪件事有关、下一步该干嘛。有把握就直接给结论和建议，别只做登记。",
     "三种情形分别怎么说：①对上了某条任务——那条任务进展到哪、现在该做什么；②没对上但认得出项目/人/工单——这是什么、跟他哪件事有关、要不要建成任务；③确实跟他的工作无关——直接说无关，不要硬凑建议。",
     "用户照旧在 Slack / Meegle / 终端里干活，你不替他决定回不回消息。",
+    "对方在问工期、排期、什么时候能好时，把任务上的排期日期和当前节点直接说出来（「前端排期到 10-08」），别含糊成「正在推进」——这是他要拿去回话的。排期字段没有就说没有，不要编。",
     "判断要短：verdict 一到两句中文，说结论不说过程，不要复述你看到的内容。",
     `只能用这几种动作：${KINDS.join(" / ")}。taskId、actionId、project 只能用下面给出的值，不能自己编。最多 3 个动作。`,
     UNTRUSTED_NOTE,
@@ -69,8 +70,22 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     .map((c) => {
       const t = c.task;
       const pending = t.pending?.map((p) => `待审动作 ${p.id}：${p.label}`).join("；") ?? "";
+      // 排期和工单号躺在 source 里，原来一个都没给模型——于是产品在 Slack 里催排期时，
+      // 就算挂对了任务也只能含糊其辞。这几项正是「什么时候能好」的答案。
+      const s = t.source ?? {};
+      const facts = [
+        s.meegleId ? `Meegle #${s.meegleId}` : "",
+        s.nodeName ? `当前节点「${s.nodeName}」` : "",
+        s.feDue ? `前端排期到 ${s.feDue}` : "",
+        s.beDue ? `服务端排期到 ${s.beDue}` : "",
+        t.due ? `截止 ${t.due.slice(0, 10)}` : "",
+        s.linkedStoryName ? `属于需求「${s.linkedStoryName}」${s.linkedStoryId ? `#${s.linkedStoryId}` : ""}` : "",
+      ]
+        .filter(Boolean)
+        .join("，");
       return [
         `- 任务 ${t.id}：${t.title}（${t.status}${t.project ? ` · ${t.project}` : ""}）理由：${c.why}`,
+        facts ? `  ${facts}` : "",
         t.progress ? `  进展：${t.progress.slice(0, 200)}` : "",
         pending ? `  ${pending}` : "",
       ]

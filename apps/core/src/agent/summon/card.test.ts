@@ -75,6 +75,38 @@ describe("cardPrompt", () => {
     expect(block).toContain("菜单去掉 anyOf");
   });
 
+  it("候选任务带上排期、工单号和当前节点——Slack 里催排期时模型要答得出", () => {
+    const task = {
+      id: "t1",
+      title: "多语言字段",
+      status: "understood",
+      project: "whale-console",
+      kind: "meegle",
+      createdAt: 0,
+      updatedAt: 0,
+      source: {
+        meegleId: "24487610",
+        meegleProject: "saas",
+        feDue: "2026-10-08",
+        beDue: "2026-09-30",
+        nodeName: "后台前端开发",
+        linkedStoryId: "24400001",
+        linkedStoryName: "月结账单",
+      },
+    } as never;
+    const { prompt } = cardPrompt({ snapshot, rules, candidates: [{ task, why: "这段 Slack 对话挂着这条任务", strength: "sure" }] });
+    expect(prompt).toContain("2026-10-08");
+    expect(prompt).toContain("24487610");
+    expect(prompt).toContain("后台前端开发");
+  });
+
+  it("没有排期的任务不硬塞空字段", () => {
+    const task = { id: "t2", title: "口头交代的事", status: "understood", kind: "verbal", createdAt: 0, updatedAt: 0, source: {} } as never;
+    const { prompt } = cardPrompt({ snapshot, rules, candidates: [{ task, why: "x", strength: "maybe" }] });
+    expect(prompt).not.toContain("排期");
+    expect(prompt).not.toContain("工单");
+  });
+
   it("system 里写明只能用给定的动作类型", () => {
     const { system } = cardPrompt({ snapshot, rules, candidates: [] });
     expect(system).toContain("open_task");

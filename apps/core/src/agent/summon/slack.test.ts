@@ -98,6 +98,60 @@ describe("HUD 在 Slack 前台", () => {
     expect(scene.recent?.[1]?.userName).toBe("someone.else");
   });
 
+  it("整段对话里出现过工单号就自动挂上，收件箱里没这条也认得", async () => {
+    const t = createTask({ title: "多语言字段", kind: "meegle", source: { meegleId: "24487610" }, status: "understood" });
+    dmMock.mockResolvedValue({
+      channelId: "D7",
+      lines: [
+        { ts: "700", userName: "Shawn", text: "https://project.larksuite.com/saas/story/detail/24487610 这个需求的前端界面要调整" },
+        { ts: "701", userName: "我", text: "好的" },
+        { ts: "702", userName: "Shawn", text: "这两周能开发完吗" },
+      ],
+    });
+    const scene = (await slackScene(undefined, "Shawn"))!;
+    expect(scene.taskId).toBe(t.id);
+  });
+
+  it("工单号只出现在前几条、最后一条没有，也照样挂得上", async () => {
+    const t = createTask({ title: "月结账单", kind: "meegle", source: { meegleId: "24400009" }, status: "understood" });
+    dmMock.mockResolvedValue({
+      channelId: "D8",
+      lines: [
+        { ts: "800", userName: "Shawn", text: "看下 #24400009" },
+        { ts: "801", userName: "Shawn", text: "感谢感谢" },
+      ],
+    });
+    expect((await slackScene(undefined, "Shawn"))?.taskId).toBe(t.id);
+  });
+
+  it("对话里贴的需求文档链接也能对上任务——产品发的多是文档不是工单号", async () => {
+    const t = createTask({
+      title: "免佣卡多时段",
+      kind: "meegle",
+      source: { meegleId: "24400010", docs: { req: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v" } },
+      status: "understood",
+    });
+    dmMock.mockResolvedValue({
+      channelId: "DA",
+      lines: [
+        { ts: "a1", userName: "Shawn", text: "<https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v|文档> 这个需求的前端界面要调整" },
+        { ts: "a2", userName: "Shawn", text: "这两周能开发完吗" },
+      ],
+    });
+    expect((await slackScene(undefined, "Shawn"))?.taskId).toBe(t.id);
+  });
+
+  it("已经挂过的对话不重复挂，也不被自动推断覆盖", async () => {
+    const mine = createTask({ title: "我手动挂的", kind: "verbal", source: {}, status: "understood" });
+    createTask({ title: "工单号那条", kind: "meegle", source: { meegleId: "24487611" }, status: "understood" });
+    linkUp(slackNode("D6:602"), taskNode(mine.id), "user", "我自己挂的");
+    dmMock.mockResolvedValue({
+      channelId: "D6",
+      lines: [{ ts: "602", userName: "Shawn", text: "看下 #24487611" }],
+    });
+    expect((await slackScene(undefined, "Shawn"))?.taskId).toBe(mine.id);
+  });
+
   it("查不到返回 undefined", async () => {
     expect(await slackScene(undefined, "查无此人")).toBeUndefined();
   });
