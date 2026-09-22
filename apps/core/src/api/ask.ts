@@ -10,8 +10,10 @@ import { contextFor } from "../agent/bridge.js";
 import { TERMINAL_STATE_LABEL, terminalState } from "../agent/terminal.js";
 import { getJob } from "../memory/jobs.js";
 import { findTaskBySource } from "../memory/tasks.js";
-import { conversationExists, createConversation } from "../memory/conversations.js";
+import { claudeSessionId, conversationExists, createConversation } from "../memory/conversations.js";
 import { userSettings } from "../settings.js";
+import { existsSync } from "node:fs";
+import { transcriptPath } from "../agent/runner.js";
 
 const body = z.object({
   prompt: z.string().trim().min(1).max(8000),
@@ -65,6 +67,9 @@ export const ask = new Hono()
     if (isRunning(conv)) return c.json({ error: "这个会话正在生成，先等它结束或按 Esc 中断" }, 409);
 
     const prefs = userSettings();
+    // 路由到很久前的会话时 transcript 可能已被清掉，这时不带 resume 新开 Claude 会话，Friday 自己的消息记录还在
+    const session = claudeSessionId(conv);
+    const resume = session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
     startRun(
       conv,
       prompt,
@@ -72,6 +77,7 @@ export const ask = new Hono()
         systemPrompt: friday(loadMemoryContext(), prefs.skills, taskBlock(conv)),
         cwd: config.dataDir,
         skills: prefs.skills,
+        ...(resume ? { resume } : {}),
         ...(prefs.model ? { model: prefs.model } : {}),
       },
       parsed.data.attachments ?? [],

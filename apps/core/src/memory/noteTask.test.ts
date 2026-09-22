@@ -73,3 +73,30 @@ describe("addNoteTask", () => {
     expect(got.status).toBe("understood");
   });
 });
+
+describe("会话里建任务", () => {
+  it("要写代码的活带 stage，卡片上才有阶段", () => {
+    const got = addNoteTask({ text: "修掉导出中心的空列表闪烁", stage: "todo", kind: "code", project: "whale-console" });
+    expect(got.stage).toBe("todo");
+    expect(got.kind).toBe("code");
+    expect(got.project).toBe("whale-console");
+  });
+
+  it("纯提醒不给 stage", () => {
+    const got = addNoteTask({ text: "周五之前交考勤" });
+    expect(got.stage).toBeUndefined();
+  });
+
+  it("detail 写进理解，链接原样留着", () => {
+    const link = "https://longbridge-group.jp.larksuite.com/wiki/Q9ezwwUSjiYS86kAErsjZw0Tp8f";
+    const got = addNoteTask({ text: "修复文档里反馈的问题", understanding: `修复文档里反馈的问题\n\n${link}` });
+    expect(got.understanding).toContain(link);
+  });
+
+  it("命中已有任务时补上原来缺的项目，已有的不覆盖", () => {
+    const t = mk("导出中心分页参数没透传", "whale-console");
+    const got = addNoteTask({ text: "whale-console 导出中心分页参数那条", project: "fe-wealth-admin" });
+    expect(got.id).toBe(t.id);
+    expect(got.project).toBe("whale-console");
+  });
+});

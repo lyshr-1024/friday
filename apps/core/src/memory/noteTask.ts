@@ -1,4 +1,4 @@
-import type { Task, TaskSource, TaskStatus } from "@friday/shared";
+import type { Stage, Task, TaskKind, TaskSource, TaskStatus } from "@friday/shared";
 import { db } from "./db.js";
 import { meegleIdsIn } from "./infer.js";
 import { loadProjects } from "./projects.js";
@@ -15,7 +15,16 @@ const OPEN_STATES: TaskStatus[] = ["collected", "understood", "processing", "rev
  * 注意 source 不要放 threadId：线程本身那条任务是靠 findTaskBySource(threadId) 找回来的，
  * 再挂一条同 threadId 的会让它匹配到哪条变得不确定。线程派生的待办用 fromTaskId 关联。
  */
-export function addNoteTask(input: { text: string; due?: string; source?: TaskSource; kind?: "verbal" | "slack" }): Task {
+export function addNoteTask(input: {
+  text: string;
+  due?: string;
+  source?: TaskSource;
+  kind?: TaskKind;
+  project?: string;
+  /** 要写代码的活给 "todo"，纯提醒不给——没有 stage 的任务在板上不进阶段分组，也不吃阶段推进信号 */
+  stage?: Stage;
+  understanding?: string;
+}): Task {
   const text = input.text.trim();
   const title = text.length > 80 ? `${text.slice(0, 79)}…` : text;
   // 先看这件事是不是已经在板上了。口头交代常常是对已有工单的补充
@@ -26,6 +35,7 @@ export function addNoteTask(input: { text: string; due?: string; source?: TaskSo
     const t = updateTask(existing.id, {
       understanding: note.slice(0, 4000),
       ...(input.due ? { due: input.due } : {}),
+      ...(input.project && !existing.project ? { project: input.project } : {}),
     });
     if (t) return t;
   }
@@ -35,8 +45,10 @@ export function addNoteTask(input: { text: string; due?: string; source?: TaskSo
     source: input.source ?? {},
     status: "understood",
     // 标题截断过就把全文留在理解里，免得长待办看不到后半句
-    ...(title === text ? {} : { understanding: text }),
+    ...(input.understanding ? { understanding: input.understanding } : title === text ? {} : { understanding: text }),
     ...(input.due ? { due: input.due } : {}),
+    ...(input.project ? { project: input.project } : {}),
+    ...(input.stage ? { stage: input.stage } : {}),
   });
 }
 

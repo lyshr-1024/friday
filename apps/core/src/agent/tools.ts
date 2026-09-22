@@ -80,6 +80,32 @@ const fridayToolList = (conversationId?: string) => [
       },
     ),
     tool(
+      "task_add",
+      "在工作台建一条任务，只建不开工。用户说「建个任务」「新建一个任务」「记一下这件事」时用它——建完就停下，不要接着 run_claude。要写代码的活给 stage=todo，它才会进阶段分组、才吃后面的阶段推进信号；纯提醒（买牛奶、几点开会）不给 stage。",
+      {
+        title: z.string().min(1).max(2000).describe("这件事是什么，用用户的原话"),
+        detail: z.string().max(4000).optional().describe("补充说明：链接、要改什么、对方的原话。链接照原样保留"),
+        project: z.string().optional().describe("项目名或别名，定不下来就不要填，别猜"),
+        stage: z.enum(["todo"]).optional().describe("要写代码的活填 todo，纯提醒不填"),
+        due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("截止日期 YYYY-MM-DD"),
+      },
+      async (input) => {
+        // 项目定不下来就不写，宁可空着让用户在卡片上补——猜错了后面派活会派到别的仓库
+        const r = input.project ? resolveProject(input.project) : undefined;
+        const name = r?.kind === "match" ? r.project.name : undefined;
+        const task = addNoteTask({
+          text: input.title,
+          ...(input.detail ? { understanding: `${input.title}\n\n${input.detail}` } : {}),
+          ...(name ? { project: name } : {}),
+          ...(input.stage ? { stage: input.stage, kind: "code" as const } : {}),
+          ...(input.due ? { due: input.due } : {}),
+          ...(conversationId ? { source: { conversationId } } : {}),
+        });
+        record({ taskId: task.id, action: "task_add", why: "用户在会话里让建一条任务", how: "建成工作台任务，未开工", evidence: { title: task.title, ...(name ? { project: name } : {}) }, risk: "reversible", undo: { kind: "drop_note_task", id: task.id } });
+        return text(`已建任务：${task.title}${task.project ? `（${task.project}）` : ""}${task.due ? `，截止 ${task.due}` : ""}。要开工说一声。`);
+      },
+    ),
+    tool(
       "git_inspect",
       "只读查看某个项目的 git 状态。what=status 当前分支/未提交改动/相对上游；worktrees 每个 worktree 的分支、是否已合并进主分支、最后提交、是否有未提交改动；log 最近 15 条提交；branches 已合并/未合并分支。",
       { project, what: z.enum(["status", "worktrees", "log", "branches"]) },
