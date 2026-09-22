@@ -133,6 +133,10 @@ export interface SettingsResponse {
   skillList: string[] | "all";
   name: string;
   theme: ThemeId;
+  /** 背景图的本地绝对路径，空串 = 不用背景图 */
+  background: string;
+  /** 盖在背景图上那层主题底色的不透明度 0-100，越大图越淡 */
+  backgroundOpacity: number;
   learnHistory: boolean;
   summon: SummonSettings;
   dataDir: string;
@@ -146,6 +150,8 @@ export interface SettingsUpdate {
   skillList?: string[] | "all";
   name?: string;
   theme?: ThemeId;
+  background?: string;
+  backgroundOpacity?: number;
   learnHistory?: boolean;
   summon?: Partial<SummonSettings>;
 }

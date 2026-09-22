@@ -4,6 +4,7 @@ import { MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/sha
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
+import { checkBackground } from "./background.js";
 
 const patch = z.object({
   terminal: z.enum(["ghostty", "terminal"]).optional(),
@@ -12,6 +13,8 @@ const patch = z.object({
   skillList: z.union([z.literal("all"), z.array(z.string().min(1).max(80)).max(200)]).optional(),
   name: z.string().max(40).optional(),
   theme: z.enum(THEME_OPTIONS.map((t) => t.id) as [string, ...string[]]).optional(),
+  background: z.string().max(1024).optional(),
+  backgroundOpacity: z.number().min(0).max(100).optional(),
   learn: z.boolean().optional(),
   learnHistory: z.boolean().optional(),
   summon: z.object({
@@ -33,6 +36,11 @@ export const settings = new Hono()
   .put("/settings", async (c) => {
     const parsed = patch.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "无效的设置项" }, 400);
+    const bg = parsed.data.background?.trim();
+    if (bg) {
+      const checked = checkBackground(bg);
+      if ("error" in checked) return c.json(checked, 400);
+    }
     updateSettings(parsed.data as Parameters<typeof updateSettings>[0]);
     return c.json(respond());
   });

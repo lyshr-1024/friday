@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, hot, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
+import { cancelAsk, conversations, coreBaseUrl, hot, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { HotList, LinkMenuHost, fmtTime } from "./shared";
@@ -14,7 +14,7 @@ import type { BoardView } from "./Board";
 import { UsageStrip } from "./Usage";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
-import { applyTheme, onThemeChange } from "../lib/theme";
+import { applyBackground, applyTheme, onBackgroundChange, onThemeChange } from "../lib/theme";
 import { connectEvents } from "../lib/events";
 import type { FridayEvent } from "../lib/events";
 
@@ -60,6 +60,7 @@ export function Chat() {
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     const stopTheme = onThemeChange(applyTheme);
+    const stopBg = onBackgroundChange((p) => { void coreBaseUrl().then((url) => applyBackground(p, url)); });
     // 「聚焦终端」：任务板在别的视图时先切回去，Board 挂上后自己去选中那条任务
     const onFocusJob = () => setView("queue");
     window.addEventListener("friday:focus-job", onFocusJob);
@@ -74,6 +75,7 @@ export function Chat() {
     return () => {
       void unlisten.then((f) => f());
       stopTheme();
+      stopBg();
       stopEvents();
       window.removeEventListener("friday:focus-job", onFocusJob);
       window.removeEventListener("focus", onWindowFocus);
@@ -112,6 +114,7 @@ export function Chat() {
         setModel(s.model);
         setSkills(s.skills);
         applyTheme(s.theme);
+        applyBackground(s, await coreBaseUrl());
         return;
       } catch {
         await new Promise((r) => setTimeout(r, 2000));
