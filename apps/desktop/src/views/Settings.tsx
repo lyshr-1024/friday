@@ -6,6 +6,7 @@ import { applyTheme, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
+import { useImeGuard } from "../lib/ime";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
@@ -18,6 +19,7 @@ export function Settings() {
   const [learning, setLearning] = useState(false);
   const [learnNote, setLearnNote] = useState("");
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
+  const ime = useImeGuard();
 
   function refreshPerms() {
     void invoke<PermissionStatus>("permission_status").then(setPerms);
@@ -155,7 +157,8 @@ export function Settings() {
             defaultValue={prefs?.name ?? ""}
             key={prefs?.name}
             onBlur={(e) => { const v = e.target.value.trim(); if (prefs && v && v !== prefs.name) void updateSettings({ name: v }).then(setPrefs); }}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            {...ime.handlers}
+            onKeyDown={(e) => { if (e.key === "Enter") { if (ime.isImeEnter(e)) return; (e.target as HTMLInputElement).blur(); } }}
           />
         </Row>
         <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
