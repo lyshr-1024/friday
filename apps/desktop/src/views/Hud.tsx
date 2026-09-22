@@ -7,7 +7,7 @@ import { attachConversation, coreBaseUrl, settings, summonRelay, taskBoard } fro
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
 import { useImeGuard } from "../lib/ime";
-import { applyBackground, applyTheme, onBackgroundChange, onThemeChange } from "../lib/theme";
+import { applyTheme, onThemeChange } from "../lib/theme";
 
 const HUD_WIDTH = 560;
 
@@ -78,20 +78,10 @@ export function Hud() {
     void coreBaseUrl().then((url) => setShotUrl(`${url}/summon-shot/${id}`)).catch(() => setShotUrl(""));
   }, [snapshot?.screenshotPath]);
 
-  // 缓存只够先铺上不闪，真值还是要问一次 core——否则改完设置再呼出，
-  // HUD 会一直用上一次缓存的浓度。
+  // HUD 不铺背景图（只有工作台铺），但主题色要跟着设置走
   useEffect(() => {
-    void (async () => {
-      try {
-        const s = await settings();
-        applyTheme(s.theme);
-        applyBackground(s, await coreBaseUrl());
-      } catch {
-      }
-    })();
-    const stopTheme = onThemeChange(applyTheme);
-    const stopBg = onBackgroundChange((p) => { void coreBaseUrl().then((url) => applyBackground(p, url)); });
-    return () => { stopTheme(); stopBg(); };
+    void settings().then((s) => applyTheme(s.theme)).catch(() => {});
+    return onThemeChange(applyTheme);
   }, []);
 
   useEffect(() => {
@@ -294,8 +284,6 @@ export function Hud() {
 
   return (
     <div className="hud" ref={rootRef}>
-      {/* 背景图单独一层：.hud 的 ::before/::after 被四角标记占着 */}
-      <div className="hud__bg" aria-hidden="true" />
       <div
         className="hud__bar"
         onMouseDown={(e) => {

@@ -5333,27 +5333,6 @@ body:has(.hud)::-webkit-scrollbar {
   -webkit-backdrop-filter: blur(6px);
 }
 
-/* HUD 的 ::before / ::after 早就被四角定位标记占了（13x13 的小角）。
-   我原来把背景图也挂在 ::before 上，等于把图画进那个 13x13 的小方块里——
-   用户看到的「左上角一个小方块」就是这么来的。改用一个独立的层元素。 */
-:root[data-bg="on"] .hud__bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-  background-image: var(--bg-image);
-  background-size: cover;
-  background-position: center;
-}
-:root[data-bg="on"] .hud__bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--bg-1);
-  opacity: var(--veil-floor, 0.82);
-}
-
 /* 读数条那五格、轮播里的任务卡、右侧锚点栏：这三处都是按纯色底调的实心面板，
    铺了图之后边缘显得很硬（用户反馈「这两块还是这么尖锐」）。统一改成：
    跟着 --veil-floor 半透 + 圆角 + 模糊，让它们落在图上而不是切在图上。 */
@@ -5438,8 +5417,7 @@ body:has(.hud)::-webkit-scrollbar {
 }
 
 /* 内容抬到图层之上 */
-:root[data-bg="on"] .chat > *,
-:root[data-bg="on"] .hud > *:not(.hud__bg) {
+:root[data-bg="on"] .chat > * {
   position: relative;
   z-index: 1;
 }
