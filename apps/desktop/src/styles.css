@@ -63,6 +63,8 @@
   --live-dim: rgba(95, 227, 255, 0.35);
   --live-glow: rgba(95, 227, 255, 0.16);
   --live-0: rgba(95, 227, 255, 0);
+  /* 流光扫过时那一下高光；深色底往白提，浅色底要往深压否则会发灰 */
+  --live-hi: #eafbff;
   --ring: rgba(95, 227, 255, 0.45);
   --red: #ff6b4a;
   --green: #5fffc4;
@@ -2621,6 +2623,7 @@ body,
   --live-dim: rgba(127, 209, 192, 0.35);
   --live-glow: rgba(127, 209, 192, 0.16);
   --live-0: rgba(127, 209, 192, 0);
+  --live-hi: #dffaf3;
   --ring: rgba(127, 209, 192, 0.16);
   --amber: #f2b635;
   --red: #ff9a86;
@@ -2647,6 +2650,7 @@ body,
   --live-dim: rgba(92, 201, 234, 0.35);
   --live-glow: rgba(92, 201, 234, 0.16);
   --live-0: rgba(92, 201, 234, 0);
+  --live-hi: #e2f6ff;
   --ring: rgba(92, 201, 234, 0.16);
   --amber: #ffc94a;
   --red: #ff9592;
@@ -2676,6 +2680,8 @@ body,
   --live-dim: rgba(14, 143, 176, 0.3);
   --live-glow: rgba(14, 143, 176, 0.14);
   --live-0: rgba(14, 143, 176, 0);
+  /* 浅色：高光比 --live 更深才看得见，往白提会糊成一片灰 */
+  --live-hi: #06617a;
   --ring: rgba(14, 143, 176, 0.18);
   --amber: #d98b06;
   --red: #d64545;
@@ -4915,7 +4921,7 @@ body:has(.hud)::-webkit-scrollbar {
       var(--live-0) 0deg,
       var(--live-0) 200deg,
       var(--live) 300deg,
-      #eafbff 340deg,
+      var(--live-hi) 340deg,
       var(--live) 350deg,
       var(--live-0) 360deg
     ),
@@ -5413,6 +5419,25 @@ body:has(.hud)::-webkit-scrollbar {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-color: color-mix(in srgb, var(--fg-1) 14%, transparent);
+}
+
+/* 铺了图之后，.fx / .fx__foot 那条 1px 实线边框在拐角和边缘看着就是一道黑框
+   （用户圈的几处）。改成用阴影托住：边框降到几乎看不见的一层，
+   轮廓交给投影，卡片就像浮在图上而不是被框住。 */
+:root[data-bg="on"] .fx,
+:root[data-bg="on"] .fx__foot {
+  border-color: transparent;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 color-mix(in srgb, var(--fg-1) 6%, transparent);
+}
+:root[data-theme="light"][data-bg="on"] .fx,
+:root[data-theme="light"][data-bg="on"] .fx__foot {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 10px 28px rgba(31, 38, 51, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 /* 内容抬到图层之上 */
