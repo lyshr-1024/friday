@@ -403,6 +403,12 @@ async function resolveName(call: Call, id: string, cache: Map<string, string>): 
   }
 }
 
+/** DM channel → 对方显示名。一次呼出要认 37 个私聊，这个映射基本不变，缓存住只有首次付钱。 */
+const dmOwners = new Map<string, string>();
+
+/** 测试用：清掉私聊花名册缓存 */
+export const resetDmOwners = () => dmOwners.clear();
+
 /**
  * HUD 用：按人名找到私聊，拉最近一段原文。
  *
@@ -411,7 +417,9 @@ async function resolveName(call: Call, id: string, cache: Map<string, string>): 
  * 这里要的是「这段对话现在到哪了」，应答词和我自己的回复恰恰是关键——
  * 「我这周尽量做一下」意味着我已经承诺了，比任何一条催办都重要。所以一条都不筛。
  *
- * client.counts 给的是全部 DM（不只未读），带 user_id，省掉逐个频道拉一条认人。
+ * 认人只能靠「拉最后一条看发件人」：真机实测 client.counts 的 ims 一个 user_id 都不带，
+ * 而 users.list 在这个组织里翻页翻不完（1000 人还 has_more）且 real_name 为空。
+ * 串行扫 37 个要 3 秒，超了呼出预算，所以并发扫 + 缓存。
  */
 export async function fetchDmRecent(
   call: Call,
@@ -420,38 +428,50 @@ export async function fetchDmRecent(
   limit = CONTEXT_LIMIT,
 ): Promise<{ channelId?: string; lines: SlackContextLine[] }> {
   const want = bareName(person);
+  const matches = (name: string) => name === person || bareName(name) === want;
   try {
-    const counts = (await call("client.counts", {})) as { ims?: CountsIm[] };
-    const names = new Map<string, string>();
-    let channelId: string | undefined;
-    for (const im of counts.ims ?? []) {
-      if (!im.user_id) continue;
-      const name = await resolveName(call, im.user_id, names);
-      names.set(im.user_id, name);
-      if (bareName(name) === want || name === person) {
-        channelId = im.id;
-        break;
-      }
-    }
-    if (!channelId) return { lines: [] };
+    for (const [id, name] of dmOwners) if (matches(name)) return await dmHistory(call, id, me, limit);
 
-    const hist = (await call("conversations.history", { channel: channelId, limit: String(limit) })) as {
-      messages?: Array<{ ts: string; text?: string; user?: string; username?: string; bot_id?: string; subtype?: string; blocks?: Block[] }>;
-    };
-    const lines: SlackContextLine[] = [];
-    for (const m of hist.messages ?? []) {
-      if (!m.ts || m.subtype) continue;
-      const text = (m.text ?? "").trim() || blocksText(m.blocks);
-      if (!text) continue;
-      const who = m.user === me ? "我" : (m.username ?? (m.user ? names.get(m.user) ?? (await resolveName(call, m.user, names)) : m.bot_id ? "机器人" : "未知"));
-      lines.push({ ts: m.ts, userName: who, text });
-    }
-    lines.sort((a, b) => Number(a.ts) - Number(b.ts));
-    return { channelId, lines };
+    const counts = (await call("client.counts", {})) as { ims?: CountsIm[] };
+    const ims = (counts.ims ?? []).filter((i) => i.latest && Number(i.latest) > 0 && !dmOwners.has(i.id));
+    const owners = await Promise.all(
+      ims.map(async (im) => {
+        try {
+          const h = (await call("conversations.history", { channel: im.id, limit: "1" })) as { messages?: Array<{ user?: string }> };
+          return { id: im.id, user: h.messages?.[0]?.user };
+        } catch {
+          return { id: im.id, user: undefined };
+        }
+      }),
+    );
+    const cache = new Map<string, string>();
+    const uids = [...new Set(owners.map((o) => o.user).filter(Boolean))] as string[];
+    await Promise.all(uids.map((u) => resolveName(call, u, cache)));
+    for (const o of owners) if (o.user) dmOwners.set(o.id, cache.get(o.user) ?? o.user);
+
+    for (const [id, name] of dmOwners) if (matches(name)) return await dmHistory(call, id, me, limit);
+    return { lines: [] };
   } catch {
     // 拿不到实时上下文不该让整个呼出失败
     return { lines: [] };
   }
+}
+
+async function dmHistory(call: Call, channelId: string, me: string, limit: number) {
+  const hist = (await call("conversations.history", { channel: channelId, limit: String(limit) })) as {
+    messages?: Array<{ ts: string; text?: string; user?: string; username?: string; bot_id?: string; subtype?: string; blocks?: Block[] }>;
+  };
+  const cache = new Map<string, string>();
+  const lines: SlackContextLine[] = [];
+  for (const m of hist.messages ?? []) {
+    if (!m.ts || m.subtype) continue;
+    const text = (m.text ?? "").trim() || blocksText(m.blocks);
+    if (!text) continue;
+    const who = m.user === me ? "我" : (m.username ?? (m.user ? await resolveName(call, m.user, cache) : m.bot_id ? "机器人" : "未知"));
+    lines.push({ ts: m.ts, userName: who, text });
+  }
+  lines.sort((a, b) => Number(a.ts) - Number(b.ts));
+  return { channelId, lines };
 }
 
 let selfId: string | undefined;

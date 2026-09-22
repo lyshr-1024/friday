@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { blocksText, fetchChannelRecent, fetchContext, fetchDmRecent, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { blocksText, fetchChannelRecent, fetchContext, fetchDmRecent, resetDmOwners, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -415,26 +415,37 @@ describe("频道里最近的对话", () => {
 });
 
 describe("fetchDmRecent", () => {
+  beforeEach(() => resetDmOwners());
+
+  // 真机实测：client.counts 的 ims 一个 user_id 都不带，只能靠拉最后一条认发件人
   const counts = {
     ims: [
-      { id: "D1", user_id: "U1", has_unreads: false },
-      { id: "D2", user_id: "U2", has_unreads: true },
+      { id: "D1", latest: "1757000100.000100", has_unreads: false },
+      { id: "D2", latest: "1757000500.000100", has_unreads: true },
     ],
   };
-  const hist = {
-    messages: [
-      { ts: "1757000500.000100", text: "感谢感谢:saluting_face:", user: "U2" },
-      { ts: "1757000400.000100", text: "我这周尽量做一下", user: "ME" },
-      { ts: "1757000300.000100", text: "你看看这两周能否处理下哈", user: "U2" },
-      { ts: "1757000250.000100", text: "join", user: "U2", subtype: "channel_join" },
-      { ts: "1757000200.000100", text: "   ", user: "U2" },
-    ],
+  const hist: Record<string, unknown> = {
+    D1: { messages: [{ ts: "1757000100.000100", text: "别人的私聊", user: "U9" }] },
+    D2: {
+      messages: [
+        { ts: "1757000500.000100", text: "感谢感谢:saluting_face:", user: "U2" },
+        { ts: "1757000400.000100", text: "我这周尽量做一下", user: "ME" },
+        { ts: "1757000300.000100", text: "你看看这两周能否处理下哈", user: "U2" },
+        { ts: "1757000250.000100", text: "join", user: "U2", subtype: "channel_join" },
+        { ts: "1757000200.000100", text: "   ", user: "U2" },
+      ],
+    },
   };
+  const realName: Record<string, string> = { U2: "Shawn (Jin Junhong)", U9: "别人", ME: "浩然" };
   const mk = (seen: Array<[string, Record<string, string>]> = []) => async (m: string, p: Record<string, string>) => {
     seen.push([m, p]);
     if (m === "client.counts") return counts as Record<string, unknown>;
-    if (m === "conversations.history") return hist as Record<string, unknown>;
-    if (m === "users.info") return { user: { real_name: p.user === "U2" ? "Shawn (Jin Junhong)" : "别人" } } as Record<string, unknown>;
+    if (m === "conversations.history") {
+      const all = (p.channel ? hist[p.channel] : undefined) as { messages: Array<Record<string, unknown>> } | undefined;
+      if (!all) return { messages: [] };
+      return (p.limit === "1" ? { messages: all.messages.slice(0, 1) } : all) as Record<string, unknown>;
+    }
+    if (m === "users.info") return { user: { real_name: (p.user ? realName[p.user] : undefined) ?? p.user } } as Record<string, unknown>;
     return {};
   };
 
@@ -457,7 +468,15 @@ describe("fetchDmRecent", () => {
 
   it("名字带英文后缀、或标题里只剩中文名，两边都能对上", async () => {
     expect((await fetchDmRecent(mk(), "Shawn", "ME")).channelId).toBe("D2");
+    resetDmOwners();
     expect((await fetchDmRecent(mk(), "Shawn (Jin Junhong)", "ME")).channelId).toBe("D2");
+  });
+
+  it("认过的人记下来，第二次不再扫一遍所有私聊", async () => {
+    await fetchDmRecent(mk(), "Shawn", "ME");
+    const seen: Array<[string, Record<string, string>]> = [];
+    await fetchDmRecent(mk(seen), "Shawn", "ME");
+    expect(seen.some(([m]) => m === "client.counts")).toBe(false);
   });
 
   it("找不到这个人时返回空，不抛错", async () => {

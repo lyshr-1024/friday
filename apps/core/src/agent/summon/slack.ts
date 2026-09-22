@@ -43,7 +43,11 @@ function displayNames(): Map<string, string> {
 
 const prettyName = (raw: string, book: Map<string, string>) => book.get(raw.toLowerCase()) ?? raw;
 
-const LIVE_TIMEOUT_MS = 2_500;
+/**
+ * 首次呼出要扫一遍所有私聊认人（真机 37 个并发约 1.2 秒），加上拉原文刚好压在 2.5 秒上，
+ * 实测会被砍掉导致「第一次呼出永远没有上下文」。认过的人有缓存，之后稳定在 1 秒内。
+ */
+const LIVE_TIMEOUT_MS = 4_000;
 
 type Live = { channelId?: string; lines: SlackContextLine[] };
 
