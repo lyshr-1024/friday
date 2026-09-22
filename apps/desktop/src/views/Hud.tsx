@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
@@ -13,6 +13,7 @@ const HUD_WIDTH = 560;
 
 export function Hud() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [shotUrl, setShotUrl] = useState("");
   const [rules, setRules] = useState<SummonRules | null>(null);
   const [card, setCard] = useState<SummonCard | null>(null);
   const [open, setOpen] = useState(false);
@@ -67,6 +68,16 @@ export function Hud() {
       }
     })();
   }
+
+  /* 截图走 core 发：WebView 读不了 file://，convertFileSrc 产出的 asset:// 既没开
+     assetProtocol 也不在 CSP 的 img-src 里，一直是个碎图标。 */
+  useEffect(() => {
+    const path = snapshot?.screenshotPath;
+    if (!path) { setShotUrl(""); return; }
+    const id = path.split("/").pop()?.replace(/\.png$/i, "");
+    if (!id) { setShotUrl(""); return; }
+    void coreBaseUrl().then((url) => setShotUrl(`${url}/summon-shot/${id}`)).catch(() => setShotUrl(""));
+  }, [snapshot?.screenshotPath]);
 
   // 缓存只够先铺上不闪，真值还是要问一次 core——否则改完设置再呼出，
   // HUD 会一直用上一次缓存的浓度。
@@ -323,7 +334,7 @@ export function Hud() {
           {snapshot.browser?.url && <div className="hud__raw-row">{snapshot.browser.url}</div>}
           {snapshot.browser?.text && <div className="hud__raw-row hud__raw-selection">{snapshot.browser.text}</div>}
           {snapshot.selection && <div className="hud__raw-row hud__raw-selection">{snapshot.selection}</div>}
-          {snapshot.screenshotPath && <img className="hud__shot" src={convertFileSrc(snapshot.screenshotPath)} alt="当前屏幕截图" />}
+          {shotUrl && <img className="hud__shot" src={shotUrl} alt="当前屏幕截图" />}
         </div>
       )}
       {rules?.match && (
