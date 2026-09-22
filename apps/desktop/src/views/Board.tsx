@@ -882,6 +882,7 @@ function NewTask({ projects, onClose, onDone }: { projects: Array<{ name: string
           placeholder="补充说明（可不填）"
           rows={3}
           onChange={(e) => setNote(e.target.value)}
+          {...ime.handlers}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
         />
         </div>
@@ -1063,6 +1064,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
   ref?: React.Ref<HTMLElement>;
 }) {
   // 给别人发消息前先给用户看要发什么、可以改，确认才发
+  const ime = useImeGuard();
   const [confirming, setConfirming] = useState(false);
   const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -1535,6 +1537,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
                 className="fx__confirm-text"
                 autoFocus
                 rows={4}
+                {...ime.handlers}
                 value={sendText}
                 onChange={(e) => setSendText(e.target.value)}
                 onKeyDown={(e) => {
