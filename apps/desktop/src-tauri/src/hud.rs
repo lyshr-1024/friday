@@ -3,21 +3,6 @@ use tauri_nspanel::ManagerExt;
 
 pub struct PendingSummon(pub std::sync::Mutex<Option<serde_json::Value>>);
 
-/// 钉住：失焦不收、再次呼出不挪位置。用户要对着 HUD 干活时需要它待着不动。
-pub struct Pinned(pub std::sync::atomic::AtomicBool);
-
-pub fn is_pinned(app: &AppHandle) -> bool {
-    app.try_state::<Pinned>()
-        .map(|p| p.0.load(std::sync::atomic::Ordering::Relaxed))
-        .unwrap_or(false)
-}
-
-pub fn set_pinned(app: &AppHandle, on: bool) {
-    if let Some(p) = app.try_state::<Pinned>() {
-        p.0.store(on, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
 const WIDTH: f64 = 560.0;
 const HEIGHT: f64 = 420.0;
 const CURSOR_GAP: f64 = 16.0;
@@ -122,9 +107,8 @@ pub fn toggle(app: &AppHandle) {
     if let Ok(mut pending) = app.state::<PendingSummon>().0.lock() {
         *pending = Some(snap.clone());
     }
-    if !is_pinned(app) {
-        position_near_cursor(&win);
-    }
+    // 每次呼出都跟到光标：钉住只表示"不会自己消失"，不是"钉死在某个位置"
+    position_near_cursor(&win);
     show(app, &win);
     let _ = win.emit("friday://summon", snap);
 }

@@ -24,7 +24,6 @@ export function Hud() {
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const [attaching, setAttaching] = useState<{ conv: string; tasks: Task[] } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -314,19 +313,6 @@ export function Hud() {
           onClick={() => void invoke("resummon")}
         >
           <Icon name="refresh" />
-        </button>
-        <button
-          className={`hud__tool ${pinned ? "hud__tool--on" : ""}`}
-          title={pinned ? "已固定，点外面不会收起" : "固定住，点外面不收起"}
-          aria-label="固定 HUD"
-          aria-pressed={pinned}
-          onClick={() => {
-            const next = !pinned;
-            setPinned(next);
-            void invoke("set_hud_pinned", { pinned: next });
-          }}
-        >
-          <Icon name="pin" filled={pinned} />
         </button>
       </div>
       {open && snapshot && (snapshot.browser?.url || snapshot.selection || snapshot.screenshotPath) && (

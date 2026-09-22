@@ -72,11 +72,6 @@ fn resummon(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn set_hud_pinned(app: tauri::AppHandle, pinned: bool) {
-    hud::set_pinned(&app, pinned);
-}
-
-#[tauri::command]
 fn hide_hud(app: tauri::AppHandle) {
     hud::hide(&app);
 }
@@ -117,7 +112,6 @@ pub fn run() {
             capture_snapshot,
             take_pending_summon,
             hide_hud,
-            set_hud_pinned,
             resummon
         ])
         .setup(|app| {
@@ -129,7 +123,6 @@ pub fn run() {
             }
             app.manage(window::PendingChat(std::sync::Mutex::new(None)));
             app.manage(hud::PendingSummon(std::sync::Mutex::new(None)));
-            app.manage(hud::Pinned(std::sync::atomic::AtomicBool::new(false)));
             window::open_chat(app.handle(), None, None);
             hud::prebuild(app.handle());
             app.manage(sidecar::Supervisor::start(app.handle().clone()));
@@ -139,12 +132,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             match (window.label(), event) {
                 ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
-                // 点外面就收起：Raycast 式浮窗的基本手感，不然切回去干活它还浮着挡视线
-                ("hud", WindowEvent::Focused(false)) => {
-                    if !hud::is_pinned(window.app_handle()) {
-                        hud::hide(window.app_handle());
-                    }
-                }
+                // HUD 一律钉住：点外面不收，只有 Esc 关。
+                // 本来是失焦即收（Raycast 手感），但对着 HUD 干活时它总在背后消失。
+                ("hud", WindowEvent::Focused(false)) => {}
                 _ => {}
             }
         })

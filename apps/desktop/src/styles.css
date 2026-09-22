@@ -4516,9 +4516,16 @@ body,
   overflow-y: auto;
 }
 
+/* 这张图以前一直是碎图标（asset:// 加载不了），所以没人发现它没有尺寸约束。
+   接上之后 1600x1000 的原图会把整个 HUD 撑爆——按缩略图处理：限高，
+   顶部裁切（窗口截图的信息基本都在上半部分），圆角和边框跟着 HUD 走。 */
 .hud__shot {
-  max-width: 100%;
-  border: 1px solid rgba(56, 214, 255, 0.2);
+  width: 100%;
+  max-height: 128px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--live) 22%, transparent);
 }
 
 .hud__match {
@@ -4841,12 +4848,6 @@ body:has(.hud)::-webkit-scrollbar {
   color: #d6f4ff;
 }
 
-.hud__tool--on {
-  border-color: var(--live);
-  background: rgba(56, 214, 255, 0.2);
-  color: #d6f4ff;
-  box-shadow: 0 0 14px rgba(56, 214, 255, 0.24);
-}
 
 .hud__tool:focus-visible {
   outline: 1px solid var(--live);
