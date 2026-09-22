@@ -4405,8 +4405,11 @@ body,
    套在浮窗上就是一块灰方块。 */
 .hud {
   position: relative;
-  /* 兜底：里面任何一段长文本（窗口标题、URL、终端回报）都不该把整个 HUD 撑横 */
-  overflow-x: hidden;
+  /* 兜底：里面任何一段长文本（窗口标题、URL、终端回报）都不该把整个 HUD 撑横。
+     只写 overflow-x 的话 overflow-y 会被算成 auto，而窗口高度是按内容 setSize 的，
+     四舍五入差 1px 就冒出一条滚动条（实测 scrollHeight 176 / clientHeight 175）。
+     两轴一起写死 hidden，不给滚动条出现的机会。 */
+  overflow: hidden;
   padding: var(--s-6) var(--s-6) var(--s-5);
   /* 设计稿是在固定深色背景上调的，实际 HUD 浮在任意桌面上，
      底色太透会让青色被下面的亮色冲淡。加深到 0.72 保住对比度。 */
