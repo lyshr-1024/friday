@@ -58,6 +58,9 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
       includePartialMessages: true,
       persistSession: true,
       settingSources: opts.skills ? ["user"] : [],
+      // Skill 模式要读用户的 ~/.claude，那会把他自己的 MCP server 一起带进来（实测 okr 一家挂 33 个
+      // 工具）。Friday 只需要自己这台，这里挡掉除显式传入之外的全部 MCP 配置。
+      strictMcpConfig: true,
       // 只放行用得上的 skill：全放会把本机每个 skill 的描述都塞进上下文（实测 51KB / 每轮）
       ...(opts.skills && opts.skillList ? { skills: opts.skillList === "all" ? ("all" as const) : opts.skillList } : {}),
       ...(opts.skills ? { permissionMode: "bypassPermissions" as const, allowDangerouslySkipPermissions: true } : {}),

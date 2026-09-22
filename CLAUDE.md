@@ -264,10 +264,18 @@ apps/core/src/
   agent-browser、harua-work-summary）——改代码的 skill 归终端里的 Claude Code，Friday 用不上。
   `settings.json` 的 `skillList` 可覆盖，设置页「放行哪些 skill」能切「精选 / 全部」。
   **空数组当没配处理**，否则等于一个都不放，Skill 模式会静悄悄失效。
-- **实测**（同一句话、同一模型，Opus）：skill_listing 51780 → 7958 字节（−85%），
-  整轮注入 84KB → 34KB，cache_write 97k → 56k，单轮 $0.98 → $0.57。
-- **还剩的**：`settingSources: ["user"]` 会把用户 `~/.claude` 里的 MCP server 一起带进来，实测
-  `okr` 一家就挂了 33 个工具；剩下 28k 注入里还有 CLAUDE.md（8KB）和 SessionStart hook（12KB）。
+- **`strictMcpConfig: true`**：`settingSources: ["user"]` 会把用户 `~/.claude.json` 里的 MCP server
+  一起带进来，实测 `okr` 一家挂 33 个工具。这个开关让 SDK 只认显式传进去的 `mcpServers`（Friday 自己那台），
+  忽略用户设置、项目 `.mcp.json`、插件。**okr 本身没动**——那是用户平时在 Claude Code 里用的，
+  只是 Friday 不该把它拉进来。工具 schema 不进 attachment，所以按 attachment 分项量不出它的重量，
+  得看 cache_write。
+- **实测**（同一句话、同一模型，Opus，逐步叠加）：
+  | | skill_listing | attachment 总 | cache_write | 单轮 |
+  |---|---|---|---|---|
+  | 原样 | 51780 | 84KB | 97k | ~$0.98 |
+  | + skill 精选 | 7958 | 34KB | 56k | $0.57 |
+  | + strictMcpConfig | 7958 | 34KB | **18k** | **$0.19** |
+- **还剩的**：34KB attachment 里 CLAUDE.md 占 8KB、SessionStart hook 占 12KB（superpowers）。
   没动——那些是用户自己的配置，Friday 不该替他裁。
 - **再遇到「Friday 太贵」**：先按 `attachment.type` 分组量 `~/.claude/projects/<编码过的 dataDir>/<session>.jsonl`
   的体积，别先怀疑会话轮数。
