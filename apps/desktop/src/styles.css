@@ -4399,6 +4399,8 @@ body,
    套在浮窗上就是一块灰方块。 */
 .hud {
   position: relative;
+  /* 兜底：里面任何一段长文本（窗口标题、URL、终端回报）都不该把整个 HUD 撑横 */
+  overflow-x: hidden;
   padding: var(--s-6) var(--s-6) var(--s-5);
   /* 设计稿是在固定深色背景上调的，实际 HUD 浮在任意桌面上，
      底色太透会让青色被下面的亮色冲淡。加深到 0.72 保住对比度。 */
@@ -4443,10 +4445,15 @@ body,
 /* 「我看到了」：读错了要能一眼核对出来，所以永远在最上面 */
 .hud__saw {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  flex-shrink: 0;
+  /* 标题是窗口标题，长起来没上限（「… - Google Chrome - 浩然 (longbridge-inc.com)」）。
+     不让它缩就会把整条顶栏撑出 HUD 宽度，横向滚出去把右边两个按钮顶没。
+     text-overflow 要求 block 而不是 flex，所以这里不用 flex 布局。 */
+  display: block;
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 0;
   /* 不清掉原生外观的话 macOS 会把它渲染成圆角胶囊 */
   -webkit-appearance: none;

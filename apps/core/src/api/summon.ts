@@ -13,6 +13,16 @@ import { say } from "../agent/terminal.js";
 import { reopenTerminal } from "../agent/runner.js";
 import { loadProjects, matchEnv, resolveProject } from "../memory/projects.js";
 import { askStream } from "../agent/claude.js";
+import { classifyIntent } from "../agent/summon/intent.js";
+import { startQueryJob } from "../agent/slack/queryJob.js";
+import { candidateTasks } from "../agent/slack/attach.js";
+import { conversationKey, slackNode, taskNode } from "../memory/infer.js";
+import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
+import { linkUp } from "../memory/links.js";
+import { listTasks, updateTask } from "../memory/tasks.js";
+import { claudeSessionId, conversationExists, createConversation, addMessage, setClaudeSessionId } from "../memory/conversations.js";
+import { transcriptPath } from "../agent/runner.js";
+import { existsSync } from "node:fs";
 import { friday } from "../agent/prompt.js";
 import { untrusted } from "../agent/fence.js";
 import { loadMemoryContext } from "../memory/context.js";
@@ -67,6 +77,60 @@ async function relayToTerminal(text: string, taskId?: string, scene?: string, ur
   };
 }
 
+
+const findConv = (conv: string) => listInbox(true, CONV_SCAN_LIMIT).filter((i) => conversationKey(i) === conv).sort((a, b) => Number(a.ts) - Number(b.ts));
+
+/**
+ * 「帮我查这个 / 建成任务 / 挂到…」原来是三个按钮，零模型调用。按钮收起来之后这条性质要保住：
+ * 正则认出来的直接在这儿执行，认不出来的才落回下面的通用对话（那里才花模型钱）。
+ */
+async function runIntent(intent: NonNullable<ReturnType<typeof classifyIntent>>, conv: string): Promise<SummonRelayResult | undefined> {
+  const items = findConv(conv);
+  if (!items.length) return undefined;
+  switch (intent) {
+    case "slack_query": {
+      const last = items.at(-1)!;
+      const task = await startQueryJob(last, last.text, undefined);
+      return task
+        ? { kind: "acted", did: intent, message: "已经在后台读代码查了，结果进任务卡", taskId: task.id }
+        : { kind: "acted", did: intent, message: "没有可查的项目，projects.md 里先登记一个" };
+    }
+    case "slack_task": {
+      const first = items[0]!;
+      const task = addNoteTask({
+        text: first.text,
+        source: { conversation: conv, channelId: first.channelId, userName: first.userName, ...(first.threadTs ? { threadTs: first.threadTs } : {}) },
+      });
+      linkUp(slackNode(conv), taskNode(task.id), "user", "你在 HUD 里把这段对话建成了任务");
+      return { kind: "acted", did: intent, message: `已建成任务：${task.title}`, taskId: task.id };
+    }
+    case "slack_attach": {
+      // 挂到哪条得用户自己选，这里只把候选给回去
+      const choices = candidateTasks(conv, listTasks(["collected", "understood", "processing", "review", "blocked"]))
+        .slice(0, 8)
+        .map((t) => ({ id: t.id, title: t.title }));
+      return choices.length
+        ? { kind: "acted", did: intent, message: "挂到哪条？", choices }
+        : { kind: "acted", did: intent, message: "没有可挂的任务" };
+    }
+  }
+}
+
+/**
+ * 一次呼出算一段会话。对上任务就用那条任务的会话（任务卡上看得到这段对话），
+ * 没对上就开一段临时的——HUD 收起来就丢，不进「会话历史」攒垃圾。
+ */
+function hudConversation(taskId: string | undefined): { id: string; resume?: string } {
+  const task = taskId ? getTask(taskId) : undefined;
+  const bound = task?.source.conversationId;
+  const id = bound && conversationExists(bound) ? bound : createConversation().id;
+  // 新建的要绑回任务上，否则下次呼出又读不到、每次都是新会话，等于没有上下文
+  if (task && id !== bound) updateTask(task.id, { source: { ...task.source, conversationId: id } });
+  const session = claudeSessionId(id);
+  const resume = session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
+  return { id, ...(resume ? { resume } : {}) };
+}
+
 export const summonApi = new Hono()
   .post("/summon", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { snapshot?: Snapshot };
@@ -105,31 +169,50 @@ export const summonApi = new Hono()
     }
   })
   .post("/summon/relay", async (c) => {
-    const { text, taskId, scene, url } = (await c.req.json().catch(() => ({}))) as { text?: string; taskId?: string; scene?: string; url?: string };
+    const { text, taskId, scene, url, conv } = (await c.req.json().catch(() => ({}))) as { text?: string; taskId?: string; scene?: string; url?: string; conv?: string };
     if (!text?.trim()) return c.json({ error: "缺 text" }, 400);
     const said = text.trim();
 
     return streamSSE(c, async (stream) => {
-      const relayed = await relayToTerminal(said, taskId, scene, url);
-      if (relayed) {
-        await stream.writeSSE({ data: JSON.stringify({ type: "result", result: relayed }) });
+      const finish = async (result: SummonRelayResult) => {
+        await stream.writeSSE({ data: JSON.stringify({ type: "result", result }) });
         await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
-        return;
+      };
+
+      // ① 那三个原来是按钮的动作：正则认出来就直接做，不花模型钱
+      const intent = conv ? classifyIntent(said) : undefined;
+      if (intent) {
+        const acted = await runIntent(intent, conv!);
+        if (acted) return finish(acted);
       }
 
+      // ② 有终端的任务，话优先转给它——那里有代码上下文和项目 skill
+      const relayed = await relayToTerminal(said, taskId, scene, url);
+      if (relayed) return finish(relayed);
+
+      // ③ 落到通用对话。一次呼出算一段，对上任务就接那条任务的会话
+      const { id: conversationId, resume } = hudConversation(taskId);
+      addMessage(conversationId, { role: "user", kind: "ask", content: said });
       const prompt = [scene ? untrusted("当前场景", scene) : "", said].filter(Boolean).join("\n\n");
       let answer = "";
-      for await (const ev of askStream(prompt, { systemPrompt: friday(loadMemoryContext()), cwd: config.dataDir, label: "ask" })) {
+      for await (const ev of askStream(prompt, {
+        systemPrompt: friday(loadMemoryContext()),
+        cwd: config.dataDir,
+        label: "ask",
+        conversationId,
+        ...(resume ? { resume } : {}),
+      })) {
         if (ev.type === "delta") {
           answer += ev.text;
           await stream.writeSSE({ data: JSON.stringify({ type: "delta", text: ev.text }) });
         } else if (ev.type === "reset") {
           answer = "";
           await stream.writeSSE({ data: JSON.stringify({ type: "reset" }) });
+        } else if (ev.type === "session") {
+          setClaudeSessionId(conversationId, ev.sessionId);
         }
       }
-      const result: SummonRelayResult = { kind: "asked", message: answer };
-      await stream.writeSSE({ data: JSON.stringify({ type: "result", result }) });
-      await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
+      if (answer) addMessage(conversationId, { role: "assistant", kind: "ask", content: answer });
+      await finish({ kind: "asked", message: answer });
     });
   });
