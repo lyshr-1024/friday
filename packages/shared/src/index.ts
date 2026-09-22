@@ -704,10 +704,14 @@ export interface SummonCard {
 
 /** HUD 里说的话去了哪：转给终端 / 重开终端后转达 / 新开终端 / 落回通用对话 */
 export interface SummonRelayResult {
-  kind: "said" | "opened" | "started" | "asked";
+  kind: "said" | "opened" | "started" | "asked" | "acted";
   message: string;
   taskId?: string;
   jobId?: string;
+  /** 这轮说的话被当成了哪个动作（帮我查 / 建成任务 / 挂到…），前端据此提示 */
+  did?: "slack_query" | "slack_task" | "slack_attach";
+  /** 挂靠要用户选挂到哪条，后端把候选给回来让 HUD 列出来 */
+  choices?: { id: string; title: string }[];
 }
 
 export type SummonRelayEvent =

@@ -30,7 +30,13 @@ export function Hud() {
   const askAbortRef = useRef<AbortController | null>(null);
   const ime = useImeGuard();
 
-  const actions = card?.actions.length ? card.actions : rules?.actions ?? [];
+  // 「帮我查这个 / 建成任务 / 挂到…」改成在输入框里说话触发（说「帮我查」「建成任务」「挂到」
+  // 就走同一条路，仍然零模型调用）。留在这儿会和输入框重复一遍，还把真正要你拍板的动作
+  // （发 Slack、标完成）挤到后面去。其余动作照旧——它们是不可逆的，按钮的确认步骤不能省。
+  const SLACK_CHAT_ACTIONS = new Set(["slack_query", "slack_task", "slack_attach"]);
+  const actions = (card?.actions.length ? card.actions : rules?.actions ?? []).filter((a) => !SLACK_CHAT_ACTIONS.has(a.kind));
+  // Slack 场景下这几个动作改成对话触发，输入框提示里告诉用户能说什么
+  const slackConv = (card?.actions.length ? card.actions : rules?.actions ?? []).find((a) => SLACK_CHAT_ACTIONS.has(a.kind)) as (SummonAction & { conv: string }) | undefined;
   // 键盘不代劳不可逆动作：起 Claude Code 干活、标完成都会真的改东西，
   // 焦点停在 body 时一个回车就执行代价太大，这两类只接受鼠标点击。
   // approve_pending 不在此列——它只会打开确认区，不直接执行。
@@ -225,6 +231,7 @@ export function Hud() {
           ...(rules?.match ? { taskId: rules.match.taskId } : {}),
           ...(scene ? { scene } : {}),
           ...(snapshot?.browser?.url ? { url: snapshot.browser.url } : {}),
+          ...(slackConv ? { conv: slackConv.conv } : {}),
         },
         ctrl.signal,
       )) {
@@ -232,6 +239,12 @@ export function Hud() {
         if (ev.type === "delta") setAnswer((v) => v + ev.text);
         else if (ev.type === "reset") setAnswer("");
         else if (ev.type === "result" && ev.result.kind !== "asked") {
+          // 说「挂到…」时后端把候选给回来，在原地列出来让用户点，不收起 HUD
+          if (ev.result.choices?.length && slackConv) {
+            setAttaching({ conv: slackConv.conv, tasks: ev.result.choices.map((x) => ({ id: x.id, title: x.title }) as Task) });
+            setAnswer("");
+            return;
+          }
           setNote({ text: ev.result.message, err: false });
           setTimeout(() => void invoke("hide_hud"), 1500);
         }
@@ -378,7 +391,7 @@ export function Hud() {
             ref={inputRef}
             className="hud__ask-input"
             rows={1}
-            placeholder={asking ? "Friday 在想…" : rules?.match ? "让终端做点什么" : "跟 Friday 说点什么"}
+            placeholder={asking ? "Friday 在想…" : slackConv ? "帮我查 / 建成任务 / 挂到…，或直接问" : rules?.match ? "让终端做点什么" : "跟 Friday 说点什么"}
             value={ask}
             disabled={asking}
             onChange={(e) => setAsk(e.target.value)}
