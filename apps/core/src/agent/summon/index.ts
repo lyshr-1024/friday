@@ -12,14 +12,19 @@ import { terminalContext } from "./terminal.js";
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
 
-/** Slack 这段对话最近说了什么、对方是谁，给模型判断用；查不到返回 undefined。 */
+/**
+ * Slack 这段对话按时间顺序的原文，给模型判断用；查不到返回 undefined。
+ *
+ * 整段对话是主料，不要只挑最后一条——中文对话的最后一条多是应答词（好的、收到、感谢感谢），
+ * 光看它必然得出「只是道谢，无需处理」，而真正的事和我的承诺都在前面几条里。
+ */
 function slackContext(scene: SlackScene | undefined): string | undefined {
   if (!scene) return undefined;
   const note = personNote(scene.userName);
-  const recent = scene.recent?.length
-    ? [`频道 ${scene.channelName} 最近在聊：`, ...scene.recent.map((l) => `  ${l.userName}：${l.text}`)].join("\n")
-    : "";
-  return [`${scene.userName} 在 ${scene.channelName} 最近说：${scene.text}`, note ? `这个人：${note}` : "", recent].filter(Boolean).join("\n");
+  const body = scene.recent?.length
+    ? [`${scene.channelName} 这段对话（按时间顺序，「我」是你自己说的）：`, ...scene.recent.map((l) => `  ${l.userName}：${l.text}`)].join("\n")
+    : `${scene.userName} 在 ${scene.channelName} 说：${scene.text}`;
+  return [body, note ? `这个人：${note}` : ""].filter(Boolean).join("\n");
 }
 
 /** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */

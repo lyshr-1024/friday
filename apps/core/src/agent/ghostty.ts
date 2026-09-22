@@ -93,10 +93,21 @@ export async function closeTerminalById(terminalId: string): Promise<boolean> {
   }
 }
 
-/** 这个终端还在不在。窗口被手动关掉之后 say / focus 都没意义了。 */
-export async function isAlive(terminalId: string): Promise<boolean> {
-  const out = await osa(
-    `tell application "Ghostty" to return (count of (every terminal whose id is ${osaString(terminalId)})) as text`,
-  ).catch(() => "0");
-  return out !== "0";
+/**
+ * 这个终端还在不在。窗口被手动关掉之后 say / focus 都没意义了。
+ *
+ * 问不到 ≠ 没了：osascript 失败（重装 .app 之后自动化权限被 TCC 重置、Ghostty
+ * 还没起来、脚本超时）原来一律 catch 成 "0"，于是收尸那条路径把用户手上还开着
+ * 的终端全标成已结束——重新构建 App 之后一屏任务都变成「重开终端」就是这么来的。
+ * 拿不到答案时返回 undefined，让调用方自己决定，不要替它猜「死了」。
+ */
+export async function isAlive(terminalId: string): Promise<boolean | undefined> {
+  try {
+    const out = await osa(
+      `tell application "Ghostty" to return (count of (every terminal whose id is ${osaString(terminalId)})) as text`,
+    );
+    return out !== "0";
+  } catch {
+    return undefined;
+  }
 }

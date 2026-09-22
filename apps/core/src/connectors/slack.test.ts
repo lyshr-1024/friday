@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksText, fetchChannelRecent, fetchContext, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
+import { blocksText, fetchChannelRecent, fetchContext, fetchDmRecent, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {
@@ -411,5 +411,61 @@ describe("频道里最近的对话", () => {
   it("接口报错时返回空，不让呼出失败", async () => {
     const call = async () => { throw new Error("enterprise_is_restricted"); };
     expect(await fetchChannelRecent(call, "team-fe-bo")).toEqual({ lines: [] });
+  });
+});
+
+describe("fetchDmRecent", () => {
+  const counts = {
+    ims: [
+      { id: "D1", user_id: "U1", has_unreads: false },
+      { id: "D2", user_id: "U2", has_unreads: true },
+    ],
+  };
+  const hist = {
+    messages: [
+      { ts: "1757000500.000100", text: "感谢感谢:saluting_face:", user: "U2" },
+      { ts: "1757000400.000100", text: "我这周尽量做一下", user: "ME" },
+      { ts: "1757000300.000100", text: "你看看这两周能否处理下哈", user: "U2" },
+      { ts: "1757000250.000100", text: "join", user: "U2", subtype: "channel_join" },
+      { ts: "1757000200.000100", text: "   ", user: "U2" },
+    ],
+  };
+  const mk = (seen: Array<[string, Record<string, string>]> = []) => async (m: string, p: Record<string, string>) => {
+    seen.push([m, p]);
+    if (m === "client.counts") return counts as Record<string, unknown>;
+    if (m === "conversations.history") return hist as Record<string, unknown>;
+    if (m === "users.info") return { user: { real_name: p.user === "U2" ? "Shawn (Jin Junhong)" : "别人" } } as Record<string, unknown>;
+    return {};
+  };
+
+  it("按人名找到 DM 并按时间正序给回原文，应答词一并保留", async () => {
+    const seen: Array<[string, Record<string, string>]> = [];
+    const res = await fetchDmRecent(mk(seen), "Shawn (Jin Junhong)", "ME", 10);
+    expect(res.channelId).toBe("D2");
+    expect(res.lines.map((l) => l.text)).toEqual([
+      "你看看这两周能否处理下哈",
+      "我这周尽量做一下",
+      "感谢感谢:saluting_face:",
+    ]);
+    expect(seen.some(([m, p]) => m === "conversations.history" && p.channel === "D2" && p.limit === "10")).toBe(true);
+  });
+
+  it("我自己发的那条标成「我」，对方用显示名", async () => {
+    const res = await fetchDmRecent(mk(), "Shawn", "ME", 10);
+    expect(res.lines.map((l) => l.userName)).toEqual(["Shawn (Jin Junhong)", "我", "Shawn (Jin Junhong)"]);
+  });
+
+  it("名字带英文后缀、或标题里只剩中文名，两边都能对上", async () => {
+    expect((await fetchDmRecent(mk(), "Shawn", "ME")).channelId).toBe("D2");
+    expect((await fetchDmRecent(mk(), "Shawn (Jin Junhong)", "ME")).channelId).toBe("D2");
+  });
+
+  it("找不到这个人时返回空，不抛错", async () => {
+    expect(await fetchDmRecent(mk(), "查无此人", "ME")).toEqual({ lines: [] });
+  });
+
+  it("接口报错时返回空，不让呼出失败", async () => {
+    const call = async () => { throw new Error("enterprise_is_restricted"); };
+    expect(await fetchDmRecent(call, "Shawn", "ME")).toEqual({ lines: [] });
   });
 });

@@ -42,8 +42,10 @@ export type SayResult = "sent" | "no-terminal";
 export async function say(jobId: string, text: string): Promise<SayResult> {
   const job = getJob(jobId);
   if (!job?.ghosttyId || job.status !== "running") return "no-terminal";
-  // 窗口可能已经被关掉，而 job 还标着 running：先问一句，免得谎报「已转达」
-  if (!(await isAlive(job.ghosttyId))) {
+  // 窗口可能已经被关掉，而 job 还标着 running：先问一句，免得谎报「已转达」。
+  // 只有明确答「不在」才收尾——问不到就照常发，Claude Code 忙时输入进它自己的
+  // 缓冲区不会丢，比误判成没了把任务断掉强。
+  if ((await isAlive(job.ghosttyId)) === false) {
     finishJob(jobId, 0);
     publish({ type: "terminal", jobId, state: "gone" });
     return "no-terminal";
@@ -83,7 +85,8 @@ export async function refreshTerminalState(jobId: string): Promise<TerminalState
   const job = getJob(jobId);
   if (!job || job.status !== "running") return "gone";
   if (!job.ghosttyId) return isIdle(jobId) ? "idle" : "busy";
-  if (await isAlive(job.ghosttyId)) return isIdle(jobId) ? "idle" : "busy";
+  // 问不到时按「还在」处理：宁可显示成还开着，也不要把用户手上的终端说成已结束
+  if ((await isAlive(job.ghosttyId)) !== false) return isIdle(jobId) ? "idle" : "busy";
   finishJob(jobId, 0);
   publish({ type: "terminal", jobId, state: "gone" });
   return "gone";

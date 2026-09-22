@@ -1,6 +1,13 @@
 import { conversationKey } from "../../memory/infer.js";
 import { listInbox } from "../../memory/inbox.js";
-import { fetchChannelRecent, loadSlackCreds, slackCaller, type SlackContextLine } from "../../connectors/slack.js";
+import {
+  fetchChannelRecent,
+  fetchDmRecent,
+  loadSlackCreds,
+  slackCaller,
+  slackSelfId,
+  type SlackContextLine,
+} from "../../connectors/slack.js";
 import { attachedTasks } from "../slack/attach.js";
 import { readMemoryFile } from "../../memory/files.js";
 
@@ -13,7 +20,6 @@ export interface SlackScene {
   recent?: SlackContextLine[];
 }
 
-/** HUD 在 Slack 前台：按窗口标题解析出的频道或人名，找该处最近一段对话。 */
 /** Slack 显示名常带英文后缀（「拂晓 (Chen Xiaofu)」），窗口标题里可能只剩中文名，两边都剥一次再比 */
 const bareName = (s: string) => s.replace(/\s*[（(][^（）()]*[）)]\s*/g, "").trim();
 
@@ -28,65 +34,84 @@ function displayNames(): Map<string, string> {
     if (!en) return;
     const parts = en.toLowerCase().split(/\s+/).filter(Boolean);
     if (parts.length < 2) return;
-    // 「Zhou Jiacheng」→ 账号名是 jiacheng.zhou（名在前姓在后）
     out.set(`${parts.slice(1).join("")}.${parts[0]}`, name.trim());
   };
   for (const i of listInbox(true, 500)) add(i.userName);
-  // 收件箱只认得 @ 过你的人；同组同事天天在群里说话却从没 @ 过你，得靠人物档案补上
   for (const m of readMemoryFile("people").matchAll(/^##\s+(.+?)\s*$/gm)) add(m[1]!);
   return out;
 }
 
 const prettyName = (raw: string, book: Map<string, string>) => book.get(raw.toLowerCase()) ?? raw;
 
-// 呼出路径上用户在等，拉不回来就当没有
 const LIVE_TIMEOUT_MS = 2_500;
 
 type Live = { channelId?: string; lines: SlackContextLine[] };
 
-async function liveChannel(channel: string): Promise<Live> {
+/**
+ * 去 Slack 拉这段对话的原文。私聊和频道取数的接口不同（私聊只能 client.counts + history，
+ * 频道在 Enterprise Grid 下只有 search 这条路通），但要的东西一样：屏幕上这段对话本身。
+ */
+async function liveConversation(channel?: string, person?: string): Promise<Live> {
   const creds = await loadSlackCreds();
   if (!creds) return { lines: [] };
-  return fetchChannelRecent(slackCaller(creds), channel);
+  const call = slackCaller(creds);
+  if (channel) return fetchChannelRecent(call, channel);
+  if (!person) return { lines: [] };
+  return fetchDmRecent(call, person, await slackSelfId(call));
 }
 
+/**
+ * HUD 在 Slack 前台：按窗口标题解析出的频道或人名，找出你正在看的那段对话。
+ *
+ * 主语句一律用实时拉到的最后一条，不用收件箱里那条。收件箱是待办队列
+ * （只存 @ 到我的、去过噪音的），跟「屏幕上这段对话」是两回事——拿它当主语句，
+ * 就会出现你在看今天的催排期、Friday 却在总结三天前那条的错位。
+ * 实时拉不到（没配凭证、接口超时）时才退回收件箱，保证至少有东西可说。
+ */
 export async function slackScene(channel?: string, person?: string): Promise<SlackScene | undefined> {
   if (!channel && !person) return undefined;
-  // 库里的频道名带 #（#proj-xxx），窗口标题里不带——两侧都剥一次再比，只剥一边等于永远对不上
+
+  const live: Live = await Promise.race<Live>([
+    liveConversation(channel, person).catch(() => ({ lines: [] })),
+    new Promise<Live>((r) => setTimeout(() => r({ lines: [] }), LIVE_TIMEOUT_MS)),
+  ]);
+
+  const book = live.lines.length ? displayNames() : new Map<string, string>();
+  const lines = live.lines.map((l) => ({ ...l, userName: prettyName(l.userName, book) }));
+
   const want = channel?.replace(/^#/, "");
   const who = person ? bareName(person) : "";
   const hit = listInbox(true, 200)
-    .filter((i) => (want ? i.kind === "mention" && i.channelName.replace(/^#/, "") === want : i.kind === "dm" && bareName(i.userName) === who))
+    .filter((i) =>
+      want
+        ? i.kind === "mention" && i.channelName.replace(/^#/, "") === want
+        : i.kind === "dm" && bareName(i.userName) === who,
+    )
     .sort((a, b) => Number(b.ts) - Number(a.ts))[0];
 
-  // 私聊本来就在收件箱里，只有频道才需要实时补
-  const live: Live = channel
-    ? await Promise.race<Live>([
-        liveChannel(channel).catch(() => ({ lines: [] })),
-        new Promise<Live>((r) => setTimeout(() => r({ lines: [] }), LIVE_TIMEOUT_MS)),
-      ])
-    : { lines: [] };
-  const book = live.lines.length ? displayNames() : new Map<string, string>();
-  const lines = live.lines.map((l) => ({ ...l, userName: prettyName(l.userName, book) }));
-  const recent = lines.length ? { recent: lines } : {};
-
-  if (hit) {
-    const conv = conversationKey(hit);
+  const last = lines.at(-1);
+  if (last && live.channelId) {
+    const conv = `${live.channelId}:${last.ts}`;
     const taskId = attachedTasks(conv)[0];
-    return { conv, text: hit.text, userName: hit.userName, channelName: hit.channelName, ...(taskId ? { taskId } : {}), ...recent };
+    return {
+      conv,
+      text: last.text,
+      userName: last.userName,
+      channelName: channel ? (channel.startsWith("#") ? channel : `#${channel}`) : (hit?.channelName ?? `与 ${person} 的私聊`),
+      ...(taskId ? { taskId } : {}),
+      recent: lines,
+    };
   }
 
-  // 本地一条都没有：常驻的群从没 @ 过他，只靠实时消息也要能给出场景
-  const last = lines.at(-1);
-  if (!channel || !last || !live.channelId) return undefined;
-  const conv = `${live.channelId}:${last.ts}`;
+  if (!hit) return undefined;
+  const conv = conversationKey(hit);
   const taskId = attachedTasks(conv)[0];
   return {
     conv,
-    text: last.text,
-    userName: last.userName,
-    channelName: channel.startsWith("#") ? channel : `#${channel}`,
+    text: hit.text,
+    userName: hit.userName,
+    channelName: hit.channelName,
     ...(taskId ? { taskId } : {}),
-    ...recent,
+    ...(lines.length ? { recent: lines } : {}),
   };
 }

@@ -385,3 +385,85 @@ export async function fetchChannelRecent(
   lines.sort((a, b) => Number(a.ts) - Number(b.ts));
   return { ...(channelId ? { channelId } : {}), lines };
 }
+
+/** 显示名常带英文后缀（「拂晓 (Chen Xiaofu)」），窗口标题里可能只剩中文名，两边都剥一次再比 */
+const bareName = (s: string) => s.replace(/\s*[（(][^（）()]*[）)]\s*/g, "").trim();
+
+async function resolveName(call: Call, id: string, cache: Map<string, string>): Promise<string> {
+  if (!id) return "未知";
+  const hit = cache.get(id);
+  if (hit) return hit;
+  try {
+    const res = (await call("users.info", { user: id })) as { user?: { real_name?: string; name?: string } };
+    const n = res.user?.real_name || res.user?.name || id;
+    cache.set(id, n);
+    return n;
+  } catch {
+    return id;
+  }
+}
+
+/**
+ * HUD 用：按人名找到私聊，拉最近一段原文。
+ *
+ * 跟收件箱那条路（fetchSlack 里的 client.counts）看着像，但要的东西正相反：
+ * 收件箱要的是「哪些该变成待办」，所以过噪音、跳过我自己发的；
+ * 这里要的是「这段对话现在到哪了」，应答词和我自己的回复恰恰是关键——
+ * 「我这周尽量做一下」意味着我已经承诺了，比任何一条催办都重要。所以一条都不筛。
+ *
+ * client.counts 给的是全部 DM（不只未读），带 user_id，省掉逐个频道拉一条认人。
+ */
+export async function fetchDmRecent(
+  call: Call,
+  person: string,
+  me: string,
+  limit = CONTEXT_LIMIT,
+): Promise<{ channelId?: string; lines: SlackContextLine[] }> {
+  const want = bareName(person);
+  try {
+    const counts = (await call("client.counts", {})) as { ims?: CountsIm[] };
+    const names = new Map<string, string>();
+    let channelId: string | undefined;
+    for (const im of counts.ims ?? []) {
+      if (!im.user_id) continue;
+      const name = await resolveName(call, im.user_id, names);
+      names.set(im.user_id, name);
+      if (bareName(name) === want || name === person) {
+        channelId = im.id;
+        break;
+      }
+    }
+    if (!channelId) return { lines: [] };
+
+    const hist = (await call("conversations.history", { channel: channelId, limit: String(limit) })) as {
+      messages?: Array<{ ts: string; text?: string; user?: string; username?: string; bot_id?: string; subtype?: string; blocks?: Block[] }>;
+    };
+    const lines: SlackContextLine[] = [];
+    for (const m of hist.messages ?? []) {
+      if (!m.ts || m.subtype) continue;
+      const text = (m.text ?? "").trim() || blocksText(m.blocks);
+      if (!text) continue;
+      const who = m.user === me ? "我" : (m.username ?? (m.user ? names.get(m.user) ?? (await resolveName(call, m.user, names)) : m.bot_id ? "机器人" : "未知"));
+      lines.push({ ts: m.ts, userName: who, text });
+    }
+    lines.sort((a, b) => Number(a.ts) - Number(b.ts));
+    return { channelId, lines };
+  } catch {
+    // 拿不到实时上下文不该让整个呼出失败
+    return { lines: [] };
+  }
+}
+
+let selfId: string | undefined;
+
+/** 我自己的 user id，用来把对话里我发的那几条标成「我」。一个登录态只会变一次，缓存住。 */
+export async function slackSelfId(call: Call): Promise<string> {
+  if (selfId !== undefined) return selfId;
+  try {
+    const auth = (await call("auth.test", {})) as { user_id?: string };
+    selfId = String(auth.user_id ?? "");
+  } catch {
+    selfId = "";
+  }
+  return selfId;
+}
