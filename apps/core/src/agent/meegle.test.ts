@@ -1,6 +1,7 @@
 import { syncMeegleOnce as syncOnce } from "./meegle.js";
 import { createTask as mkTask, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
 import { state as schedState } from "../scheduler/index.js";
+import { createJob, getJob } from "../memory/jobs.js";
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
@@ -338,11 +339,13 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     expect(readTask(t.id)!.status).toBe("understood");
   });
 
-  it("FE 发布走完 → 收掉并记账", async () => {
-    const t = mkTask({ title: "需求 f2", kind: "meegle", source: { meegleId: "f2", meegleProject: "p1", meegleType: "story" }, status: "understood" });
+  it("FE 发布走完 → 收掉，终端跟着关", async () => {
+    createJob({ id: "job-f2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    const t = mkTask({ title: "需求 f2", kind: "meegle", source: { meegleId: "f2", meegleProject: "p1", meegleType: "story", jobId: "job-f2" }, status: "understood" });
     // 同一个库里可能还有上一条用例留下的任务，只断言这一条
     await syncOnce(gone(true));
     expect(readTask(t.id)!.status).toBe("done");
+    expect(getJob("job-f2")!.status).not.toBe("running");
   });
 
   it("没记项目 key 的老任务不去问 Meegle，也不收", async () => {

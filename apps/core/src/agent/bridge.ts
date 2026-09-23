@@ -255,10 +255,9 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       notify(t, job, "这轮做完了，等你看", report.summary, "finished");
-      // 交付完就把窗口关掉：报告和动作流都已经落到任务卡上，留个空窗口只会越攒越多。
-      // 要接着聊就点任务卡上的「重开终端」，--resume 接回这个会话，上下文不丢。
-      void closeJobTerminal(jobId, "终端交付完这一轮", t.id);
-      return { text: "已交给用户看，终端窗口随之关闭。任务是否算完成由用户决定；用户要追问会重开终端接回这个会话。" };
+      // 窗口不关：一个任务常要来回好几轮，用户看完多半就在这个窗口里接着追问。
+      // 收工（标完成 / 忽略 / Meegle 节点走完）时 finishTask 会统一关
+      return { text: "已交给用户看。任务是否算完成由用户决定；用户可能就在这个终端里接着追问。" };
     }
     const t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";

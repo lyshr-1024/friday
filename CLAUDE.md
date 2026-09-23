@@ -73,7 +73,8 @@ apps/core/src/
 
 - 开工前 `git worktree add --detach <项目>/.claude/worktrees/friday-<id8>`（`git.ts` 的 `fridayWorktree` / `addWorktree`），`launchClaude` 的 cwd 指到那儿。位置跟 Claude Code 客户端一致，用完即删，不混进 orca 的 workspace 列表。**用 `--detach` 不预建分支**——分支名仍由终端里的 Claude 按项目规范自己起（它有完整上下文，Friday 做中文 slug 会变乱码），提示词第一条改成「你已经在一个 worktree 里（detached），先 `git switch -c <分支名>`」。
 - `worktreeDirt()` 只剩「得是个 git 仓库」这一条。主仓脏不脏跟 Friday 无关了，这正是用 worktree 的意义。
-- **清理**（`cleanupTaskWorktree`）：目录一律删（只是个检出），**分支只用 `git branch -d` 删**——没合并的 git 会拒绝，那是安全阀不是错误：被忽略的任务里可能有还想捡回来的改动，那个决定归用户，账本 `worktree_removed` 里写明分支留着了。出口三处：`git_merge` 执行成功后（合完再收，这时 `-d` 才删得掉）、`/tasks/:id/done`、`/tasks/:id/ignore`，以及会话里 `task_update` 说收工。
+- **清理**（`cleanupTaskWorktree`）：**有未提交改动的 worktree 整个留着**（账本记 `worktree_kept`；2026-09-23 起，原来 `--force` 直接删，点「完成当前节点」提测时没提交的改动会跟着没），干净的才删目录，**分支只用 `git branch -d` 删**——没合并的 git 会拒绝，那是安全阀不是错误：被忽略的任务里可能有还想捡回来的改动，那个决定归用户，账本 `worktree_removed` 里写明分支留着了。出口三处：`git_merge` 执行成功后（合完再收，这时 `-d` 才删得掉）、`/tasks/:id/done`、`/tasks/:id/ignore`，以及会话里 `task_update` 说收工。
+- **收工 = 关终端 + 收 worktree，只走 `finishTask` 一处**（2026-09-23）：Meegle 那几条自动收工（流转到 RESOLVED、完成当前节点、需求容器收尾、FE 发布走完）原来直接 `updateTask` 标 done，终端和 worktree 都漏关，「N 个终端在跑」就是这么攒的。交互式终端的 `friday_done` 反过来**不再关窗口**——一个任务常要来回好几轮，交付一轮就关、每次追问都得「重开终端」。自主任务的 `friday_done` 仍关。
 - **顺带修了一个一直没被发现的 bug**：`getTaskByJob` 读 `task.source.dir`，而 `TaskSource` 根本没有 `dir` 字段，一直拿到空串 → `currentBranchSync("")` 返回空 → **`git_merge` 待审动作从来没挂上过**。现在 `TaskSource` 加了 `repoDir`（主仓）和 `worktree`（Friday 开的那个），分支名去 worktree 读，合并在主仓做（分支正被 worktree 检出着，在 worktree 里 merge 不了）。
 
 ## 终端：外部 Ghostty（2026-09-20 改）

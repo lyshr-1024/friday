@@ -140,15 +140,18 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
 
 /**
  * 任务收工：收掉 Friday 给它开的 worktree。
- * 目录一律删（只是个检出），分支只在已合并时删——没合并的改动可能还想捡回来，
- * 那个决定归用户，账本里写清楚分支留着了。
+ * 有未提交改动的整个留着，干净的才删目录；分支只在已合并时删——没合并的改动
+ * 可能还想捡回来，那个决定归用户，账本里写清楚留了什么。
  */
 export async function cleanupTaskWorktree(task: Task, why: string): Promise<void> {
   const tree = task.source.worktree;
   const repo = task.source.repoDir;
   if (!tree || !repo) return;
   const r = await removeWorktree(repo, tree);
-  if (!r.removed) return;
+  if (!r.removed) {
+    if (r.kept) record({ taskId: task.id, action: "worktree_kept", why, how: `${r.kept}：${tree}`, evidence: { worktree: tree, branch: r.branch ?? null }, risk: "read" });
+    return;
+  }
   record({
     taskId: task.id,
     action: "worktree_removed",

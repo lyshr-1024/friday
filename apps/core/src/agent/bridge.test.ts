@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { app } from "../api/index.js";
-import { createJob } from "../memory/jobs.js";
+import { createJob, getJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
@@ -34,6 +34,8 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(after.status).toBe("processing");
     expect(after.attention).toBe("review");
     expect(after.report).toMatchObject({ summary: "补了 token 刷新", testResult: "全部通过", verify: ["登录后放 1 小时再操作"] });
+    // 交互式终端交付一轮不关窗口，用户多半就在那儿接着追问
+    expect(getJob("job-mcp-2")!.status).toBe("running");
     // 再报进展 = 新一轮开始，标记清掉
     await rpc("job-mcp-2", "tools/call", { name: "friday_progress", arguments: { text: "按反馈继续改" } });
     expect(getTask(task.id)!.attention).toBeUndefined();

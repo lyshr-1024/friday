@@ -71,17 +71,23 @@ export interface WorktreeCleanup {
   removed: boolean;
   branch?: string;
   branchDeleted: boolean;
-  /** 没删成分支的原因，通常是「还没合并」——那不是错误，是安全阀 */
+  /** 没收成的原因：分支还没合并，或 worktree 里有没提交的改动——都不是错误，是安全阀 */
   kept?: string;
 }
 
 /**
- * 收掉一个 worktree。目录一律删（它只是个检出，删了不丢东西）；
+ * 收掉一个 worktree。有未提交改动就整个留着——点「完成当前节点」提测时终端里
+ * 可能还有没提交的东西，测试打回来得能接着改；干净的才删目录。
  * 分支只用 -d 删，没合并的 git 会拒绝——被忽略的任务里可能有还想捡回来的改动，
  * 不能替用户做这个决定。
  */
 export async function removeWorktree(dir: string, path: string): Promise<WorktreeCleanup> {
   const branch = currentBranchSync(path) || undefined;
+  const status = await git(path, ["status", "--porcelain"]);
+  if (status && !status.startsWith("（")) {
+    const n = status.split("\n").length;
+    return { removed: false, ...(branch ? { branch } : {}), branchDeleted: false, kept: `有 ${n} 个文件没提交，worktree 留着` };
+  }
   const rm = await git(dir, ["worktree", "remove", "--force", path]);
   const removed = !rm.startsWith("（");
   if (removed) await git(dir, ["worktree", "prune"]);

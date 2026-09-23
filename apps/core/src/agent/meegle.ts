@@ -3,7 +3,7 @@ import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
 import { judgeIntake } from "./intake.js";
-import { startAutonomousJob } from "./pipeline.js";
+import { finishTask, startAutonomousJob } from "./pipeline.js";
 import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { state } from "../scheduler/index.js";
@@ -239,8 +239,8 @@ export async function applyTransition(t: Task, to: StateTransition, connector = 
     risk: "reversible",
     ...(from ? { undo: { kind: "meegle_state" as const, projectKey, workItemId, backTo: from } } : {}),
   });
-  const done = to.stateKey === DONE_STATE;
-  return updateTask(t.id, { source: { statusKey: to.stateKey }, ...(done ? { status: "done" as TaskStatus, pending: [] } : {}) })!;
+  const moved = updateTask(t.id, { source: { statusKey: to.stateKey } })!;
+  return to.stateKey === DONE_STATE ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`))! : moved;
 }
 
 function nodeRef(t: Task): { projectKey: string; workItemId: string; nodeKey: string } {
@@ -267,8 +267,9 @@ export async function confirmNode(t: Task, connector = new MeegleConnector()): P
     risk: "reversible",
     undo: { kind: "meegle_node" as const, projectKey, workItemId, nodeKey },
   });
-  // 节点推给下游后这条多半不再分派给我；万一还在，下次同步会把它复活
-  return updateTask(t.id, { status: "done", pending: [] })!;
+  // 节点推给下游后这条多半不再分派给我；万一还在，下次同步会把它复活。
+  // 终端跟着关，有没提交改动的 worktree 留着，测试打回来还能接着改
+  return (await finishTask(t.id, "done", "完成了 Meegle 当前节点"))!;
 }
 
 export async function rollbackNode(plan: { projectKey: string; workItemId: string; nodeKey: string }, connector = new MeegleConnector()): Promise<boolean> {
@@ -339,7 +340,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const own = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
         const kids = listTasks().filter((x) => x.source.linkedStoryId && own.has(x.source.linkedStoryId));
         if (!containerDone(kids)) continue;
-        updateTask(t.id, { status: "done" });
+        await finishTask(t.id, "done", "名下的缺陷都处理完了");
         record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });
         closed++;
         continue;
@@ -354,7 +355,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         updateTask(t.id, { source: { statusKey: now.statusKey } });
       }
       if (!(await connector.feReleased(t.source.meegleProject, t.source.meegleId))) continue;
-      updateTask(t.id, { status: "done" });
+      await finishTask(t.id, "done", "「FE 发布」节点已经走完");
       record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
     }

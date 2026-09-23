@@ -76,10 +76,15 @@ describe("worktree 开与收", () => {
     expect(run(repo, "branch", "--format=%(refname:short)")).toContain("feat/wip");
   });
 
-  it("未提交的改动不挡收 worktree（--force）", async () => {
+  it("有未提交的改动就不收——提测后打回来还要接着改", async () => {
     const tree = fridayWorktree(repo, "dirty000000");
     await addWorktree(repo, tree);
     writeFileSync(join(tree, "d.txt"), "没提交\n");
+    const r = await removeWorktree(repo, tree);
+    expect(r.removed).toBe(false);
+    expect(r.kept).toContain("1 个文件没提交");
+    expect(existsSync(join(tree, "d.txt"))).toBe(true);
+    execFileSync("rm", [join(tree, "d.txt")]);
     expect((await removeWorktree(repo, tree)).removed).toBe(true);
   });
 
