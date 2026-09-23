@@ -27,6 +27,7 @@ export type Undo =
   | { kind: "restore_memory"; snapshot: { handbooks: Record<string, string>; decisions: string; people: string; projects: string } }
   | { kind: "restore_task"; row: Record<string, string | number | null> }
   | { kind: "stage_set"; taskId: string; stage: string | null }
+  | { kind: "reopen_task"; id: string; status: string }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

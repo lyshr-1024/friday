@@ -2,7 +2,7 @@ import type { InboxItem, Notice } from "@friday/shared";
 import { attachOnce } from "../agent/slack/attach.js";
 import { classifyQuery } from "../agent/slack/query.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
-import { settleQueryTasks } from "../agent/slack/settle.js";
+import { archiveStaleTasks, settleQueryTasks } from "../agent/slack/settle.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
 import { watchStageSignals } from "../agent/stageWatch.js";
 import { onSlackAccepted } from "../agent/stage.js";
@@ -100,6 +100,8 @@ export async function syncSlackOnce(): Promise<number> {
         console.error(`[slack] 收件箱对齐失败：${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    const archived = await archiveStaleTasks();
+    if (archived) console.log(`把 ${archived} 条挂过一天没动的 Slack 待决定归档了`);
     const keys = ["slack:mentions"];
     const cursors: Record<string, string | undefined> = Object.fromEntries(keys.map((k) => [k, getCursor(k)]));
     // 私聊游标按 channel 记，fetchSlack 里按需查；这里给它一个懒读取的代理。

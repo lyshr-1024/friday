@@ -3,7 +3,7 @@ import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task } from "@friday/shared";
+import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
@@ -456,6 +456,11 @@ export const tasks = new Hono()
       if (!cur) return c.json({ error: "任务已不在" }, 409);
       if (plan.stage) setStage(plan.taskId, plan.stage as Stage, "misjudged", "你撤回了这次阶段变更");
       else updateTask(plan.taskId, { stage: undefined, stageBy: undefined, stagePrev: undefined });
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "reopen_task") {
+      if (!updateTask(plan.id, { status: plan.status as TaskStatus })) return c.json({ error: "任务已不在" }, 409);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
