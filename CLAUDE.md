@@ -250,6 +250,12 @@ apps/core/src/
 - **`route` 与 `continuation` 换 Haiku**（`claude-haiku-4-5`，实测可用）：两个都是「输出一个 JSON 做二选一」的小任务，判错代价也小（route 接错有「其实是新话题」可点，continuation 判不准时提示词要求答 false 偏保守）。**`triage` 和 `brief` 留 Sonnet**——要读懂中文语境、写能直接发出去的草稿，brief 更是界面的核心输出，降级会明显变差。
 - **Skill 模式开关补成本说明**：「开着时每轮都要读 skill 文档、最多跑 30 轮，比关掉贵不少；不常用 skill 就关掉」。**默认值没动**（仍是 `skills: true`）——那是使用习惯，留给用户自己决定。
 
+## HUD 呼出慢在 thinking，不在取数（2026-09-23 量过）
+
+- **大头是 Sonnet 5 默认的 adaptive thinking**：transcript 里带 thinking 的呼出 10–13 秒、不带的 3–4 秒；频道那次改前 37.6 秒直接撞上 35 秒超时出了空卡。`askStream` 加 `oneShot`（不挂工具、`maxTurns: 1`、`thinking: disabled`），summon 用它；挂着工具时它还会自己去调 `slack_inbox` 多跑一轮。实测私聊 29.4s → 7.9s、频道 37.6s → 5.9s，判断质量肉眼无差。
+- **零模型那段平时只要 0.6 秒**（频道 search 0.5s、私聊有缓存 0.7s），「窗口停留时预取」省不了多少还得处理旧消息，没做。慢的只有重启后第一次私聊呼出（扫私聊花名册 2.4s + `auth.test` 0.5s，都只活在内存里），改成启动时 `warmSlack()` 预热。`slackSelfId` 失败不再缓存空串——开机自启时网络可能还没起来。
+- **还剩约 2 秒是 SDK 每次拉起 Claude Code 子进程**，模型本身 3.4–4 秒。再要快得从这里下手。
+
 ## /ask 的大头是 skill_listing，不是多轮上下文（2026-09-22 量过）
 
 2026-09-17 的 `2e3143f 去掉多轮会话` 把 $233 的账算在 resume 头上，方向判错了。扒 transcript 里

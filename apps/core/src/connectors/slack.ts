@@ -431,30 +431,44 @@ export async function fetchDmRecent(
   const matches = (name: string) => name === person || bareName(name) === want;
   try {
     for (const [id, name] of dmOwners) if (matches(name)) return await dmHistory(call, id, me, limit);
-
-    const counts = (await call("client.counts", {})) as { ims?: CountsIm[] };
-    const ims = (counts.ims ?? []).filter((i) => i.latest && Number(i.latest) > 0 && !dmOwners.has(i.id));
-    const owners = await Promise.all(
-      ims.map(async (im) => {
-        try {
-          const h = (await call("conversations.history", { channel: im.id, limit: "1" })) as { messages?: Array<{ user?: string }> };
-          return { id: im.id, user: h.messages?.[0]?.user };
-        } catch {
-          return { id: im.id, user: undefined };
-        }
-      }),
-    );
-    const cache = new Map<string, string>();
-    const uids = [...new Set(owners.map((o) => o.user).filter(Boolean))] as string[];
-    await Promise.all(uids.map((u) => resolveName(call, u, cache)));
-    for (const o of owners) if (o.user) dmOwners.set(o.id, cache.get(o.user) ?? o.user);
-
+    await scanDmOwners(call);
     for (const [id, name] of dmOwners) if (matches(name)) return await dmHistory(call, id, me, limit);
     return { lines: [] };
   } catch {
     // 拿不到实时上下文不该让整个呼出失败
     return { lines: [] };
   }
+}
+
+/** 把还没认过的私聊都认一遍，结果进 dmOwners */
+async function scanDmOwners(call: Call): Promise<void> {
+  const counts = (await call("client.counts", {})) as { ims?: CountsIm[] };
+  const ims = (counts.ims ?? []).filter((i) => i.latest && Number(i.latest) > 0 && !dmOwners.has(i.id));
+  const owners = await Promise.all(
+    ims.map(async (im) => {
+      try {
+        const h = (await call("conversations.history", { channel: im.id, limit: "1" })) as { messages?: Array<{ user?: string }> };
+        return { id: im.id, user: h.messages?.[0]?.user };
+      } catch {
+        return { id: im.id, user: undefined };
+      }
+    }),
+  );
+  const cache = new Map<string, string>();
+  const uids = [...new Set(owners.map((o) => o.user).filter(Boolean))] as string[];
+  await Promise.all(uids.map((u) => resolveName(call, u, cache)));
+  for (const o of owners) if (o.user) dmOwners.set(o.id, cache.get(o.user) ?? o.user);
+}
+
+/**
+ * 启动时先把 HUD 要用的缓存填上。私聊花名册和 selfId 只活在内存里，
+ * 不预热的话每次重启后第一次在私聊里呼出要多等约 3 秒（真机：扫私聊 2.4s + auth.test 0.5s）。
+ */
+export async function warmSlack(): Promise<void> {
+  const creds = await loadSlackCreds();
+  if (!creds) return;
+  const call = slackCaller(creds);
+  await Promise.all([slackSelfId(call), scanDmOwners(call)]);
 }
 
 async function dmHistory(call: Call, channelId: string, me: string, limit: number) {
@@ -482,8 +496,9 @@ export async function slackSelfId(call: Call): Promise<string> {
   try {
     const auth = (await call("auth.test", {})) as { user_id?: string };
     selfId = String(auth.user_id ?? "");
+    return selfId;
   } catch {
-    selfId = "";
+    // 不缓存失败：开机自启时预热，网络可能还没起来
+    return "";
   }
-  return selfId;
 }

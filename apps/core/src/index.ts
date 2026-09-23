@@ -6,6 +6,7 @@ import { reapStaleJobs } from "./memory/jobs.js";
 import { isAlive } from "./agent/ghostty.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { startScheduler } from "./scheduler/index.js";
+import { warmSlack } from "./connectors/slack.js";
 
 initMemory();
 console.log(`memory at ${config.dataDir}`);
@@ -20,7 +21,10 @@ if (moved) console.log(`把 ${moved} 条本地待办补成了任务`);
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);
 });
-if (process.env.FRIDAY_NO_SCHEDULER !== "1") startScheduler();
+if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
+  startScheduler();
+  warmSlack().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
+}
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => process.exit(0));

@@ -219,7 +219,7 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
   }, SUMMON_TIMEOUT_MS);
   let out = "";
   try {
-    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SUMMON_MODEL, label: "summon", signal: ctrl.signal })) {
+    for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: SUMMON_MODEL, label: "summon", oneShot: true, signal: ctrl.signal })) {
       if (ev.type === "delta") out += ev.text;
       if (ev.type === "reset") out = "";
     }

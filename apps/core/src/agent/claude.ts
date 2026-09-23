@@ -27,6 +27,8 @@ export interface AskOptions {
   builtin?: string[];
   /** 这次调用算在哪个调用点名下（ask / triage / brief …），用量统计按它分组 */
   label?: string;
+  /** 一轮出结果：不挂工具、不思考。HUD 呼出实测 Sonnet 5 默认的 adaptive thinking 一项就占 10 秒 */
+  oneShot?: boolean;
 }
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
@@ -52,9 +54,10 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,
       tools: opts.builtin ?? (opts.skills ? SKILL_TOOLS : []),
-      ...(opts.builtin ? {} : { mcpServers: { friday: fridayTools(opts.conversationId) } }),
-      allowedTools: opts.builtin ?? (opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES),
-      maxTurns: opts.builtin ? 20 : opts.skills ? 30 : 8,
+      ...(opts.builtin || opts.oneShot ? {} : { mcpServers: { friday: fridayTools(opts.conversationId) } }),
+      allowedTools: opts.oneShot ? [] : (opts.builtin ?? (opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES)),
+      maxTurns: opts.oneShot ? 1 : opts.builtin ? 20 : opts.skills ? 30 : 8,
+      ...(opts.oneShot ? { thinking: { type: "disabled" as const } } : {}),
       includePartialMessages: true,
       persistSession: true,
       settingSources: opts.skills ? ["user"] : [],
