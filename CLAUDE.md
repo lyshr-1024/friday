@@ -75,6 +75,7 @@ apps/core/src/
 - `worktreeDirt()` 只剩「得是个 git 仓库」这一条。主仓脏不脏跟 Friday 无关了，这正是用 worktree 的意义。
 - **清理**（`cleanupTaskWorktree`）：**有未提交改动的 worktree 整个留着**（账本记 `worktree_kept`；2026-09-23 起，原来 `--force` 直接删，点「完成当前节点」提测时没提交的改动会跟着没），干净的才删目录，**分支只用 `git branch -d` 删**——没合并的 git 会拒绝，那是安全阀不是错误：被忽略的任务里可能有还想捡回来的改动，那个决定归用户，账本 `worktree_removed` 里写明分支留着了。出口三处：`git_merge` 执行成功后（合完再收，这时 `-d` 才删得掉）、`/tasks/:id/done`、`/tasks/:id/ignore`，以及会话里 `task_update` 说收工。
 - **收工 = 关终端 + 收 worktree，只走 `finishTask` 一处**（2026-09-23）：Meegle 那几条自动收工（流转到 RESOLVED、完成当前节点、需求容器收尾、FE 发布走完）原来直接 `updateTask` 标 done，终端和 worktree 都漏关，「N 个终端在跑」就是这么攒的。交互式终端的 `friday_done` 反过来**不再关窗口**——一个任务常要来回好几轮，交付一轮就关、每次追问都得「重开终端」。自主任务的 `friday_done` 仍关。
+- **终端只在 MR 合并、本地 worktree 清理完才关**（2026-09-23 下午，用户定）：上一条让 Meegle 自动收工也走 `finishTask`，结果提测、RESOLVED、FE 发布一走完终端就被关——这些都不等于 MR 合了。现在 Meegle 那五处传 `keepTerminal: true`，只改状态不碰终端和 worktree。关窗口只剩三个入口：用户标完成 / 忽略（照旧）、手动关终端、终端里的 Claude 调新工具 **`friday_finish`**（它自己合完 MR、删完 worktree 最清楚，Friday 不去 `git fetch` 猜）。已经开着的终端是旧的工具列表，要重开才看得到 `friday_finish`。
 - **顺带修了一个一直没被发现的 bug**：`getTaskByJob` 读 `task.source.dir`，而 `TaskSource` 根本没有 `dir` 字段，一直拿到空串 → `currentBranchSync("")` 返回空 → **`git_merge` 待审动作从来没挂上过**。现在 `TaskSource` 加了 `repoDir`（主仓）和 `worktree`（Friday 开的那个），分支名去 worktree 读，合并在主仓做（分支正被 worktree 检出着，在 worktree 里 merge 不了）。
 
 ## 终端：外部 Ghostty（2026-09-20 改）

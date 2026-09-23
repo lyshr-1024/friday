@@ -240,7 +240,7 @@ export async function applyTransition(t: Task, to: StateTransition, connector = 
     ...(from ? { undo: { kind: "meegle_state" as const, projectKey, workItemId, backTo: from } } : {}),
   });
   const moved = updateTask(t.id, { source: { statusKey: to.stateKey } })!;
-  return to.stateKey === DONE_STATE ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`))! : moved;
+  return to.stateKey === DONE_STATE ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`, { keepTerminal: true }))! : moved;
 }
 
 function nodeRef(t: Task): { projectKey: string; workItemId: string; nodeKey: string } {
@@ -268,8 +268,8 @@ export async function confirmNode(t: Task, connector = new MeegleConnector()): P
     undo: { kind: "meegle_node" as const, projectKey, workItemId, nodeKey },
   });
   // 节点推给下游后这条多半不再分派给我；万一还在，下次同步会把它复活。
-  // 终端跟着关，有没提交改动的 worktree 留着，测试打回来还能接着改
-  return (await finishTask(t.id, "done", "完成了 Meegle 当前节点"))!;
+  // 提测不等于 MR 合了，终端和 worktree 都留着，测试打回来还能接着改
+  return (await finishTask(t.id, "done", "完成了 Meegle 当前节点", { keepTerminal: true }))!;
 }
 
 export async function rollbackNode(plan: { projectKey: string; workItemId: string; nodeKey: string }, connector = new MeegleConnector()): Promise<boolean> {
@@ -340,7 +340,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const own = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
         const kids = listTasks().filter((x) => x.source.linkedStoryId && own.has(x.source.linkedStoryId));
         if (!containerDone(kids)) continue;
-        await finishTask(t.id, "done", "名下的缺陷都处理完了");
+        await finishTask(t.id, "done", "名下的缺陷都处理完了", { keepTerminal: true });
         record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });
         closed++;
         continue;
@@ -357,13 +357,13 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       // 缺陷没有「FE 发布」节点，只等它就永远收不掉（实测 21 条 CLOSED 的缺陷一直挂着，
       // 还把名下的需求容器每 15 分钟复活一次）。已经到终态的不必再等。
       if (now && CLOSED_STATUS.test(now.statusKey)) {
-        await finishTask(t.id, "done", `Meegle 里已经是 ${now.statusKey}`);
+        await finishTask(t.id, "done", `Meegle 里已经是 ${now.statusKey}`, { keepTerminal: true });
         record({ taskId: t.id, action: "meegle_done", why: `Meegle 里已经是 ${now.statusKey}`, how: "工单已关闭，收工", evidence: { meegleId: t.source.meegleId }, risk: "read" });
         closed++;
         continue;
       }
       if (!(await connector.feReleased(t.source.meegleProject, t.source.meegleId))) continue;
-      await finishTask(t.id, "done", "「FE 发布」节点已经走完");
+      await finishTask(t.id, "done", "「FE 发布」节点已经走完", { keepTerminal: true });
       record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
     }

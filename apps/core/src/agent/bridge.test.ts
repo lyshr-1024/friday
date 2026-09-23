@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../api/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
@@ -15,7 +15,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const init = (await (await rpc("job-mcp-1", "initialize", { protocolVersion: "2025-06-18" })).json()) as { result: { serverInfo: { name: string } } };
     expect(init.result.serverInfo.name).toBe("friday");
     const list = (await (await rpc("job-mcp-1", "tools/list")).json()) as { result: { tools: Array<{ name: string }> } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(["friday_context", "friday_progress", "friday_done", "friday_blocked"]);
+    expect(list.result.tools.map((t) => t.name)).toEqual(["friday_context", "friday_progress", "friday_done", "friday_finish", "friday_blocked"]);
     expect((await rpc("job-mcp-1", "notifications/initialized", undefined, null)).status).toBe(202);
     expect((await rpc("nope", "ping")).status).toBe(404);
   });
@@ -45,6 +45,15 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
     expect(c.messages.at(-1)).toMatchObject({ kind: "run" });
     expect(c.messages.at(-1)!.content).toContain("补了 token 刷新");
+  });
+
+  it("friday_finish：MR 合并、本地清理完才调，任务标完成、终端收尾", async () => {
+    createJob({ id: "job-mcp-fin", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：收工", kind: "code", source: { jobId: "job-mcp-fin" }, project: "demo", status: "processing" });
+    const r = (await (await rpc("job-mcp-fin", "tools/call", { name: "friday_finish", arguments: { summary: "!884 已合并，worktree 已删" } })).json()) as { result: { isError?: boolean } };
+    expect(r.result.isError).toBeUndefined();
+    await vi.waitFor(() => expect(getJob("job-mcp-fin")!.status).not.toBe("running"));
+    expect(getTask(task.id)!.status).toBe("done");
   });
 
   it("friday_blocked 交互式只标 attention；没有任务的 job 会补建一条", async () => {

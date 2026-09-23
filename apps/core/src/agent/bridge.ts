@@ -14,6 +14,7 @@ import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say, closeJobTerminal } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
+import { finishTask } from "./pipeline.js";
 
 const execFileP = promisify(execFile);
 
@@ -52,6 +53,11 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
       },
       required: ["summary", "testResult"],
     },
+  },
+  {
+    name: "friday_finish",
+    description: "整条任务收工：只在 MR 已经合并、本地 worktree 也清理完之后调。Friday 会把任务标完成并关掉这个终端窗口。做完一轮、提测了、MR 还没合，都用 friday_done，不要调这个。",
+    inputSchema: { type: "object", properties: { summary: str("一句话：哪个 MR 合了、清理了什么") }, required: ["summary"] },
   },
   {
     name: "friday_blocked",
@@ -256,8 +262,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       notify(t, job, "这轮做完了，等你看", report.summary, "finished");
       // 窗口不关：一个任务常要来回好几轮，用户看完多半就在这个窗口里接着追问。
-      // 收工（标完成 / 忽略 / Meegle 节点走完）时 finishTask 会统一关
-      return { text: "已交给用户看。任务是否算完成由用户决定；用户可能就在这个终端里接着追问。" };
+      // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
+      return { text: "已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。" };
     }
     const t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";
@@ -265,6 +271,17 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     notify(t, job, "做完了，等你验收", report.summary, "finished");
     void closeJobTerminal(jobId, "终端交付完任务", t.id);
     return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}终端窗口随之关闭。` };
+  }
+
+  if (name === "friday_finish") {
+    const summary = String(args.summary ?? "").trim().slice(0, 300);
+    if (!summary) return { text: "summary 不能为空", isError: true };
+    updateTask(task.id, { progress: `收工：${summary}` });
+    record({ taskId: task.id, action: "terminal_finish", why: "终端里的 Claude Code 报告 MR 已合并、本地已清理", how: summary, evidence: { jobId }, risk: "reversible" });
+    notify(task, job, "收工了", summary, "finished");
+    // 不 await：关窗口会连带结束发起这次调用的 Claude Code，先把结果回给它
+    void finishTask(task.id, "done", "终端报告 MR 已合并、本地已清理");
+    return { text: "任务已标完成，这个终端窗口马上关闭。" };
   }
 
   if (name === "friday_blocked") {

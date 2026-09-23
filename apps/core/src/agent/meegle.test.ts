@@ -339,13 +339,13 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     expect(readTask(t.id)!.status).toBe("understood");
   });
 
-  it("FE 发布走完 → 收掉，终端跟着关", async () => {
+  it("FE 发布走完 → 收掉，但终端留着：MR 合没合只有终端里的 Claude 知道，等它 friday_finish", async () => {
     createJob({ id: "job-f2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
     const t = mkTask({ title: "需求 f2", kind: "meegle", source: { meegleId: "f2", meegleProject: "p1", meegleType: "story", jobId: "job-f2" }, status: "understood" });
     // 同一个库里可能还有上一条用例留下的任务，只断言这一条
     await syncOnce(gone(true));
     expect(readTask(t.id)!.status).toBe("done");
-    expect(getJob("job-f2")!.status).not.toBe("running");
+    expect(getJob("job-f2")!.status).toBe("running");
   });
 
   it("缺陷没有 FE 发布节点：Meegle 里已经 CLOSED 就收掉，否则它挂着的需求容器会一直被复活", async () => {

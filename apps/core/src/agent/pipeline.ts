@@ -33,10 +33,13 @@ const execFileP = promisify(execFile);
  * 任务收工的完整动作：标状态 + 关终端 + 收 worktree。
  * `/tasks/:id/done`、`/tasks/:id/ignore`、呼出模式 mark_done 都是这同一件事，
  * 不能有两套语义——漏关终端会留下孤儿 claude 进程（2026-09-14 已经踩过一次）。
+ *
+ * `keepTerminal`：Meegle 节点自己走完（提测、RESOLVED、FE 发布）不代表 MR 合了，
+ * 用户要的是终端留到 MR 合并、本地 worktree 清理完——那由终端里的 Claude 调 friday_finish 来收。
  */
-export async function finishTask(id: string, status: "done" | "ignored", why: string): Promise<Task | undefined> {
+export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
-  if (t) {
+  if (t && !keepTerminal) {
     await closeTaskTerminal(t, why);
     await cleanupTaskWorktree(t, why);
   }
