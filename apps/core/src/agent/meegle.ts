@@ -41,8 +41,8 @@ export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me
   return roles.filter((r) => r.memberKeys.includes(me)).map((r) => r.role);
 }
 
-/** 关了的需求不必再拉进来当容器。 */
-const STORY_CLOSED = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
+/** Meegle 里的终态：关了的需求不必再拉进来当容器，关了的工单直接收工。 */
+const CLOSED_STATUS = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
 
 /**
  * 同一个需求下已经有一条在问归属了吗。有就别再问第二遍——答案是同一个。
@@ -102,7 +102,7 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     }
     const story = await connector.getWorkItem(projectKey, storyId);
     if (!story) continue;
-    if (STORY_CLOSED.test(story.statusKey)) continue;
+    if (CLOSED_STATUS.test(story.statusKey)) continue;
     const roles = myRoles(story.roles, me);
     if (!roles.length) continue;
     const projects = loadProjects();
@@ -353,6 +353,14 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       const now = await connector.getWorkItem(t.source.meegleProject, t.source.meegleId);
       if (now && now.statusKey !== t.source.statusKey) {
         updateTask(t.id, { source: { statusKey: now.statusKey } });
+      }
+      // 缺陷没有「FE 发布」节点，只等它就永远收不掉（实测 21 条 CLOSED 的缺陷一直挂着，
+      // 还把名下的需求容器每 15 分钟复活一次）。已经到终态的不必再等。
+      if (now && CLOSED_STATUS.test(now.statusKey)) {
+        await finishTask(t.id, "done", `Meegle 里已经是 ${now.statusKey}`);
+        record({ taskId: t.id, action: "meegle_done", why: `Meegle 里已经是 ${now.statusKey}`, how: "工单已关闭，收工", evidence: { meegleId: t.source.meegleId }, risk: "read" });
+        closed++;
+        continue;
       }
       if (!(await connector.feReleased(t.source.meegleProject, t.source.meegleId))) continue;
       await finishTask(t.id, "done", "「FE 发布」节点已经走完");

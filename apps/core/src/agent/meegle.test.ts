@@ -348,6 +348,20 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     expect(getJob("job-f2")!.status).not.toBe("running");
   });
 
+  it("缺陷没有 FE 发布节点：Meegle 里已经 CLOSED 就收掉，否则它挂着的需求容器会一直被复活", async () => {
+    const story = mkTask({ title: "需求 s4", kind: "meegle", source: { meegleId: "s4", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
+    const bug = mkTask({ title: "缺陷 b4", kind: "meegle", source: { meegleId: "b4", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s4" }, status: "understood" });
+    const conn = {
+      fetchWorkItems: async () => [],
+      getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", roles: [] }),
+      feReleased: async () => false,
+      myKey: async () => "me",
+    } as never;
+    await syncOnce(conn);
+    expect(readTask(bug.id)!.status).toBe("done");
+    expect(readTask(story.id)!.status).toBe("done");
+  });
+
   it("没记项目 key 的老任务不去问 Meegle，也不收", async () => {
     const t = mkTask({ title: "需求 f3", kind: "meegle", source: { meegleId: "f3" }, status: "understood" });
     expect((await syncOnce(gone(true))).closed).toBe(0);
