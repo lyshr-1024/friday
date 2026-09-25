@@ -21,34 +21,49 @@ export function okrEndpoint(file = process.env.FRIDAY_CLAUDE_JSON || join(homedi
 
 export function parseRpcBody(body: string): { result?: any; error?: { message: string } } {
   const t = body.trim();
-  if (t.startsWith("{")) return JSON.parse(t);
-  const data = t.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).filter(Boolean).at(-1);
-  if (!data) throw new OkrError("OKR 平台返回了空响应");
-  return JSON.parse(data);
+  if (!t) throw new OkrError("OKR 平台返回了空响应");
+  const data = t.startsWith("{") ? t : t.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).filter(Boolean).at(-1);
+  try {
+    return JSON.parse(data ?? "");
+  } catch {
+    throw new OkrError(`OKR 平台返回的内容解析不了：${t.slice(0, 120)}`);
+  }
+}
+
+function netError(e: unknown): OkrError {
+  if (e instanceof OkrError) return e;
+  if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return new OkrError("OKR 平台 15 秒没响应");
+  return new OkrError(`连不上 OKR 平台：${e instanceof Error ? e.message : String(e)}`);
 }
 
 let seq = 0;
 
-async function post(ep: Endpoint, msg: Record<string, unknown>, session?: string): Promise<Response> {
-  const res = await fetch(ep.url, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(session ? { "mcp-session-id": session } : {}), ...ep.headers },
-    body: JSON.stringify({ jsonrpc: "2.0", ...msg }),
-    signal: AbortSignal.timeout(15_000),
-  });
+async function post(ep: Endpoint, msg: Record<string, unknown>, session?: string): Promise<{ res: Response; body: string }> {
+  let res: Response;
+  let body: string;
+  try {
+    res = await fetch(ep.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(session ? { "mcp-session-id": session } : {}), ...ep.headers },
+      body: JSON.stringify({ jsonrpc: "2.0", ...msg }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    body = await res.text();
+  } catch (e) {
+    throw netError(e);
+  }
   if (res.status === 401 || res.status === 403) throw new OkrError("OKR 平台拒绝了 token，去 Claude Code 里重新配一下 okr MCP");
   if (!res.ok && res.status !== 202) throw new OkrError(`OKR 平台返回 ${res.status}`);
-  return res;
+  return { res, body };
 }
 
 async function call<T>(name: string, args: Record<string, unknown>): Promise<T> {
   const ep = okrEndpoint();
   const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } });
-  const session = init.headers.get("mcp-session-id") ?? undefined;
-  parseRpcBody(await init.text());
+  const session = init.res.headers.get("mcp-session-id") ?? undefined;
+  parseRpcBody(init.body);
   await post(ep, { method: "notifications/initialized" }, session);
-  const res = await post(ep, { id: ++seq, method: "tools/call", params: { name, arguments: args } }, session);
-  const msg = parseRpcBody(await res.text());
+  const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/call", params: { name, arguments: args } }, session)).body);
   if (msg.error) throw new OkrError(`${name} 失败：${msg.error.message}`);
   const text = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.find((c) => c.type === "text")?.text ?? "";
   if (msg.result?.isError) throw new OkrError(`${name} 失败：${text.slice(0, 200)}`);

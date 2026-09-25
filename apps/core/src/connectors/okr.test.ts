@@ -73,4 +73,25 @@ describe("OKR 客户端", () => {
     vi.stubGlobal("fetch", rpcFetch((name) => (name === "create_progress_report" ? { ok: true } : name === "get_current_user" ? { id: 9, name: "me" } : { reports: [{ id: 77, object_id: 2, week: "2026W0921-0927", content: "x", progress_percentage: 50 }] })));
     expect(await submit({ objectId: 2, week: "2026W0921-0927", quarter: "2026Q3", content: "x", pct: 50 })).toBe(77);
   });
+
+  it("网络层的错也翻成 OkrError：连不上、超时、响应体解析不了", async () => {
+    good();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    await expect(myKRs()).rejects.toThrow(OkrError);
+    await expect(myKRs()).rejects.toThrow("连不上 OKR 平台：fetch failed");
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); }));
+    await expect(myKRs()).rejects.toThrow("OKR 平台 15 秒没响应");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>502 Bad Gateway</html>")));
+    await expect(myKRs()).rejects.toThrow(OkrError);
+    await expect(myKRs()).rejects.toThrow("OKR 平台返回的内容解析不了：<html>502 Bad Gateway</html>");
+  });
+
+  it("响应体不是空而是乱码时不说「空响应」", () => {
+    expect(() => parseRpcBody("{oops")).toThrow("OKR 平台返回的内容解析不了：{oops");
+    expect(() => parseRpcBody("data: {oops")).toThrow("OKR 平台返回的内容解析不了");
+    expect(() => parseRpcBody("event: message")).toThrow("OKR 平台返回的内容解析不了：event: message");
+    expect(() => parseRpcBody("   ")).toThrow("OKR 平台返回了空响应");
+  });
 });
