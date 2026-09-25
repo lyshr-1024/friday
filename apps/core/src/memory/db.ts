@@ -78,8 +78,11 @@ export function migrate(d: DatabaseSync): void {
           END,
           stage_by = 'auto'
           WHERE stage IS NULL
+            AND kind NOT IN ('okr_weekly', 'handbook')
             AND json_extract(source, '$.threadId') IS NULL
             AND json_extract(source, '$.fromTaskId') IS NULL`);
+  // 上面那条曾经没排除周报 / 手册卡，review 状态的被补成了 testing，卡上能点「已上线」直接收工
+  d.exec("UPDATE tasks SET stage = NULL, stage_by = NULL WHERE kind IN ('okr_weekly', 'handbook') AND stage_by = 'auto'");
 }
 
 export function db(): DatabaseSync {

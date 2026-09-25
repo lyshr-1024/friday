@@ -55,6 +55,28 @@ describe("老库迁移", () => {
     expect(statusOf("has-merge")).toBe("review");
   });
 
+  it("周报和手册卡不补阶段；之前被自动补上的清掉，手动拨过的不动", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    migrate(d);
+    const add = (id: string, kind: string, stage: string | null, by: string | null) =>
+      d.prepare("INSERT INTO tasks (id, title, kind, source, status, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, 'review', ?, ?, ?, ?)")
+        .run(id, id, kind, "{}", stage, by, "2026-09-25T00:00:00Z", "2026-09-25T00:00:00Z");
+    add("okr-new", "okr_weekly", null, null);
+    add("okr-auto", "okr_weekly", "testing", "auto");
+    add("hb-auto", "handbook", "testing", "auto");
+    add("okr-user", "okr_weekly", "testing", "user");
+    add("dev", "meegle", null, null);
+    migrate(d);
+
+    const stageOf = (id: string) => d.prepare("SELECT stage, stage_by FROM tasks WHERE id = ?").get(id) as { stage: string | null; stage_by: string | null };
+    expect(stageOf("okr-new")).toEqual({ stage: null, stage_by: null });
+    expect(stageOf("okr-auto")).toEqual({ stage: null, stage_by: null });
+    expect(stageOf("hb-auto")).toEqual({ stage: null, stage_by: null });
+    expect(stageOf("okr-user")).toEqual({ stage: "testing", stage_by: "user" });
+    expect(stageOf("dev")).toEqual({ stage: "testing", stage_by: "auto" });
+  });
+
   it("links 表加 channel 节点类型，旧边留着", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(OLD_LINKS);

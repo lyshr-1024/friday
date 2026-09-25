@@ -1247,7 +1247,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
         {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
       </div>
       <h2 className="fx__title" title={t.title}>{t.title}</h2>
-      <StageBar t={t} onAct={onAct} />
+      {t.kind !== "okr_weekly" && t.kind !== "handbook" && <StageBar t={t} onAct={onAct} />}
       {/* Meegle 那边的状态只作参考：它依赖别人及时更新，不参与 Friday 的阶段判断 */}
       {t.source.statusKey && (
         <div className="fx__meegle-state">
