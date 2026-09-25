@@ -20,7 +20,7 @@ export function draftPrompt(krs: KrContext[], materials: Material[]): { system: 
   const krBlock = krs.map((k) => `- objectId=${k.kr.id}｜O：${k.kr.objective}｜KR：${k.kr.name}｜上周进度：${k.prevPct ?? "无"}`).join("\n");
   const lastWeek = krs.filter((k) => k.prevContent).map((k) => `objectId=${k.kr.id}：${k.prevContent}`).join("\n");
   const prompt = [
-    `【我的 KR】\n${krBlock}`,
+    `【我的 KR】\n${untrusted("krs", krBlock)}`,
     lastWeek ? `【上周各 KR 的正文（参考风格和进度）】\n${untrusted("last-week", lastWeek)}` : "",
     `【本周素材】\n${untrusted("materials", materials.map((m) => `${m.id} ${m.text}`).join("\n"))}`,
   ].filter(Boolean).join("\n\n");

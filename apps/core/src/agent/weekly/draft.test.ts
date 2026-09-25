@@ -40,6 +40,7 @@ describe("起草钳制", () => {
   it("提示词里素材和上周正文都在围栏里", () => {
     const { system, prompt } = draftPrompt(krs, mats);
     expect(system).toContain("<untrusted>");
+    expect(prompt).toContain('<untrusted source="krs">');
     expect(prompt).toContain('<untrusted source="materials">');
     expect(prompt).toContain('<untrusted source="last-week">');
   });
