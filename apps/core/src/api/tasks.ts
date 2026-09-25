@@ -18,6 +18,11 @@ import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigure
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
+import { mergeEdits } from "../agent/weekly/submit.js";
+import { OKR_SUBMIT_LABEL, draftWeeklyOnce } from "../agent/weekly/index.js";
+import { parseWeek } from "../agent/weekly/week.js";
+import { remove as removeOkrReport } from "../connectors/okr.js";
+import type { OkrWeeklyDraft } from "@friday/shared";
 
 const transitionInput = z.object({
   id: z.string().min(1),
@@ -71,6 +76,22 @@ export const tasks = new Hono()
     return c.json({ file: t.source.researchFile, content: readResearchNote(t.source.researchFile) });
   })
   .post("/tasks/learn-history", async (c) => c.json({ ...(await learnHistoryOnce(true)), ...(historyState.lastError ? { error: historyState.lastError } : {}) }))
+  .post("/tasks/okr-weekly", async (c) => {
+    const { week } = (await c.req.json().catch(() => ({}))) as { week?: string };
+    const w = week ? parseWeek(week) : undefined;
+    if (week && !w) return c.json({ error: "week 格式应为 2026W0921-0927，且从周一开始" }, 400);
+    return c.json(await draftWeeklyOnce({ week: w, manual: true }));
+  })
+  .put("/tasks/:id/okr-draft", async (c) => {
+    const t = getTask(c.req.param("id"));
+    const action = t?.pending?.find((p) => p.type === "okr_submit");
+    if (!t || !action) return c.json({ error: "这条任务没有待提交的周报" }, 404);
+    const { rows } = (await c.req.json().catch(() => ({}))) as { rows?: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }> };
+    if (!Array.isArray(rows)) return c.json({ error: "rows 必须是数组" }, 400);
+    const draft = mergeEdits(action.payload as unknown as OkrWeeklyDraft, rows);
+    const n = draft.rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
+    return c.json(updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label: action.label.startsWith("重试") ? action.label : OKR_SUBMIT_LABEL(n) }));
+  })
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
@@ -456,6 +477,15 @@ export const tasks = new Hono()
       if (!cur) return c.json({ error: "任务已不在" }, 409);
       if (plan.stage) setStage(plan.taskId, plan.stage as Stage, "misjudged", "你撤回了这次阶段变更");
       else updateTask(plan.taskId, { stage: undefined, stageBy: undefined, stagePrev: undefined });
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "delete_okr_reports") {
+      try {
+        for (const id of plan.ids) await removeOkrReport(id);
+      } catch (e) {
+        return c.json({ error: `删不掉（报告被锁定就只能去平台上改）：${e instanceof Error ? e.message : String(e)}` }, 409);
+      }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
 import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
-import type { Task } from "@friday/shared";
+import type { OkrWeeklyDraft, Task } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -335,6 +335,15 @@ export async function executePending(
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
+    } else if (action.type === "okr_submit") {
+      const { submitRows } = await import("./weekly/submit.js");
+      const { draft, failed } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
+      if (failed) {
+        // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍
+        const cur = getTask(taskId)!;
+        return updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, label: `重试剩下的 ${failed} 条`, payload: draft as unknown as Record<string, unknown> }] })!;
+      }
+      updateTask(taskId, { progress: `已提交 ${draft.rows.filter((r) => r.state === "submitted").length} 条到 OKR 平台（${draft.week}）` });
     } else if (action.type === "handbook_apply") {
       const { applyHandbookDraft } = await import("./handbook.js");
       const p = action.payload as { draft: HandbookDraft; cursor?: string };
