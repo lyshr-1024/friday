@@ -9,6 +9,8 @@ export interface Material { id: string; text: string }
 
 const AUTHOR = "haoran\\.jing@longbridge\\(\\.sg\\|-inc\\.com\\)";
 const MAX_GIT = 300;
+const GIT_TIMEOUT_MS = 10_000;
+const GIT_MAX_BUFFER = 32 * 1024 * 1024;
 
 function repos(root: string): string[] {
   const out: string[] = [];
@@ -28,8 +30,10 @@ export function collectGit(roots: string[], week: Week): Material[] {
     try {
       // 不用 --since/--until：rebase/cherry-pick 会让某个祖先的日期比子孙新，git 一遇到超范围的
       // 提交就提前停止遍历，把范围内更早遍历到的提交也一并漏掉。改成不限日期取全量后自己过滤。
-      log = execFileSync("git", ["-C", dir, "log", "--all", `--author=${AUTHOR}`, "--pretty=format:%H|%aI|%s"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    } catch {
+      log = execFileSync("git", ["-C", dir, "log", "--all", `--author=${AUTHOR}`, "--pretty=format:%H|%aI|%s"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER });
+    } catch (e) {
+      const message = (e as { message: string }).message;
+      console.error(`[okr] 跳过 ${dir}：${message}`);
       continue;
     }
     const name = dir.split("/").pop()!;
