@@ -7,13 +7,12 @@ import { state } from "../../scheduler/index.js";
 import { userSettings } from "../../settings.js";
 import { collectMaterials } from "./collect.js";
 import { draftWithModel, type KrContext } from "./draft.js";
+import { OKR_SUBMIT_LABEL, submittable } from "./submit.js";
 import { targetWeek, type Week } from "./week.js";
 
 export type WeeklyResult = { taskId: string; drafted: number; empty: number } | { skipped: string };
 
-export const OKR_SUBMIT_LABEL = (n: number) => `提交 ${n} 条到 OKR…`;
 const ranKey = (w: Week) => `okr:drafted:${w.id}`;
-const submittable = (d: OkrWeeklyDraft) => d.rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
 
 function cardFor(week: Week): Task | undefined {
   return findTaskBySource((s) => s.okrWeek === week.id, true);

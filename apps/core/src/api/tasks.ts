@@ -18,8 +18,8 @@ import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigure
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
-import { mergeEdits } from "../agent/weekly/submit.js";
-import { OKR_SUBMIT_LABEL, draftWeeklyOnce } from "../agent/weekly/index.js";
+import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
+import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
 import { remove as removeOkrReport } from "../connectors/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
@@ -95,7 +95,7 @@ export const tasks = new Hono()
         typeof r === "object" && r !== null && typeof (r as { objectId?: unknown }).objectId === "number",
     );
     const draft = mergeEdits(action.payload as unknown as OkrWeeklyDraft, rows);
-    const n = draft.rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
+    const n = submittable(draft);
     const label = action.label.startsWith("重试") ? `重试剩下的 ${n} 条` : OKR_SUBMIT_LABEL(n);
     const next = updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label });
     return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);

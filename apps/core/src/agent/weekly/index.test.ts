@@ -18,7 +18,7 @@ const draft = vi.hoisted(() => ({ draftWithModel: vi.fn(async () => ({ items: [{
 vi.mock("./draft.js", () => draft);
 
 const { draftWeeklyOnce } = await import("./index.js");
-const { getTask, updatePending } = await import("../../memory/tasks.js");
+const { getTask, updatePending, updateTask } = await import("../../memory/tasks.js");
 const { state } = await import("../../scheduler/index.js");
 const { parseWeek } = await import("./week.js");
 import type { OkrWeeklyDraft } from "@friday/shared";
@@ -52,6 +52,19 @@ describe("起草一轮", () => {
     const again = (await draftWeeklyOnce({ week: W, manual: true })) as { taskId: string };
     expect(again.taskId).toBe(t.id);
     expect(draftOf(t.id).rows.find((x) => x.objectId === 10)).toMatchObject({ state: "submitted", reportId: 500, content: "已交的" });
+  });
+
+  it("已经交完的卡手动重跑：交过的行从平台读回成 existing，不会再交一次", async () => {
+    const w = parseWeek("2026W0810-0816")!;
+    const first = (await draftWeeklyOnce({ week: w, manual: true })) as { taskId: string };
+    updateTask(first.taskId, { status: "done", pending: [] });
+    okr.quarterReports.mockResolvedValueOnce([{ id: 700, objectId: 10, week: w.id, content: "修了出金", pct: 90 }]);
+    const again = (await draftWeeklyOnce({ week: w, manual: true })) as { taskId: string };
+    expect(again.taskId).toBe(first.taskId);
+    const t = getTask(again.taskId)!;
+    expect(t.status).toBe("review");
+    expect(draftOf(t.id).rows.find((x) => x.objectId === 10)).toMatchObject({ state: "existing", checked: false, reportId: 700 });
+    expect(t.pending!.find((p) => p.type === "okr_submit")!.label).toBe("提交 0 条到 OKR…");
   });
 
   it("连不上 OKR 平台：照样建卡，卡住并写明原因", async () => {

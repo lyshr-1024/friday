@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OkrWeeklyDraft } from "@friday/shared";
 
 const okr = vi.hoisted(() => ({
@@ -39,7 +39,15 @@ function card(rows: OkrWeeklyDraft["rows"]) {
 }
 const payloadOf = (id: string) => getTask(id)!.pending!.find((p) => p.type === "okr_submit")!.payload as unknown as OkrWeeklyDraft;
 
+const W = "2026W0921-0927";
+const undoIds = (id: string) => listAudit({ taskId: id }).filter((e) => e.action === "okr_submit").flatMap((e) => (e.evidence as { reports: Array<{ reportId: number }> }).reports.map((r) => r.reportId));
+
 describe("提交 OKR 周报", () => {
+  beforeEach(() => {
+    okr.me.mockReset().mockResolvedValue({ id: 1, name: "u" });
+    okr.quarterReports.mockReset().mockResolvedValue([]);
+  });
+
   it("只交勾上的草稿；existing 和空正文不交；全成功任务完成，记账可撤销", async () => {
     okr.submit.mockReset().mockResolvedValueOnce(501).mockResolvedValueOnce(502);
     const { id, actionId } = card([row(1), row(2), row(3, { checked: false }), row(4, { state: "existing", reportId: 9 }), row(5, { content: "  " })]);
@@ -157,5 +165,68 @@ describe("提交 OKR 周报", () => {
     await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
     expect(okr.submit).not.toHaveBeenCalled();
     expect(getTask(id)!.status).toBe("done");
+  });
+
+  it("第一次提交也先查平台：别处已经交了的 KR 不再交，标 existing，不进撤销", async () => {
+    okr.submit.mockReset().mockResolvedValueOnce(1001);
+    okr.quarterReports.mockResolvedValue([{ id: 88, objectId: 2, week: W, content: "我在平台上手填的", pct: 70 }]);
+    const { id, actionId } = card([row(1), row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(okr.submit.mock.calls.map((c) => c[0].objectId)).toEqual([1]);
+    const d = payloadOf(id);
+    expect(d.rows[1]).toMatchObject({ state: "existing", checked: false, content: "我在平台上手填的", pct: 70, reportId: 88 });
+    expect(undoIds(id)).toEqual([1001]);
+    expect(getTask(id)!.status).toBe("review");
+  });
+
+  it("失败行在平台上对得上正文：当成 Friday 交的，标 submitted 进撤销", async () => {
+    okr.submit.mockReset().mockRejectedValueOnce(new Error("timeout"));
+    const { id, actionId } = card([row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    okr.submit.mockReset();
+    okr.quarterReports.mockResolvedValue([{ id: 9001, objectId: 2, week: W, content: "  正文2\n", pct: 50 }]);
+    const retry = getTask(id)!.pending!.find((p) => p.type === "okr_submit")!;
+    await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(undoIds(id)).toEqual([9001]);
+  });
+
+  it("失败行在平台上正文不一样：是用户自己填的，标 existing，不进撤销，也不重交", async () => {
+    okr.submit.mockReset().mockRejectedValueOnce(new Error("timeout"));
+    const { id, actionId } = card([row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    okr.submit.mockReset();
+    okr.quarterReports.mockResolvedValue([{ id: 9002, objectId: 2, week: W, content: "用户自己写的", pct: 60 }]);
+    const retry = getTask(id)!.pending!.find((p) => p.type === "okr_submit")!;
+    await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(payloadOf(id).rows[0]).toMatchObject({ state: "existing", checked: false, content: "用户自己写的", reportId: 9002 });
+    expect(undoIds(id)).toEqual([]);
+    expect(getTask(id)!.status).toBe("review");
+  });
+
+  it("预查本身失败：这一轮一条都不交，要交的行标失败", async () => {
+    okr.submit.mockReset();
+    okr.quarterReports.mockRejectedValue(new Error("连不上 OKR 平台：fetch failed"));
+    const { id, actionId } = card([row(1), row(2, { checked: false })]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(okr.submit).not.toHaveBeenCalled();
+    const d = payloadOf(id);
+    expect(d.rows[0]).toMatchObject({ state: "failed", error: "连不上 OKR 平台：fetch failed" });
+    expect(d.rows[1]).toMatchObject({ state: "draft" });
+    expect(getTask(id)!.status).toBe("review");
+  });
+
+  it("一条都没得交、之前也没交过：拒绝，动作原样放回", async () => {
+    okr.submit.mockReset();
+    const { id, actionId } = card([row(1, { checked: false }), row(2, { content: "" })]);
+    const res = await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toBe("没有要提交的条目：勾上至少一条再提交");
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(okr.quarterReports).not.toHaveBeenCalled();
+    const t = getTask(id)!;
+    expect(t.status).toBe("review");
+    expect(t.pending!.find((p) => p.type === "okr_submit")!.id).toBe(actionId);
   });
 });

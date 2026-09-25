@@ -336,13 +336,15 @@ export async function executePending(
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
     } else if (action.type === "okr_submit") {
-      const { submitRows, SubmitPartialError } = await import("./weekly/submit.js");
+      const { submitRows, SubmitPartialError, OKR_SUBMIT_LABEL, submittable } = await import("./weekly/submit.js");
       try {
-        const { draft, failed } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
-        if (failed) {
-          // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍
+        const { draft, failed, conflicts } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
+        // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍。
+        // 预查发现平台上已经有用户自己填的也不收工：卡片要留着让用户看到那几条没交上去
+        if (failed || conflicts) {
           const cur = getTask(taskId)!;
-          return updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, label: `重试剩下的 ${failed} 条`, payload: draft as unknown as Record<string, unknown> }] })!;
+          const label = failed ? `重试剩下的 ${failed} 条` : OKR_SUBMIT_LABEL(submittable(draft));
+          return updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, label, payload: draft as unknown as Record<string, unknown> }] })!;
         }
       } catch (e) {
         // 记账失败不能落到下面的通用 catch：那里放回去的是没更新过的旧 payload，已经交成功的行会被当成没交，重试再交一次

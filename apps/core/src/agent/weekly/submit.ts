@@ -1,9 +1,11 @@
 import type { OkrRow, OkrWeeklyDraft } from "@friday/shared";
-import { me, quarterReports, submit } from "../../connectors/okr.js";
+import { me, quarterReports, submit, type OkrReport } from "../../connectors/okr.js";
 import { record } from "../../memory/audit.js";
 
 const LOCKED = new Set(["existing", "submitted"]);
 const eligible = (r: OkrRow) => r.checked && !LOCKED.has(r.state) && typeof r.content === "string" && r.content.trim().length > 0;
+export const submittable = (d: OkrWeeklyDraft) => d.rows.filter(eligible).length;
+export const OKR_SUBMIT_LABEL = (n: number) => `提交 ${n} 条到 OKR…`;
 
 export function mergeEdits(draft: OkrWeeklyDraft, edits: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }>): OkrWeeklyDraft {
   const by = new Map(edits.map((e) => [e.objectId, e]));
@@ -29,39 +31,42 @@ export class SubmitPartialError extends Error {
   }
 }
 
-export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise<{ draft: OkrWeeklyDraft; failed: number }> {
+export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise<{ draft: OkrWeeklyDraft; failed: number; conflicts: number }> {
   const rows = [...draft.rows];
   const sent: Array<{ objectId: number; reportId: number }> = [];
-  const attempted = new Set<number>();
+  const attempted = rows.flatMap((r, i) => (eligible(r) ? [i] : []));
+  if (!attempted.length && !rows.some((r) => r.state === "submitted")) throw new Error("没有要提交的条目：勾上至少一条再提交");
 
-  // 上一轮失败的行重试前先查一遍平台：submit() 超时或提交后查 id 失败都可能是平台其实已经建成了报告，
-  // 不查清楚就重交会在平台上留下两条同一 KR 同一周的报告，违反「绝不重交」。
-  let platformReportId: Map<number, number> | undefined;
-  let precheckError: string | undefined;
-  if (rows.some((r) => eligible(r) && r.state === "failed")) {
+  // 每一轮提交前都查一遍平台：用户可能在别处已经填了这周，上一轮超时的也可能其实已经建成了。
+  // 查不清楚就一条都不交——宁可让用户再点一次，也不在平台上留两条同一 KR 同一周的报告。
+  let onPlatform = new Map<number, OkrReport>();
+  if (attempted.length) {
     try {
       const mine = await me();
       const reports = await quarterReports(mine.id, draft.quarter, draft.week);
-      platformReportId = new Map(reports.filter((r) => r.week === draft.week).map((r) => [r.objectId, r.id]));
+      onPlatform = new Map(reports.filter((r) => r.week === draft.week).map((r) => [r.objectId, r]));
     } catch (e) {
-      precheckError = e instanceof Error ? e.message : String(e);
+      const error = e instanceof Error ? e.message : String(e);
+      for (const i of attempted) rows[i] = { ...rows[i]!, state: "failed", error };
+      return { draft: { ...draft, rows }, failed: attempted.length, conflicts: 0 };
     }
   }
 
-  for (const [i, r] of rows.entries()) {
-    if (!eligible(r)) continue;
-    attempted.add(i);
-    if (r.state === "failed") {
-      const already = platformReportId?.get(r.objectId);
-      if (already !== undefined) {
-        rows[i] = { ...r, state: "submitted", reportId: already, error: undefined };
-        sent.push({ objectId: r.objectId, reportId: already });
-        continue;
-      }
-      if (precheckError) {
-        rows[i] = { ...r, state: "failed", error: precheckError };
-        continue;
-      }
+  let conflicts = 0;
+  for (const i of attempted) {
+    const r = rows[i]!;
+    const hit = onPlatform.get(r.objectId);
+    // 只有上一轮 Friday 自己交失败、平台上正文又一字不差的，才认成 Friday 交的（撤销会删它）；
+    // 其余一律当用户自己填的：不覆盖、不重交、不进撤销
+    if (hit && r.state === "failed" && hit.content.trim() === r.content.trim()) {
+      rows[i] = { ...r, state: "submitted", reportId: hit.id, error: undefined };
+      sent.push({ objectId: r.objectId, reportId: hit.id });
+      continue;
+    }
+    if (hit) {
+      rows[i] = { ...r, state: "existing", content: hit.content, pct: hit.pct, reportId: hit.id, checked: false, why: "平台上这周已经有了", error: undefined };
+      conflicts++;
+      continue;
     }
     try {
       const reportId = await submit({ objectId: r.objectId, week: draft.week, quarter: draft.quarter, content: r.content.trim(), pct: r.pct });
@@ -73,8 +78,8 @@ export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise
   }
 
   const nextDraft = { ...draft, rows };
-  // 只数这一轮真的试过（提交或靠预查对上）又失败的：跳过的行（没勾、清空了）留着旧的 failed 状态不该拦着任务完成
-  const failed = [...attempted].filter((i) => rows[i]!.state === "failed").length;
+  // 只数这一轮真的试过又失败的：跳过的行（没勾、清空了）留着旧的 failed 状态不该拦着任务完成
+  const failed = attempted.filter((i) => rows[i]!.state === "failed").length;
   if (sent.length) {
     try {
       record({
@@ -92,5 +97,5 @@ export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise
       throw new SubmitPartialError(nextDraft, e);
     }
   }
-  return { draft: nextDraft, failed };
+  return { draft: nextDraft, failed, conflicts };
 }
