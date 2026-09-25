@@ -27,7 +27,7 @@ export interface TaskPatch {
   stageReason?: RollbackReason;
 }
 
-const STATUS_LABEL: Record<string, string> = { processing: "Friday 在做", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
+const STATUS_LABEL: Record<string, string> = { processing: "进行中", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
 
 /** 会话里聊出来的结论回流到任务卡：理解 / 方案 / 进展 / 回复草稿。都是可逆写，留痕。 */
 export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会话里和用户聊出来的"): { task: Task; changed: string[] } | undefined {

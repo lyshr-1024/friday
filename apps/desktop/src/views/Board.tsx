@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
@@ -12,7 +12,7 @@ export type BoardView = "queue" | "all" | "ledger";
 
 const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
-const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "Friday 在做", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
+const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "进行中", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 
@@ -616,7 +616,15 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
   const anchorGroups = useMemo(() => {
     const raw: Array<{ label: string; items: Task[] }> =
       view === "all"
-        ? ALL_ORDER.map((st) => ({ label: STATUS[st], items: tasks.filter((t) => t.status === st) }))
+        ? ALL_ORDER.flatMap((st) => {
+            const items = tasks.filter((t) => t.status === st);
+            if (st !== "processing") return [{ label: STATUS[st], items }];
+            // 「Friday 在做」只放它全权在跑的；你自己开终端驱动的另起一组
+            return [
+              { label: "Friday 在做", items: items.filter((t) => isFridayRun(t.source)) },
+              { label: "你在做", items: items.filter((t) => !isFridayRun(t.source)) },
+            ];
+          })
         : [
             { label: "关注", items: pinned },
             ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: byStage(st) })),

@@ -167,6 +167,9 @@ export async function cleanupTaskWorktree(task: Task, why: string): Promise<void
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
+/** -1 是收尸时补的：窗口没了、没有真实退出码 */
+const exitText = (code: number) => (code === -1 ? "终端窗口已关闭" : `退出码 ${code}`);
+
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
@@ -178,7 +181,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
   if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
-    return updateTask(job.task.id, { progress: `终端会话已结束（退出码 ${exitCode}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
+    return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
   // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
@@ -226,8 +229,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     progress: report
       ? "交付报告已生成，等你审核"
       : interactive
-        ? `终端会话已结束（退出码 ${exitCode}）`
-        : `终端任务结束（退出码 ${exitCode}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
+        ? `终端会话已结束（${exitText(exitCode)}）`
+        : `终端任务结束（${exitText(exitCode)}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
     ...(report ? { report } : {}),
     ...(exitBranch ? { source: { branch: exitBranch } } : {}),
   })!;

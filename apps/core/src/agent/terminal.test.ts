@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createJob, finishJob } from "../memory/jobs.js";
-import { closeTaskTerminal, isIdle, markStop, terminalState } from "./terminal.js";
+import { closeTaskTerminal, isIdle, markStop, sweepClosedTerminals, terminalState } from "./terminal.js";
 import { getJob } from "../memory/jobs.js";
 import { app } from "../api/index.js";
 import { createTask, getTask } from "../memory/tasks.js";
@@ -39,5 +39,39 @@ describe("终端说完这轮了没：靠 Stop hook，不再读输出流", () => 
     await app.request(`/tasks/${t2.id}/done`, { method: "POST" });
     expect(getTask(t2.id)!.status).toBe("done");
     expect(getJob("term-close-2")!.status).toBe("done");
+  });
+});
+
+describe("终端窗口没了：任务得跟着收尾，不能一直挂在 processing", () => {
+  const job = (id: string) => createJob({ id, project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", terminal: "ghostty" });
+
+  it("Friday 自主派的：窗口没了又没交付报告 → 卡住，写明是窗口关了", async () => {
+    job("sw-auto");
+    const t = createTask({ title: "demo：auto", kind: "code", source: { jobId: "sw-auto", autonomous: true }, project: "demo", status: "processing" });
+    // 没记 terminal id 的问不了窗口，当它没了
+    expect(await sweepClosedTerminals()).toContain("sw-auto");
+    const after = getTask(t.id)!;
+    expect(after.status).toBe("blocked");
+    expect(after.progress).toContain("终端窗口已关闭");
+  });
+
+  it("以前漏掉的也兜住：job 早就收了尾、自主任务还挂着", async () => {
+    job("sw-old");
+    finishJob("sw-old", -1);
+    const t = createTask({ title: "demo：old", kind: "code", source: { jobId: "sw-old", autonomous: true }, project: "demo", status: "processing" });
+    await sweepClosedTerminals();
+    expect(getTask(t.id)!.status).toBe("blocked");
+  });
+
+  it("你自己开的交互式终端：任务完不完成仍由你说，只把进展改对", async () => {
+    job("sw-mine");
+    const t = createTask({ title: "demo：mine", kind: "code", source: { jobId: "sw-mine" }, project: "demo", status: "processing" });
+    await sweepClosedTerminals();
+    const after = getTask(t.id)!;
+    expect(after.status).toBe("processing");
+    expect(after.progress).toMatch(/^终端会话已结束（终端窗口已关闭）/);
+    // 再扫一轮不会把「之前：」一层层套上去
+    await sweepClosedTerminals();
+    expect(getTask(t.id)!.progress).toBe(after.progress);
   });
 });

@@ -1,6 +1,8 @@
 import type { TerminalState } from "@friday/shared";
 import type { Task } from "@friday/shared";
+import { isFridayRun } from "@friday/shared";
 import { finishJob, getJob, reapStaleJobs } from "../memory/jobs.js";
+import { listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { closeTerminalById, inputText, isAlive } from "./ghostty.js";
 import { publish } from "../bus.js";
@@ -74,6 +76,17 @@ export function terminalState(jobId: string): TerminalState {
 export async function sweepClosedTerminals(): Promise<string[]> {
   const dead = await reapStaleJobs(isAlive);
   for (const jobId of dead) publish({ type: "terminal", jobId, state: "gone" });
+  // 窗口没了就没有脚本替它回报退出码，得在这儿补一次收尾，否则任务永远停在 processing。
+  // 顺带兜住以前漏掉的：Friday 自己派的任务 job 早结束了却还挂着的（交互式的收尾只改进展，不重复补）
+  const stuck = listTasks("processing", 1000)
+    .filter((t) => isFridayRun(t.source) && t.source.jobId && getJob(t.source.jobId)?.status !== "running")
+    .map((t) => t.source.jobId!);
+  const exits = [...new Set([...dead, ...stuck])];
+  if (exits.length) {
+    // pipeline 反过来依赖这里，静态导入会成环
+    const { onJobExit } = await import("./pipeline.js");
+    for (const jobId of exits) onJobExit(jobId, -1);
+  }
   return dead;
 }
 

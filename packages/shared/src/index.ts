@@ -486,6 +486,11 @@ export function isQueryTask(source: TaskSource): boolean {
   return Boolean(source.headless && source.conversation);
 }
 
+/** Friday 全权在跑、没人看着的任务（自主 `-p` / 后台查询）。你自己开终端驱动的交互式任务不算——「Friday 在做」只放这种。 */
+export function isFridayRun(source: TaskSource): boolean {
+  return Boolean(source.autonomous || source.headless);
+}
+
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
   // Slack 来的没有 meegleType：线程本身靠 threadId 认，情境卡派生的待办靠 fromTaskId
@@ -496,7 +501,7 @@ export function taskCategory(source: TaskSource): TaskCategory {
   return "other";
 }
 
-/** 终端这一轮的结果，任务仍在「Friday 在做」里：review 这轮做完了等你看 / blocked 卡住需要你 */
+/** 交互式终端这一轮的结果，任务仍是 processing：review 这轮做完了等你看 / blocked 卡住需要你 */
 /** question = 终端里的 Claude 弹了交互式提问，阻塞中，需要用户马上回 */
 /** intake = Friday 自己有事要问用户（比如工单归哪个项目），这类任务通常还没有终端 */
 export type TaskAttention = "review" | "blocked" | "question" | "intake";
