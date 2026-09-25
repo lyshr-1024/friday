@@ -67,6 +67,19 @@ apps/core/src/
 - **节奏**：一条代码路径，游标为空扫近 30 天（冷启动），有水位从水位往后扫。`historyDue` 跟 `learnDue` 一个思路，只看离上次跑过了多久（存 `sync_state` 的 `history:ran`，重启不丢），每周一轮；候选不足 8 条不弹，但照样推进「跑过」时间，否则每半小时重扫同一批。
 - 入口：`POST /tasks/learn-history`、会话工具 `learn_history`、设置页「项目手册」分组的「现在学一轮」；开关 `settings.learnHistory`（默认开）。手册在设置页可直接编辑（`GET/PUT /handbooks/:slug`，只放行已存在的文件名），学错了删掉那一行就行。
 
+## OKR 周报（2026-09-25）
+
+Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一个审核模式。
+
+- **凭证不另存**（`connectors/okr.ts`）：每次调用现读 `~/.claude.json` 的 `mcpServers.okr`（测试用 `FRIDAY_CLAUDE_JSON` 换临时文件），走 JSON-RPC `initialize → tools/call` 直连 okr MCP 端点，兼容普通 JSON 和 SSE 响应体。`submit` 拿不到平台返回的 id 就回查一次——接口没说清成功时一定带 id，撤销要靠这个 id。
+- **周口径**（`agent/weekly/week.ts`）：周一到周日，`id` 形如 `2026W0921-0927`（年 = 周一所在年）；周五 16:00 起到周日算本周，其余算上周。
+- **素材收集**（`agent/weekly/collect.ts`）**不用 `--since/--until`**：rebase/cherry-pick 会让某个祖先的提交日期比子孙新，git 一碰到超范围的提交就提前停止遍历，把范围内更早的提交也一起漏掉；改成 `--all` 取全量按 `%aI` 在 JS 里自己按周过滤。扫 `~/workspace/*` 和 `~/workspace/*/*`、两个邮箱域名都认，per-repo 10s 超时 + 32MB maxBuffer，扫不动就跳过并打日志。任务素材只取本周更新且非 ignored 的，排除 `okr_weekly`/`handbook` 自身。
+- **起草钳制**（`agent/weekly/draft.ts`）：一次 Sonnet `oneShot` 调用，KR 列表、上周正文、素材全部过 `untrusted()`；解析层强制 `objectId` 必须是自己的 KR、进度**永不低于上周**且封顶 100、`used` 引用的素材 id 必须存在、一条素材都对不上的条目直接丢弃；解析失败重试一次再抛。
+- **一周一张卡**（`agent/weekly/index.ts`）：`kind: okr_weekly`、`source.okrWeek` 定位卡片。行按 `existing`（平台上该周已有报告，**绝不覆盖不重交**）/ `empty` / `draft` 分类；重新起草时 `submitted` 的行原样保留，不会被冲掉。OKR 平台连不上或起草报错 → 卡片直接 `blocked` 并写清原因。`autoDraftTick` 每 30 分钟跑一次，`settings.okrWeekly` 关掉就不跑，游标 `okr:drafted:<week>` 防重复起草。
+- **提交与撤销**（`agent/weekly/submit.ts` + `pipeline.ts` 的 `okr_submit` 分支）：只提交勾选、未锁定（非 existing/submitted）、非空的行，逐条 `submit`。**部分失败不抛**——抛出去会把旧 payload 放回待审动作，已经交成功的行会被当成没交而重复提交；成功的先记账，剩下失败的重新挂一条「重试剩下的 N 条」待审。**重试前先查一遍平台**再决定要不要真的再 `submit`：上一轮的失败可能是超时，报告其实已经建成，不查清楚直接重试会在平台上留下两条重复报告。记账失败这条单独处理，不能走通用 catch（那里放回去的是没更新过的旧 payload）。撤销 `delete_okr_reports` 逐条删、删一条就把剩余 id 落一次库，中途失败可以从断点续删；被锁定的报告删不掉，报错里说明去平台上改。
+- **入口**：会话工具 `okr_weekly`、`POST /tasks/okr-weekly {week?}`（手动起草）、`PUT /tasks/:id/okr-draft {rows}`（编辑草稿）、设置页「现在起草一份」；开关 `settings.okrWeekly`（默认开）。前端 `views/OkrWeekly.tsx` 编辑防抖自动保存，保存失败保留编辑并报错，提交前必须先 flush 成功；这类卡片回车不触发提交，只能点按钮。
+- **`strictMcpConfig` 没动**：okr MCP 走的是 Friday 自己实现的 HTTP JSON-RPC 客户端，不经 Agent SDK 的 MCP 装配，跟 `/ask` 那边收紧 MCP 配置的改动无关。
+
 ## 自主任务在 worktree 里跑（2026-09-15）
 
 原来 `startAutonomousJob` 直接在项目主目录里 `claude -p` 建分支改代码，两个后果：占着主仓（用户没法同时在那儿干活）、`worktreeDirt()` 要求主仓干净才肯开工，用户手上有未提交改动时 Friday 直接 blocked。
