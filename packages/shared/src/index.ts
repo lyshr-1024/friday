@@ -138,6 +138,7 @@ export interface SettingsResponse {
   /** 盖在背景图上那层主题底色的不透明度 0-100，越大图越淡 */
   backgroundOpacity: number;
   learnHistory: boolean;
+  okrWeekly: boolean;
   summon: SummonSettings;
   dataDir: string;
   projects: string[];
@@ -153,6 +154,7 @@ export interface SettingsUpdate {
   background?: string;
   backgroundOpacity?: number;
   learnHistory?: boolean;
+  okrWeekly?: boolean;
   summon?: Partial<SummonSettings>;
 }
 
@@ -276,7 +278,7 @@ export interface Job {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "other";
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
@@ -408,6 +410,8 @@ export interface TaskSource {
    * 开工不从主干拉新分支，而是检出那条任务的分支再往下走。
    */
   baseTaskId?: string;
+  /** OKR 周报任务对应的周，如 2026W0921-0927 */
+  okrWeek?: string;
 }
 
 /** 关联图里的一个端点：四端各自的实体 */
@@ -583,7 +587,7 @@ export interface SlackConversation {
  */
 export type TerminalState = "busy" | "idle" | "gone";
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "custom";
 
 export interface PendingAction {
   id: string;
@@ -591,6 +595,30 @@ export interface PendingAction {
   label: string;
   detail: string;
   payload: Record<string, unknown>;
+}
+
+export type OkrRowState = "draft" | "empty" | "existing" | "submitted" | "failed";
+
+export interface OkrRow {
+  objectId: number;
+  kr: string;
+  objective: string;
+  content: string;
+  pct: number;
+  prevPct: number | null;
+  why: string;
+  used: Array<{ id: string; text: string }>;
+  checked: boolean;
+  state: OkrRowState;
+  reportId?: number;
+  error?: string;
+}
+
+export interface OkrWeeklyDraft {
+  week: string;
+  quarter: string;
+  rows: OkrRow[];
+  unmatched: Array<{ id: string; text: string }>;
 }
 
 export type AuditStatus = "done" | "pending" | "approved" | "rejected" | "undone" | "failed";
