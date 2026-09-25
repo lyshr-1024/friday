@@ -1,7 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+import { mapLimit } from "../../connectors/exec.js";
 import type { Task } from "@friday/shared";
 import { listTasks } from "../../memory/tasks.js";
 import type { Week } from "./week.js";
@@ -12,6 +14,7 @@ const AUTHOR = "haoran\\.jing@longbridge\\(\\.sg\\|-inc\\.com\\)";
 const MAX_GIT = 300;
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_MAX_BUFFER = 32 * 1024 * 1024;
+const execFileP = promisify(execFile);
 
 function repos(root: string): string[] {
   const out: string[] = [];
@@ -23,20 +26,21 @@ function repos(root: string): string[] {
   return out;
 }
 
-export function collectGit(roots: string[], week: Week): Material[] {
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  for (const dir of roots.flatMap(repos)) {
-    let log = "";
+export async function collectGit(roots: string[], week: Week): Promise<Material[]> {
+  const logs = await mapLimit(roots.flatMap(repos), 4, async (dir) => {
     try {
       // 不用 --since/--until：rebase/cherry-pick 会让某个祖先的日期比子孙新，git 一遇到超范围的
       // 提交就提前停止遍历，把范围内更早遍历到的提交也一并漏掉。改成不限日期取全量后自己过滤。
-      log = execFileSync("git", ["-C", dir, "log", "--all", `--author=${AUTHOR}`, "--pretty=format:%H|%aI|%s"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER });
+      const { stdout } = await execFileP("git", ["-C", dir, "log", "--exclude=refs/stash", "--all", `--author=${AUTHOR}`, "--pretty=format:%H|%aI|%s"], { encoding: "utf8", timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER });
+      return { dir, log: stdout };
     } catch (e) {
-      const message = (e as { message: string }).message;
-      console.error(`[okr] 跳过 ${dir}：${message}`);
-      continue;
+      console.error(`[okr] 跳过 ${dir}：${(e as { message: string }).message}`);
+      return { dir, log: "" };
     }
+  });
+  const seen = new Set<string>();
+  const hits: Array<{ at: number; name: string; text: string }> = [];
+  for (const { dir, log } of logs) {
     const name = dir.split("/").pop()!;
     for (const l of log.split("\n").filter(Boolean)) {
       const [hash, iso, ...subject] = l.split("|");
@@ -44,10 +48,11 @@ export function collectGit(roots: string[], week: Week): Material[] {
       const when = new Date(iso!);
       if (when < week.start || when >= week.end) continue;
       seen.add(hash!);
-      lines.push(`[${name}] ${iso!.slice(0, 10)} ${subject.join("|")}`);
+      hits.push({ at: when.getTime(), name, text: `[${name}] ${iso!.slice(0, 10)} ${subject.join("|")}` });
     }
   }
-  return lines.slice(0, MAX_GIT).map((text, i) => ({ id: `g${i + 1}`, text }));
+  hits.sort((x, y) => y.at - x.at || x.name.localeCompare(y.name));
+  return hits.slice(0, MAX_GIT).map((h, i) => ({ id: `g${i + 1}`, text: h.text }));
 }
 
 // Meegle 同步每 15 分钟把所有开着的工单 updatedAt 刷一遍，光看时间会把排队没动的待办当成本周的工作
@@ -64,6 +69,6 @@ export function collectTasks(week: Week): Material[] {
     }));
 }
 
-export function collectMaterials(week: Week, roots = [join(homedir(), "workspace")]): Material[] {
-  return [...collectGit(roots, week), ...collectTasks(week)];
+export async function collectMaterials(week: Week, roots = [join(homedir(), "workspace")]): Promise<Material[]> {
+  return [...(await collectGit(roots, week)), ...collectTasks(week)];
 }

@@ -49,7 +49,7 @@ export async function draftWeeklyOnce(opts: { week?: Week; manual: boolean }): P
   const prev = (id: number) => reports.filter((r) => r.objectId === id && r.week < week.id).sort((a, b) => b.week.localeCompare(a.week))[0];
   const ctx: KrContext[] = krs.filter((k) => !existing.has(k.id)).map((k) => ({ kr: k, prevContent: prev(k.id)?.content ?? null, prevPct: prev(k.id)?.pct ?? null }));
 
-  const materials = collectMaterials(week);
+  const materials = await collectMaterials(week);
   const text = new Map(materials.map((m) => [m.id, m.text]));
   let drafted = { items: [] as Awaited<ReturnType<typeof draftWithModel>>["items"], unmatched: [] as string[] };
   try {

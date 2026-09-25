@@ -24,7 +24,7 @@ function repo(root: string, name: string, commits: Array<{ email: string; msg: s
 }
 
 describe("收素材", () => {
-  it("git：只要自己两个邮箱域、本周的；两层目录都扫", () => {
+  it("git：只要自己两个邮箱域、本周的；两层目录都扫", async () => {
     const root = mkdtempSync(join(tmpdir(), "ws-"));
     repo(root, "a", [
       { email: "haoran.jing@longbridge.sg", msg: "feat: 出金规则" },
@@ -32,10 +32,31 @@ describe("收素材", () => {
       { email: "haoran.jing@longbridge-inc.com", msg: "fix: 上个月的", date: "2020-01-01T00:00:00Z" },
     ]);
     repo(join(root, "group"), "b", [{ email: "haoran.jing@longbridge-inc.com", msg: "fix: 表格截断" }]);
-    const got = collectGit([root], week).map((m) => m.text);
+    const got = (await collectGit([root], week)).map((m) => m.text);
     expect(got).toHaveLength(2);
     expect(got.some((t) => t.includes("a") && t.includes("feat: 出金规则"))).toBe(true);
     expect(got.some((t) => t.includes("b") && t.includes("fix: 表格截断"))).toBe(true);
+  });
+
+  it("git：不阻塞事件循环；多个仓库合在一起按时间倒序，截断时留下最新的", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ws-"));
+    const at = (h: number) => new Date(week.start.getTime() + h * 3600_000).toISOString();
+    repo(root, "a", [{ email: "haoran.jing@longbridge.sg", msg: "a 早", date: at(1) }, { email: "haoran.jing@longbridge.sg", msg: "a 晚", date: at(30) }]);
+    repo(root, "b", [{ email: "haoran.jing@longbridge.sg", msg: "b 中", date: at(10) }]);
+    const pending = collectGit([root], week);
+    expect(pending).toBeInstanceOf(Promise);
+    const got = (await pending).map((m) => m.text);
+    expect(got.map((t) => t.split(" ").slice(2).join(" "))).toEqual(["a 晚", "b 中", "a 早"]);
+  });
+
+  it("git：不收 stash（WIP on …）", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ws-"));
+    const dir = repo(root, "a", [{ email: "haoran.jing@longbridge.sg", msg: "feat: 正经提交" }]);
+    writeFileSync(join(dir, "f0"), "改了没提交");
+    execFileSync("git", ["-C", dir, "-c", "user.email=haoran.jing@longbridge.sg", "-c", "user.name=x", "stash", "-q"], { stdio: "pipe" });
+    const got = (await collectGit([root], week)).map((m) => m.text);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toContain("feat: 正经提交");
   });
 
   it("任务：本周动过的，排除 ignored 和周报 / 手册任务本身", () => {

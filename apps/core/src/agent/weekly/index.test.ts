@@ -13,7 +13,7 @@ const okr = vi.hoisted(() => ({
   ]),
 }));
 vi.mock("../../connectors/okr.js", async (orig) => ({ ...(await orig<typeof import("../../connectors/okr.js")>()), ...okr }));
-vi.mock("./collect.js", () => ({ collectMaterials: vi.fn(() => [{ id: "g1", text: "[whale-console] fix: 出金" }]) }));
+vi.mock("./collect.js", () => ({ collectMaterials: vi.fn(async () => [{ id: "g1", text: "[whale-console] fix: 出金" }]) }));
 const draft = vi.hoisted(() => ({ draftWithModel: vi.fn(async () => ({ items: [{ objectId: 10, content: "修了出金", pct: 90, why: "沿用", used: ["g1"] }], unmatched: [] })) }));
 vi.mock("./draft.js", () => draft);
 
