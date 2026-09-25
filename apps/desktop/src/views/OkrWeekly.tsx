@@ -53,6 +53,8 @@ export function OkrWeekly({ t }: { t: Task }) {
   const server = action?.payload as unknown as OkrWeeklyDraft | undefined;
   const [rows, setRows] = useState<OkrRow[]>(server?.rows ?? []);
   const [saveError, setSaveError] = useState<string | null>(() => queued.get(t.id)?.error ?? null);
+  // 进度框清空的那一下不能存成 0：先只改显示，等输入成数字再排进保存队列
+  const [pctText, setPctText] = useState<Record<number, string>>({});
   const lastServer = useRef(server);
   useEffect(() => {
     if (server && server !== lastServer.current && !queued.has(t.id)) setRows(server.rows);
@@ -88,7 +90,25 @@ export function OkrWeekly({ t }: { t: Task }) {
         </label>
         <textarea className="okr__text" value={r.content} readOnly={locked} rows={3} placeholder="这周在这个 KR 上做了什么" onChange={(e) => edit(r.objectId, { content: e.target.value })} />
         <div className="okr__meta">
-          <input className="okr__pct" type="number" min={0} max={100} value={r.pct} readOnly={locked} onChange={(e) => edit(r.objectId, { pct: Number(e.target.value) })} aria-label="进度百分比" />
+          <input
+            className="okr__pct"
+            type="number"
+            min={0}
+            max={100}
+            value={pctText[r.objectId] ?? r.pct}
+            readOnly={locked}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPctText((m) => ({ ...m, [r.objectId]: v }));
+              if (v.trim() !== "" && Number.isFinite(Number(v))) edit(r.objectId, { pct: Number(v) });
+            }}
+            onBlur={() => setPctText((m) => {
+              const next = { ...m };
+              delete next[r.objectId];
+              return next;
+            })}
+            aria-label="进度百分比"
+          />
           <span>%</span>
           <span className="okr__why">{r.prevPct !== null ? `上周 ${r.prevPct}` : "上周没填"}{r.why ? ` · 依据：${r.why}` : ""}</span>
         </div>

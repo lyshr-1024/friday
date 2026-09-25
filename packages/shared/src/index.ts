@@ -669,6 +669,7 @@ export const USAGE_LABELS: Record<string, string> = {
   handbook: "从历史学手册",
   hot: "AI 热点",
   desk: "首屏建议",
+  okr_weekly: "OKR 周报",
 };
 
 export interface UsageEntry {
