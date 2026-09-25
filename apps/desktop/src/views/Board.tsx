@@ -769,7 +769,7 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
               {!board ? null : flat.length ? (
                 flat.map((t) => (
                   <section key={t.id} className="deck__card" data-id={t.id} onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); setMenu({ t, x: e.clientX, y: e.clientY }); }}>
-                    <Focus t={t} all={board.tasks} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
+                    <Focus t={t} all={board.tasks} active={t.id === focus?.id} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
                   </section>
                 ))
               ) : (
@@ -1065,8 +1065,10 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
   );
 }
 
-function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
+function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
   t: Task;
+  /** 轮播里所有卡都挂着，只有选中这张响应回车 */
+  active: boolean;
   /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
   all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
@@ -1174,11 +1176,13 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
         ? { label: "标记完成", run: () => taskSet(t.id, "done") }
         : null;
 
+  // 回车 = 主动作。轮播里每张卡都渲染着，都挂监听的话按一次回车会把所有卡的主动作一起执行
+  // （2026-09-22 点一条「开始做」，另外三条缺陷跟着自主开工）
   useEffect(() => {
-    if (!primary) return;
+    if (!primary || !active) return;
     const run = primary.run;
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Enter" || e.metaKey || e.shiftKey || e.altKey) return;
+      if (e.key !== "Enter" || e.repeat || e.metaKey || e.shiftKey || e.altKey) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       if (el?.closest(".thread, .xterm, .fx__confirm")) return;
@@ -1191,7 +1195,7 @@ function Focus({ t, all, onAct, onClose, onPick, onStartPack, packBusy, closable
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [t.id, t.updatedAt, primary?.label, confirming]);
+  }, [t.id, t.updatedAt, primary?.label, confirming, active]);
 
   // 绕框那道光要跟 .fx 那个有边框的盒子严丝合缝，而卡片底下还有块操作栏
   // （高度会变：后果提示、按钮换行，没展开时整个不存在）。直接量卡片底到
