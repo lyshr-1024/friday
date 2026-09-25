@@ -7,6 +7,7 @@ import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, setti
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
+import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 
 export type BoardView = "queue" | "all" | "ledger";
 
@@ -41,6 +42,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   }
   if (a.type === "git_merge") {
     return "把这个分支合进主干。合完可以在操作记录里撤销。";
+  }
+  if (a.type === "okr_submit") {
+    return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}；可以在操作记录里撤销（会删掉这几条）。`;
   }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
@@ -1163,7 +1167,9 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
     : t.project && !t.source.jobId
     ? { label: "开始做", run: () => taskStart(t.id) }
     : first
-    ? isMessage
+    ? first.type === "okr_submit"
+      ? { label: first.label, run: async () => { await flushOkrDraft(t.id); await taskApprove(t.id, first.id); } }
+      : isMessage
       ? {
           // 原文和草稿对不上时，默认动作应该是「改」而不是「发」
           label: pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
@@ -1179,7 +1185,8 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
   // 回车 = 主动作。轮播里每张卡都渲染着，都挂监听的话按一次回车会把所有卡的主动作一起执行
   // （2026-09-22 点一条「开始做」，另外三条缺陷跟着自主开工）
   useEffect(() => {
-    if (!primary || !active) return;
+    // 周报一次写十几条到平台，只认点按钮
+    if (!primary || !active || first?.type === "okr_submit") return;
     const run = primary.run;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Enter" || e.repeat || e.metaKey || e.shiftKey || e.altKey) return;
@@ -1195,7 +1202,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [t.id, t.updatedAt, primary?.label, confirming, active]);
+  }, [t.id, t.updatedAt, primary?.label, confirming, active, first?.type]);
 
   // 绕框那道光要跟 .fx 那个有边框的盒子严丝合缝，而卡片底下还有块操作栏
   // （高度会变：后果提示、按钮换行，没展开时整个不存在）。直接量卡片底到
@@ -1368,6 +1375,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
 
       <TaskBody t={t} all={all} onAct={onAct} />
 
+      {t.kind === "okr_weekly" ? <OkrWeekly t={t} /> : (
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
           {situation && (
@@ -1441,6 +1449,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
           )}
         </div>
       </div>
+      )}
 
       {t.source.researchFile && <ResearchNote id={t.id} file={t.source.researchFile} />}
       {r && (r.changes.length > 0 || r.testSteps.length > 0 || r.screenshots.length > 0) && (

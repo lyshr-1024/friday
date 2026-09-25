@@ -256,6 +256,18 @@ export async function learnHistory(): Promise<{ taskId?: string; groups?: number
   return res.json();
 }
 
+export async function saveOkrDraft(id: string, rows: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }>): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/okr-draft`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function okrWeeklyNow(week?: string): Promise<{ taskId?: string; drafted?: number; empty?: number; skipped?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/okr-weekly`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(week ? { week } : {}) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function readMemory(name: MemoryFile): Promise<MemoryFileResponse> {
   const res = await fetch(`${await coreBaseUrl()}/memory/${name}`);
   if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);

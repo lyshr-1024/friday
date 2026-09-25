@@ -5446,3 +5446,20 @@ body:has(.hud)::-webkit-scrollbar {
   font-size: var(--t-xs);
   color: var(--bad);
 }
+
+.okr { display: flex; flex-direction: column; gap: var(--s-6); }
+.okr__group { display: flex; flex-direction: column; gap: var(--s-4); }
+.okr__row { display: flex; flex-direction: column; gap: var(--s-2); padding-bottom: var(--s-4); border-bottom: 1px solid var(--line-1); }
+.okr__row--existing, .okr__row--submitted { opacity: .7; }
+.okr__head { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-body); color: var(--fg-1); }
+.okr__head--empty { color: var(--fg-3); }
+.okr__kr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.okr__state { font-size: var(--t-xs); color: var(--fg-3); }
+.okr__row--failed .okr__state { color: var(--bad); }
+.okr__text { width: 100%; resize: vertical; font: inherit; font-size: var(--t-body); color: var(--fg-1); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); }
+.okr__text:focus-visible, .okr__pct:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+.okr__meta { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-sm); color: var(--fg-3); }
+.okr__pct { width: 4.5em; font: inherit; font-variant-numeric: tabular-nums; color: var(--fg-1); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 2px var(--s-2); }
+.okr__why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.okr__used { font-size: var(--t-sm); color: var(--fg-3); }
+.okr__used ul { margin: var(--s-2) 0 0; padding-left: 1.2em; }

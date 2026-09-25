@@ -5,7 +5,7 @@ import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type Settings
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
-import { coreBaseUrl, health, learnHistory, listHandbooks, settings, testNotification, updateSettings } from "../lib/core";
+import { coreBaseUrl, health, learnHistory, listHandbooks, okrWeeklyNow, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 
@@ -19,6 +19,8 @@ export function Settings() {
   const [handbooks, setHandbooks] = useState<string[]>([]);
   const [learning, setLearning] = useState(false);
   const [learnNote, setLearnNote] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
   const [bgNote, setBgNote] = useState("");
   const [coreUrl, setCoreUrl] = useState("");
@@ -82,6 +84,20 @@ export function Settings() {
     }
   }
 
+  async function runOkrDraft() {
+    setDrafting(true);
+    setDraftNote("");
+    try {
+      const r = await okrWeeklyNow();
+      setDraftNote(r.skipped ? r.skipped : `起草好了：${r.drafted} 条，去任务里审`);
+    } catch {
+      setDraftNote("出错了");
+    } finally {
+      setDrafting(false);
+      setTimeout(() => setDraftNote(""), 6000);
+    }
+  }
+
   async function toggleAutostart() {
     if (autostart === null) return;
     if (autostart) await disable();
@@ -136,6 +152,24 @@ export function Settings() {
               </Row>
             </>
           )}
+        </div>
+      </section>
+
+      <section>
+        <h2>OKR 周报</h2>
+        <div className="group">
+          <Row label="每周自动起草" hint="每周五 16:00 后用本周 git 提交和任务起草，挂成审核卡，你点了才提交">
+            <button
+              className={`switch ${prefs?.okrWeekly ? "switch--on" : ""}`}
+              role="switch"
+              aria-checked={!!prefs?.okrWeekly}
+              disabled={!prefs}
+              onClick={() => prefs && void updateSettings({ okrWeekly: !prefs.okrWeekly }).then(setPrefs)}
+            />
+          </Row>
+          <Row label="现在起草一份" hint="不等到周五，立刻按本周内容起草一份待审">
+            <button className="btn" disabled={drafting} onClick={() => void runOkrDraft()}>{drafting ? "起草中…" : draftNote || "现在起草一份"}</button>
+          </Row>
         </div>
       </section>
 
