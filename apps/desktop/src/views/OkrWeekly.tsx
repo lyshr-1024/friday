@@ -3,28 +3,47 @@ import type { OkrRow, OkrWeeklyDraft, Task } from "@friday/shared";
 import { saveOkrDraft } from "../lib/core";
 
 type Edit = { objectId: number; content?: string; pct?: number; checked?: boolean };
+type Queue = { edits: Map<number, Edit>; timer: number; error: string | null };
 
 // 提交前要等最后一次编辑落盘，不然交出去的是防抖里还没存的旧草稿
-const queued = new Map<string, { edits: Map<number, Edit>; timer: number; flush: () => Promise<void> }>();
+const queued = new Map<string, Queue>();
+
+function notify(taskId: string) {
+  window.dispatchEvent(new CustomEvent("friday:okr-draft", { detail: { taskId } }));
+}
+
+// 存哪批边界都在这一处读 q.edits：失败不删，留着重试；
+// 存的过程里又来的新编辑不能被误删——只清掉这批真正存上的那些。
+async function flush(taskId: string): Promise<void> {
+  const q = queued.get(taskId);
+  if (!q || q.edits.size === 0) return;
+  window.clearTimeout(q.timer);
+  const batch = new Map(q.edits);
+  try {
+    await saveOkrDraft(taskId, [...batch.values()]);
+    for (const [k, v] of batch) if (q.edits.get(k) === v) q.edits.delete(k);
+    q.error = null;
+    if (q.edits.size === 0) queued.delete(taskId);
+    window.dispatchEvent(new Event("friday:tasks-changed"));
+  } catch (err) {
+    q.error = err instanceof Error ? err.message : String(err);
+    throw err;
+  } finally {
+    notify(taskId);
+  }
+}
 
 export function flushOkrDraft(taskId: string): Promise<void> {
-  const q = queued.get(taskId);
-  if (!q) return Promise.resolve();
-  window.clearTimeout(q.timer);
-  return q.flush();
+  return flush(taskId);
 }
 
 function queueEdit(taskId: string, e: Edit) {
-  const q = queued.get(taskId) ?? { edits: new Map<number, Edit>(), timer: 0, flush: async () => {} };
+  const q = queued.get(taskId) ?? { edits: new Map<number, Edit>(), timer: 0, error: null };
   q.edits.set(e.objectId, { ...q.edits.get(e.objectId), ...e });
-  q.flush = async () => {
-    queued.delete(taskId);
-    await saveOkrDraft(taskId, [...q.edits.values()]);
-    window.dispatchEvent(new Event("friday:tasks-changed"));
-  };
   window.clearTimeout(q.timer);
-  q.timer = window.setTimeout(() => void q.flush(), 400);
+  q.timer = window.setTimeout(() => void flush(taskId).catch(() => {}), 400);
   queued.set(taskId, q);
+  notify(taskId);
 }
 
 const STATE_NOTE: Partial<Record<OkrRow["state"], string>> = { existing: "平台上这周已经有了，不会覆盖", submitted: "已提交", failed: "提交失败" };
@@ -33,11 +52,21 @@ export function OkrWeekly({ t }: { t: Task }) {
   const action = t.pending?.find((p) => p.type === "okr_submit");
   const server = action?.payload as unknown as OkrWeeklyDraft | undefined;
   const [rows, setRows] = useState<OkrRow[]>(server?.rows ?? []);
+  const [saveError, setSaveError] = useState<string | null>(() => queued.get(t.id)?.error ?? null);
   const lastServer = useRef(server);
   useEffect(() => {
     if (server && server !== lastServer.current && !queued.has(t.id)) setRows(server.rows);
     lastServer.current = server;
   }, [server, t.id]);
+  useEffect(() => {
+    setSaveError(queued.get(t.id)?.error ?? null);
+    const onDraft = (e: Event) => {
+      if ((e as CustomEvent<{ taskId: string }>).detail?.taskId !== t.id) return;
+      setSaveError(queued.get(t.id)?.error ?? null);
+    };
+    window.addEventListener("friday:okr-draft", onDraft);
+    return () => window.removeEventListener("friday:okr-draft", onDraft);
+  }, [t.id]);
   if (!server) return t.progress ? <div className="fx__text">{t.progress}</div> : null;
 
   const edit = (objectId: number, patch: Omit<Edit, "objectId">) => {
@@ -75,6 +104,8 @@ export function OkrWeekly({ t }: { t: Task }) {
 
   return (
     <div className="okr">
+      {t.understanding && <div className="fx__text">{t.understanding}</div>}
+      {saveError && <div className="okr__err">保存失败：{saveError}，提交前会再试一次</div>}
       {byO.map((o) => (
         <section key={o} className="okr__group">
           <span className="k">{o}</span>

@@ -11,7 +11,7 @@ import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 
 export type BoardView = "queue" | "all" | "ledger";
 
-const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", other: "其他" };
+const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "进行中", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
@@ -1373,7 +1373,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
         </div>
       )}
 
-      <TaskBody t={t} all={all} onAct={onAct} />
+      {t.kind !== "okr_weekly" && <TaskBody t={t} all={all} onAct={onAct} />}
 
       {t.kind === "okr_weekly" ? <OkrWeekly t={t} /> : (
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
@@ -1511,7 +1511,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
             </div>
           )}
           <div className="fx__acts">
-            {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}<kbd>↵</kbd></button>}
+            {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}{first?.type !== "okr_submit" && <kbd>↵</kbd>}</button>}
             {/* 有待审动作时也能直接收工：done 会把没发出去的动作一起作废，不会发消息给别人 */}
             {(!primary || first) && (
               <button className="b b--ghost" title={first ? "任务标记完成，待审的动作作废，不会发出去" : undefined} onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>

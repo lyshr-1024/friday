@@ -5447,7 +5447,8 @@ body:has(.hud)::-webkit-scrollbar {
   color: var(--bad);
 }
 
-.okr { display: flex; flex-direction: column; gap: var(--s-6); }
+.okr { display: flex; flex-direction: column; gap: var(--s-6); margin-top: var(--s-4); }
+.okr__err { font-size: var(--t-xs); color: var(--bad); }
 .okr__group { display: flex; flex-direction: column; gap: var(--s-4); }
 .okr__row { display: flex; flex-direction: column; gap: var(--s-2); padding-bottom: var(--s-4); border-bottom: 1px solid var(--line-1); }
 .okr__row--existing, .okr__row--submitted { opacity: .7; }
