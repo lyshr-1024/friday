@@ -87,7 +87,7 @@ describe("提交 OKR 周报", () => {
     const d = payloadOf(id);
     expect(d.rows[0]).toMatchObject({ content: "改过的", pct: 50, checked: true });
     expect(d.rows[1]).toMatchObject({ checked: false, pct: 100 });
-    expect(getTask(id)!.pending![0]!.label).toBe("提交 1 条到 OKR…");
+    expect(getTask(id)!.pending![0]!.label).toBe("提交 1 条到 OKR");
   });
 
   it("mergeEdits 不让改 existing / submitted 的行", () => {

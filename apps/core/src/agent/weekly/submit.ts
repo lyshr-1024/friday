@@ -5,7 +5,7 @@ import { record } from "../../memory/audit.js";
 const LOCKED = new Set(["existing", "submitted"]);
 const eligible = (r: OkrRow) => r.checked && !LOCKED.has(r.state) && typeof r.content === "string" && r.content.trim().length > 0;
 export const submittable = (d: OkrWeeklyDraft) => d.rows.filter(eligible).length;
-export const OKR_SUBMIT_LABEL = (n: number) => `提交 ${n} 条到 OKR…`;
+export const OKR_SUBMIT_LABEL = (n: number) => `提交 ${n} 条到 OKR`;
 
 export function mergeEdits(draft: OkrWeeklyDraft, edits: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }>): OkrWeeklyDraft {
   const by = new Map(edits.map((e) => [e.objectId, e]));

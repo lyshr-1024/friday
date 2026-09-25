@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
 import type { Activity } from "../lib/core";
 import type { FridayEvent } from "../lib/events";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
@@ -31,6 +31,11 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 }
 
 
+function okrSubmittable(a: PendingAction): number {
+  const rows = (a.payload as unknown as OkrWeeklyDraft).rows ?? [];
+  return rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
+}
+
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
 function consequence(a: PendingAction, conv?: SlackConversation): string | null {
   if (a.type === "slack_reply") {
@@ -44,7 +49,7 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
     return "把这个分支合进主干。合完可以在操作记录里撤销。";
   }
   if (a.type === "okr_submit") {
-    return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}；可以在操作记录里撤销（会删掉这几条）。`;
+    return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
   }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
@@ -1511,7 +1516,16 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
             </div>
           )}
           <div className="fx__acts">
-            {primary && <button className="b b--primary" onClick={() => void onAct(t, primary.run)}>{primary.label}{first?.type !== "okr_submit" && <kbd>↵</kbd>}</button>}
+            {primary && (
+              <button
+                className="b b--primary"
+                disabled={first?.type === "okr_submit" && okrSubmittable(first) === 0}
+                title={first?.type === "okr_submit" && okrSubmittable(first) === 0 ? "勾上至少一条再提交" : undefined}
+                onClick={() => void onAct(t, primary.run)}
+              >
+                {primary.label}{first?.type !== "okr_submit" && <kbd>↵</kbd>}
+              </button>
+            )}
             {/* 有待审动作时也能直接收工：done 会把没发出去的动作一起作废，不会发消息给别人 */}
             {(!primary || first) && (
               <button className="b b--ghost" title={first ? "任务标记完成，待审的动作作废，不会发出去" : undefined} onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>
