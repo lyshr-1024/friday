@@ -70,3 +70,19 @@ describe("起草一轮", () => {
     expect(r).toEqual({ skipped: "平台上这周的周报已经都填过了" });
   });
 });
+
+describe("自动起草", () => {
+  it("开关关掉不跑；跑过一次同一周不再跑", async () => {
+    const { autoDraftTick } = await import("./index.js");
+    const { updateSettings } = await import("../../settings.js");
+    const friday = new Date(2026, 7, 28, 17, 0); // 2026-08-28 周五 17:00 → 2026W0824-0830
+    draft.draftWithModel.mockClear();
+    updateSettings({ okrWeekly: false });
+    await autoDraftTick(friday);
+    expect(draft.draftWithModel).toHaveBeenCalledTimes(0);
+    updateSettings({ okrWeekly: true });
+    await autoDraftTick(friday);
+    await autoDraftTick(friday);
+    expect(draft.draftWithModel).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,4 +1,5 @@
 import type { InboxItem, Notice } from "@friday/shared";
+import { autoDraftTick } from "../agent/weekly/index.js";
 import { attachOnce } from "../agent/slack/attach.js";
 import { classifyQuery } from "../agent/slack/query.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
@@ -176,4 +177,9 @@ export function startScheduler(): void {
     setTimeout(stageTick, MEEGLE_MS).unref();
   };
   setTimeout(stageTick, 30_000).unref();
+  const okrTick = async () => {
+    await autoDraftTick().catch((e) => console.error(`[okr] 起草失败：${e instanceof Error ? e.message : e}`));
+    setTimeout(okrTick, 30 * 60_000).unref();
+  };
+  setTimeout(okrTick, 60_000).unref();
 }

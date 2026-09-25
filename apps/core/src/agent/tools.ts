@@ -25,6 +25,8 @@ import { attachedTasks } from "./slack/attach.js";
 import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { userSettings } from "../settings.js";
+import { draftWeeklyOnce } from "./weekly/index.js";
+import { parseWeek } from "./weekly/week.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
 
@@ -278,6 +280,17 @@ const fridayToolList = (conversationId?: string) => [
       async () => {
         const r = await learnHistoryOnce(true);
         return text("skipped" in r ? `这次没学：${r.skipped}` : `提炼完了：${r.groups} 份手册，依据 ${r.candidates} 条你说过的原话，已挂成待审任务（${r.taskId.slice(0, 8)}）。在「待我决定」里过一眼，点「通过并执行」才会写进记忆库。`);
+      },
+    ),
+    tool(
+      "okr_weekly",
+      "起草 OKR 平台上的周报：用本周 git 提交和任务，按用户每个 KR 各写一段进展和建议进度，挂成一张审核卡。用户说“填周报”“写 OKR 周报”“补上周的周报”时用。不会直接提交，用户在卡上改完点提交才会写到平台。要补某一周就传 week（如 2026W0914-0920）。",
+      { week: z.string().optional().describe("周标识，如 2026W0921-0927；不传按周五 16:00 前算上周、之后算本周") },
+      async ({ week }) => {
+        const w = week ? parseWeek(week) : undefined;
+        if (week && !w) return text("week 格式不对，应为 2026W0921-0927 这种、从周一开始。");
+        const r = await draftWeeklyOnce({ week: w, manual: true });
+        return text("skipped" in r ? `没起草：${r.skipped}` : `起草好了：${r.drafted} 条有草稿，${r.empty} 条没找到相关工作。已挂成审核卡（${r.taskId.slice(0, 8)}），在任务里改完点「提交」才会写到 OKR 平台。`);
       },
     ),
     tool(
