@@ -325,7 +325,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         // 留着旧阶段会让卡片显示一个早就不成立的结论。回到「进行中」等你重新判。
         updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source, stage: "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
-        state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120) });
+        state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120), taskId: existing.id });
         reopened++;
       }
     }
@@ -421,7 +421,7 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
       evidence: { meegleId: item.id, ...(task.source.linkedStoryId ? { linkedStoryId: task.source.linkedStoryId } : {}) },
       risk: "read",
     });
-    state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question });
+    state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question, taskId: task.id });
     return;
   }
 

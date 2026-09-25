@@ -40,8 +40,9 @@ describe("终端 → Friday 的 MCP 桥", () => {
     await rpc("job-mcp-2", "tools/call", { name: "friday_progress", arguments: { text: "按反馈继续改" } });
     expect(getTask(task.id)!.attention).toBeUndefined();
 
-    const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string; body: string }>;
-    expect(notices.some((n) => n.title.includes("这轮做完了") && n.title.includes("demo"))).toBe(true);
+    const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string; body: string; taskId?: string }>;
+    // 点开通知要能定位回这条任务
+    expect(notices.some((n) => n.title.includes("这轮做完了") && n.title.includes("demo") && n.taskId === task.id)).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
     expect(c.messages.at(-1)).toMatchObject({ kind: "run" });
     expect(c.messages.at(-1)!.content).toContain("补了 token 刷新");
@@ -122,8 +123,8 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const after = getTask(task.id)!;
     expect(after.attention).toBe("question");
     expect(after.progress).toContain("用哪个方案");
-    const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string }>;
-    expect(notices.some((n) => n.title.includes("终端在等你回答"))).toBe(true);
+    const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string; taskId?: string }>;
+    expect(notices.some((n) => n.title.includes("终端在等你回答") && n.taskId === task.id)).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
     expect(c.messages.at(-1)!.content).toContain("终端在问你");
     // 紧跟着来的泛化 Notification 不能把具体问题盖掉

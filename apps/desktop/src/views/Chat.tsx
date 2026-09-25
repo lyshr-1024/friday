@@ -21,6 +21,8 @@ import type { FridayEvent } from "../lib/events";
 interface OpenPayload {
   conversationId?: string | null;
   initialPrompt?: string | null;
+  /** 点开系统通知：选中这条任务 */
+  taskId?: string | null;
 }
 
 type View = BoardView | "hot" | "history" | "ask";
@@ -53,11 +55,16 @@ export function Chat() {
   const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const threadRef = useRef<ThreadHandle>(null);
   const pendingOpen = useRef<PendingOpen | null>(null);
+  // 要选中的任务：等切到任务视图、Board 挂上并开始监听之后再发（子组件的 effect 先于这里执行）
+  const [openingTask, setOpeningTask] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (openingTask) window.dispatchEvent(new CustomEvent("friday:open-task", { detail: openingTask.id }));
+  }, [openingTask]);
 
   useEffect(() => {
     void refreshList();
     void loadSettings();
-    void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt)) void openPayload(p); });
+    void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt || p.taskId)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     const stopTheme = onThemeChange(applyTheme);
     const stopBg = onBackgroundChange((p) => { void coreBaseUrl().then((url) => applyBackground(p, url)); });
@@ -177,8 +184,15 @@ export function Chat() {
   }
 
   async function openPayload(p: OpenPayload) {
+    if (p.taskId) return openTask(p.taskId);
     const id = p.conversationId ?? (await newConversation()).id;
     openAsk({ kind: "load", id, ...(p.initialPrompt ? { prompt: p.initialPrompt } : {}) });
+  }
+
+  /** 任务可能在任何分组里，统一去「全部任务」再让 Board 选中它 */
+  function openTask(id: string) {
+    setView("all");
+    setOpeningTask({ id });
   }
 
   /** ⌘N：进「问 Friday」，先不建会话，第一句发出时由 Friday 决定接旧还是开新 */
@@ -396,11 +410,7 @@ export function Chat() {
       {searching && (
         <Search
           onClose={() => setSearching(false)}
-          onPickTask={(taskId) => {
-            // 任务可能在任何分组里，统一去「全部任务」再让 Board 选中它
-            setView("all");
-            window.dispatchEvent(new CustomEvent("friday:open-task", { detail: taskId }));
-          }}
+          onPickTask={openTask}
           onPickConversation={(id) => openAsk({ kind: "load", id })}
         />
       )}

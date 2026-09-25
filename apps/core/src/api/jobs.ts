@@ -107,12 +107,13 @@ export const jobs = new Hono()
     const job = finishJob(c.req.param("id"), parsed.data.code);
     if (!job) return c.json({ error: "任务不存在" }, 404);
     const task = onJobExit(job.id, parsed.data.code);
-    if (task) state.notices.push({ title: `交付待审核 · ${job.project}`, body: task.report?.summary ?? task.progress ?? "" });
+    if (task) state.notices.push({ title: `交付待审核 · ${job.project}`, body: task.report?.summary ?? task.progress ?? "", taskId: task.id });
     const summary = `${job.project} 的终端任务已结束（退出码 ${parsed.data.code}）${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 300)}` : ""}`;
     if (job.conversationId && conversationExists(job.conversationId)) {
       addMessage(job.conversationId, { role: "assistant", kind: "run", content: summary, payload: { status: "finished", jobId: job.id } });
     }
-    state.notices.push({ title: `任务结束 · ${job.project}`, body: job.lastMessage?.slice(0, 120) ?? `退出码 ${parsed.data.code}` });
+    const taskId = task?.id ?? findTaskBySource((s) => s.jobId === job.id, true)?.id;
+    state.notices.push({ title: `任务结束 · ${job.project}`, body: job.lastMessage?.slice(0, 120) ?? `退出码 ${parsed.data.code}`, taskId });
     return c.json(job);
   })
   /** 窗口关了但任务没完：重开一个，--resume 接回原来那个 Claude 会话 */

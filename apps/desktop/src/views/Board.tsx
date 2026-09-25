@@ -373,6 +373,9 @@ function byActivity(active: (t: Task) => boolean) {
   return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
 }
 
+/** 程序滚动停下多久之后，滚动才重新算作用户在翻页 */
+const SETTLE_MS = 300;
+
 export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningConvs }: {
   view: BoardView;
   /** 顶栏那一行视图切换，由 Chat 给——它知道当前是哪个视图 */
@@ -654,13 +657,17 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
     const root = deckRef.current;
     if (!root || flat.length < 2) return;
     let scrolled = false;
-    const onScroll = () => { scrolled = true; };
+    const onScroll = () => {
+      scrolled = true;
+      // 自己发起的滚动还在走就一直续上：跨二十张卡的平滑滚动实测要 870ms，写死时长挡不住
+      if (Date.now() - settlingRef.current < SETTLE_MS) settlingRef.current = Date.now();
+    };
     root.addEventListener("scroll", onScroll, { passive: true });
     const io = new IntersectionObserver(
       (es) => {
         if (!scrolled) return;
-        // 平滑滚动最多几百毫秒，这期间的经过不算用户在翻页
-        if (Date.now() - settlingRef.current < 700) return;
+        // 平滑滚动途经的卡不算用户在翻页
+        if (Date.now() - settlingRef.current < SETTLE_MS) return;
         const best = es.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         const id = (best?.target as HTMLElement | undefined)?.dataset.id;
         if (id) setSelectedId(id);

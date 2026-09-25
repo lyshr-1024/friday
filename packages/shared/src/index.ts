@@ -245,6 +245,8 @@ export interface InboxResponse {
 export interface Notice {
   title: string;
   body: string;
+  /** 点开通知时定位到的任务 */
+  taskId?: string;
 }
 
 export type JobStatus = "running" | "done" | "failed";

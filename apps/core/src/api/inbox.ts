@@ -16,7 +16,8 @@ export const inbox = new Hono()
   .post("/inbox/:id/done", (c) => (markInboxDone(c.req.param("id")) ? c.json({ ok: true }) : c.json({ error: "不存在" }, 404)))
   .get("/notifications", (c) => c.json(drainNotices()))
   // 设置页「测试通知」：塞一条进队列，壳 20 秒内取走弹出；弹不出来就是系统通知权限问题。
+  // 带 ?taskId= 时点开应定位到那条任务
   .post("/notifications/test", (c) => {
-    state.notices.push({ title: "Friday 测试通知", body: `通知链路正常 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` });
+    state.notices.push({ title: "Friday 测试通知", body: `通知链路正常 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`, taskId: c.req.query("taskId") });
     return c.json({ ok: true });
   });

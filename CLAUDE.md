@@ -103,6 +103,7 @@ apps/core/src/
 - **重装 .app 后辅助功能权限会失效（2026-09-21 踩过，排查了四轮）**：自签名（`TeamIdentifier=not set`）的 app 每次重新 build 替换，macOS 都可能把它从辅助功能列表里踢掉，**而且面板上看着还是勾选状态**。后果隐蔽——`snapshot.rs` 的 `front_window_title` 在无权限时返回**空字符串**而不是报错，于是呼出模式拿不到窗口标题、`slackScene` 查不到任何东西、场景上下文为空，模型只好拿记忆库里的全局待办硬凑，表现为「HUD 答非所问」，看起来像模型或提示词的问题。
   - **一眼定位**：`<dataDir>/logs/core.log` 里每次呼出都有一行 `[summon] Slack 标题="…" 权限(辅助/自动化/录屏)=√√×`。标题空 + 辅助 × 就是这个坑，不用再怀疑解析和模型。
   - **修**：系统设置 → 隐私与安全性 → 辅助功能，把 Friday **关掉再打开**（只看着是开的不算，要切一次），然后**重启 Friday**（TCC 状态在进程启动时才重新读）。
+- **点通知定位任务（2026-09-25）**：`Notice` 带 `taskId`，壳把它编进通知标识（`friday-<毫秒>:<taskId>`），`notify.rs` 给 UNUserNotificationCenter 挂一个 delegate 接点击 → `window::open_task` → 前端切「全部任务」选中那条。**只有打包版生效**：dev 走 Tauri 通知插件，macOS 上收不到点击。顺带修了 Board 的滚动劫持：跨二十张卡的平滑滚动要 870ms，原来写死 700ms 的保护期挡不住，选中会落到途经的相邻那张（搜索跳任务也一直有这问题）。
 - **capabilities 白名单**：WebView 能调用的插件能力必须在 `src-tauri/capabilities/` 显式声明。sidecar 由 Rust 直接 spawn，不经 shell 插件，所以不在白名单里。
 - **sidecar 生命周期**：壳退出必须杀 sidecar；sidecar 崩溃壳要重拉并发系统通知。
 

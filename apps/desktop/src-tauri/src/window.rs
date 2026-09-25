@@ -4,22 +4,33 @@ pub fn show_main(app: &AppHandle) {
     open_chat(app, None, None);
 }
 
-/// 打开工作台窗口；带会话参数时前端会在抽屉里接上。
+/// 打开工作台窗口；带会话参数时前端会在「问 Friday」里接上。
 pub fn open_chat(app: &AppHandle, conversation_id: Option<String>, initial_prompt: Option<String>) {
-    let payload = serde_json::json!({ "conversationId": conversation_id, "initialPrompt": initial_prompt });
-    if let Ok(mut pending) = app.state::<PendingChat>().0.lock() {
-        *pending = Some(payload.clone());
-    }
+    let payload = (conversation_id.is_some() || initial_prompt.is_some())
+        .then(|| serde_json::json!({ "conversationId": conversation_id, "initialPrompt": initial_prompt }));
+    open(app, payload);
+}
+
+/// 点开系统通知：打开工作台并选中那条任务。
+pub fn open_task(app: &AppHandle, task_id: String) {
+    open(app, Some(serde_json::json!({ "taskId": task_id })));
+}
+
+fn open(app: &AppHandle, payload: Option<serde_json::Value>) {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(ActivationPolicy::Regular);
     activate(app);
     if let Some(win) = app.get_webview_window("chat") {
         let _ = win.show();
         let _ = win.set_focus();
-        if conversation_id.is_some() || initial_prompt.is_some() {
-            let _ = win.emit("friday://open-conversation", payload);
+        if let Some(p) = payload {
+            let _ = win.emit("friday://open-conversation", p);
         }
         return;
+    }
+    // 窗口刚建时 emit 会丢，交给前端 mount 后来取
+    if let Ok(mut pending) = app.state::<PendingChat>().0.lock() {
+        *pending = payload;
     }
     let built = WebviewWindowBuilder::new(app, "chat", WebviewUrl::App("index.html".into()))
         .title("Friday")

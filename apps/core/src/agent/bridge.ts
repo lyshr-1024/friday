@@ -87,7 +87,7 @@ function taskFor(job: Job): Task {
 }
 
 function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress"): void {
-  state.notices.push({ title: `${title} · ${job.project}`, body: body.slice(0, 200) });
+  state.notices.push({ title: `${title} · ${job.project}`, body: body.slice(0, 200), taskId: task.id });
   const conv = task.source.conversationId ?? job.conversationId;
   if (conv && conversationExists(conv)) {
     addMessage(conv, { role: "assistant", kind: "run", content: `${title}：${body}`, payload: { status, jobId: job.id } });
@@ -212,7 +212,7 @@ export function terminalAsking(jobId: string, question: string, weak = false): v
   if (conv && conversationExists(conv)) {
     addMessage(conv, { role: "assistant", kind: "run", content: `终端在问你（它停下了，回答前不会继续）：\n${question}\n\n直接告诉我选哪个或怎么回，我敲进去；或者点「聚焦终端」自己答。`, payload: { status: "question", jobId } });
   }
-  state.notices.push({ title: `终端在等你回答 · ${job.project}`, body: question.slice(0, 200) });
+  state.notices.push({ title: `终端在等你回答 · ${job.project}`, body: question.slice(0, 200), taskId: t.id });
 }
 
 /** 问题答了（PostToolUse），或终端继续干活了：解除阻塞 */
