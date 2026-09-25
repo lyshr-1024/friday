@@ -48,4 +48,13 @@ describe("收素材", () => {
     expect(texts.some((t) => t.includes("不管了") || t.includes("OKR 周报"))).toBe(false);
     expect(keep).toBeTruthy();
   });
+
+  it("任务：还在待办里没动过的不算（Meegle 同步每 15 分钟会刷一遍 updatedAt）", () => {
+    createTask({ title: "排队的需求", kind: "meegle", source: { meegleId: "1001" }, status: "understood", stage: "todo" });
+    createTask({ title: "刚收进来的", kind: "verbal", source: {}, status: "collected" });
+    createTask({ title: "待办里但已经在开发", kind: "meegle", source: { meegleId: "1002" }, status: "understood", stage: "dev" });
+    const texts = collectTasks(week).map((m) => m.text);
+    expect(texts.some((t) => t.includes("排队的需求") || t.includes("刚收进来的"))).toBe(false);
+    expect(texts.some((t) => t.includes("待办里但已经在开发"))).toBe(true);
+  });
 });
