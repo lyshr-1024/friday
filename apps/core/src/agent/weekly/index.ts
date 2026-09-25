@@ -41,7 +41,11 @@ export async function draftWeeklyOnce(opts: { week?: Week; manual: boolean }): P
   }
   const quarter = krs[0]?.quarter ?? "";
   const existing = new Map(reports.filter((r) => r.week === week.id).map((r) => [r.objectId, r]));
-  if (!opts.manual && krs.every((k) => existing.has(k.id))) return { skipped: "平台上这周的周报已经都填过了" };
+  // 自动模式只在平台上这周一条都没有时才起草：有一条就说明用户已经在别处动手填了
+  if (!opts.manual && existing.size > 0) {
+    setCursor(ranKey(week), new Date().toISOString());
+    return { skipped: "平台上这周已经有你填的周报了" };
+  }
   const prev = (id: number) => reports.filter((r) => r.objectId === id && r.week < week.id).sort((a, b) => b.week.localeCompare(a.week))[0];
   const ctx: KrContext[] = krs.filter((k) => !existing.has(k.id)).map((k) => ({ kr: k, prevContent: prev(k.id)?.content ?? null, prevPct: prev(k.id)?.pct ?? null }));
 

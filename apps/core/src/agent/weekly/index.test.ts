@@ -21,6 +21,7 @@ const { draftWeeklyOnce } = await import("./index.js");
 const { getTask, updatePending, updateTask } = await import("../../memory/tasks.js");
 const { state } = await import("../../scheduler/index.js");
 const { parseWeek } = await import("./week.js");
+const { getCursor } = await import("../../memory/inbox.js");
 import type { OkrWeeklyDraft } from "@friday/shared";
 
 const W = parseWeek("2026W0921-0927")!;
@@ -80,7 +81,25 @@ describe("起草一轮", () => {
   it("自动模式：平台上这周所有 KR 都已经填过了就不建卡", async () => {
     okr.quarterReports.mockResolvedValueOnce([10, 11, 12].map((o, i) => ({ id: 100 + i, objectId: o, week: "2026W0831-0906", content: "x", pct: 1 })));
     const r = await draftWeeklyOnce({ week: parseWeek("2026W0831-0906")!, manual: false });
-    expect(r).toEqual({ skipped: "平台上这周的周报已经都填过了" });
+    expect(r).toEqual({ skipped: "平台上这周已经有你填的周报了" });
+  });
+
+  it("自动模式：平台上这周只要有一条自己填的就跳过，并记下跑过，不再每半小时查一遍", async () => {
+    const w = parseWeek("2026W0803-0809")!;
+    okr.quarterReports.mockResolvedValueOnce([{ id: 300, objectId: 11, week: w.id, content: "手填", pct: 10 }]);
+    const r = await draftWeeklyOnce({ week: w, manual: false });
+    expect(r).toEqual({ skipped: "平台上这周已经有你填的周报了" });
+    expect(getCursor(`okr:drafted:${w.id}`)).toBeTruthy();
+  });
+
+  it("手动模式：平台上有一条也照样起草，剩下的 KR 出草稿", async () => {
+    const w = parseWeek("2026W0727-0802")!;
+    okr.quarterReports.mockResolvedValueOnce([{ id: 301, objectId: 11, week: w.id, content: "手填", pct: 10 }]);
+    const r = await draftWeeklyOnce({ week: w, manual: true });
+    if (!("taskId" in r)) throw new Error(r.skipped);
+    const rows = draftOf(r.taskId).rows;
+    expect(rows.find((x) => x.objectId === 11)).toMatchObject({ state: "existing" });
+    expect(rows.find((x) => x.objectId === 10)).toMatchObject({ state: "draft" });
   });
 });
 
