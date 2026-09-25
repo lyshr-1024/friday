@@ -16,7 +16,7 @@ import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
-import { getEvent, listAudit, record, setEventStatus, undoPlan } from "../memory/audit.js";
+import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { mergeEdits } from "../agent/weekly/submit.js";
 import { OKR_SUBMIT_LABEL, draftWeeklyOnce } from "../agent/weekly/index.js";
@@ -83,14 +83,22 @@ export const tasks = new Hono()
     return c.json(await draftWeeklyOnce({ week: w, manual: true }));
   })
   .put("/tasks/:id/okr-draft", async (c) => {
+    // 先读 body 再查任务：反过来的话，如果这两步之间恰好有一次提交把待审动作重新挂上去，
+    // 合并就会拿旧 payload 覆盖掉那次提交刚写下的 submitted 状态
+    const body = (await c.req.json().catch(() => ({}))) as { rows?: unknown };
     const t = getTask(c.req.param("id"));
     const action = t?.pending?.find((p) => p.type === "okr_submit");
     if (!t || !action) return c.json({ error: "这条任务没有待提交的周报" }, 404);
-    const { rows } = (await c.req.json().catch(() => ({}))) as { rows?: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }> };
-    if (!Array.isArray(rows)) return c.json({ error: "rows 必须是数组" }, 400);
+    if (!Array.isArray(body.rows)) return c.json({ error: "rows 必须是数组" }, 400);
+    const rows = body.rows.filter(
+      (r): r is { objectId: number; content?: string; pct?: number; checked?: boolean } =>
+        typeof r === "object" && r !== null && typeof (r as { objectId?: unknown }).objectId === "number",
+    );
     const draft = mergeEdits(action.payload as unknown as OkrWeeklyDraft, rows);
     const n = draft.rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
-    return c.json(updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label: action.label.startsWith("重试") ? action.label : OKR_SUBMIT_LABEL(n) }));
+    const label = action.label.startsWith("重试") ? `重试剩下的 ${n} 条` : OKR_SUBMIT_LABEL(n);
+    const next = updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label });
+    return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
@@ -481,10 +489,17 @@ export const tasks = new Hono()
       return c.json({ ok: true });
     }
     if (plan.kind === "delete_okr_reports") {
-      try {
-        for (const id of plan.ids) await removeOkrReport(id);
-      } catch (e) {
-        return c.json({ error: `删不掉（报告被锁定就只能去平台上改）：${e instanceof Error ? e.message : String(e)}` }, 409);
+      const remaining = [...plan.ids];
+      for (const reportId of plan.ids) {
+        try {
+          await removeOkrReport(reportId);
+          remaining.shift();
+          // 删一条就记一条：中途再失败的话，重试只用剩下的，不会对已经删掉的再删一次
+          setEventUndo(c.req.param("id"), { kind: "delete_okr_reports", ids: remaining });
+        } catch (e) {
+          const removed = plan.ids.length - remaining.length;
+          return c.json({ error: `删了 ${removed} 条，第 ${removed + 1} 条（report id ${reportId}）删不掉：${e instanceof Error ? e.message : String(e)}。被锁定的报告只能去平台上改` }, 409);
+        }
       }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });

@@ -1,8 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OkrWeeklyDraft } from "@friday/shared";
 
-const okr = vi.hoisted(() => ({ submit: vi.fn(), remove: vi.fn(async (_id: number) => {}) }));
+const okr = vi.hoisted(() => ({
+  submit: vi.fn(),
+  remove: vi.fn(async (_id: number) => {}),
+  me: vi.fn(async () => ({ id: 1, name: "u" })),
+  quarterReports: vi.fn(async () => [] as Array<{ id: number; objectId: number; week: string; content: string; pct: number }>),
+}));
 vi.mock("../../connectors/okr.js", async (orig) => ({ ...(await orig<typeof import("../../connectors/okr.js")>()), ...okr }));
+
+const auditState = vi.hoisted(() => ({ throwOnce: false }));
+vi.mock("../../memory/audit.js", async (orig) => {
+  const real = await orig<typeof import("../../memory/audit.js")>();
+  return {
+    ...real,
+    record: ((input: Parameters<typeof real.record>[0]) => {
+      if (auditState.throwOnce) {
+        auditState.throwOnce = false;
+        throw new Error("db 炸了");
+      }
+      return real.record(input);
+    }) as typeof real.record,
+  };
+});
 
 const { app } = await import("../../api/index.js");
 const { createTask, addPending, getTask } = await import("../../memory/tasks.js");
@@ -66,5 +86,76 @@ describe("提交 OKR 周报", () => {
     const d: OkrWeeklyDraft = { week: "w", quarter: "q", rows: [row(1, { state: "submitted", reportId: 1 }), row(2, { state: "existing" })], unmatched: [] };
     const out = mergeEdits(d, [{ objectId: 1, content: "x", checked: true }, { objectId: 2, content: "y", checked: true }]);
     expect(out.rows.map((r) => r.content)).toEqual(["正文1", "正文2"]);
+  });
+
+  it("失败重试前先查一遍平台：已经建成的报告直接标 submitted，不再交一次", async () => {
+    okr.submit.mockReset().mockRejectedValueOnce(new Error("timeout"));
+    const { id, actionId } = card([row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(payloadOf(id).rows[0]).toMatchObject({ state: "failed", error: "timeout" });
+
+    okr.submit.mockReset();
+    okr.quarterReports.mockReset().mockResolvedValueOnce([{ id: 9001, objectId: 2, week: "2026W0921-0927", content: "正文2", pct: 50 }]);
+    const retry = getTask(id)!.pending!.find((p) => p.type === "okr_submit")!;
+    const res = await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(getTask(id)!.status).toBe("done");
+    const ev = listAudit({ taskId: id }).filter((e) => e.action === "okr_submit").at(-1)!;
+    expect((ev.evidence as { reports: Array<{ objectId: number; reportId: number }> }).reports).toEqual([{ objectId: 2, reportId: 9001 }]);
+  });
+
+  it("撤销部分失败：删掉的不再删第二次，账本记住剩下的 id", async () => {
+    okr.submit.mockReset().mockResolvedValueOnce(501).mockResolvedValueOnce(502);
+    const { id, actionId } = card([row(1), row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    const ev = listAudit({ taskId: id }).find((e) => e.action === "okr_submit")!;
+
+    okr.remove.mockReset().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("locked"));
+    const undo1 = await app.request(`/audit/${ev.id}/undo`, { method: "POST" });
+    expect(undo1.status).toBe(409);
+    const body1 = (await undo1.json()) as { error: string };
+    expect(body1.error).toContain("删了 1 条");
+    expect(body1.error).toContain("502");
+    expect(okr.remove.mock.calls.map((c) => c[0])).toEqual([501, 502]);
+
+    okr.remove.mockReset().mockResolvedValueOnce(undefined);
+    const undo2 = await app.request(`/audit/${ev.id}/undo`, { method: "POST" });
+    expect(undo2.status).toBe(200);
+    expect(okr.remove.mock.calls.map((c) => c[0])).toEqual([502]);
+  });
+
+  it("取消勾选失败的行后不再算失败，重新审核直接完成，PUT 重算重试文案", async () => {
+    okr.submit.mockReset().mockResolvedValueOnce(801).mockRejectedValueOnce(new Error("boom"));
+    const { id, actionId } = card([row(1), row(2)]);
+    await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(getTask(id)!.status).toBe("review");
+
+    const put = await app.request(`/tasks/${id}/okr-draft`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows: [{ objectId: 2, checked: false }] }) });
+    expect(put.status).toBe(200);
+    const retry = getTask(id)!.pending!.find((p) => p.type === "okr_submit")!;
+    expect(retry.label).toBe("重试剩下的 0 条");
+
+    okr.submit.mockReset();
+    const res = await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(getTask(id)!.status).toBe("done");
+  });
+
+  it("记账失败不吞掉已提交成功的行：重试不会给它再交一次", async () => {
+    okr.submit.mockReset().mockResolvedValueOnce(701);
+    auditState.throwOnce = true;
+    const { id, actionId } = card([row(1)]);
+    const res = await app.request(`/tasks/${id}/approve/${actionId}`, { method: "POST" });
+    expect(res.status).toBe(500);
+    expect(getTask(id)!.status).toBe("review");
+    expect(payloadOf(id).rows[0]).toMatchObject({ state: "submitted", reportId: 701 });
+
+    okr.submit.mockReset();
+    const retry = getTask(id)!.pending!.find((p) => p.type === "okr_submit")!;
+    await app.request(`/tasks/${id}/approve/${retry.id}`, { method: "POST" });
+    expect(okr.submit).not.toHaveBeenCalled();
+    expect(getTask(id)!.status).toBe("done");
   });
 });

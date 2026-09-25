@@ -336,14 +336,22 @@ export async function executePending(
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
     } else if (action.type === "okr_submit") {
-      const { submitRows } = await import("./weekly/submit.js");
-      const { draft, failed } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
-      if (failed) {
-        // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍
-        const cur = getTask(taskId)!;
-        return updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, label: `重试剩下的 ${failed} 条`, payload: draft as unknown as Record<string, unknown> }] })!;
+      const { submitRows, SubmitPartialError } = await import("./weekly/submit.js");
+      try {
+        const { draft, failed } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
+        if (failed) {
+          // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍
+          const cur = getTask(taskId)!;
+          return updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, label: `重试剩下的 ${failed} 条`, payload: draft as unknown as Record<string, unknown> }] })!;
+        }
+      } catch (e) {
+        // 记账失败不能落到下面的通用 catch：那里放回去的是没更新过的旧 payload，已经交成功的行会被当成没交，重试再交一次
+        if (e instanceof SubmitPartialError) {
+          const cur = getTask(taskId)!;
+          updateTask(taskId, { status: "review", pending: [...(cur.pending ?? []), { ...action, payload: e.draft as unknown as Record<string, unknown> }] });
+        }
+        throw e;
       }
-      updateTask(taskId, { progress: `已提交 ${draft.rows.filter((r) => r.state === "submitted").length} 条到 OKR 平台（${draft.week}）` });
     } else if (action.type === "handbook_apply") {
       const { applyHandbookDraft } = await import("./handbook.js");
       const p = action.payload as { draft: HandbookDraft; cursor?: string };
@@ -377,9 +385,12 @@ export async function executePending(
       record({ taskId, action: action.type, why: "你审核通过", how: action.detail, evidence: action.payload, risk: "irreversible", status: "approved" });
     }
   } catch (e) {
-    // 没发出去的动作要放回去，不然用户改好的草稿随失败一起丢了
+    // 没发出去的动作要放回去，不然用户改好的草稿随失败一起丢了；
+    // 有些分支（比如 okr_submit）失败前已经把更新过的动作放回去了，这里不重复放一遍旧的
     const cur = getTask(taskId);
-    if (cur) updateTask(taskId, { pending: [...(cur.pending ?? []), action], status: "review" });
+    if (cur && !(cur.pending ?? []).some((p) => p.id === action.id)) {
+      updateTask(taskId, { pending: [...(cur.pending ?? []), action], status: "review" });
+    }
     throw e;
   }
   const t = getTask(taskId)!;
