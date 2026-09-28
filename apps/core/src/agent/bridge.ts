@@ -265,8 +265,18 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
       return { text: "已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。" };
     }
-    const t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
+    let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";
+    // 合并待审原来只在 onJobExit 解析 report.md 时挂；走 friday_done 交付的 onJobExit 会提前返回，
+    // 于是自主任务第一次跑通（2026-09-28）review 里就没有「合并」可点。合并要在主仓做，不能在 worktree 里。
+    if (onFeatureBranch && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
+      t = addPending(t.id, {
+        type: "git_merge",
+        label: `合并 ${branch}`,
+        detail: `把 ${branch} 合并进主分支（不 push），合完收掉 worktree`,
+        payload: { dir: task.source.repoDir || job.dir, branch, worktree: task.source.worktree ?? "" },
+      })!;
+    }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary, "finished");
     void closeJobTerminal(jobId, "终端交付完任务", t.id);

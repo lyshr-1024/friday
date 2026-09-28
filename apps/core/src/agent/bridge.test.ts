@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { app } from "../api/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
@@ -67,11 +71,29 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(t.progress).toContain("生产库只读权限");
   });
 
-  it("Friday 自主派出的任务（source.autonomous）friday_done 仍直接进 review", async () => {
-    createJob({ id: "job-mcp-4", project: "demo", dir: "/tmp", task: "自主改", logPath: "/tmp/x.log" });
-    const task = createTask({ title: "demo：自主改", kind: "code", source: { jobId: "job-mcp-4", autonomous: true }, project: "demo", status: "processing", plan: "改" });
+  it("Friday 自主派出的任务（source.autonomous）friday_done 直接进 review，并挂上合并待审——分支在 worktree 里、合并在主仓做", async () => {
+    // 真开一个仓库：分支名是从 worktree 里读出来的，不是 Friday 拼的
+    const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" } });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("switch", "-q", "-c", "fix/login-token");
+    createJob({ id: "job-mcp-4", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：自主改", kind: "code", source: { jobId: "job-mcp-4", autonomous: true, repoDir: "/main/repo", worktree: repo }, project: "demo", status: "processing", plan: "改" });
     await rpc("job-mcp-4", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } });
-    expect(getTask(task.id)!.status).toBe("review");
+    const t = getTask(task.id)!;
+    expect(t.status).toBe("review");
+    expect(t.pending?.map((p) => p.type)).toEqual(["git_merge"]);
+    expect(t.pending![0]!.payload).toMatchObject({ dir: "/main/repo", branch: "fix/login-token", worktree: repo });
+  });
+
+  it("自主任务停在主干上（没建分支）就不挂合并动作，免得挂个假的", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
+    execFileSync("git", ["-C", repo, "init", "-q", "-b", "main"]);
+    createJob({ id: "job-mcp-4b", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：自主改 b", kind: "code", source: { jobId: "job-mcp-4b", autonomous: true }, project: "demo", status: "processing", plan: "改" });
+    await rpc("job-mcp-4b", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } });
+    expect(getTask(task.id)!.pending ?? []).toEqual([]);
   });
 
   it("终端一轮说完（Stop）：任务标黄、进展换成它说的话、回流到任务会话，并推 tasks 事件", async () => {
