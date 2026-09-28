@@ -12,7 +12,7 @@ import { publish } from "../bus.js";
 import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
 import { handbookBlock } from "../memory/handbooks.js";
-import { terminalBridgePrompt } from "./prompt.js";
+import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
 
@@ -48,9 +48,7 @@ export function autonomousPrompt(id: string, task: string, project: string, base
       ? [`   注意：这个 worktree 是从分支 ${base} 检出的，不是主干——上一期的改动还没上线，这次在它基础上接着做。`,
          `   先 git switch -c <分支名> 建新分支（基线就是 ${base}），不要直接在 ${base} 上改。`]
       : ["   先 git switch -c <分支名> 建分支再改，不要 push，不要 merge，不要回主仓操作。"]),
-    "   分支名按项目规范起，用英文小写加连字符，要能看出在做什么：",
-    "   新功能用 feat/<topic>，修缺陷用 fix/<bug>，杂活或样式用 chore/<topic> 或 style/<topic>。",
-    "   例如 feat/export-center、fix/withdrawal-rule-tabs、style/task-card-spacing。",
+    `   分支名：${BRANCH_RULE}`,
     "   起好后第一时间调 friday_progress 把分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
     "   push、merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",

@@ -20,6 +20,8 @@ describe("交付报告", () => {
     expect(prompt).toContain("feat/<topic>");
     expect(prompt).toContain("fix/<bug>");
     expect(prompt).not.toContain("friday/abcdef12");
+    expect(prompt).toContain("先按项目自己的规则起");
+    expect(prompt).toContain("不要用 friday 开头");
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");

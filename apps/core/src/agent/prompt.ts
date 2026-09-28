@@ -67,6 +67,11 @@ export function friday(memory?: MemoryContext, skills = false, task?: string, re
   return sections.join("\n\n");
 }
 
+export const BRANCH_RULE =
+  "先按项目自己的规则起（CLAUDE.md、项目 skill、CONTRIBUTING，再看 git branch -a 里现有分支的惯例）；" +
+  "项目没规定就用语义化的名字：英文小写加连字符，新功能 feat/<topic>，修缺陷 fix/<bug>，杂活或样式 chore/<topic> 或 style/<topic>，" +
+  "例如 feat/export-center、fix/withdrawal-rule-tabs。不要用 friday 开头，worktree 目录叫 friday-xxx 只是 Friday 的临时目录，不是分支名。";
+
 /** 注入到终端 Claude Code 的 --append-system-prompt：它在 Friday 派出的终端里干活，进展和结果要经 MCP 回给 Friday。 */
 export function terminalBridgePrompt(): string {
   return [
@@ -76,7 +81,8 @@ export function terminalBridgePrompt(): string {
     "friday_done：这一轮的活做完了就调，带上概要、改动、测试步骤、测试结果、请用户验证的点。这是用户收到提醒的唯一途径，不调等于没交付。确实告一段落了再调，手上还有没跑完的检查就先跑完。他看完可能就在这个终端里接着追问，你照常接着干，下一轮做完再调一次。",
     "friday_finish：整条任务收工，只在 MR 已经合并、本地 worktree 也清理完之后调，Friday 会标完成并关掉这个终端。提测了、MR 还没合都不算，用 friday_done。",
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
-    "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。分支名按项目规范起：新功能 feat/<topic>、修缺陷 fix/<bug>、杂活 chore/<topic>。",
+    "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。",
+    `分支名：${BRANCH_RULE}`,
   ].join("\n");
 }
 
