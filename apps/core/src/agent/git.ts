@@ -15,6 +15,32 @@ async function git(dir: string, args: string[]): Promise<string> {
   }
 }
 
+const gitSync = (dir: string, args: string[]): string | undefined => {
+  try {
+    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return undefined;
+  }
+};
+
+export const headShaSync = (dir: string): string => gitSync(dir, ["rev-parse", "HEAD"]) ?? "";
+
+/** 这个分支相对主干改了多少：跟 main（没有就 master）的分叉点比，不是跟主干当前的头比 */
+export function diffStatSync(dir: string, base?: string): { filesChanged: number; insertions: number; deletions: number } | undefined {
+  const trunk = base ?? (gitSync(dir, ["rev-parse", "--verify", "-q", "main"]) ? "main" : "master");
+  const out = gitSync(dir, ["diff", "--shortstat", `${trunk}...HEAD`]);
+  if (out === undefined) return undefined;
+  const n = (re: RegExp) => Number(re.exec(out)?.[1] ?? 0);
+  return { filesChanged: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?/), deletions: n(/(\d+) deletions?/) };
+}
+
+/** 从 sha 到分支头又多了几个提交。sha 已经不在分支上（amend / rebase 过）返回 undefined */
+export function commitsSinceSync(dir: string, sha: string, branch: string): number | undefined {
+  if (gitSync(dir, ["merge-base", "--is-ancestor", sha, branch]) === undefined) return undefined;
+  const out = gitSync(dir, ["rev-list", "--count", `${sha}..${branch}`]);
+  return out === undefined ? undefined : Number(out);
+}
+
 /** 最近 N 天的提交，给 Friday 自学挑题用；不是 git 仓库或没有提交就返回空数组。 */
 /** 同步读当前分支名。onJobExit 是同步的，用不了上面那个异步 git()。
     读不到就返回空串——调用方要能接受「不知道分支」。 */

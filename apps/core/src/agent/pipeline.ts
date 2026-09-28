@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
-import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree } from "./git.js";
-import type { OkrWeeklyDraft, Task } from "@friday/shared";
+import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree, commitsSinceSync } from "./git.js";
+import type { OkrWeeklyDraft, Task, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,6 +16,8 @@ import { collectReport, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
+import { closeRun } from "./runLog.js";
+import { createRun, pendingRunsForTask, runByJob, setRunOutcome } from "../memory/runs.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
 
@@ -39,6 +41,8 @@ const execFileP = promisify(execFile);
  */
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
+  // 没合并就收工：这次交付没被用上
+  if (t) for (const r of pendingRunsForTask(id)) setRunOutcome(r.id, "abandoned", why);
   if (t && !keepTerminal) {
     await closeTaskTerminal(t, why);
     await cleanupTaskWorktree(t, why);
@@ -105,7 +109,7 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
 }
 
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
-export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
+export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string, trigger: RunTrigger = "retry"): Promise<Task> {
   // 归在某个需求下、而那个需求已经有终端在跑：交给它，不要另起一个改同一片代码
   if (await handOffToStory(task, detail)) return getTask(task.id)!;
   const dirt = await worktreeDirt(dir);
@@ -126,6 +130,7 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
   const prompt = autonomousPrompt(id, detail, project, base);
   const { ghosttyId } = await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
   createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
+  createRun({ id, jobId: id, taskId: task.id, project, kind: "autonomous", trigger, ...(task.source.intake?.confidence !== undefined ? { intakeConfidence: task.source.intake.confidence } : {}) });
   if (ghosttyId) setGhosttyId(id, ghosttyId);
   record({
     taskId: task.id,
@@ -184,6 +189,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
+  closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
   // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
   const conv = isQueryTask(job.task.source) ? job.task.source.conversation : undefined;
   if (conv) {
@@ -331,7 +337,7 @@ export async function executePending(
       const p = action.payload as { project: string; dir: string; detail: string; confidence?: number };
       const t0 = getTask(taskId);
       if (!t0) throw new Error("任务不存在了");
-      await startAutonomousJob(t0, p.project, p.dir, p.detail);
+      await startAutonomousJob(t0, p.project, p.dir, p.detail, "approve");
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
@@ -371,7 +377,15 @@ export async function executePending(
     } else if (action.type === "git_merge") {
       const p = action.payload as { dir: string; branch: string; worktree?: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
+      // 合并前先比：分支头还是不是交付时那个提交。你在上面又改过，说明这次交付没被原样收下
+      const jobId = getTask(taskId)?.source.jobId;
+      const run = jobId ? runByJob(jobId) : undefined;
+      const extra = run?.tipSha ? commitsSinceSync(p.dir, run.tipSha, p.branch) : undefined;
       await execFileP("git", ["-C", p.dir, "merge", "--no-ff", p.branch, "-m", `merge ${p.branch} (Friday, 已审核)`]);
+      if (run) {
+        const why = !run.tipSha ? "交付时没记下提交，无法比对" : extra === undefined ? "分支被改写，无法比对" : extra ? `你在分支上又提交了 ${extra} 次` : undefined;
+        setRunOutcome(run.id, extra === 0 ? "merged_as_is" : "merged_modified", why);
+      }
       // 合完再收 worktree：分支这时已经进主干，removeWorktree 的 git branch -d 才删得掉
       const cleaned = p.worktree ? await removeWorktree(p.dir, p.worktree) : undefined;
       record({

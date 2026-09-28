@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
 import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
@@ -173,6 +174,7 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
     record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
+    for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
     return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
   })
   // 卡住的任务重新开工（比如用量上限恢复后）

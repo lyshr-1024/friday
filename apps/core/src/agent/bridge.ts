@@ -15,6 +15,7 @@ import { readResearchNote } from "../memory/research.js";
 import { say, closeJobTerminal } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import { finishTask } from "./pipeline.js";
+import { closeRun, recordRound } from "./runLog.js";
 
 const execFileP = promisify(execFile);
 
@@ -257,6 +258,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
       const t = updateTask(task.id, { report, attention: "review", progress: `这轮做完了：${report.summary}` })!;
+      recordRound(jobId, t.id, job.project);
       // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「进行中」
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
@@ -266,6 +268,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       return { text: "已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。" };
     }
     let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
+    closeRun(jobId, "report");
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";
     // 合并待审原来只在 onJobExit 解析 report.md 时挂；走 friday_done 交付的 onJobExit 会提前返回，
     // 于是自主任务第一次跑通（2026-09-28）review 里就没有「合并」可点。合并要在主仓做，不能在 worktree 里。
@@ -297,6 +300,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_blocked") {
     const reason = String(args.reason ?? "").trim().slice(0, 500);
     if (!reason) return { text: "reason 不能为空", isError: true };
+    if (task.source.autonomous) closeRun(jobId, "blocked");
     const t = task.source.autonomous
       ? updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!
       : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;

@@ -5,6 +5,7 @@ import type { InboxItem, Task } from "@friday/shared";
 import { record } from "../../memory/audit.js";
 import { conversationKey, slackNode, taskNode } from "../../memory/infer.js";
 import { createJob } from "../../memory/jobs.js";
+import { createRun } from "../../memory/runs.js";
 import { linkUp } from "../../memory/links.js";
 import { loadProjects } from "../../memory/projects.js";
 import { createTask, updateTask } from "../../memory/tasks.js";
@@ -59,6 +60,7 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const dir = picked[0]!.dir;
   const prompt = queryJobPrompt(id, ask, picked.map((p) => ({ name: p.name, dir: p.dir })), item.userName);
   createJob({ id, project: picked[0]!.name, dir, task: ask.slice(0, 500), logPath: jobLog(id), taskId: task.id });
+  createRun({ id, jobId: id, taskId: task.id, project: picked[0]!.name, kind: "query", trigger: "slack" });
   spawnHeadless(id, dir, prompt);
 
   record({

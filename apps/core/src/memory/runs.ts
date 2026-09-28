@@ -104,6 +104,12 @@ export function runByJob(jobId: string): RunRecord | undefined {
   return r ? toRun(r) : undefined;
 }
 
+/** 这个 job 之前几轮交互已经记过的成本合计，用来把累计值拆成每轮增量 */
+export function roundCostSoFar(jobId: string): number {
+  const r = db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM runs WHERE job_id = ? AND kind = 'interactive_round'").get(jobId) as { s: number };
+  return r.s;
+}
+
 export function runsForTask(taskId: string): RunRecord[] {
   return (db().prepare("SELECT * FROM runs WHERE task_id = ? ORDER BY started_at").all(taskId) as unknown as Row[]).map(toRun);
 }

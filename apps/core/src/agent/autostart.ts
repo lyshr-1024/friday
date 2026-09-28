@@ -77,7 +77,7 @@ export async function autostartTick(now = Date.now()): Promise<number> {
       evidence: { confidence: v.confidence, project: r.project.name, meegleId: t.source.meegleId ?? null },
       risk: "reversible",
     });
-    await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`);
+    await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
     state.notices.push({ title: `Friday 自己开工了 · ${r.project.name}`, body: t.title.slice(0, 120), taskId: t.id });
     started++;
   }
