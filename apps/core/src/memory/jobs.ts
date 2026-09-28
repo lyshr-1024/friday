@@ -71,6 +71,28 @@ export function jobTasks(): Set<string> {
   return new Set(rows.map((r) => r.task.trim()));
 }
 
+/** Friday 敲进终端的每一句。从 Claude Code 历史学的时候按它精确排除，不靠正则猜 */
+export function recordTerminalInput(jobId: string, text: string): void {
+  db().prepare("INSERT INTO terminal_inputs (job_id, text, at) VALUES (?, ?, ?)").run(jobId, text.trim(), new Date().toISOString());
+}
+
+export function terminalInputTexts(): Set<string> {
+  const rows = db().prepare("SELECT DISTINCT text FROM terminal_inputs").all() as { text: string }[];
+  return new Set(rows.map((r) => r.text));
+}
+
+/** Friday 自己拉起的 claude 会话：自主 -p 和后台查询。交互式终端里说话的是用户，不算。 */
+export function fridaySessionIds(): Set<string> {
+  const rows = db()
+    .prepare(
+      `SELECT j.claude_session_id AS sid FROM jobs j JOIN tasks t ON t.id = j.task_id
+       WHERE j.claude_session_id IS NOT NULL
+         AND (json_extract(t.source, '$.autonomous') = 1 OR json_extract(t.source, '$.headless') = 1)`,
+    )
+    .all() as { sid: string }[];
+  return new Set(rows.map((r) => r.sid));
+}
+
 export function runningJobs(): Job[] {
   const rows = db().prepare("SELECT * FROM jobs WHERE status = 'running' ORDER BY started_at DESC").all() as unknown as Row[];
   return rows.map(toJob);

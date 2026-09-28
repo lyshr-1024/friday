@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { groupByProject, isCandidate, isFridayDriven, isNoise, isOwnPrompt, projectForCwd, userText, GLOBAL, type HistoryMessage } from "./history.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { groupByProject, isCandidate, isFridayDriven, isNoise, isOwnPrompt, projectForCwd, readSession, userText, GLOBAL, type HistoryMessage } from "./history.js";
 import { config } from "../config.js";
 
 const row = (over: Record<string, unknown> = {}) => ({ type: "user", message: { content: "把 member_id 统一改成 string 传" }, ...over });
@@ -116,26 +119,34 @@ describe("isOwnPrompt", () => {
   });
 });
 
-describe("isFridayDriven", () => {
-  const none = new Set<string>();
+describe("isFridayDriven：确定性排除", () => {
+  const ex = { texts: new Set(["我要开始做这条需求：X", "用户已逐项确认你上一轮列的 6 条验证点，全部通过。"]), sessions: new Set(["sess-auto"]) };
 
-  it("程序拉起的会话（自主 claude -p、后台查询）不是你敲的", () => {
-    expect(isFridayDriven({ entrypoint: "sdk-cli" }, "你在项目 whale-console 里替用户完成一项任务", none)).toBe(true);
-    expect(isFridayDriven({ entrypoint: "sdk-ts" }, "随便什么", none)).toBe(true);
+  it("程序拉起的会话（entrypoint sdk-*）整条不算", () => {
+    expect(isFridayDriven({ entrypoint: "sdk-cli" }, "随便", ex)).toBe(true);
   });
 
-  it("交互式终端的第一句是 Friday 写的任务描述", () => {
-    const task = "我要开始做这条需求：新后台迁移老仓的日终任务模块";
-    expect(isFridayDriven({ entrypoint: "cli" }, task, new Set([task]))).toBe(true);
+  it("Friday 写进终端的第一句和后来敲进去的话，按记录精确匹配", () => {
+    expect(isFridayDriven({ entrypoint: "cli" }, "我要开始做这条需求：X", ex)).toBe(true);
+    expect(isFridayDriven({ entrypoint: "cli" }, "用户已逐项确认你上一轮列的 6 条验证点，全部通过。", ex)).toBe(true);
+    // 没记录过的相似句子不再靠正则猜
+    expect(isFridayDriven({ entrypoint: "cli" }, "用户已逐项确认你上一轮列的 9 条验证点，全部通过。", ex)).toBe(false);
   });
 
-  it("Friday 往终端里敲的固定话术", () => {
-    expect(isFridayDriven({ entrypoint: "cli" }, "用户已逐项确认你上一轮列的 6 条验证点，全部通过。继续下一步", none)).toBe(true);
-    expect(isFridayDriven({ entrypoint: "cli" }, "顺带再改一条同需求下的缺陷：\n标题", none)).toBe(true);
+  it("你自己敲的照常学", () => {
+    expect(isFridayDriven({ entrypoint: "cli" }, "不要用 variant=\"link\"", ex)).toBe(false);
   });
+});
 
-  it("你在终端里自己敲的照常学", () => {
-    expect(isFridayDriven({ entrypoint: "cli" }, "不要用 variant=\"link\"，新建按钮统一 ghost", none)).toBe(false);
-    expect(isFridayDriven({}, "应该用 string", none)).toBe(false);
+describe("readSession 按 session id 跳过 Friday 自己的会话", () => {
+  it("文件名就是 session id，在排除集里的整份不读", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hist-"));
+    const row = JSON.stringify({ type: "user", timestamp: "2026-09-28T01:00:00Z", cwd: "/x/whale-console", entrypoint: "cli", message: { content: "不要用 variant=link，统一 ghost" } });
+    writeFileSync(join(dir, "sess-auto.jsonl"), row + "\n");
+    writeFileSync(join(dir, "sess-me.jsonl"), row + "\n");
+    const projects = [{ name: "whale-console", dir: "/x/whale-console" }];
+    const ex = { texts: new Set<string>(), sessions: new Set(["sess-auto"]) };
+    expect(readSession(join(dir, "sess-auto.jsonl"), projects, undefined, ex)).toEqual([]);
+    expect(readSession(join(dir, "sess-me.jsonl"), projects, undefined, ex)).toHaveLength(1);
   });
 });

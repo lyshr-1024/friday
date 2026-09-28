@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS usage (
   turns INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage (at);
+CREATE TABLE IF NOT EXISTS terminal_inputs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS terminal_inputs_text ON terminal_inputs (text);
 
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,

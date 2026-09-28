@@ -1,7 +1,7 @@
 import type { TerminalState } from "@friday/shared";
 import type { Task } from "@friday/shared";
 import { isFridayRun } from "@friday/shared";
-import { finishJob, getJob, reapStaleJobs } from "../memory/jobs.js";
+import { finishJob, getJob, reapStaleJobs, recordTerminalInput } from "../memory/jobs.js";
 import { listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { closeTerminalById, inputText, isAlive } from "./ghostty.js";
@@ -55,6 +55,7 @@ export async function say(jobId: string, text: string): Promise<SayResult> {
   const ok = await inputText(job.ghosttyId, text);
   if (!ok) return "no-terminal";
   lastSaid.set(jobId, Date.now());
+  recordTerminalInput(jobId, text);
   return "sent";
 }
 
