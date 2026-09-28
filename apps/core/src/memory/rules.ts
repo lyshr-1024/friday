@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { RULE_SECTIONS, type Rule, type RuleEvidence, type RuleOrigin, type RuleSection } from "@friday/shared";
 import { db } from "./db.js";
-import { GLOBAL } from "./handbooks.js";
+import { GLOBAL, readHandbookNotes } from "./handbooks.js";
 
 interface RuleRow {
   id: string;
@@ -58,8 +58,8 @@ export function getRule(id: string): Rule | undefined {
 
 export function activeRules(project?: string): Rule[] {
   const rows = project
-    ? db().prepare("SELECT * FROM rules WHERE status = 'active' AND project = ? ORDER BY created_at, id").all(project)
-    : db().prepare("SELECT * FROM rules WHERE status = 'active' ORDER BY project, created_at, id").all();
+    ? db().prepare("SELECT * FROM rules WHERE status = 'active' AND project = ? ORDER BY created_at, rowid").all(project)
+    : db().prepare("SELECT * FROM rules WHERE status = 'active' ORDER BY project, created_at, rowid").all();
   return hydrate(rows as unknown as RuleRow[]);
 }
 
@@ -153,5 +153,7 @@ export function renderHandbook(project: string): string {
     }
     parts.push("");
   }
+  const notes = readHandbookNotes(project);
+  if (notes) parts.push(notes, "");
   return parts.join("\n");
 }

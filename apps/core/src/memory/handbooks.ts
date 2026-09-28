@@ -20,6 +20,17 @@ export function handbookSlug(project: string): string {
 
 export const handbookPath = (project: string): string => join(handbookDir(), `${handbookSlug(project)}.md`);
 
+/** 手册里那些不是一条条规则的手写段落（比如「ref 是系统级还是租户级」的判断方法），原样留在这儿 */
+export const handbookNotesPath = (project: string): string => join(handbookDir(), "notes", `${handbookSlug(project)}.md`);
+
+export function readHandbookNotes(project: string): string {
+  try {
+    return readFileSync(handbookNotesPath(project), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 export function readHandbook(project: string): string {
   try {
     return readFileSync(handbookPath(project), "utf8");

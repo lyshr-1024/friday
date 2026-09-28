@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
 import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
+import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
 import { startScheduler } from "./scheduler/index.js";
 import { warmSlack } from "./connectors/slack.js";
 
@@ -16,6 +17,8 @@ if (reaped.length) console.log(`收尾 ${reaped.length} 个上次遗留的终端
 // todos 表在启动器删掉后就没有界面出口了，把最近写进去的补成任务
 const moved = migrateLocalTodos();
 if (moved) console.log(`把 ${moved} 条本地待办补成了任务`);
+const rules = migrateHandbooksToRules();
+if (rules.migrated) console.log(`把手册里的 ${rules.migrated} 条规则迁进了 rules 表`);
 
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);
