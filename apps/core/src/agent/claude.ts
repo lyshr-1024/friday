@@ -39,6 +39,9 @@ export const SMALL_MODEL = "claude-haiku-4-5";
 /** 要读懂中文语境、写给人看的文字，用它 */
 export const SONNET_MODEL = "claude-sonnet-5";
 
+/** Friday 自己拉起的无人值守运行不继承用户的 Claude Code 默认模型：2026-09-28 默认被切成 Fable 忘了切回，一次 6 分钟花了 $4.46 */
+export const HEADLESS_MODEL = "claude-opus-5";
+
 /** 带图片/文档时走流式输入：一条 SDKUserMessage 就结束。 */
 async function* single(content: MessageParam["content"]): AsyncGenerator<SDKUserMessage> {
   yield { type: "user", message: { role: "user", content }, parent_tool_use_id: null };

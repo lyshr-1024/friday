@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseReport, queryReplyDraft } from "./report.js";
-import { autonomousPrompt, buildScript } from "./runner.js";
+import { autonomousPrompt, buildScript, claudeArgs } from "./runner.js";
 
 describe("交付报告", () => {
   it("按约定结构解析，截图存为附件", () => {
@@ -26,7 +26,11 @@ describe("交付报告", () => {
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");
     const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" });
-    expect(script).toContain("-p --dangerously-skip-permissions");
+    expect(script).toContain("-p --model");
+    const args = claudeArgs({ settings: "/s", mcp: "/m" }, true);
+    expect(args.slice(0, 3)).toEqual(["-p", "--model", "claude-opus-5"]);
+    const interactive = buildScript({ id: "k", dir: "/w", task: "聊聊", terminal: "ghostty" }, "/opt/claude", 7788, { settings: "/runs/k.settings.json", mcp: "/runs/k.mcp.json" });
+    expect(interactive).not.toContain("--model");
     expect(script).toContain("/opt/claude");
     // 整条 claude 命令被 shellQuote 包了一层，内层引号变成 '\''，所以分开断言
     expect(script).toContain("--mcp-config");

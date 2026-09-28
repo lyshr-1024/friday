@@ -13,6 +13,7 @@ import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
 import { handbookBlock } from "../memory/handbooks.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
+import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
 
@@ -254,7 +255,7 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false)
 /** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
 export function claudeArgs(files: ClaudeFiles, headless = false, project?: string): string[] {
   return [
-    ...(headless ? ["-p"] : []),
+    ...(headless ? ["-p", "--model", HEADLESS_MODEL] : []),
     "--dangerously-skip-permissions",
     "--settings",
     files.settings,
