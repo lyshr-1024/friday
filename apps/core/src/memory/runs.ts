@@ -110,6 +110,13 @@ export function roundCostSoFar(jobId: string): number {
   return r.s;
 }
 
+/** 某个时间之后有了结局、而且结局是「没被原样收下」的：提炼规则时当候选 */
+export function lessonsSince(since: string): RunRecord[] {
+  return (db()
+    .prepare("SELECT * FROM runs WHERE outcome IN ('rejected', 'merged_modified', 'reopened') AND outcome_at > ? ORDER BY outcome_at")
+    .all(since) as unknown as Row[]).map(toRun);
+}
+
 export function runsForTask(taskId: string): RunRecord[] {
   return (db().prepare("SELECT * FROM runs WHERE task_id = ? ORDER BY started_at").all(taskId) as unknown as Row[]).map(toRun);
 }

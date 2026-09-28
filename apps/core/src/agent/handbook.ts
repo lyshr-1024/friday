@@ -1,13 +1,18 @@
+import { RULE_SECTIONS, type Rule, type RuleEvidence, type RuleSection } from "@friday/shared";
 import { askStream } from "./claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "./fence.js";
-import { groupByProject, scanHistory, type HistoryMessage } from "./history.js";
+import { groupByProject, scanHistory } from "./history.js";
 import { config } from "../config.js";
 import { record } from "../memory/audit.js";
 import { readMemoryFile, upsertPerson, writeMemoryFile } from "../memory/files.js";
 import { addProjectHints } from "../memory/projectHints.js";
-import { GLOBAL, handbookSlug, listHandbooks, readHandbook, writeHandbook } from "../memory/handbooks.js";
+import { GLOBAL, handbookSlug, writeHandbook } from "../memory/handbooks.js";
+import { lessonsSince } from "../memory/runs.js";
+import { activeRules, addRule, confirmRule, getRule, renderHandbook, restoreRules, retireRule, reviseRule, snapshotRules, staleRules, type RulesSnapshot } from "../memory/rules.js";
+import { FORBIDDEN } from "./guard.js";
+import { BRANCH_RULE } from "./prompt.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
-import { addPending, createTask } from "../memory/tasks.js";
+import { addPending, createTask, getTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 
 export const HANDBOOK_MODEL = "claude-sonnet-5";
@@ -49,9 +54,36 @@ export interface HandbookPerson {
   note: string;
 }
 
+export interface Candidate {
+  /** 从 1 开始的编号；模型只能用它引证，不能自己写引文 */
+  n: number;
+  at: string;
+  text: string;
+  kind: "utterance" | "outcome";
+  /** utterance：会话 id；outcome：任务 id */
+  ref?: string;
+}
+
+export type RuleOp =
+  | { op: "add"; section: RuleSection; text: string; evidence: number[]; why: string }
+  | { op: "confirm"; id: string; evidence: number[] }
+  | { op: "revise"; id: string; text: string; evidence: number[]; why: string }
+  | { op: "retire"; id: string; why: string };
+
+export interface RuleConflict {
+  text: string;
+  with: string;
+}
+
 export interface GroupDraft {
   project: string;
-  handbook: string;
+  candidates: Candidate[];
+  ops: RuleOp[];
+  conflicts: RuleConflict[];
+  /** 久未确认的：审核卡上问一句「还算吗」 */
+  stale: Array<{ id: string; text: string; lastConfirmedAt: string }>;
+  /** 引证无效被丢掉的操作数 */
+  dropped: number;
   decisions: HandbookDecision[];
   people: HandbookPerson[];
   aliases: string[];
@@ -64,11 +96,24 @@ export interface HandbookDraft {
 
 const clip = (s: string, n = CLIP) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
-// 标题和那行注释是 applyHandbookDraft 写文件时加的；模型照着已有手册重写时会原样抄回来，不剥掉每轮多叠一层
-const HEADER = /^(?:\s*(?:#\s[^\n]*|<!--[\s\S]*?-->)[ \t]*(?:\n|$))+/;
+const RULE_TEXT_MAX = 60;
+export const STALE_WEEKS = 8;
 
-/** 模型可能多给一层 ```json 包装，也可能在前后说两句。 */
-export function parseDraft(raw: string): Omit<GroupDraft, "project" | "sources"> | undefined {
+/** 引证必须是 1..count 的整数、至少一个；否则这条操作作废 */
+function refs(v: unknown, count: number): number[] | undefined {
+  if (!Array.isArray(v) || !v.length) return undefined;
+  return v.every((n) => Number.isInteger(n) && n >= 1 && n <= count) ? [...new Set(v as number[])] : undefined;
+}
+
+/**
+ * 模型可能多给一层 ```json 包装，也可能在前后说两句。
+ * 解析层是真正的闸门：引证不存在、改动你手改过的、退役不给理由，一律丢掉并计数。
+ */
+export function parseOps(
+  raw: string,
+  count: number,
+  active: Map<string, Rule>,
+): Pick<GroupDraft, "ops" | "conflicts" | "dropped" | "decisions" | "people" | "aliases"> | undefined {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end <= start) return undefined;
@@ -78,8 +123,32 @@ export function parseDraft(raw: string): Omit<GroupDraft, "project" | "sources">
   } catch {
     return undefined;
   }
-  const handbook = str(obj.handbook, 12_000).replace(HEADER, "").trim();
-  if (!handbook) return undefined;
+  const ops: RuleOp[] = [];
+  let dropped = 0;
+  for (const item of Array.isArray(obj.ops) ? obj.ops : []) {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const rule = typeof o.id === "string" ? active.get(o.id) : undefined;
+    const text = str(o.text, RULE_TEXT_MAX);
+    const why = str(o.why, 200);
+    const ev = refs(o.evidence, count);
+    const section = (RULE_SECTIONS as readonly string[]).includes(String(o.section)) ? (o.section as RuleSection) : "约定";
+    let op: RuleOp | undefined;
+    if (o.op === "add" && text && ev) op = { op: "add", section, text, evidence: ev, why };
+    else if (o.op === "confirm" && rule && ev) op = { op: "confirm", id: rule.id, evidence: ev };
+    else if (o.op === "revise" && rule && rule.origin !== "manual" && text && ev) op = { op: "revise", id: rule.id, text, evidence: ev, why };
+    else if (o.op === "retire" && rule && rule.origin !== "manual" && why) op = { op: "retire", id: rule.id, why };
+    if (op) ops.push(op);
+    else dropped++;
+  }
+  const conflicts = (Array.isArray(obj.conflicts) ? obj.conflicts : [])
+    .map((c) => {
+      const o = (c ?? {}) as Record<string, unknown>;
+      const text = str(o.text, 120);
+      const w = str(o.with, 120);
+      return text && w ? { text, with: w } : undefined;
+    })
+    .filter((c): c is RuleConflict => Boolean(c))
+    .slice(0, 10);
   const decisions = Array.isArray(obj.decisions)
     ? obj.decisions
         .map((d) => {
@@ -106,65 +175,117 @@ export function parseDraft(raw: string): Omit<GroupDraft, "project" | "sources">
   const aliases = Array.isArray(obj.aliases)
     ? obj.aliases.map((a) => str(a, 40)).filter((a) => a.length >= 2).slice(0, 10)
     : [];
-  return { handbook, decisions, people, aliases };
+  return { ops, conflicts, dropped, decisions, people, aliases };
 }
 
-export function distillPrompt(project: string, messages: HistoryMessage[], current: string): { system: string; prompt: string } {
+/** Friday 自己的硬约束：提炼时一并给模型，让它标出和这些打架的规则 */
+function hardConstraints(): string[] {
+  return [...FORBIDDEN.map(([, why]) => `自主任务：${why}（守卫直接拦）`), `分支名：${BRANCH_RULE}`];
+}
+
+export function distillPrompt(project: string, candidates: Candidate[], current: Rule[], stale: ReadonlySet<string>): { system: string; prompt: string } {
   const global = project === GLOBAL;
   const system = [
     global
-      ? "你在给一个私人助理写「这位用户干活时的通用习惯」手册——跨项目都成立的那些：提交流程、分支规范、验证要求、沟通口径。"
-      : `你在给一个私人助理写项目 ${project} 的「在这个项目里怎么干活」手册。`,
-    "输入是用户过去几周在 Claude Code 里说过的原话，大多是在纠正助理、或者定下某个口径。",
-    "只提炼可复用的约定，一次性的具体活儿（“把这个按钮改成蓝色”“修一下这个报错”）一律丢掉。拿不准就不要——学错一条比少学一条贵得多。",
-    "每条规则后面必须跟一行以 > 开头的原话摘录作为出处，摘录要能支撑这条规则；找不到出处就说明这条是你编的，删掉。",
-    current ? "已有手册在下面，请把新证据并进去重写整份，不要追加流水账：说的是同一件事就合并，新的口径推翻了旧的就替换掉旧的。" : "还没有手册。",
-    "只输出一个 JSON 对象，不要包在代码块里，字段如下：",
-    '{"handbook": "整份手册的 Markdown", "decisions": [{"text": "一句话结论", "why": "理由", "at": "YYYY-MM-DD"}], "people": [{"name": "人名", "note": "一句话"}], "aliases": ["项目别名"]}',
-    "handbook 用二级标题分组（## 约定 / ## 技术口径 / ## 流程 / ## 别踩的坑），每条一行不超过 40 字，后跟一行 > 原话。",
-    "decisions 只放影响面超出单个文件的一次性技术决策；people 只放明确提到的协作对象；aliases 只放用户称呼这个项目用的别名。三者都可以是空数组，宁缺毋滥。",
+      ? "你在维护一个私人助理的「这位用户干活时的通用习惯」规则表——跨项目都成立的那些：提交流程、分支规范、验证要求、沟通口径。"
+      : `你在维护一个私人助理的项目 ${project} 的「在这个项目里怎么干活」规则表。`,
+    "输入有两类候选：用户在 Claude Code 里说过的原话（大多是纠正或定口径），和【】开头的 Friday 交付结果（被打回的原因、被用户改过才合并）。",
+    "只提炼可复用的约定，一次性的具体活儿一律不要。拿不准就不动——学错一条比少学一条贵得多。",
+    "输出对规则表的操作，不要重写整张表：",
+    '- {"op":"add","section":"约定|技术口径|流程|别踩的坑","text":"规则，一行不超过 40 字","evidence":[候选编号],"why":"一句话"}',
+    '- {"op":"confirm","id":"r-xxxxxxxx","evidence":[候选编号]}：候选里又出现了支持这条规则的证据',
+    '- {"op":"revise","id":"r-xxxxxxxx","text":"新写法","evidence":[候选编号],"why":"一句话"}：新证据让它更准或推翻了旧说法',
+    '- {"op":"retire","id":"r-xxxxxxxx","why":"一句话"}：新证据明确推翻了它',
+    "evidence 只能填候选前面的编号，不许自己写引文；找不到能支撑的编号就说明这条是你编的，不要输出。",
+    "标 [手改] 的规则是用户亲手改过的，不许 revise 或 retire。标 ⚠ 久未确认 的只在候选里有新证据时 confirm，不许因为「久」就 retire。",
+    "说的是同一件事就 confirm 或 revise 已有规则，不要重复 add。",
+    "如果某条规则（已有的或你要加的）和下面「Friday 的硬约束」冲突，列进 conflicts：{\"text\":\"规则\",\"with\":\"冲突的那条硬约束\"}。",
+    "只输出一个 JSON 对象，不要包在代码块里：",
+    '{"ops": [...], "conflicts": [...], "decisions": [{"text": "一句话结论", "why": "理由", "at": "YYYY-MM-DD"}], "people": [{"name": "人名", "note": "一句话"}], "aliases": ["项目别名"]}',
+    "decisions 只放影响面超出单个文件的一次性技术决策；people 只放明确提到的协作对象；aliases 只放用户称呼这个项目用的别名。都可以是空数组，宁缺毋滥。",
     global ? "aliases 恒为空数组。" : "",
+    "",
+    "Friday 的硬约束：",
+    ...hardConstraints().map((c) => `- ${c}`),
     UNTRUSTED_NOTE,
   ]
-    .filter(Boolean)
+    .filter((l) => l !== "")
     .join("\n");
-  const body = [
-    current ? `现有手册：\n${current}` : "",
-    "用户原话：",
-    untrusted(
-      "claude-code-history",
-      messages.map((m) => `[${m.at.slice(0, 10)}] ${clip(m.text)}`).join("\n"),
-    ),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  return { system, prompt: body };
+  const table = current.length
+    ? current
+        .map((r) => `${r.id} | ${r.section} | ${r.text} | 最近确认 ${r.lastConfirmedAt.slice(0, 10)}${r.origin === "manual" ? " [手改]" : ""}${stale.has(r.id) ? " ⚠ 久未确认" : ""}`)
+        .join("\n")
+    : "（还没有规则）";
+  const prompt = [
+    `当前规则：\n${table}`,
+    "候选：",
+    untrusted("claude-code-history", candidates.map((c) => `[${c.n}] ${c.at.slice(0, 10)} ${clip(c.text)}`).join("\n")),
+  ].join("\n\n");
+  return { system, prompt };
 }
 
-async function distillGroup(project: string, messages: HistoryMessage[]): Promise<GroupDraft | undefined> {
-  const picked = messages.slice(-MAX_PER_GROUP);
-  const current = project === GLOBAL ? readHandbook(GLOBAL) : readHandbook(project);
-  const { system, prompt } = distillPrompt(project, picked, current);
+async function distillGroup(project: string, candidates: Candidate[]): Promise<GroupDraft | undefined> {
+  const picked = candidates.slice(-MAX_PER_GROUP).map((c, i) => ({ ...c, n: i + 1 }));
+  const current = activeRules(project);
+  const stale = staleRules(project, STALE_WEEKS);
+  const { system, prompt } = distillPrompt(project, picked, current, new Set(stale.map((r) => r.id)));
   let text = "";
   for await (const ev of askStream(prompt, { systemPrompt: system, cwd: config.dataDir, model: HANDBOOK_MODEL, builtin: [], label: "handbook" })) {
     if (ev.type === "delta") text += ev.text;
     if (ev.type === "reset") text = "";
   }
-  const parsed = parseDraft(text);
+  const parsed = parseOps(text, picked.length, new Map(current.map((r) => [r.id, r])));
   if (!parsed) return undefined;
-  return { project, ...parsed, ...(project === GLOBAL ? { aliases: [] } : {}), sources: picked.length };
+  return {
+    project,
+    candidates: picked,
+    ...parsed,
+    ...(project === GLOBAL ? { aliases: [] } : {}),
+    stale: stale.map((r) => ({ id: r.id, text: r.text, lastConfirmedAt: r.lastConfirmedAt })),
+    sources: picked.length,
+  };
 }
 
+/** 被打回、被你改过才合、合进去又被 Reopen 的交付：Friday 自己干活的教训 */
+export function outcomeCandidates(since: string): Array<Omit<Candidate, "n"> & { project: string }> {
+  const label: Record<string, string> = { rejected: "被你打回", merged_modified: "被你改过才合并", reopened: "合并后工单又被 Reopen" };
+  return lessonsSince(since).map((r) => {
+    const title = getTask(r.taskId)?.title ?? r.taskId;
+    return {
+      project: r.project,
+      at: r.outcomeAt!,
+      text: `【Friday 的交付${label[r.outcome]}】${r.outcomeWhy ?? "没写原因"}（任务：${title.slice(0, 60)}）`,
+      kind: "outcome" as const,
+      ref: r.taskId,
+    };
+  });
+}
+
+const nameOf = (project: string) => (project === GLOBAL ? "通用习惯" : project);
+
+/** 审核卡：按增删改列出来，删了什么、凭什么，一眼能核对 */
 export function draftSummary(draft: HandbookDraft): string {
   return draft.groups
+    .filter((g) => g.ops.length || g.decisions.length || g.people.length || g.aliases.length || g.conflicts.length || g.stale.length)
     .map((g) => {
-      const head = g.project === GLOBAL ? "## 通用习惯" : `## ${g.project}`;
-      const extra = [
-        g.decisions.length ? `决策 ${g.decisions.length} 条：${g.decisions.map((d) => d.text).join("；")}` : "",
-        g.people.length ? `人物 ${g.people.length} 条：${g.people.map((p) => p.name).join("、")}` : "",
-        g.aliases.length ? `别名：${g.aliases.join("、")}` : "",
-      ].filter(Boolean);
-      return [`${head}（依据 ${g.sources} 条原话）`, g.handbook, ...extra].join("\n\n");
+      const quote = (ns: number[]) => ns.map((n) => g.candidates[n - 1]).filter(Boolean).map((c) => `  > [${c!.n}] ${clip(c!.text, 120)}`);
+      const textOf = (id: string) => getRule(id)?.text ?? id;
+      const adds = g.ops.filter((o): o is Extract<RuleOp, { op: "add" }> => o.op === "add");
+      const revs = g.ops.filter((o): o is Extract<RuleOp, { op: "revise" }> => o.op === "revise");
+      const rets = g.ops.filter((o): o is Extract<RuleOp, { op: "retire" }> => o.op === "retire");
+      const cfs = g.ops.filter((o): o is Extract<RuleOp, { op: "confirm" }> => o.op === "confirm");
+      const lines = [`## ${nameOf(g.project)}（依据 ${g.sources} 条）`];
+      if (adds.length) lines.push(`新增 ${adds.length}`, ...adds.flatMap((o) => [`+ ${o.text}（${o.section}）`, ...quote(o.evidence)]));
+      if (revs.length) lines.push(`改写 ${revs.length}`, ...revs.flatMap((o) => [`~ ${textOf(o.id)} → ${o.text}（${o.why}）`, ...quote(o.evidence)]));
+      if (rets.length) lines.push(`退役 ${rets.length}`, ...rets.map((o) => `- ${textOf(o.id)}（${o.why}）`));
+      if (cfs.length) lines.push(`确认 ${cfs.length}：${cfs.map((o) => textOf(o.id)).join("；")}`);
+      if (g.conflicts.length) lines.push(`冲突 ${g.conflicts.length}`, ...g.conflicts.map((c) => `! ${c.text} ⟂ ${c.with}`));
+      if (g.stale.length) lines.push(`久未确认 ${g.stale.length}（${STALE_WEEKS} 周没再说过，还算吗？不算就去设置页退役）`, ...g.stale.map((r) => `? ${r.text}（最近 ${r.lastConfirmedAt.slice(0, 10)}）`));
+      if (g.dropped) lines.push(`因引证无效丢弃 ${g.dropped} 条`);
+      if (g.decisions.length) lines.push(`决策 ${g.decisions.length} 条：${g.decisions.map((d) => d.text).join("；")}`);
+      if (g.people.length) lines.push(`人物 ${g.people.length} 条：${g.people.map((p) => p.name).join("、")}`);
+      if (g.aliases.length) lines.push(`别名：${g.aliases.join("、")}`);
+      return lines.join("\n");
     })
     .join("\n\n---\n\n");
 }
@@ -183,37 +304,46 @@ export async function learnHistoryOnce(manual = false): Promise<HistoryResult> {
   try {
     const since = getCursor(CURSOR_KEY);
     const messages = scanHistory(since);
+    const outcomes = outcomeCandidates(since ?? new Date(Date.now() - 30 * 86_400_000).toISOString());
     historyState.cursorAt = since ?? null;
-    if (messages.length < (manual ? 1 : MIN_CANDIDATES)) {
+    const total0 = messages.length + outcomes.length;
+    if (total0 < (manual ? 1 : MIN_CANDIDATES)) {
       setCursor(RAN_KEY, new Date().toISOString());
-      return { skipped: since ? `自上次学过之后只攒了 ${messages.length} 条新的，不够提炼一轮` : "没在 Claude Code 历史里找到可学的原话" };
+      return { skipped: since ? `自上次学过之后只攒了 ${total0} 条新的，不够提炼一轮` : "没在 Claude Code 历史里找到可学的原话" };
     }
-    const groups = groupByProject(messages);
+    const groups = new Map<string, Candidate[]>();
+    for (const [project, list] of groupByProject(messages)) {
+      groups.set(project, list.map((m) => ({ n: 0, at: m.at, text: m.text, kind: "utterance" as const, ref: m.session })));
+    }
+    for (const o of outcomes) {
+      const { project, ...c } = o;
+      groups.set(project, [...(groups.get(project) ?? []), { ...c, n: 0 }]);
+    }
     const drafts: GroupDraft[] = [];
     for (const [project, list] of groups) {
-      // 一个项目只说过一两句的，多半是路过，不值得单开一份手册
-      if (list.length < 3) continue;
-      const d = await distillGroup(project, list);
-      if (d) drafts.push(d);
+      // 一个项目只说过一两句的，多半是路过；但 Friday 自己的交付被打回，哪怕一次也值得看
+      if (list.length < 3 && !list.some((c) => c.kind === "outcome")) continue;
+      const d = await distillGroup(project, list.sort((a, b) => a.at.localeCompare(b.at)));
+      if (d && (d.ops.length || d.decisions.length || d.people.length || d.aliases.length || d.conflicts.length)) drafts.push(d);
     }
     if (!drafts.length) return { skipped: "这批原话里没提炼出可复用的约定" };
 
-    const latest = messages.reduce((max, m) => (m.at > max ? m.at : max), since ?? "");
+    const latest = [...messages.map((m) => m.at), ...outcomes.map((o) => o.at)].reduce((max, at) => (at > max ? at : max), since ?? "");
     const total = drafts.reduce((n, g) => n + g.sources, 0);
     const names = drafts.map((g) => (g.project === GLOBAL ? "通用" : g.project)).join("、");
     const task = createTask({
-      title: `从 Claude Code 历史提炼了 ${drafts.length} 份手册`,
+      title: `从 Claude Code 历史和交付结果里学了 ${drafts.length} 份手册的改动`,
       kind: "handbook",
       source: { historyCursor: latest },
       status: "review",
       priority: "low",
-      understanding: `扫了 ${since ? "上次学过之后" : "近 30 天"}的 Claude Code 会话，从 ${total} 条你说过的原话里提炼出 ${names} 的干活约定。每条都带原话出处，可以直接核对。`,
+      understanding: `扫了 ${since ? "上次学过之后" : "近 30 天"}的 Claude Code 会话和 Friday 的交付结果，从 ${total} 条候选里得出 ${names} 的规则改动。每条都指向候选原文，可以直接核对；退役和改写要你点头才生效。`,
       plan: draftSummary({ groups: drafts }),
     });
     addPending(task.id, {
       type: "handbook_apply",
       label: "写进记忆库",
-      detail: `把 ${names} 的手册写进记忆库 handbooks/，附带的决策、人物、别名一并落盘。可在操作记录里整体撤销。`,
+      detail: `按上面的增删改更新 ${names} 的规则表并重新生成 handbooks/，附带的决策、人物、别名一并落盘。可在操作记录里整体撤销。`,
       payload: { draft: { groups: drafts } as unknown as Record<string, unknown>, cursor: latest },
     });
     setCursor(CURSOR_KEY, latest);
@@ -224,7 +354,7 @@ export async function learnHistoryOnce(manual = false): Promise<HistoryResult> {
       taskId: task.id,
       action: "history_distilled",
       why: manual ? "你让 Friday 现在学一轮" : "每周从 Claude Code 历史学一轮",
-      how: `${total} 条原话提炼成 ${drafts.length} 份手册，等你审核`,
+      how: `${total} 条候选（其中交付结果 ${outcomes.length} 条）得出 ${drafts.reduce((n, g) => n + g.ops.length, 0)} 条规则改动，等你审核`,
       evidence: { groups: drafts.map((g) => g.project), candidates: total },
       risk: "read",
     });
@@ -238,16 +368,25 @@ export async function learnHistoryOnce(manual = false): Promise<HistoryResult> {
 }
 
 export interface MemorySnapshot {
-  handbooks: Record<string, string>;
+  rules?: RulesSnapshot;
+  /** 2026-09-28 之前的撤销点存的是整份 markdown；那种还原完下次渲染会被规则表覆盖 */
+  handbooks?: Record<string, string>;
   decisions: string;
   people: string;
   projects: string;
 }
 
+function evidenceFrom(g: GroupDraft, ns: number[]): RuleEvidence[] {
+  return ns
+    .map((n) => g.candidates[n - 1])
+    .filter((c): c is Candidate => Boolean(c))
+    .map((c) => ({ quote: clip(c.text), at: c.at, kind: c.kind, ...(c.ref ? { ref: c.ref } : {}) }));
+}
+
 /** 用户点「通过并执行」之后才真正写记忆库。返回撤销用的快照。 */
 export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnapshot; wrote: string[] } {
   const snapshot: MemorySnapshot = {
-    handbooks: Object.fromEntries(listHandbooks().map((slug) => [slug, readHandbook(slug)])),
+    rules: snapshotRules(),
     decisions: readMemoryFile("decisions"),
     people: readMemoryFile("people"),
     projects: readMemoryFile("projects"),
@@ -256,10 +395,24 @@ export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnap
   const stamp = new Date().toISOString().slice(0, 10);
 
   for (const g of draft.groups) {
-    snapshot.handbooks[handbookSlug(g.project)] ??= "";
-    const title = g.project === GLOBAL ? "通用习惯" : g.project;
-    writeHandbook(g.project, `# ${title}\n\n<!-- Friday 从 Claude Code 历史提炼，可以直接手改 -->\n\n${g.handbook.trim()}\n`);
-    wrote.push(`handbooks/${handbookSlug(g.project)}.md`);
+    let n = 0;
+    for (const o of g.ops) {
+      if (o.op === "add") {
+        const evidence = evidenceFrom(g, o.evidence);
+        const origin = evidence.every((e) => e.kind === "outcome") ? "outcome" : "history";
+        addRule({ project: g.project, section: o.section, text: o.text, origin, evidence });
+      } else if (o.op === "confirm") for (const e of evidenceFrom(g, o.evidence)) confirmRule(o.id, e);
+      else if (o.op === "revise") {
+        const [first, ...rest] = evidenceFrom(g, o.evidence);
+        if (first) reviseRule(o.id, o.text, first);
+        for (const e of rest) confirmRule(o.id, e);
+      } else retireRule(o.id, o.why);
+      n++;
+    }
+    if (n) {
+      writeHandbook(g.project, renderHandbook(g.project));
+      wrote.push(`handbooks/${handbookSlug(g.project)}.md ${n} 处`);
+    }
 
     if (g.decisions.length) {
       const cur = readMemoryFile("decisions");
@@ -284,9 +437,14 @@ export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnap
   return { snapshot, wrote };
 }
 
-/** 整体还原到 apply 之前。手册是覆盖写的，逐条撤销没意义，直接按快照恢复。 */
+/** 整体还原到 apply 之前：规则表按快照整张换回，再把涉及的手册重新渲染 */
 export function restoreMemorySnapshot(s: MemorySnapshot): boolean {
-  for (const [slug, content] of Object.entries(s.handbooks)) writeHandbook(slug, content);
+  if (s.rules) {
+    const before = new Set(activeRules().map((r) => r.project));
+    restoreRules(s.rules);
+    for (const project of new Set([...before, ...s.rules.rules.map((r) => r.project)])) writeHandbook(project, renderHandbook(project));
+  }
+  for (const [slug, content] of Object.entries(s.handbooks ?? {})) writeHandbook(slug, content);
   writeMemoryFile("decisions", s.decisions);
   writeMemoryFile("people", s.people);
   writeMemoryFile("projects", s.projects);

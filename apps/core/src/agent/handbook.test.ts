@@ -1,77 +1,166 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { HISTORY_EVERY_DAYS, draftSummary, historyDue, parseDraft } from "./handbook.js";
-import { GLOBAL } from "../memory/handbooks.js";
+import { GLOBAL, handbookPath } from "../memory/handbooks.js";
+import { createRun, finishRun, setRunOutcome } from "../memory/runs.js";
+import { activeRules, addRule, getRule, restoreRules } from "../memory/rules.js";
+import { createTask } from "../memory/tasks.js";
+import {
+  HISTORY_EVERY_DAYS,
+  applyHandbookDraft,
+  distillPrompt,
+  draftSummary,
+  historyDue,
+  outcomeCandidates,
+  parseOps,
+  type Candidate,
+  type GroupDraft,
+} from "./handbook.js";
 
-const full = JSON.stringify({
-  handbook: "## 技术口径\n- member_id 一律用 string\n  > member_id 应该用 string 类型",
-  decisions: [{ text: "id 全链路用 string", why: "可能超 int64", at: "2026-09-01" }],
-  people: [{ name: "拂晓", note: "养牛活动的产品" }],
-  aliases: ["新BO", "wbo"],
+const cands = (n: number): Candidate[] =>
+  Array.from({ length: n }, (_, i) => ({ n: i + 1, at: `2026-09-2${i}T00:00:00Z`, text: `原话 ${i + 1}`, kind: "utterance" as const, ref: `sess-${i + 1}` }));
+
+const ev = (quote: string) => ({ quote, at: "2026-09-01T00:00:00Z", kind: "utterance" as const });
+
+describe("parseOps：模型只能引用候选编号，不能自己写引文", () => {
+  const hist = addRule({ project: "p-parse", section: "约定", text: "先说方案", origin: "history", evidence: [ev("先说方案")] });
+  const manual = addRule({ project: "p-parse", section: "约定", text: "只改指定范围", origin: "manual", evidence: [ev("只改这一处")] });
+  const active = new Map([hist, manual].map((r) => [r.id, r]));
+  const raw = (o: unknown) => `好的：\n\`\`\`json\n${JSON.stringify(o)}\n\`\`\``;
+
+  it("四种操作都能解析，编号越界 / 非整数 / 空证据的整条丢掉并计数", () => {
+    const d = parseOps(
+      raw({
+        ops: [
+          { op: "add", section: "流程", text: "提交前跑测试", evidence: [1, 2], why: "说了两次" },
+          { op: "add", section: "流程", text: "没证据", evidence: [], why: "x" },
+          { op: "add", section: "流程", text: "越界", evidence: [4], why: "x" },
+          { op: "add", section: "流程", text: "零号", evidence: [0], why: "x" },
+          { op: "add", section: "流程", text: "小数", evidence: [1.5], why: "x" },
+          { op: "confirm", id: hist.id, evidence: [3] },
+          { op: "confirm", id: "r-00000000", evidence: [3] },
+          { op: "revise", id: hist.id, text: "先说方案，等确认再动手", evidence: [2], why: "更具体" },
+          { op: "retire", id: hist.id },
+        ],
+        conflicts: [{ text: "提交后建 draft MR", with: "推送要你审核" }],
+      }),
+      3,
+      active,
+    )!;
+    expect(d.ops.map((o) => o.op)).toEqual(["add", "confirm", "revise"]);
+    expect(d.dropped).toBe(6);
+    expect(d.conflicts).toEqual([{ text: "提交后建 draft MR", with: "推送要你审核" }]);
+  });
+
+  it("你手改过的规则，模型改写或退役都丢掉", () => {
+    const d = parseOps(raw({ ops: [{ op: "revise", id: manual.id, text: "别的", evidence: [1], why: "x" }, { op: "retire", id: manual.id, why: "过时" }] }), 3, active)!;
+    expect(d.ops).toEqual([]);
+    expect(d.dropped).toBe(2);
+  });
+
+  it("文字截到 60 字；分区不认识的归「约定」", () => {
+    const d = parseOps(raw({ ops: [{ op: "add", section: "乱写", text: "长".repeat(80), evidence: [1], why: "x" }] }), 3, active)!;
+    expect(d.ops[0]).toMatchObject({ op: "add", section: "约定" });
+    expect((d.ops[0] as { text: string }).text).toHaveLength(60);
+  });
+
+  it("解析不了返回 undefined", () => {
+    expect(parseOps("我没法完成", 3, active)).toBeUndefined();
+  });
 });
 
-describe("parseDraft", () => {
-  it("解析完整结果", () => {
-    const d = parseDraft(full)!;
-    expect(d.handbook).toContain("member_id");
-    expect(d.decisions[0]!.at).toBe("2026-09-01");
-    expect(d.people[0]!.name).toBe("拂晓");
-    expect(d.aliases).toEqual(["新BO", "wbo"]);
+describe("applyHandbookDraft：按操作落表，证据从候选里取，可整体撤销", () => {
+  it("add / confirm / revise / retire 落表并重新渲染手册；快照还原回去", () => {
+    const keep = addRule({ project: "p-apply", section: "约定", text: "旧规则", origin: "history", evidence: [ev("旧")] });
+    const drop = addRule({ project: "p-apply", section: "约定", text: "要退役的", origin: "history", evidence: [ev("临时")] });
+    const group: GroupDraft = {
+      project: "p-apply",
+      candidates: cands(2),
+      ops: [
+        { op: "add", section: "流程", text: "提交前跑测试", evidence: [1, 2], why: "x" },
+        { op: "revise", id: keep.id, text: "旧规则改写", evidence: [2], why: "x" },
+        { op: "retire", id: drop.id, why: "新口径推翻" },
+      ],
+      conflicts: [],
+      stale: [],
+      dropped: 0,
+      decisions: [],
+      people: [],
+      aliases: [],
+      sources: 2,
+    };
+    const { snapshot } = applyHandbookDraft({ groups: [group] });
+    const added = activeRules("p-apply").find((r) => r.text === "提交前跑测试")!;
+    expect(added.evidence.map((e) => [e.quote, e.ref])).toEqual([["原话 1", "sess-1"], ["原话 2", "sess-2"]]);
+    expect(getRule(keep.id)!.text).toBe("旧规则改写");
+    expect(getRule(drop.id)!.status).toBe("retired");
+    const md = readFileSync(handbookPath("p-apply"), "utf8");
+    expect(md).toContain("提交前跑测试");
+    expect(md).not.toContain("要退役的");
+
+    restoreRules(snapshot.rules!);
+    expect(activeRules("p-apply").map((r) => r.text).sort()).toEqual(["旧规则", "要退役的"]);
   });
 
-  it("模型在前后多说两句、包了代码块也能取出来", () => {
-    expect(parseDraft("好的，结果如下：\n```json\n" + full + "\n```\n以上。")).toBeDefined();
+  it("来自结果的证据记成 outcome，指回任务", () => {
+    const group: GroupDraft = {
+      project: "p-out",
+      candidates: [{ n: 1, at: "2026-09-28T00:00:00Z", text: "【Friday 的交付被你打回】改错页面了", kind: "outcome", ref: "task-1" }],
+      ops: [{ op: "add", section: "别踩的坑", text: "改之前先确认是哪个页面", evidence: [1], why: "被打回过" }],
+      conflicts: [],
+      stale: [],
+      dropped: 0,
+      decisions: [],
+      people: [],
+      aliases: [],
+      sources: 1,
+    };
+    applyHandbookDraft({ groups: [group] });
+    const r = activeRules("p-out")[0]!;
+    expect(r.origin).toBe("outcome");
+    expect(r.evidence[0]).toMatchObject({ kind: "outcome", ref: "task-1" });
   });
+});
 
-  it("没有 handbook 就当这轮没提炼出东西", () => {
-    expect(parseDraft(JSON.stringify({ decisions: [{ text: "x" }] }))).toBeUndefined();
+describe("distillPrompt：带上规则 id、手改标记、久未确认、Friday 的硬约束", () => {
+  it("输入里能看到这些，候选按编号列", () => {
+    const man = addRule({ project: "p-prompt", section: "约定", text: "只改指定范围", origin: "manual", evidence: [ev("只改")] });
+    const old = addRule({ project: "p-prompt", section: "流程", text: "老规矩", origin: "history", evidence: [ev("老")] });
+    const { system, prompt } = distillPrompt("p-prompt", cands(2), activeRules("p-prompt"), new Set([old.id]));
+    expect(prompt).toContain(`${man.id} | 约定 | 只改指定范围`);
+    expect(prompt).toContain("[手改]");
+    expect(prompt).toContain("⚠ 久未确认");
+    expect(prompt).toMatch(/\[1\] 2026-09-20 原话 1/);
+    expect(system).toContain("Friday 的硬约束");
+    expect(system).toContain("推送要你审核");
   });
+});
 
-  it("解析不了返回 undefined，不抛", () => {
-    expect(parseDraft("我没法完成这个任务")).toBeUndefined();
-  });
-
-  it("越界字段一律钳掉，不让模型往记忆库塞脏数据", () => {
-    const d = parseDraft(
-      JSON.stringify({
-        handbook: "## 约定\n- 一条",
-        decisions: [{ text: "", why: "空标题要丢" }, { text: "留下", at: "去年" }],
-        people: [{ name: "只有名字没有备注" }],
-        aliases: ["a", "够长的别名"],
-      }),
-    )!;
-    expect(d.decisions).toEqual([{ text: "留下" }]);
-    expect(d.people).toEqual([]);
-    expect(d.aliases).toEqual(["够长的别名"]);
-  });
-
-  it("字段类型不对时当空处理", () => {
-    const d = parseDraft(JSON.stringify({ handbook: "## 约定\n- 一条", decisions: "不是数组", people: 3, aliases: null }))!;
-    expect(d.decisions).toEqual([]);
-    expect(d.people).toEqual([]);
-    expect(d.aliases).toEqual([]);
-  });
-
-  it("模型把文件头抄回来（甚至已经叠了两层）时剥掉，只留正文", () => {
-    const head = "# 通用习惯\n\n<!-- Friday 从 Claude Code 历史提炼，可以直接手改 -->\n\n";
-    const d = parseDraft(JSON.stringify({ handbook: `${head}${head}## 约定\n- 一条\n> 原话` }))!;
-    expect(d.handbook).toBe("## 约定\n- 一条\n> 原话");
-  });
-
-  it("正文里的二级标题和注释不动", () => {
-    const body = "## 约定\n- 一条\n\n<!-- 手写备注 -->\n## 流程\n- 两条";
-    expect(parseDraft(JSON.stringify({ handbook: body }))!.handbook).toBe(body);
+describe("outcomeCandidates：Friday 的交付被打回、被你改过，也是要学的", () => {
+  it("取水位之后的打回原因和「又提交了几次」，带任务标题；原样收下的不算", () => {
+    const t = createTask({ title: "修上市日", kind: "meegle", source: {}, project: "whale-console", status: "review" });
+    createRun({ id: "oc-1", jobId: "oc-1", taskId: t.id, project: "whale-console", kind: "autonomous", trigger: "retry" });
+    finishRun("oc-1", { exit: "report" });
+    setRunOutcome("oc-1", "rejected", "改错页面了");
+    createRun({ id: "oc-2", jobId: "oc-2", taskId: t.id, project: "whale-console", kind: "autonomous", trigger: "retry" });
+    setRunOutcome("oc-2", "merged_as_is");
+    const got = outcomeCandidates("2000-01-01T00:00:00Z");
+    const mine = got.filter((m) => m.ref === t.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ project: "whale-console", kind: "outcome" });
+    expect(mine[0]!.text).toContain("改错页面了");
+    expect(mine[0]!.text).toContain("修上市日");
   });
 });
 
 describe("historyDue", () => {
-  const now = Date.parse("2026-09-15T10:00:00Z");
+  const now = Date.parse("2026-09-15T00:00:00Z");
 
   it("从没跑过就该跑", () => {
     expect(historyDue(undefined, now)).toBe(true);
   });
 
   it("刚跑过不重复跑", () => {
-    expect(historyDue("2026-09-14T10:00:00Z", now)).toBe(false);
+    expect(historyDue(new Date(now - 86_400_000).toISOString(), now)).toBe(false);
   });
 
   it("满一周就跑，不看是星期几——机器关着也不会整周漏掉", () => {
@@ -79,21 +168,46 @@ describe("historyDue", () => {
   });
 
   it("存的时间坏了就当没跑过", () => {
-    expect(historyDue("坏数据", now)).toBe(true);
+    expect(historyDue("not-a-date", now)).toBe(true);
   });
 });
 
-describe("draftSummary", () => {
-  it("按项目分节，附上依据了多少条原话", () => {
+describe("draftSummary：审核卡按增删改展示", () => {
+  it("每个项目分新增 / 改写 / 退役 / 确认，下面是冲突、久未确认、丢弃数", () => {
+    const r = addRule({ project: "p-sum", section: "约定", text: "旧写法", origin: "history", evidence: [ev("旧")] });
+    const gone = addRule({ project: "p-sum", section: "约定", text: "被推翻的", origin: "history", evidence: [ev("x")] });
     const md = draftSummary({
       groups: [
-        { project: "whale-console", handbook: "## 约定\n- 一条", decisions: [{ text: "决策一" }], people: [], aliases: ["wbo"], sources: 12 },
-        { project: GLOBAL, handbook: "## 流程\n- 提交前跑类型检查", decisions: [], people: [], aliases: [], sources: 5 },
+        {
+          project: "p-sum",
+          candidates: cands(2),
+          ops: [
+            { op: "add", section: "流程", text: "提交前跑测试", evidence: [1], why: "说过" },
+            { op: "revise", id: r.id, text: "新写法", evidence: [2], why: "更准" },
+            { op: "retire", id: gone.id, why: "新口径推翻" },
+            { op: "confirm", id: r.id, evidence: [2] },
+          ],
+          conflicts: [{ text: "提交后建 draft MR", with: "推送要你审核" }],
+          stale: [{ id: r.id, text: "旧写法", lastConfirmedAt: "2026-07-01T00:00:00Z" }],
+          dropped: 2,
+          decisions: [{ text: "决策一" }],
+          people: [],
+          aliases: ["wbo"],
+          sources: 2,
+        },
+        { project: GLOBAL, candidates: [], ops: [], conflicts: [], stale: [], dropped: 0, decisions: [], people: [], aliases: [], sources: 0 },
       ],
     });
-    expect(md).toContain("## whale-console（依据 12 条原话）");
-    expect(md).toContain("## 通用习惯（依据 5 条原话）");
+    expect(md).toContain("## p-sum（依据 2 条）");
+    expect(md).toContain("新增 1");
+    expect(md).toContain("+ 提交前跑测试");
+    expect(md).toContain("旧写法 → 新写法");
+    expect(md).toContain("- 被推翻的（新口径推翻）");
+    expect(md).toContain("确认 1");
+    expect(md).toContain("提交后建 draft MR ⟂ 推送要你审核");
+    expect(md).toContain("久未确认 1");
+    expect(md).toContain("因引证无效丢弃 2");
     expect(md).toContain("决策 1 条：决策一");
-    expect(md).toContain("别名：wbo");
+    expect(md).not.toContain("## 通用习惯");
   });
 });
