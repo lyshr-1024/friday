@@ -70,7 +70,8 @@ export function autonomousPrompt(id: string, task: string, project: string, base
     "## 截图",
     "- 文件名 — 说明（没有就写 无）",
     "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
-    "6. 提交后按项目规范建一个 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），把 MR 链接写进交付报告的「概要」里。不要 merge，也不要 push 到主分支。建不出来就在报告里说明原因。",
+    "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
+    "7. 提交后按项目规范建一个 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），把 MR 链接写进交付报告的「概要」里。不要 merge，也不要 push 到主分支。建不出来就在报告里说明原因。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");

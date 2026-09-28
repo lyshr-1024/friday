@@ -25,6 +25,7 @@ describe("交付报告", () => {
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");
+    expect(prompt).toContain("只碰工单里给的造数数据");
     const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" });
     expect(script).toContain("-p --model");
     const args = claudeArgs({ settings: "/s", mcp: "/m" }, true);
