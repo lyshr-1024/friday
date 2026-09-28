@@ -1323,7 +1323,8 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
             {childIssues.map((c) => (
               <li key={c.id}>
                 <span className={`dot dot--${c.status === "done" || c.status === "ignored" ? "done" : "decide"}`} />
-                <button className="link" onClick={() => onPick?.(c.id)}>{c.title}</button>
+                {/* 名下的缺陷收在需求里、自己不占一张卡，选中它跳不过去，直接开 Meegle */}
+                {c.source.url ? <OpenLink href={c.source.url}>{c.title}</OpenLink> : <button className="link" onClick={() => onPick?.(c.id)}>{c.title}</button>}
               </li>
             ))}
           </ul>

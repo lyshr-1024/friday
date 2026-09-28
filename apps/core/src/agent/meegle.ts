@@ -70,7 +70,7 @@ export function containerDone(kids: Array<Pick<Task, "status">>): boolean {
  * 名下的缺陷挂在它下面，列表里不再各自占一行。
  */
 export async function ensureStoryContainers(connector = new MeegleConnector()): Promise<number> {
-  const orphans = new Map<string, { projectKey: string; name: string }>();
+  const orphans = new Map<string, { projectKey: string; name: string; newest: string }>();
   for (const t of listTasks(OPEN, 500)) {
     const { linkedStoryId, linkedStoryName, meegleProject } = t.source;
     if (!linkedStoryId || !meegleProject) continue;
@@ -80,7 +80,8 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     if (existing && existing.status !== "done" && existing.status !== "ignored") continue;
     // 用户自己标忽略的别硬拉回来
     if (existing?.status === "ignored") continue;
-    orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "" });
+    const prev = orphans.get(linkedStoryId)?.newest ?? "";
+    orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "", newest: t.createdAt > prev ? t.createdAt : prev });
   }
   if (!orphans.size) return 0;
   const me = await connector.myKey();
@@ -90,12 +91,15 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
   }
 
   let made = 0;
-  for (const [storyId, { projectKey, name }] of orphans) {
-    // 这个容器之前建过又被收了（名下缺陷当时都完了），现在又来了新缺陷：拉回来复用，
-    // 不必重新问一次 Meegle。只复活容器，不碰用户真正完成过的、分派给他的需求工单。
+  for (const [storyId, { projectKey, name, newest }] of orphans) {
+    // 这个容器之前建过又被收了，现在名下又有开着的缺陷：拉回来复用，不必重新问一次 Meegle。
+    // 只复活容器，不碰用户真正完成过的、分派给他的需求工单。
     const closedBefore = findTaskBySource((s) => s.meegleId === storyId && Boolean(s.storyContainer), true);
     if (closedBefore) {
-      updateTask(closedBefore.id, { status: "understood" });
+      // 你自己标完成的，当时还开着的缺陷算你看过了（多半已提测、等测试关），
+      // 只有之后新来的缺陷才拉回——原来一律复活，标多少次完成都会被翻回来（2026-09-28）
+      if (!closedBefore.source.autoClosed && newest <= closedBefore.updatedAt) continue;
+      updateTask(closedBefore.id, { status: "understood", source: { autoClosed: undefined } });
       record({ taskId: closedBefore.id, action: "story_container_revived", why: "名下还有没处理完的缺陷", how: "容器之前被自动收尾误收，拉回待办", evidence: { meegleId: storyId }, risk: "read" });
       made += 1;
       continue;
@@ -340,6 +344,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const own = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
         const kids = listTasks().filter((x) => x.source.linkedStoryId && own.has(x.source.linkedStoryId));
         if (!containerDone(kids)) continue;
+        updateTask(t.id, { source: { autoClosed: true } });
         await finishTask(t.id, "done", "名下的缺陷都处理完了", { keepTerminal: true });
         record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: t.source.meegleId }, risk: "read" });
         closed++;

@@ -367,6 +367,41 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     expect((await syncOnce(gone(true))).closed).toBe(0);
     expect(readTask(t.id)!.status).toBe("understood");
   });
+
+  const testing = {
+    fetchWorkItems: async () => [],
+    getWorkItem: async () => ({ name: "缺陷", statusKey: "F1y9rIHhh", roles: [] }),
+    feReleased: async () => false,
+    myKey: async () => "me",
+  } as never;
+
+  it("需求容器是你自己标完成的：当时还开着的缺陷不再把它拉回来", async () => {
+    const bug = mkTask({ title: "缺陷 b5", kind: "meegle", source: { meegleId: "b5", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s5" }, status: "understood" });
+    await new Promise((r) => setTimeout(r, 5));
+    const story = mkTask({ title: "需求 s5", kind: "meegle", source: { meegleId: "s5", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
+    await syncOnce(testing);
+    expect(readTask(story.id)!.status).toBe("done");
+    expect(readTask(bug.id)!.status).toBe("understood");
+  });
+
+  it("你标完成之后又来了新缺陷 → 拉回来，否则新缺陷藏在已收工的需求下面没处看", async () => {
+    const story = mkTask({ title: "需求 s6", kind: "meegle", source: { meegleId: "s6", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
+    await new Promise((r) => setTimeout(r, 5));
+    mkTask({ title: "缺陷 b6", kind: "meegle", source: { meegleId: "b6", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s6" }, status: "understood" });
+    await syncOnce(testing);
+    expect(readTask(story.id)!.status).toBe("understood");
+  });
+
+  it("容器是同步自动收的（名下缺陷当时全完了），现在又有开着的缺陷 → 拉回来", async () => {
+    const bug = mkTask({ title: "缺陷 b7", kind: "meegle", source: { meegleId: "b7", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s7" }, status: "done" });
+    const story = mkTask({ title: "需求 s7", kind: "meegle", source: { meegleId: "s7", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "understood" });
+    await syncOnce(testing);
+    expect(readTask(story.id)!.status).toBe("done");
+    // 缺陷被 Reopen：创建时间比容器收工早，只能靠「是自动收的」认出来
+    setTask(bug.id, { status: "understood" });
+    await syncOnce(testing);
+    expect(readTask(story.id)!.status).toBe("understood");
+  });
 });
 
 describe("贴链接手动加工单", () => {

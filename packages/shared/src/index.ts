@@ -364,6 +364,8 @@ export interface TaskSource {
   linkedStoryName?: string;
   /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
   storyContainer?: boolean;
+  /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
+  autoClosed?: boolean;
   /** Meegle 空间 key，流转状态要用 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
