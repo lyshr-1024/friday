@@ -63,6 +63,10 @@ apps/core/src/
 - **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`LaunchRequest.project` 从 `startInteractiveJob` / `/run` / `reopenTerminal` 传进来；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
 - **Ghostty 偶发「command 不执行」（2026-09-28 陪跑时踩到）**：`openWindow` 开出来的窗口标题停在 👻、脚本一行没跑、`.log` 不生成、job 一直 running。用最小脚本复现：同一形式在那 10 分钟里连续失败，之后自己好了，`/bin/sleep`、`/bin/zsh -lc` 一直正常。根因没定位到（怀疑替换 Friday.app 后 macOS 挂了个权限对话框堵住了 Ghostty 的 exec），排查手段：`rtk proxy ps -axo pid,ppid,command | grep 7430`（Ghostty 的 pid）看 surface 下有没有 `login → bash → zsh <脚本>` 这条链。**排查时别连开窗口**，每开一个先跟用户说。
 - `playbooks/` 目录（09-17 Slack 旧链路的回复类别）已删，代码里早无引用。
+- **模型不继承你的默认**（2026-09-28）：一次 6 分钟的自主任务花了 $4.46——Claude Code 默认被切成 Fable 忘了切回，而 `claude -p` 不传 `--model` 就继承它。现在 headless（自主 + 后台查询）一律 `--model claude-opus-5`（`agent/claude.ts` 的 `HEADLESS_MODEL`）；交互式终端不传，那是你自己在用。
+- **碰远端数据的规矩**：陪跑那次它直接 POST canary 接口改了造数标的（最后还原了），守卫只拦 git 和 rm，拦不了这个。`autonomousPrompt` 第 6 条：只碰工单里给的造数数据、没给就不写、改过的一律还原并把还原步骤和回读结果写进「测试过程」、生产一律不写。
+- **结果账本 `runs`**（`memory/runs.ts` + `agent/runLog.ts`）：一次自主运行 / 后台查询一行（id = jobId），交互终端每轮 `friday_done` 一行（`jobId#随机`）。三处记账——①开工 `startAutonomousJob` / `startQueryJob` 写 trigger（retry / autostart / approve / slack）和 intake 把握；②收尾 `friday_done` / `friday_blocked` / `onJobExit` 写 exit（report / blocked / window_closed / no_report，先到的口径算数）、分支、tip sha、相对主干分叉点的 diffstat、成本（transcript 最后一条 `cost-state`；交互轮次记的是相对上一轮的增量）；③结局：`git_merge` 执行前比对分支头和交付时的 tip——没动 `merged_as_is`、多了提交 `merged_modified`（写明几次）、tip 已不在分支上（amend / rebase）也算 `merged_modified` 并写「分支被改写，无法比对」；打回 `rejected` 带原因；`finishTask` 收工时还挂着的 `abandoned`；Meegle Reopen 把已合并的改成 `reopened`。
+- **面板**：用量面板「Friday 干的活」按项目 + 类型列次数、成本、原样收下 / 改过再收 / 打回 / 待定、中位耗时（`GET /runs/summary?range=`）。门禁阈值（80 / 1 / 3）**先只展示不自动调**，一个项目攒够 10 次再议。顺带修了面板向上弹出顶出窗口（用量条 `56fb97c` 挪到页头后就一直是坏的）。
 
 ## 从 Claude Code 历史学（2026-09-15）
 
@@ -71,11 +75,23 @@ apps/core/src/
 - **取料** `agent/history.ts`：扫 `~/.claude/projects/**/*.jsonl`，只取 `type: "user"` 且 `isMeta`/`isSidechain` 都不为真的文本块（sidechain 是 subagent 的 prompt，不是用户说的）。预筛正则只用来把两千条缩到三百条，「这算不算可复用约定」交给模型——正则判不了「改成 No photo yet」是一次性文案还是长期口径。
 - **项目归属看 jsonl 自带的 `cwd`**，不要反解目录名（`whale-console` 里的连字符和路径分隔符编码后长得一样，解不回来）。先对 `projects.md` 的 `- 目录：` 做前缀匹配（仓库内 worktree 天然覆盖，嵌套取最深），不中再看路径段里有没有项目名——**orca 把 worktree 放在 `~/orca/workspaces/<仓库>/<分支>`，跟项目目录毫无关系，实测 6 条 fe-wealth-admin 的原话全被丢进「通用」**。
 - **挡掉 Friday 自己写的 prompt**（`isOwnPrompt`）：`cwd` 在记忆库目录下的会话是 Friday 自己调 Claude（情境卡、intake、提炼），那些"用户消息"是它自己写的。实测混进来 3 条（「这之前，与千一的私聊里聊的是…」「工单信息：Meegle Defect #…」），学回来是自我强化的回音室。
-- **提炼** `agent/handbook.ts`：按项目分批喂 Sonnet，**每条规则必须跟一行 `>` 开头的原话出处**——手册里一条「member_id 一律用 string」没有出处，用户就没法判断是不是模型编的（同「证据优先」）。已有手册一起喂进去要求**重写整份而不是追加**，否则跑十周变成一百条流水账，新旧口径并存等于没学。输出 JSON：`handbook` / `decisions` / `people` / `aliases`，解析层对越界字段一律钳掉。历史原文过 `untrusted()`（里面混着 Slack 原文和网页抓取）。
-- **不直接写记忆库**：提炼结果建一条 `kind: "handbook"` 的 review 任务（`plan` 是分项目的草稿全文），挂 `handbook_apply` 待审动作，用户点「通过并执行」才落盘 → `handbooks/<项目>.md`、追加 `decisions.md` / `people.md`、`addProjectHints` 补别名。整个 apply 记一条账，`undo: restore_memory` 存 apply 前的快照整体还原（手册是覆盖写的，逐条撤销没意义）。
-- **注入**：`autonomousPrompt` 内联该项目手册 + `_global`（各截 1500 字，`memory/handbooks.ts` 的 `handbookBlock`；放在 memory 层是为了不让 runner 把整条提炼链路拖进来）。会话的 `friday()` **不内联**，只说一句「handbooks/ 下有这几份，需要时 `memory_read handbook:<项目名>`」——不破坏记忆库瘦身那 46%。
+  **项目目录里的 Friday 话术（2026-09-28）**：自主任务、终端注入的 cwd 在项目 worktree 里，按 cwd 挡不住——近 30 天 372 条候选里 59 条是 Friday 自己写的（「新建分支 friday/…」「用户已逐项确认你上一轮列的 N 条验证点」），学成了手册里的假规则。现在一律**按记录精确排除，不猜**：`entrypoint` 为 `sdk-*` 的整条不算；Friday 拉起的自主 / 后台会话按 `jobs.claude_session_id` 整份跳过（`fridaySessionIds`）；交互终端的第一句是 `jobs.task`、之后 `say()` 敲进去的每句记在 `terminal_inputs` 表，原话和这些一字不差就挡。代价：你在终端里手敲出和注入记录一模一样的句子也会被挡。
+- **提炼** `agent/handbook.ts`：按项目分批喂 Sonnet，**每条规则必须跟一行 `>` 开头的原话出处**——手册里一条「member_id 一律用 string」没有出处，用户就没法判断是不是模型编的（同「证据优先」）。~~重写整份~~（2026-09-28 起改成规则表 + 四种操作，见下文「规则结构化」）。输出 JSON：`ops` / `conflicts` / `decisions` / `people` / `aliases`，解析层对越界字段一律钳掉。历史原文过 `untrusted()`（里面混着 Slack 原文和网页抓取）。
+- **不直接写记忆库**：提炼结果建一条 `kind: "handbook"` 的 review 任务（`plan` 是分项目的草稿全文），挂 `handbook_apply` 待审动作，用户点「通过并执行」才落盘 → 规则表、重新渲染 `handbooks/<项目>.md`、追加 `decisions.md` / `people.md`、`addProjectHints` 补别名。整个 apply 记一条账，`undo: restore_memory` 存 apply 前的规则表快照整体还原。
+- **注入**：`autonomousPrompt` 和交互终端的 `terminalBridgePrompt(project)` 都内联该项目 + `_global` 的规则（`memory/rules.ts` 的 `handbookBlock`：**只带规则正文不带出处**——出处是给你核对的不是给模型的；按最近确认倒序、各 1500 字整行截，原来按文件前 1500 字截，whale-console 手册 5.9K、后面的规则从没被注入过；手写笔记放得下才整段带）。会话的 `friday()` **不内联**，只说一句「handbooks/ 下有这几份，需要时 `memory_read handbook:<项目名>`」——不破坏记忆库瘦身那 46%。
 - **节奏**：一条代码路径，游标为空扫近 30 天（冷启动），有水位从水位往后扫。`historyDue` 跟 `learnDue` 一个思路，只看离上次跑过了多久（存 `sync_state` 的 `history:ran`，重启不丢），每周一轮；候选不足 8 条不弹，但照样推进「跑过」时间，否则每半小时重扫同一批。
-- 入口：`POST /tasks/learn-history`、会话工具 `learn_history`、设置页「项目手册」分组的「现在学一轮」；开关 `settings.learnHistory`（默认开）。手册在设置页可直接编辑（`GET/PUT /handbooks/:slug`，只放行已存在的文件名），学错了删掉那一行就行。
+- 入口：`POST /tasks/learn-history`、会话工具 `learn_history`、设置页「项目手册」分组的「现在学一轮」；开关 `settings.learnHistory`（默认开）。手册在设置页「规则…」**逐条**改或退役（`GET /rules?project=`、`PATCH /rules/:id {text}|{retire}`，退役必须写一句原因）；`PUT /handbooks/:slug` 已删，markdown 是生成物，手改会被覆盖。
+
+
+### 规则结构化（2026-09-28）
+
+整份重写跑到第二轮就露了问题：原话出处被截成 `…`、你手改的那行下一轮可能被抹掉、同一条规则在 `_global` 和项目手册各抄一份、删了什么审核卡上看不出来。跑十轮手册会变成一篇模型润色过的文章，出处形同虚设。
+
+- **表**（`memory/rules.ts`）：`rules`（id `r-` + 8 位 hex、project、section 四选一、text、status active/retired、origin history/manual/outcome、created_at、last_confirmed_at、retired_*）+ `rule_evidence`（quote、at、kind utterance/outcome、ref 会话 id 或任务 id）。证据只增不改，`last_confirmed_at` 取**证据里最新的时间**（你最近一次这么说），不是写入时间。`handbooks/<项目>.md` 由 `renderHandbook` 生成，每条带 `<!-- r-xxxxxxxx -->`；手写段落（如 fe-wealth-admin「ref 是系统级还是租户级」的判断方法）不是规则，原样存 `handbooks/notes/<项目>.md`，渲染时附在末尾。
+- **迁移**（`memory/rulesMigrate.ts`，启动时跑、表非空就跳过）：旧手册逐条迁，原文件留 `.md.migrated`；去空格后相同的规则出现在两个以上项目就归 `_global`；证据时间用旧文件 mtime（旧格式里原话没有日期）。真实数据 105 条 → 103 条。
+- **提炼协议**：喂给模型的是「当前规则（带 id、`[手改]`、`⚠ 久未确认`）」+「编号候选」+「Friday 的硬约束（守卫黑名单 + 分支规则）」，输出四种操作 `add / confirm / revise / retire`。**引证只能填候选编号**，不许自己写引文——解析层丢掉编号越界 / 非整数 / 空证据的、改动 `[手改]` 规则的、退役不给理由的，丢弃数显示在卡上。和硬约束冲突的规则列进 `conflicts`（今天就撞过：提示词要建 draft MR、守卫拦所有 push）。8 周没新证据的只要求有新证据时 confirm，**不许因为「久」就退役**，卡上问一句「还算吗」。
+- **从结果里学**：`runs` 里 rejected / merged_modified / reopened 的原因作为 `kind: outcome` 候选（「【Friday 的交付被你打回】改错页面了（任务：…）」），只有一条也单独跑提炼；全是结果证据的新规则 `origin: outcome`。这是学习链路第一次学「Friday 自己干得怎么样」，原来只学你说的话。
+- **审核卡**是 plan 文本，按「新增 / 改写（旧 → 新）/ 退役（为什么）/ 确认 / 冲突 / 久未确认 / 因引证无效丢弃」分段，每条附候选原文。没做逐条勾选：要否掉其中一条只能整份打回，或通过后去设置页退役。
 
 ## OKR 周报（2026-09-25）
 
