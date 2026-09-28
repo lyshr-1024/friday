@@ -1,7 +1,7 @@
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { TERMINAL_LABEL } from "@friday/shared";
+import { STAGE_LABEL, TERMINAL_LABEL, type AuditEvent, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { currentBranchSync, gitInspect } from "./git.js";
@@ -16,8 +16,8 @@ import { updateTaskFromChat } from "./taskUpdate.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { record } from "../memory/audit.js";
+import { createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { listAudit, record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
@@ -104,7 +104,75 @@ const fridayToolList = (conversationId?: string) => [
           ...(conversationId ? { source: { conversationId } } : {}),
         });
         record({ taskId: task.id, action: "task_add", why: "用户在会话里让建一条任务", how: "建成工作台任务，未开工", evidence: { title: task.title, ...(name ? { project: name } : {}) }, risk: "reversible", undo: { kind: "drop_note_task", id: task.id } });
-        return text(`已建任务：${task.title}${task.project ? `（${task.project}）` : ""}${task.due ? `，截止 ${task.due}` : ""}。要开工说一声。`);
+        return text(`已建任务（id ${task.id.slice(0, 8)}）：${task.title}${task.project ? `（${task.project}）` : ""}${task.due ? `，截止 ${task.due}` : ""}。要开工说一声。`);
+      },
+    ),
+    tool(
+      "tasks_list",
+      "查工作台任务板上的任务（就是左栏那个列表的数据）。用户问「有没有这条」「XX 项目上有哪些事」「我手上有什么」「刚才建的那条在哪」时用它查，不要凭印象答。默认只列没收工的；keyword 按标题和理解做包含匹配。",
+      {
+        scope: z.enum(["open", "done", "all"]).optional().describe("open=没收工的（默认），done=已完成或已忽略，all=全部"),
+        keyword: z.string().max(100).optional().describe("标题或理解里包含的字，比如「日终」"),
+        project: z.string().max(80).optional().describe("项目名或别名"),
+        stage: z.enum(["todo", "dev", "testing", "accepted", "released"]).optional(),
+        limit: z.number().int().min(1).max(100).optional().describe("默认 30"),
+      },
+      async ({ scope, keyword, project, stage, limit }) => {
+        const r = project ? resolveOrExplain(project) : undefined;
+        if (typeof r === "string") return text(r);
+        const closed = (t: Task) => t.status === "done" || t.status === "ignored";
+        const kw = keyword?.trim().toLowerCase();
+        const hits = listTasks(undefined, 2000).filter(
+          (t) =>
+            (scope === "all" || (scope === "done" ? closed(t) : !closed(t))) &&
+            (!r || t.project === r.name) &&
+            (!stage || t.stage === stage) &&
+            (!kw || `${t.title}\n${t.understanding ?? ""}`.toLowerCase().includes(kw)),
+        );
+        if (!hits.length) return text(`没有符合条件的任务（${scope ?? "open"}${r ? ` · ${r.name}` : ""}${stage ? ` · ${STAGE_LABEL[stage]}` : ""}${kw ? ` · 含「${keyword}」` : ""}）。`);
+        const shown = hits.slice(0, limit ?? 30);
+        return text(`${hits.length} 条${hits.length > shown.length ? `，列前 ${shown.length} 条` : ""}（按最近更新）：\n${shown.map(taskLine).join("\n")}`);
+      },
+    ),
+    tool(
+      "task_get",
+      "看一条任务卡的完整内容：状态、阶段、理解、方案、进展、等用户点头的动作、链接，以及 Friday 在这条任务上做过的最近几件事。id 用 tasks_list 给的前 8 位即可。",
+      { id: z.string().min(4).max(64) },
+      async ({ id }) => {
+        const t = findTaskById(id);
+        if (!t) return text(`没有 id 以 ${id} 开头的任务。`);
+        const s = t.source;
+        const links = [s.url, ...Object.values(s.docs ?? {})].filter(Boolean);
+        const acts = listAudit({ taskId: t.id, limit: 8 });
+        return text([
+          taskLine(t),
+          `来源 ${t.kind} · 创建 ${localTime(t.createdAt)} · 更新 ${localTime(t.updatedAt)}${t.pinned ? " · 关注" : ""}`,
+          t.understanding && `理解：${t.understanding}`,
+          t.plan && `方案：${t.plan}`,
+          t.progress && `进展：${t.progress}`,
+          t.pending?.length && `等用户点头：${t.pending.map((p) => p.label).join("、")}`,
+          t.report?.summary && `交付报告：${t.report.summary}`,
+          (s.branch || s.jobId) && `终端：${s.jobId ? s.jobId.slice(0, 8) : "无"}${s.branch ? ` · 分支 ${s.branch}` : ""}`,
+          links.length && `链接：${links.join(" ")}`,
+          acts.length && `最近的操作记录：\n${acts.map(auditLine).join("\n")}`,
+        ].filter(Boolean).join("\n"));
+      },
+    ),
+    tool(
+      "audit_list",
+      "查 Friday 自己的操作记录（账本）：建了哪条任务、开了哪个终端、改了哪张卡、同步了什么。用户问「你刚才建了吗」「你做过什么」「这条为什么变成完成了」时用它核对，不要凭记忆答。",
+      {
+        action: z.string().max(40).optional().describe("只看某类动作，比如 task_add、claude_code_start、task_update"),
+        taskId: z.string().max(64).optional().describe("只看某条任务上的，前 8 位即可"),
+        limit: z.number().int().min(1).max(50).optional().describe("默认 15"),
+      },
+      async ({ action, taskId, limit }) => {
+        const t = taskId ? findTaskById(taskId) : undefined;
+        if (taskId && !t) return text(`没有 id 以 ${taskId} 开头的任务。`);
+        const rows = listAudit({ ...(t ? { taskId: t.id } : {}), limit: action ? 1000 : (limit ?? 15) })
+          .filter((e) => !action || e.action === action)
+          .slice(0, limit ?? 15);
+        return text(rows.length ? rows.map(auditLine).join("\n") : "没有符合条件的操作记录。");
       },
     ),
     tool(
@@ -334,6 +402,32 @@ const fridayToolList = (conversationId?: string) => [
       },
     ),
   ];
+
+const STATUS_LABEL: Record<TaskStatus, string> = {
+  collected: "刚收进来",
+  understood: "待办",
+  processing: "在做",
+  review: "等你决定",
+  blocked: "卡住",
+  done: "已完成",
+  ignored: "已忽略",
+};
+
+const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);
+
+function findTaskById(id: string): Task | undefined {
+  return getTask(id) ?? listTasks(undefined, 2000).find((t) => t.id.startsWith(id));
+}
+
+function taskLine(t: Task): string {
+  const tags = [STATUS_LABEL[t.status], t.stage && STAGE_LABEL[t.stage], t.project, t.due && `截止 ${t.due}`, t.priority !== "normal" && t.priority].filter(Boolean);
+  return `- ${t.id.slice(0, 8)} ${t.title}（${tags.join(" · ")}）`;
+}
+
+function auditLine(e: AuditEvent): string {
+  const title = typeof e.evidence.title === "string" ? `「${e.evidence.title}」` : "";
+  return `- ${localTime(e.ts)} ${e.action}${title}：${e.why}${e.taskId ? `（任务 ${e.taskId.slice(0, 8)}）` : ""}${e.status !== "done" ? ` [${e.status}]` : ""}`;
+}
 
 /** 这条会话正在讨论的任务的终端：先看任务绑定，再看 run_claude 从这条会话开的 job */
 function boundJob(conversationId?: string): { jobId: string; taskId?: string } | undefined {

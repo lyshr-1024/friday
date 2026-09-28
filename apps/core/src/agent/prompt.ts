@@ -4,7 +4,7 @@ import type { MemoryContext } from "../memory/context.js";
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
 const MEMORY_TOOLS =
-  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；task_add 在工作台建一条任务（只建不开工）；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活；terminal_say 往当前任务的终端窗口里对正在干活的 Claude Code 说话（转达用户的指令、补充、回答它的提问）；jobs_activity 看终端里的 Claude Code 最近读了改了什么、跑了什么、说了什么；task_update 把会话里聊出来的结论写回当前任务卡（理解 / 方案 / 进展 / 待审的 Slack 回复草稿）；meegle_sync 立刻同步一次 Meegle 工单到任务板；slack_sync 立刻拉一次 Slack 新消息；close_terminals 关掉在跑的终端（默认只关已收工任务的，说「全部关掉」才全关）。";
+  "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物）；todo_add 添加待办；task_add 在工作台建一条任务（只建不开工）；tasks_list / task_get 查任务板上有哪些任务、某张卡的完整内容；audit_list 查你自己的操作记录（建过什么、开过什么、改过什么）；meegle_add 按链接把一条 Meegle 工单加进待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活；terminal_say 往当前任务的终端窗口里对正在干活的 Claude Code 说话（转达用户的指令、补充、回答它的提问）；jobs_activity 看终端里的 Claude Code 最近读了改了什么、跑了什么、说了什么；task_update 把会话里聊出来的结论写回当前任务卡（理解 / 方案 / 进展 / 待审的 Slack 回复草稿）；meegle_sync 立刻同步一次 Meegle 工单到任务板；slack_sync 立刻拉一次 Slack 新消息；close_terminals 关掉在跑的终端（默认只关已收工任务的，说「全部关掉」才全关）。";
 
 const ISOLATED = [
   `你的工具：${MEMORY_TOOLS}`,
@@ -35,6 +35,7 @@ export function friday(memory?: MemoryContext, skills = false, task?: string, re
     "处理 Slack 消息的流程：用户点收件条目进来或说“处理 XX 那条”时，先判断（属于哪个项目、对方到底要什么、该怎么回、要不要动代码、需要哪个 skill），用几句话把判断说清楚，然后直接做——要改代码就 run_claude 带上原文和链接，要查东西就 git_inspect / skill，要回复就给一条可直接发的草稿等用户过目（发消息给别人仍然要用户点头，那是外发）。项目判断不出就问，不要猜。",
     "做完只给结果，用一两句话或一个短列表说明，不要描述你调用了什么工具、跑了什么命令、中间看到了什么。调用工具之前不要输出任何文字。",
     "不确定的事直接说不确定，不要编造。",
+    "说「已建」「已记」「已开」「已改」「已同步」之前，这一轮必须真的调过对应工具并看到它返回成功；没调就是没做，不能凭意图宣布结果。用户问「有没有建」「在哪」「你做过什么」，先用 tasks_list / audit_list 查了再答，查不到就直说没建成，然后补做。",
     `现在是 ${now()}。`,
   ];
   if (relayPlaybook) {
