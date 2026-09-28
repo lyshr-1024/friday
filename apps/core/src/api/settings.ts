@@ -18,6 +18,7 @@ const patch = z.object({
   learn: z.boolean().optional(),
   learnHistory: z.boolean().optional(),
   okrWeekly: z.boolean().optional(),
+  autonomous: z.boolean().optional(),
   summon: z.object({
     screenshotFallback: z.boolean().optional(),
     urlAllowlist: z.array(z.string()).optional(),

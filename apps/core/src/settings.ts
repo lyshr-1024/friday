@@ -20,6 +20,8 @@ export interface UserSettings {
   /** 每周从 Claude Code 历史提炼项目手册 */
   learnHistory: boolean;
   okrWeekly: boolean;
+  /** 让 Friday 对够具体的缺陷自己开自主任务，不等你点「交给 Friday 改」 */
+  autonomous: boolean;
   summon: SummonSettings;
 }
 
@@ -36,7 +38,7 @@ function mergeSummon(raw: unknown): SummonSettings {
   };
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: false, summon: DEFAULT_SUMMON_SETTINGS };
 
 /** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
 function readSkillList(raw: unknown): string[] | "all" {
@@ -77,6 +79,7 @@ export function userSettings(): UserSettings {
       : DEFAULTS.backgroundOpacity,
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
     okrWeekly: typeof raw.okrWeekly === "boolean" ? raw.okrWeekly : DEFAULTS.okrWeekly,
+    autonomous: typeof raw.autonomous === "boolean" ? raw.autonomous : DEFAULTS.autonomous,
     summon: mergeSummon(raw.summon),
   };
 }
@@ -93,6 +96,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.backgroundOpacity !== undefined) raw.backgroundOpacity = patch.backgroundOpacity;
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
   if (patch.okrWeekly !== undefined) raw.okrWeekly = patch.okrWeekly;
+  if (patch.autonomous !== undefined) raw.autonomous = patch.autonomous;
   if (patch.summon !== undefined) raw.summon = { ...mergeSummon(raw.summon), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));
   renameSync(`${file()}.tmp`, file());

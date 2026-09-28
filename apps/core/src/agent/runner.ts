@@ -29,6 +29,8 @@ export interface LaunchRequest {
   resumeSessionId?: string;
   /** 只读任务：查代码回答问题，不许改文件 */
   readonly?: boolean;
+  /** 项目名，交互式终端按它把手册塞进 system prompt；自主任务的手册已经在 autonomousPrompt 里 */
+  project?: string;
 }
 
 export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
@@ -170,7 +172,7 @@ export function transcriptPath(dir: string, sessionId: string): string {
 }
 
 export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
-  const flags = claudeFlags(files, req.autonomous || req.readonly);
+  const flags = claudeFlags(files, req.autonomous || req.readonly, req.project);
   // 重开：接回这条任务原来那个 Claude 会话；transcript 可能还没落盘，交给 claude 自己判断，接不上就新开
   const resume = req.resumeSessionId
     ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)} || ${shellQuote(claudePath)} ${flags}`
@@ -250,7 +252,7 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false)
 }
 
 /** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
-export function claudeArgs(files: ClaudeFiles, headless = false): string[] {
+export function claudeArgs(files: ClaudeFiles, headless = false, project?: string): string[] {
   return [
     ...(headless ? ["-p"] : []),
     "--dangerously-skip-permissions",
@@ -259,13 +261,13 @@ export function claudeArgs(files: ClaudeFiles, headless = false): string[] {
     "--mcp-config",
     files.mcp,
     "--append-system-prompt",
-    terminalBridgePrompt(),
+    terminalBridgePrompt(headless ? undefined : project),
   ];
 }
 
 /** 选项本身不带引号，只有取值要 quote——脚本里那条命令的形状得跟以前一样 */
-export function claudeFlags(files: ClaudeFiles, headless = false): string {
-  return claudeArgs(files, headless)
+export function claudeFlags(files: ClaudeFiles, headless = false, project?: string): string {
+  return claudeArgs(files, headless, project)
     .map((a) => (a.startsWith("-") ? a : shellQuote(a)))
     .join(" ");
 }
@@ -306,6 +308,7 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
     id: jobId,
     dir: job.dir,
     terminal,
+    project: job.project,
     ...(job.task ? { task: job.task } : {}),
     ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
     // 后台查询任务是只读的，接回来的窗口不能顺手开始改文件

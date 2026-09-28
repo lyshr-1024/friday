@@ -139,6 +139,8 @@ export interface SettingsResponse {
   backgroundOpacity: number;
   learnHistory: boolean;
   okrWeekly: boolean;
+  /** 够具体的缺陷由 Friday 自己开自主任务 */
+  autonomous: boolean;
   summon: SummonSettings;
   dataDir: string;
   projects: string[];
@@ -155,6 +157,7 @@ export interface SettingsUpdate {
   backgroundOpacity?: number;
   learnHistory?: boolean;
   okrWeekly?: boolean;
+  autonomous?: boolean;
   summon?: Partial<SummonSettings>;
 }
 
@@ -414,6 +417,20 @@ export interface TaskSource {
   baseTaskId?: string;
   /** OKR 周报任务对应的周，如 2026W0921-0927 */
   okrWeek?: string;
+  /** 工单进来时 Friday 对「能不能自己动手」的判断，自主开工的门禁和卡片上的依据都看它 */
+  intake?: IntakeVerdict;
+}
+
+export interface IntakeVerdict {
+  kind: "start" | "ask" | "queue";
+  /** 「照这段描述去改，一次就能改对」的把握 0-100，只有 start 有 */
+  confidence?: number;
+  /** start 判到的项目 */
+  project?: string;
+  /** 交给 Claude Code 的任务描述，只有 start 有 */
+  detail?: string;
+  why: string;
+  at: string;
 }
 
 /** 关联图里的一个端点：四端各自的实体 */
@@ -472,11 +489,6 @@ export const TAG_LABELS: Record<string, string> = {
   "Include Backend": "后台纳入",
 };
 
-/**
- * 「自己动手改代码」的闸门类别。开工提案按它归档，
- * 和回复分开算：回复错了撤一下，开错工是在仓库里改代码。
- */
-export const AUTOSTART_CATEGORY = "autostart";
 
 
 export type TaskCategory = "slack" | "defect" | "story" | "other";

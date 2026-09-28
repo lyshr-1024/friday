@@ -1,5 +1,6 @@
 import type { RawItem } from "../connectors/news.js";
 import type { MemoryContext } from "../memory/context.js";
+import { handbookBlock } from "../memory/handbooks.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
@@ -73,7 +74,9 @@ export const BRANCH_RULE =
   "例如 feat/export-center、fix/withdrawal-rule-tabs。不要用 friday 开头，worktree 目录叫 friday-xxx 只是 Friday 的临时目录，不是分支名。";
 
 /** 注入到终端 Claude Code 的 --append-system-prompt：它在 Friday 派出的终端里干活，进展和结果要经 MCP 回给 Friday。 */
-export function terminalBridgePrompt(): string {
+export function terminalBridgePrompt(project?: string): string {
+  // 交互式终端也要吃到手册：学了两周的约定原来只进自主任务的提示词，而活主要是在这儿干的
+  const handbook = project ? handbookBlock(project) : "";
   return [
     "你在 Friday（用户的桌面助理）派出的终端里干活。用户主要通过 Friday 看进展，不一定盯着这个终端，所以汇报要走 Friday 挂给你的 MCP 服务 friday：",
     "friday_context：开工前先调一次，拿这条任务的背景（交代的原话、Slack 原文、关联工单、项目与人物）。那里只有 Friday 收集到的事实——它没读过这个项目的代码，也没有项目的 skill，所以改哪里、怎么改、分几步由你自己看代码定。",
@@ -83,6 +86,7 @@ export function terminalBridgePrompt(): string {
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
     "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。",
     `分支名：${BRANCH_RULE}`,
+    ...(handbook ? ["", "用户在这个项目里的习惯和口径（从他过去的纠正里提炼的，照着做）：", handbook] : []),
   ].join("\n");
 }
 

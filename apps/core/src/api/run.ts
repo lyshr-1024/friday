@@ -49,7 +49,7 @@ export const run = new Hono().post("/run", async (c) => {
   const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
   const { terminal } = userSettings();
   try {
-    const { script, ghosttyId } = await launchClaude({ id, dir: resolved.project.dir, terminal, ...(task ? { task } : {}) });
+    const { script, ghosttyId } = await launchClaude({ id, dir: resolved.project.dir, terminal, project: resolved.project.name, ...(task ? { task } : {}) });
     finishSession(id, `launched ${terminal} ${script}`);
     createJob({ id, project: resolved.project.name, dir: resolved.project.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conv ? { conversationId: conv } : {}) });
     if (ghosttyId) setGhosttyId(id, ghosttyId);

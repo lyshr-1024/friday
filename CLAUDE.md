@@ -54,6 +54,16 @@ apps/core/src/
 - **成本**：多数消息零模型调用，Haiku 只在硬信号全没中且有候选时跑一次。对比重做前每天约 $1.5 的 triage + brief + continuation。用量面板 label 为 `attach` / `query`。
 - **已知边界**：老消息没有 `prior`（前文）补不回来；否决的粒度是对话键而非「人+频道」，同人后续新对话仍可命中同一任务；`CONV_SCAN_LIMIT = 500`，超过这个数更早的消息聚不回任务卡。
 
+## Friday 自己开自主任务（2026-09-28）
+
+到这天为止自主任务（`claude -p` 在 worktree 里改完交审）**从没跑完过一次**：历史上只有 09-22 回车 bug 误触发的 3 条，25 秒内窗口就没了；平时唯一入口是任务卡上手点「交给 Friday 改」/「重新开工」（`POST /tasks/:id/retry`）。`intake` 判成 start 也只是排队。手册只内联进自主任务的提示词，而活都在交互式终端里干，等于学了两周没人用。
+
+- **门禁看「这次交付被直接收下的概率」，不看时间**（`agent/autostart.ts`）：worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。条件同时满足才开：Meegle **缺陷**（需求一律不接，要先对方案）、`source.intake.kind === "start"` 且 `confidence ≥ 80`（intake 的 prompt 要求「只能从标题推断给 50」，这个阈值正好挡住标题党）、`task.project` 已定且和 intake 判的一致（归属来自所属需求的容器，不是猜的）、卡上没挂着问题、进来满 15 分钟（缺陷刚建时描述常被反复改）。并发 1、每天 3（数账本里 `autostart` 的条数）。`intakeWorkItem` 现在把判断结果落在 `source.intake`，门禁和卡片都看它。
+- **每轮 Meegle 同步后跑 `autostartTick`**，总开关 `settings.autonomous`（**默认关**，设置页「让 Friday 自己开工」），开工记账 `autostart` 并发通知。前两周看合并时「没被你改过 / 被改过 / 被打回」三档，收下率过半再放宽。
+- **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`LaunchRequest.project` 从 `startInteractiveJob` / `/run` / `reopenTerminal` 传进来；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
+- **Ghostty 偶发「command 不执行」（2026-09-28 陪跑时踩到）**：`openWindow` 开出来的窗口标题停在 👻、脚本一行没跑、`.log` 不生成、job 一直 running。用最小脚本复现：同一形式在那 10 分钟里连续失败，之后自己好了，`/bin/sleep`、`/bin/zsh -lc` 一直正常。根因没定位到（怀疑替换 Friday.app 后 macOS 挂了个权限对话框堵住了 Ghostty 的 exec），排查手段：`rtk proxy ps -axo pid,ppid,command | grep 7430`（Ghostty 的 pid）看 surface 下有没有 `login → bash → zsh <脚本>` 这条链。**排查时别连开窗口**，每开一个先跟用户说。
+- `playbooks/` 目录（09-17 Slack 旧链路的回复类别）已删，代码里早无引用。
+
 ## 从 Claude Code 历史学（2026-09-15）
 
 冷启动问题：Friday 的经验闭环（lessons / playbooks）只能等用户一次次干预慢慢攒，而用户在 Claude Code 里已经说过几百条约定了。实测近 30 天 673 个会话里有 2244 条用户原话，本地预筛出 322 条带纠正信号的（17.5 万字符），全量提炼约 $0.6——**大头不是模型钱，是别学错**。

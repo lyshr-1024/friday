@@ -319,6 +319,16 @@ describe("新工单 Friday 判断不了归属时问一句", () => {
     const after = readTask(t.id)!;
     expect(after.attention).toBe("intake");
     expect(after.progress).toBe("这条工单是财富后台还是新BO项目的？");
+    expect(after.source.intake).toMatchObject({ kind: "ask", why: "标题里两边都沾" });
+  });
+
+  it("判成 start 也不自己开工，但把判断连同把握落在卡上——自主开工的门禁按它决定", async () => {
+    const t = mkTask({ title: item.name, kind: "meegle", source: { meegleId: item.id }, status: "understood", project: "whale-console" });
+    await intakeWorkItem(t, item, async () => ({ kind: "start", project: "whale-console", detail: "无人脸照片时展示「暂无照片」", why: "现象和页面都写清了", confidence: 85 }));
+    const after = readTask(t.id)!;
+    expect(after.status).toBe("understood");
+    expect(after.source.jobId).toBeUndefined();
+    expect(after.source.intake).toMatchObject({ kind: "start", confidence: 85, project: "whale-console", detail: "无人脸照片时展示「暂无照片」" });
   });
 });
 

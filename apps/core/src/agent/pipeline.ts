@@ -90,7 +90,7 @@ export async function handOffToStory(task: Task, detail: string): Promise<boolea
  */
 export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
   const id = randomUUID();
-  const { ghosttyId } = await launchClaude({ id, dir, terminal: userSettings().terminal, task: detail });
+  const { ghosttyId } = await launchClaude({ id, dir, terminal: userSettings().terminal, task: detail, project });
   createJob({ id, project, dir, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
   if (ghosttyId) setGhosttyId(id, ghosttyId);
   record({

@@ -1,4 +1,4 @@
-import { AUTOSTART_CATEGORY, type StateTransition, type Task, type TaskStatus, type Urgency } from "@friday/shared";
+import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
@@ -403,6 +403,17 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
 /** 新工单的自动处置：能做的直接开终端，缺项目归属的问用户一句，其余排队。 */
 export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = judgeIntake): Promise<void> {
   const verdict = await judge(task, item.description ?? "", loadProjects());
+  // 判断结果落在卡上：自主开工的门禁（autostart.ts）按它决定，卡片上也能看到 Friday 凭什么开或不开
+  updateTask(task.id, {
+    source: {
+      intake: {
+        kind: verdict.kind,
+        why: verdict.why,
+        at: new Date().toISOString(),
+        ...(verdict.kind === "start" ? { confidence: verdict.confidence, project: verdict.project, detail: verdict.detail } : {}),
+      },
+    },
+  });
   if (verdict.kind === "queue") {
     console.log(`[meegle] ${item.id} 排队：${verdict.why}`);
     return;
