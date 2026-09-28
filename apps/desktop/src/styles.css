@@ -1945,6 +1945,16 @@ body,
   gap: var(--s-3);
   margin-top: var(--s-6);
 }
+/* 操作栏是 fieldset（处理中靠 disabled 整排锁住），抹掉它自带的边框和内边距 */
+fieldset.fx__acts {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+.fx__acts[aria-busy="true"] {
+  cursor: progress;
+}
 /* 同一行的按钮必须等高（原来主按钮 34、其余 32，两条基线） */
 .fx__acts .b--primary {
   padding: 0 var(--s-4);

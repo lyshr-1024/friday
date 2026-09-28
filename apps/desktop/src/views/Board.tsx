@@ -564,7 +564,20 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
     };
   }, [menu]);
 
+  // 同一条任务同时只跑一个动作：连点会把「打开终端」开出两个窗口、「完成当前节点」流转两次。
+  // 锁放 ref 里，state 要等下一次渲染才生效，同一帧的第二次点击拦不住
+  const inFlight = useRef(new Set<string>());
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+  const setBusy = (key: string, on: boolean) => {
+    if (on) inFlight.current.add(key);
+    else inFlight.current.delete(key);
+    setBusyIds(new Set(inFlight.current));
+  };
+
   async function act(t: Task | null, fn: () => Promise<unknown>) {
+    const key = t?.id ?? "ledger";
+    if (inFlight.current.has(key)) return;
+    setBusy(key, true);
     setErr("");
     // 操作前的顺序才包含被操作的那条，拿它去找相邻项
     const order = orderRef.current;
@@ -579,6 +592,8 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
       if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(key, false);
     }
   }
 
@@ -778,7 +793,7 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
               {!board ? null : flat.length ? (
                 flat.map((t) => (
                   <section key={t.id} className="deck__card" data-id={t.id} onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); setMenu({ t, x: e.clientX, y: e.clientY }); }}>
-                    <Focus t={t} all={board.tasks} active={t.id === focus?.id} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
+                    <Focus t={t} all={board.tasks} active={t.id === focus?.id} busy={busyIds.has(t.id)} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
                   </section>
                 ))
               ) : (
@@ -1074,10 +1089,12 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
   );
 }
 
-function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
+function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
   t: Task;
   /** 轮播里所有卡都挂着，只有选中这张响应回车 */
   active: boolean;
+  /** 这条任务有动作还没返回，操作栏整排锁住 */
+  busy: boolean;
   /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
   all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
@@ -1516,7 +1533,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
               <span>{consequence(first, convs[0])}</span>
             </div>
           )}
-          <div className="fx__acts">
+          <fieldset className="fx__acts" disabled={busy} aria-busy={busy}>
             {primary && (
               <button
                 className="b b--primary"
@@ -1569,7 +1586,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
             )}
             <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
             {isStory(t) && node && !node.canConfirm && <span className="fx__miss">还差：{node.missing.join("、")}</span>}
-          </div>
+          </fieldset>
           {confirming && first && (
             <div className="fx__confirm">
               <div className="fx__confirm-head">
@@ -1589,7 +1606,7 @@ function Focus({ t, all, active, onAct, onClose, onPick, onStartPack, packBusy, 
                 }}
               />
               <div className="fx__confirm-acts">
-                <button className="b b--primary" disabled={!sendText.trim()} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发<kbd>⌘↵</kbd></button>
+                <button className="b b--primary" disabled={!sendText.trim() || busy} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发<kbd>⌘↵</kbd></button>
                 <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
               </div>
             </div>

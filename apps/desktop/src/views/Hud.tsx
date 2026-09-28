@@ -21,6 +21,18 @@ export function Hud() {
   const [replyText, setReplyText] = useState("");
   const [note, setNote] = useState<{ text: string; err: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  // 键盘路径（回车 / ⌘↵）不经过按钮的 disabled，连按会把同一条回复发两次，得有一把同步的锁
+  const lockRef = useRef(false);
+  const lock = () => {
+    if (lockRef.current) return false;
+    lockRef.current = true;
+    setBusy(true);
+    return true;
+  };
+  const unlock = () => {
+    lockRef.current = false;
+    setBusy(false);
+  };
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
@@ -58,6 +70,7 @@ export function Hud() {
     setConfirming(false);
     setPendingAction(null);
     setNote(null);
+    unlock();
     void (async () => {
       for await (const ev of summonStream(snap, ctrl.signal)) {
         if (ctrl.signal.aborted) return;
@@ -123,7 +136,7 @@ export function Hud() {
       return;
     }
     if (a.kind === "slack_attach") {
-      setBusy(true);
+      if (!lock()) return;
       setNote(null);
       try {
         const board = await taskBoard();
@@ -131,26 +144,25 @@ export function Hud() {
       } catch (e) {
         setNote({ text: e instanceof Error ? e.message : "拿不到任务列表", err: true });
       } finally {
-        setBusy(false);
+        unlock();
       }
       return;
     }
-    setBusy(true);
+    if (!lock()) return;
     setNote(null);
+    // 成功后窗口还要停 1.5 秒才收，这期间保持锁住，下次呼出由 start() 解锁
     try {
       const text = await runAction(a);
       setNote({ text, err: false });
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : "执行失败", err: true });
-    } finally {
-      setBusy(false);
+      unlock();
     }
   }
 
   async function pickAttach(taskId: string) {
-    if (!attaching) return;
-    setBusy(true);
+    if (!attaching || !lock()) return;
     setNote(null);
     try {
       await attachConversation(attaching.conv, taskId);
@@ -159,13 +171,12 @@ export function Hud() {
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : "挂靠失败", err: true });
-    } finally {
-      setBusy(false);
+      unlock();
     }
   }
 
   async function sendReply(a: SummonAction & { kind: "approve_pending" }) {
-    setBusy(true);
+    if (!lock()) return;
     setNote(null);
     try {
       const res = await fetch(`${await coreBaseUrl()}/tasks/${a.taskId}/approve/${a.actionId}`, {
@@ -180,8 +191,7 @@ export function Hud() {
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : "执行失败", err: true });
-    } finally {
-      setBusy(false);
+      unlock();
     }
   }
 
