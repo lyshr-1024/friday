@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeTool, formatActivity, parseActivity } from "./transcript.js";
+import { describeTool, formatActivity, parseActivity, parseCost, sessionCost } from "./transcript.js";
 
 const row = (type: "user" | "assistant", content: unknown, ts = "2026-09-08T08:00:00Z") => JSON.stringify({ type, timestamp: ts, message: { role: type, content } });
 
@@ -41,5 +41,25 @@ describe("终端动作流", () => {
     expect(describeTool("Skill", { skill: "agent-browser" })).toBe("用 skill agent-browser");
     expect(describeTool("Bash", { command: "pnpm test" })).toBe("执行：pnpm test");
     expect(describeTool("Whatever", {})).toBe("Whatever");
+  });
+});
+
+describe("一次运行的成本：取最后一条 cost-state", () => {
+  const cost = (usd: number, usage: Record<string, number>, added = 0, removed = 0, ms = 0) =>
+    JSON.stringify({ type: "cost-state", totalCostUSD: usd, totalLinesAdded: added, totalLinesRemoved: removed, totalDuration: ms, modelUsage: Object.fromEntries(Object.entries(usage).map(([m, c]) => [m, { costUSD: c }])) });
+
+  it("取最后一条；模型取花得最多的那个", () => {
+    const jsonl = [cost(0.5, { "claude-opus-5": 0.5 }, 3, 1, 1000), row("user", "x"), cost(1.25, { "claude-haiku-4-5": 0.05, "claude-opus-5": 1.2 }, 10, 2, 9000)].join("\n");
+    expect(parseCost(jsonl)).toEqual({ costUsd: 1.25, model: "claude-opus-5", linesAdded: 10, linesRemoved: 2, durationMs: 9000 });
+  });
+
+  it("没有 cost-state、或尾读切到半行，都不抛", () => {
+    expect(parseCost([row("user", "x"), row("assistant", [{ type: "text", text: "好" }])].join("\n"))).toBeUndefined();
+    expect(parseCost(`"totalCostUSD":3}\n${cost(0.2, { "claude-sonnet-5": 0.2 })}`)).toMatchObject({ costUsd: 0.2, model: "claude-sonnet-5" });
+  });
+
+  it("没有 session 或 transcript 不在，返回 undefined", () => {
+    expect(sessionCost("/nowhere", undefined)).toBeUndefined();
+    expect(sessionCost("/nowhere", "no-such-session")).toBeUndefined();
   });
 });

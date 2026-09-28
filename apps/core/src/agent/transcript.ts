@@ -120,6 +120,45 @@ export function jobActivity(dir: string, sessionId: string | undefined, limit = 
   return parseActivity(readTail(p), limit);
 }
 
+export interface SessionCost {
+  costUsd: number;
+  model: string;
+  linesAdded: number;
+  linesRemoved: number;
+  durationMs: number;
+}
+
+/** Claude Code 每轮都往 transcript 里追加一条累计的 cost-state，最后一条就是这次运行的总账 */
+export function parseCost(jsonl: string): SessionCost | undefined {
+  const lines = jsonl.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (!line.includes('"type":"cost-state"')) continue;
+    let r: { totalCostUSD?: number; totalLinesAdded?: number; totalLinesRemoved?: number; totalDuration?: number; modelUsage?: Record<string, { costUSD?: number }> };
+    try {
+      r = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const top = Object.entries(r.modelUsage ?? {}).sort((a, b) => (b[1].costUSD ?? 0) - (a[1].costUSD ?? 0))[0];
+    return {
+      costUsd: r.totalCostUSD ?? 0,
+      model: top?.[0] ?? "",
+      linesAdded: r.totalLinesAdded ?? 0,
+      linesRemoved: r.totalLinesRemoved ?? 0,
+      durationMs: r.totalDuration ?? 0,
+    };
+  }
+  return undefined;
+}
+
+export function sessionCost(dir: string, sessionId: string | undefined): SessionCost | undefined {
+  if (!sessionId) return undefined;
+  const p = transcriptPath(dir, sessionId);
+  if (!existsSync(p)) return undefined;
+  return parseCost(readTail(p));
+}
+
 /** 给 Friday 会话用的一段文字 */
 export function formatActivity(items: Activity[]): string {
   if (!items.length) return "还没有动作记录（可能刚启动，或 transcript 还没落盘）。";
