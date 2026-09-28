@@ -34,13 +34,13 @@ export interface AskOptions {
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
 
 /** 只答一个 JSON 的小判断都用它：挂靠、查询分类、接哪段会话 */
-export const SMALL_MODEL = "claude-haiku-4-5";
+export const SMALL_MODEL = "haiku";
 
 /** 要读懂中文语境、写给人看的文字，用它 */
-export const SONNET_MODEL = "claude-sonnet-5";
+export const SONNET_MODEL = "sonnet";
 
-/** Friday 自己拉起的无人值守运行不继承用户的 Claude Code 默认模型：2026-09-28 默认被切成 Fable 忘了切回，一次 6 分钟花了 $4.46 */
-export const HEADLESS_MODEL = "claude-opus-5";
+/** Friday 自己拉起的无人值守运行不继承用户的 Claude Code 默认模型：2026-09-28 默认被切成 Fable 忘了切回，一次 6 分钟花了 $4.46。用别名：出新 Opus 时 Claude Code 自己跟上 */
+export const HEADLESS_MODEL = "opus";
 
 /** 带图片/文档时走流式输入：一条 SDKUserMessage 就结束。 */
 async function* single(content: MessageParam["content"]): AsyncGenerator<SDKUserMessage> {

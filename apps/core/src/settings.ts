@@ -50,6 +50,13 @@ function readSkillList(raw: unknown): string[] | "all" {
   return [...DEFAULT_SKILL_LIST];
 }
 const MODEL_IDS = new Set<string>(MODEL_OPTIONS.map((m) => m.id));
+
+/** 以前存的是具体版本号（claude-sonnet-5），换成别名跟着最新走；认不出的回到跟随默认 */
+function readModel(raw: unknown): ModelId {
+  if (typeof raw !== "string") return DEFAULTS.model;
+  const alias = /^claude-(opus|sonnet|haiku)-/.exec(raw)?.[1] ?? raw;
+  return MODEL_IDS.has(alias) ? (alias as ModelId) : DEFAULTS.model;
+}
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
 
 const file = () => join(config.dataDir, "settings.json");
@@ -68,7 +75,7 @@ export function userSettings(): UserSettings {
   return {
     // 旧配置里可能还存着 "embedded"（已移除），落到默认的 ghostty
     terminal: raw.terminal === "terminal" || raw.terminal === "ghostty" ? raw.terminal : DEFAULTS.terminal,
-    model: typeof raw.model === "string" && MODEL_IDS.has(raw.model) ? (raw.model as ModelId) : DEFAULTS.model,
+    model: readModel(raw.model),
     skills: typeof raw.skills === "boolean" ? raw.skills : DEFAULTS.skills,
     skillList: readSkillList(raw.skillList),
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : defaultName(),

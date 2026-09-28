@@ -8,10 +8,10 @@ describe("settings", () => {
   it("PUT 更新模型并保留 settings.json 里壳用的 hotkey", async () => {
     const file = join(process.env.FRIDAY_DATA_DIR!, "settings.json");
     writeFileSync(file, JSON.stringify({ hotkey: "Alt+Space" }));
-    const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-5" }) });
+    const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "sonnet" }) });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { model: string }).model).toBe("claude-sonnet-5");
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ hotkey: "Alt+Space", model: "claude-sonnet-5" });
+    expect(((await res.json()) as { model: string }).model).toBe("sonnet");
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ hotkey: "Alt+Space", model: "sonnet" });
   });
 
   it("skills 开关可读写，默认开", async () => {

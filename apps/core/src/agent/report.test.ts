@@ -29,7 +29,7 @@ describe("交付报告", () => {
     const script = buildScript({ id: "j", dir: "/w", task: prompt, terminal: "ghostty", autonomous: true }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" });
     expect(script).toContain("-p --model");
     const args = claudeArgs({ settings: "/s", mcp: "/m" }, true);
-    expect(args.slice(0, 3)).toEqual(["-p", "--model", "claude-opus-5"]);
+    expect(args.slice(0, 3)).toEqual(["-p", "--model", "opus"]);
     const interactive = buildScript({ id: "k", dir: "/w", task: "聊聊", terminal: "ghostty" }, "/opt/claude", 7788, { settings: "/runs/k.settings.json", mcp: "/runs/k.mcp.json" });
     expect(interactive).not.toContain("--model");
     expect(script).toContain("/opt/claude");

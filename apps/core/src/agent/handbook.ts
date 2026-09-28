@@ -15,7 +15,7 @@ import { getCursor, setCursor } from "../memory/inbox.js";
 import { addPending, createTask, getTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 
-export const HANDBOOK_MODEL = "claude-sonnet-5";
+export const HANDBOOK_MODEL = "sonnet";
 export const CURSOR_KEY = "history:at";
 export const RAN_KEY = "history:ran";
 /** 每周学一轮就够：一周攒不满几十条新约定，天天跑只会天天弹一条没内容的待审。 */

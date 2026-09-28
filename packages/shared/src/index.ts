@@ -87,9 +87,10 @@ export type RunResponse =
 export const MODEL_OPTIONS = [
   { id: "", label: "跟随 Claude Code 默认" },
   { id: "claude-fable-5-1", label: "Fable 5.1" },
-  { id: "claude-opus-5", label: "Opus 5" },
-  { id: "claude-sonnet-5", label: "Sonnet 5" },
-  { id: "claude-haiku-4-5", label: "Haiku 4.5" },
+  // 别名由 Claude Code 解析到当前最新版本，出新模型不用改这里
+  { id: "opus", label: "Opus（最新）" },
+  { id: "sonnet", label: "Sonnet（最新）" },
+  { id: "haiku", label: "Haiku（最新）" },
 ] as const;
 
 export type ModelId = (typeof MODEL_OPTIONS)[number]["id"];

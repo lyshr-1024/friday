@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Snapshot } from "@friday/shared";
 
 const cardMock = vi.fn();
-vi.mock("./card.js", () => ({ summonCard: cardMock, SUMMON_MODEL: "claude-sonnet-5" }));
+vi.mock("./card.js", () => ({ summonCard: cardMock, SUMMON_MODEL: "sonnet" }));
 vi.mock("../../memory/tasks.js", () => ({ listTasks: () => [] }));
 vi.mock("../../memory/projects.js", () => ({ loadProjects: () => [] }));
 

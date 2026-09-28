@@ -4,7 +4,7 @@ import { untrusted, UNTRUSTED_NOTE } from "../fence.js";
 import { config } from "../../config.js";
 import type { Candidate } from "./match.js";
 
-export const SUMMON_MODEL = "claude-sonnet-5";
+export const SUMMON_MODEL = "sonnet";
 // 呼出是「随手一按」的场景，模型再慢用户早就走了；不设上限的话
 // 连按几次热键会堆起多个并发 Sonnet 调用，各自烧钱且没人收。
 const SUMMON_TIMEOUT_MS = 35_000;
