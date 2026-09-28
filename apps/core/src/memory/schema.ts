@@ -142,6 +142,31 @@ CREATE TABLE IF NOT EXISTS terminal_inputs (
   at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS terminal_inputs_text ON terminal_inputs (text);
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  project TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  intake_confidence INTEGER,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  exit TEXT,
+  branch TEXT,
+  tip_sha TEXT,
+  files_changed INTEGER,
+  insertions INTEGER,
+  deletions INTEGER,
+  cost_usd REAL,
+  model TEXT,
+  outcome TEXT NOT NULL DEFAULT 'pending',
+  outcome_at TEXT,
+  outcome_why TEXT
+);
+CREATE INDEX IF NOT EXISTS runs_task ON runs (task_id);
+CREATE INDEX IF NOT EXISTS runs_job ON runs (job_id);
+CREATE INDEX IF NOT EXISTS runs_started ON runs (started_at);
 
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,

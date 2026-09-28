@@ -697,6 +697,57 @@ export interface UsageEntry {
   costUsd: number;
 }
 
+/* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
+
+export type RunKind = "autonomous" | "query" | "interactive_round";
+export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user";
+export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
+export type RunOutcome = "pending" | "merged_as_is" | "merged_modified" | "rejected" | "abandoned" | "reopened";
+
+export interface RunRecord {
+  /** = jobId；交互式每轮是 `${jobId}#${毫秒}` */
+  id: string;
+  jobId: string;
+  taskId: string;
+  project: string;
+  kind: RunKind;
+  trigger: RunTrigger;
+  intakeConfidence?: number;
+  startedAt: string;
+  endedAt?: string;
+  exit?: RunExit;
+  branch?: string;
+  tipSha?: string;
+  filesChanged?: number;
+  insertions?: number;
+  deletions?: number;
+  costUsd?: number;
+  model?: string;
+  outcome: RunOutcome;
+  outcomeAt?: string;
+  outcomeWhy?: string;
+}
+
+export interface RunsProjectSummary {
+  project: string;
+  kind: RunKind;
+  runs: number;
+  mergedAsIs: number;
+  mergedModified: number;
+  rejected: number;
+  abandoned: number;
+  reopened: number;
+  pending: number;
+  costUsd: number;
+  medianMinutes: number;
+}
+
+export interface RunsSummary {
+  range: UsageRange;
+  since: string;
+  byProject: RunsProjectSummary[];
+}
+
 export interface UsageSummary {
   range: UsageRange;
   since: string;
