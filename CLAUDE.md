@@ -65,7 +65,7 @@ apps/core/src/
 - `playbooks/` 目录（09-17 Slack 旧链路的回复类别）已删，代码里早无引用。
 - **模型不继承你的默认**（2026-09-28）：一次 6 分钟的自主任务花了 $4.46——Claude Code 默认被切成 Fable 忘了切回，而 `claude -p` 不传 `--model` 就继承它。现在 headless（自主 + 后台查询）一律 `--model claude-opus-5`（`agent/claude.ts` 的 `HEADLESS_MODEL`）；交互式终端不传，那是你自己在用。
 - **碰远端数据的规矩**：陪跑那次它直接 POST canary 接口改了造数标的（最后还原了），守卫只拦 git 和 rm，拦不了这个。`autonomousPrompt` 第 6 条：只碰工单里给的造数数据、没给就不写、改过的一律还原并把还原步骤和回读结果写进「测试过程」、生产一律不写。
-- **结果账本 `runs`**（`memory/runs.ts` + `agent/runLog.ts`）：一次自主运行 / 后台查询一行（id = jobId），交互终端每轮 `friday_done` 一行（`jobId#随机`）。三处记账——①开工 `startAutonomousJob` / `startQueryJob` 写 trigger（retry / autostart / approve / slack）和 intake 把握；②收尾 `friday_done` / `friday_blocked` / `onJobExit` 写 exit（report / blocked / window_closed / no_report，先到的口径算数）、分支、tip sha、相对主干分叉点的 diffstat、成本（transcript 最后一条 `cost-state`；交互轮次记的是相对上一轮的增量）；③结局：`git_merge` 执行前比对分支头和交付时的 tip——没动 `merged_as_is`、多了提交 `merged_modified`（写明几次）、tip 已不在分支上（amend / rebase）也算 `merged_modified` 并写「分支被改写，无法比对」；打回 `rejected` 带原因；`finishTask` 收工时还挂着的 `abandoned`；Meegle Reopen 把已合并的改成 `reopened`。
+- **结果账本 `runs`**（`memory/runs.ts` + `agent/runLog.ts`）：一次自主运行 / 后台查询一行（id = jobId），交互终端每轮 `friday_done` 一行（`jobId#随机`）。三处记账——①开工 `startAutonomousJob` / `startQueryJob` 写 trigger（retry / autostart / approve / slack）和 intake 把握；②收尾 `friday_done` / `friday_blocked` / `onJobExit` 写 exit（report / blocked / window_closed / no_report，先到的口径算数）、分支、tip sha、相对主干分叉点的 diffstat、成本（transcript 最后一条 `cost-state`；交互轮次记的是相对上一轮的增量）；③结局：`git_merge` 执行前比对分支头和交付时的 tip——没动 `merged_as_is`、多了提交 `merged_modified`（写明几次）、tip 已不在分支上（amend / rebase）也算 `merged_modified` 并写「分支被改写，无法比对」；打回 `rejected` 带原因；`finishTask` 收工时（你多半是在 MR 里合的，不经 Friday）去**本地**主干（main / master / origin/*，不 fetch）找交付时的 tip：找到记 `merged_*`（分支已删就只能确认提交进了主干，记 `merged_as_is` 并写明），找不到记 `closed_unverified`（squash、还没 pull、或真没合——不当收下也不当白干），**只有忽略才算 `abandoned`**；Meegle Reopen 把 `merged_*` 和 `closed_unverified` 都改成 `reopened`。成本：`friday_done` 那一刻 `claude -p` 还没退出、最后一条 `cost-state` 往往没落盘，`onJobExit` 再补一次；还读不到的在汇总里单独计 `costUnknown`，面板写明「另有 N 次没读到成本」，不当成 $0。后台查询调 `friday_done` 不记交互轮次。
 - **面板**：用量面板「Friday 干的活」按项目 + 类型列次数、成本、原样收下 / 改过再收 / 打回 / 待定、中位耗时（`GET /runs/summary?range=`）。门禁阈值（80 / 1 / 3）**先只展示不自动调**，一个项目攒够 10 次再议。顺带修了面板向上弹出顶出窗口（用量条 `56fb97c` 挪到页头后就一直是坏的）。
 
 ## 从 Claude Code 历史学（2026-09-15）
@@ -91,6 +91,7 @@ apps/core/src/
 - **迁移**（`memory/rulesMigrate.ts`，启动时跑、表非空就跳过）：旧手册逐条迁，原文件留 `.md.migrated`；去空格后相同的规则出现在两个以上项目就归 `_global`；证据时间用旧文件 mtime（旧格式里原话没有日期）。真实数据 105 条 → 103 条。
 - **提炼协议**：喂给模型的是「当前规则（带 id、`[手改]`、`⚠ 久未确认`）」+「编号候选」+「Friday 的硬约束（守卫黑名单 + 分支规则）」，输出四种操作 `add / confirm / revise / retire`。**引证只能填候选编号**，不许自己写引文——解析层丢掉编号越界 / 非整数 / 空证据的、改动 `[手改]` 规则的、退役不给理由的，丢弃数显示在卡上。和硬约束冲突的规则列进 `conflicts`（今天就撞过：提示词要建 draft MR、守卫拦所有 push）。8 周没新证据的只要求有新证据时 confirm，**不许因为「久」就退役**，卡上问一句「还算吗」。
 - **从结果里学**：`runs` 里 rejected / merged_modified / reopened 的原因作为 `kind: outcome` 候选（「【Friday 的交付被你打回】改错页面了（任务：…）」），只有一条也单独跑提炼；全是结果证据的新规则 `origin: outcome`。这是学习链路第一次学「Friday 自己干得怎么样」，原来只学你说的话。
+- **通过与撤销**：通过时逐条复查规则现状——卡挂着期间你手改或退役了的，revise / retire / confirm 一律跳过并写明「跳过 N 条」。撤销只还原**这次 apply 动过的规则和它新加的**（快照按 id 取，`scoped`），之后你手改的别的规则、下一轮加的规则都留着。
 - **审核卡**是 plan 文本，按「新增 / 改写（旧 → 新）/ 退役（为什么）/ 确认 / 冲突 / 久未确认 / 因引证无效丢弃」分段，每条附候选原文。没做逐条勾选：要否掉其中一条只能整份打回，或通过后去设置页退役。
 
 ## OKR 周报（2026-09-25）
