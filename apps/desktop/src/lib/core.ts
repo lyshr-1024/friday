@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse, RunsSummary } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -620,6 +620,13 @@ export async function audit(taskId?: string, limit = 200): Promise<AuditEvent[]>
 export async function auditUndo(id: string): Promise<void> {
   const res = await fetch(`${await coreBaseUrl()}/audit/${encodeURIComponent(id)}/undo`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `撤销失败 ${res.status}`);
+}
+
+/** Friday 干的活：按项目看收下率与成本 */
+export async function runsSummary(range: UsageRange): Promise<RunsSummary> {
+  const res = await fetch(`${await coreBaseUrl()}/runs/summary?range=${range}`);
+  if (!res.ok) throw new Error(`runs ${res.status}`);
+  return res.json();
 }
 
 /** 用量统计：按调用点和模型分组的 token 与折合金额 */

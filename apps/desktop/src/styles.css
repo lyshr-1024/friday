@@ -2504,7 +2504,10 @@ fieldset.fx__acts {
 .usage__panel {
   position: absolute;
   left: 0;
-  bottom: calc(100% + var(--s-2));
+  /* 用量条挪到页头之后，向上弹会顶出窗口 */
+  top: calc(100% + var(--s-2));
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
   z-index: 40;
   width: 300px;
   padding: var(--s-4);
@@ -2567,6 +2570,15 @@ fieldset.fx__acts {
   min-width: 52px;
   text-align: right;
   color: var(--fg-1);
+}
+.usage__work li {
+  flex-wrap: wrap;
+}
+.usage__work-sub {
+  flex-basis: 100%;
+  font-size: var(--t-micro);
+  color: var(--fg-4);
+  font-variant-numeric: tabular-nums;
 }
 .usage__empty {
   padding: var(--s-3) 0;

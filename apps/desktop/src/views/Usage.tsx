@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { USAGE_LABELS, USAGE_RANGE_LABEL, type UsageRange, type UsageSummary } from "@friday/shared";
-import { usage as fetchUsage } from "../lib/core";
+import { USAGE_LABELS, USAGE_RANGE_LABEL, type RunKind, type RunsSummary, type UsageRange, type UsageSummary } from "@friday/shared";
+import { runsSummary, usage as fetchUsage } from "../lib/core";
 import { Icon } from "./Icon";
 
 const RANGES: UsageRange[] = ["today", "7d", "30d"];
+const RUN_KIND: Record<RunKind, string> = { autonomous: "自主", query: "查询", interactive_round: "你开的终端" };
 
 /** 金额：不到一分钱就别写 $0.00，那看着像没花钱 */
 function money(v: number): string {
@@ -26,6 +27,7 @@ export function UsageStrip() {
   const [open, setOpen] = useState(false);
   const [range, setRange] = useState<UsageRange>("today");
   const [data, setData] = useState<UsageSummary | null>(null);
+  const [work, setWork] = useState<RunsSummary | null>(null);
   const [today, setToday] = useState<UsageSummary | null>(null);
   const [err, setErr] = useState("");
   const box = useRef<HTMLDivElement>(null);
@@ -44,6 +46,7 @@ export function UsageStrip() {
     let alive = true;
     setErr("");
     fetchUsage(range).then((d) => alive && setData(d)).catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)));
+    runsSummary(range).then((d) => alive && setWork(d)).catch(() => alive && setWork(null));
     return () => { alive = false; };
   }, [open, range]);
 
@@ -111,7 +114,31 @@ export function UsageStrip() {
                 <div className="k">按模型</div>
                 {rows(data.byModel, (k) => k.replace(/^claude-/, ""))}
               </div>
-              <p className="usage__note">你走的是 Claude Code 订阅，这里按 API 标价折算，用来比较各处轻重，不是账单。派到终端的 Claude Code 不计在内。</p>
+              <div className="usage__group">
+                <div className="k">Friday 干的活</div>
+                {work?.byProject.length ? (
+                  <ul className="usage__list usage__work">
+                    {work.byProject.map((p) => (
+                      <li key={`${p.project}:${p.kind}`}>
+                        <span className="usage__name">{p.project} · {RUN_KIND[p.kind]}</span>
+                        <span className="usage__calls mono">{p.runs}</span>
+                        <span className="usage__cost mono">{money(p.costUsd)}</span>
+                        {p.kind === "autonomous" && (
+                          <span className="usage__work-sub mono">
+                            原样收下 {p.mergedAsIs} · 改过再收 {p.mergedModified} · 打回 {p.rejected}
+                            {p.reopened ? ` · 被 Reopen ${p.reopened}` : ""}
+                            {p.pending ? ` · 待定 ${p.pending}` : ""}
+                            {p.medianMinutes ? ` · 中位 ${p.medianMinutes} 分` : ""}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="usage__empty">这段时间 Friday 没替你干活</div>
+                )}
+              </div>
+              <p className="usage__note">你走的是 Claude Code 订阅，这里按 API 标价折算，用来比较各处轻重，不是账单。上面按调用点的不含终端；「Friday 干的活」的金额取自各次终端会话的 transcript。</p>
             </>
           )}
         </div>

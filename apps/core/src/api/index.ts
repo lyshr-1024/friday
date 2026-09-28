@@ -22,6 +22,7 @@ import { memory } from "./memory.js";
 import { searchApi } from "./search.js";
 import { slack } from "./slack.js";
 import { usage } from "./usage.js";
+import { runs } from "./runs.js";
 import { summonApi } from "./summon.js";
 
 // 只放行 Tauri WebView 自己的源；API 虽只监听回环，但浏览器里的任意网页也能打 127.0.0.1，不能用 *。
@@ -51,5 +52,6 @@ export const app = new Hono()
   .route("/", links)
   .route("/", slack)
   .route("/", usage)
+  .route("/", runs)
   .route("/", activity)
   .route("/", summonApi);
