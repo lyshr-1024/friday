@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupByProject, isCandidate, isNoise, isOwnPrompt, projectForCwd, userText, GLOBAL, type HistoryMessage } from "./history.js";
+import { groupByProject, isCandidate, isFridayDriven, isNoise, isOwnPrompt, projectForCwd, userText, GLOBAL, type HistoryMessage } from "./history.js";
 import { config } from "../config.js";
 
 const row = (over: Record<string, unknown> = {}) => ({ type: "user", message: { content: "把 member_id 统一改成 string 传" }, ...over });
@@ -113,5 +113,29 @@ describe("isOwnPrompt", () => {
 
   it("没有 cwd 时不误判", () => {
     expect(isOwnPrompt("")).toBe(false);
+  });
+});
+
+describe("isFridayDriven", () => {
+  const none = new Set<string>();
+
+  it("程序拉起的会话（自主 claude -p、后台查询）不是你敲的", () => {
+    expect(isFridayDriven({ entrypoint: "sdk-cli" }, "你在项目 whale-console 里替用户完成一项任务", none)).toBe(true);
+    expect(isFridayDriven({ entrypoint: "sdk-ts" }, "随便什么", none)).toBe(true);
+  });
+
+  it("交互式终端的第一句是 Friday 写的任务描述", () => {
+    const task = "我要开始做这条需求：新后台迁移老仓的日终任务模块";
+    expect(isFridayDriven({ entrypoint: "cli" }, task, new Set([task]))).toBe(true);
+  });
+
+  it("Friday 往终端里敲的固定话术", () => {
+    expect(isFridayDriven({ entrypoint: "cli" }, "用户已逐项确认你上一轮列的 6 条验证点，全部通过。继续下一步", none)).toBe(true);
+    expect(isFridayDriven({ entrypoint: "cli" }, "顺带再改一条同需求下的缺陷：\n标题", none)).toBe(true);
+  });
+
+  it("你在终端里自己敲的照常学", () => {
+    expect(isFridayDriven({ entrypoint: "cli" }, "不要用 variant=\"link\"，新建按钮统一 ghost", none)).toBe(false);
+    expect(isFridayDriven({}, "应该用 string", none)).toBe(false);
   });
 });

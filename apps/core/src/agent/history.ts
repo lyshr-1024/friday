@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { config } from "../config.js";
 import { GLOBAL } from "../memory/handbooks.js";
+import { jobTasks } from "../memory/jobs.js";
 import { loadProjects, type Project } from "../memory/projects.js";
 
 /** Claude Code 把每个工作目录的会话记在 ~/.claude/projects/<编码过的路径>/<sessionId>.jsonl 里 */
@@ -92,6 +93,19 @@ export function isOwnPrompt(cwd: string): boolean {
   return Boolean(here) && (here === data || here.startsWith(`${data}/`));
 }
 
+/** Friday 往终端里敲的固定话术，出处：bridge.ts 验证点全勾、pipeline.ts 并入同需求缺陷。 */
+const FRIDAY_SAID = /^(用户已逐项确认你上一轮列的 \d+ 条验证点|顺带再改一条同需求下的缺陷：)/;
+
+/**
+ * 项目目录里、但不是你敲的：entrypoint 为 sdk-* 的是程序拉起的会话（自主 `claude -p`、后台查询、
+ * 验收用的临时 core），第一句是 Friday 写的 autonomousPrompt；交互式终端的第一句是 jobs.task，
+ * 之后 Friday 还会往里敲固定话术。这几类的 cwd 都在项目 worktree 里，isOwnPrompt 挡不住。
+ */
+export function isFridayDriven(row: Record<string, unknown>, text: string, jobTasks: ReadonlySet<string>): boolean {
+  if (typeof row.entrypoint === "string" && row.entrypoint.startsWith("sdk")) return true;
+  return jobTasks.has(text) || FRIDAY_SAID.test(text);
+}
+
 function jsonlFiles(root: string, sinceMs: number): string[] {
   let dirs: string[];
   try {
@@ -120,7 +134,12 @@ function jsonlFiles(root: string, sinceMs: number): string[] {
   return out;
 }
 
-export function readSession(file: string, projects: Pick<Project, "name" | "dir">[], sinceIso?: string): HistoryMessage[] {
+export function readSession(
+  file: string,
+  projects: Pick<Project, "name" | "dir">[],
+  sinceIso?: string,
+  jobTasks: ReadonlySet<string> = new Set(),
+): HistoryMessage[] {
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");
@@ -144,7 +163,7 @@ export function readSession(file: string, projects: Pick<Project, "name" | "dir"
     const cwd = typeof row.cwd === "string" ? row.cwd : "";
     // 记忆库目录下的会话是 Friday 自己调 Claude（情境卡、intake、提炼），那些"用户消息"是
     // Friday 自己写的提示词。学回来等于自己教自己，是回音室。
-    if (isOwnPrompt(cwd)) continue;
+    if (isOwnPrompt(cwd) || isFridayDriven(row, text, jobTasks)) continue;
     const project = cwd ? projectForCwd(cwd, projects) : undefined;
     out.push({ at, cwd, ...(project ? { project } : {}), text, session });
   }
@@ -159,7 +178,8 @@ export function scanHistory(sinceIso?: string, now = Date.now()): HistoryMessage
   const projects = loadProjects();
   const floorMs = sinceIso ? Date.parse(sinceIso) : now - BOOTSTRAP_DAYS * 86_400_000;
   const files = jsonlFiles(historyDir(), floorMs);
-  const all = files.flatMap((f) => readSession(f, projects, sinceIso));
+  const tasks = jobTasks();
+  const all = files.flatMap((f) => readSession(f, projects, sinceIso, tasks));
   // 同一句话（"统一用 dayjs"）在多个会话里重复说过，只留最早那次，原话证据也更接近它第一次定下来的现场
   const seen = new Map<string, HistoryMessage>();
   for (const m of all.sort((a, b) => a.at.localeCompare(b.at))) {

@@ -65,6 +65,12 @@ export function listJobs(limit = 30): Job[] {
   return rows.map(toJob);
 }
 
+/** 所有开过的终端的第一句（Friday 写的任务描述），trim 过以便跟会话里的原话比对。 */
+export function jobTasks(): Set<string> {
+  const rows = db().prepare("SELECT DISTINCT task FROM jobs WHERE task IS NOT NULL AND task != ''").all() as { task: string }[];
+  return new Set(rows.map((r) => r.task.trim()));
+}
+
 export function runningJobs(): Job[] {
   const rows = db().prepare("SELECT * FROM jobs WHERE status = 'running' ORDER BY started_at DESC").all() as unknown as Row[];
   return rows.map(toJob);

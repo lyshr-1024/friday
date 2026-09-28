@@ -64,6 +64,8 @@ export interface HandbookDraft {
 
 const clip = (s: string, n = CLIP) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+// 标题和那行注释是 applyHandbookDraft 写文件时加的；模型照着已有手册重写时会原样抄回来，不剥掉每轮多叠一层
+const HEADER = /^(?:\s*(?:#\s[^\n]*|<!--[\s\S]*?-->)[ \t]*(?:\n|$))+/;
 
 /** 模型可能多给一层 ```json 包装，也可能在前后说两句。 */
 export function parseDraft(raw: string): Omit<GroupDraft, "project" | "sources"> | undefined {
@@ -76,7 +78,7 @@ export function parseDraft(raw: string): Omit<GroupDraft, "project" | "sources">
   } catch {
     return undefined;
   }
-  const handbook = str(obj.handbook, 12_000);
+  const handbook = str(obj.handbook, 12_000).replace(HEADER, "").trim();
   if (!handbook) return undefined;
   const decisions = Array.isArray(obj.decisions)
     ? obj.decisions

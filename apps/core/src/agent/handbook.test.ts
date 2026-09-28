@@ -50,6 +50,17 @@ describe("parseDraft", () => {
     expect(d.people).toEqual([]);
     expect(d.aliases).toEqual([]);
   });
+
+  it("模型把文件头抄回来（甚至已经叠了两层）时剥掉，只留正文", () => {
+    const head = "# 通用习惯\n\n<!-- Friday 从 Claude Code 历史提炼，可以直接手改 -->\n\n";
+    const d = parseDraft(JSON.stringify({ handbook: `${head}${head}## 约定\n- 一条\n> 原话` }))!;
+    expect(d.handbook).toBe("## 约定\n- 一条\n> 原话");
+  });
+
+  it("正文里的二级标题和注释不动", () => {
+    const body = "## 约定\n- 一条\n\n<!-- 手写备注 -->\n## 流程\n- 两条";
+    expect(parseDraft(JSON.stringify({ handbook: body }))!.handbook).toBe(body);
+  });
 });
 
 describe("historyDue", () => {
