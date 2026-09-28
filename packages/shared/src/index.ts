@@ -697,6 +697,36 @@ export interface UsageEntry {
   costUsd: number;
 }
 
+/* ---------- 规则：从你的纠正和 Friday 的结果里学到的约定 ---------- */
+
+export const RULE_SECTIONS = ["约定", "技术口径", "流程", "别踩的坑"] as const;
+export type RuleSection = (typeof RULE_SECTIONS)[number];
+/** history = 从你说过的话里提炼；manual = 你在设置页亲手改过（模型不许再动）；outcome = 从 Friday 干活的结果里学的 */
+export type RuleOrigin = "history" | "manual" | "outcome";
+
+export interface RuleEvidence {
+  quote: string;
+  at: string;
+  kind: "utterance" | "outcome";
+  /** utterance：Claude Code 会话 id；outcome：任务 id */
+  ref?: string;
+}
+
+export interface Rule {
+  id: string;
+  /** "_global" 或项目名 */
+  project: string;
+  section: RuleSection;
+  text: string;
+  status: "active" | "retired";
+  origin: RuleOrigin;
+  createdAt: string;
+  lastConfirmedAt: string;
+  retiredAt?: string;
+  retiredWhy?: string;
+  evidence: RuleEvidence[];
+}
+
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
 export type RunKind = "autonomous" | "query" | "interactive_round";

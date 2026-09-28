@@ -167,6 +167,28 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE INDEX IF NOT EXISTS runs_task ON runs (task_id);
 CREATE INDEX IF NOT EXISTS runs_job ON runs (job_id);
 CREATE INDEX IF NOT EXISTS runs_started ON runs (started_at);
+CREATE TABLE IF NOT EXISTS rules (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  section TEXT NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  origin TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_confirmed_at TEXT NOT NULL,
+  retired_at TEXT,
+  retired_why TEXT
+);
+CREATE INDEX IF NOT EXISTS rules_project ON rules (project, status);
+CREATE TABLE IF NOT EXISTS rule_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rule_id TEXT NOT NULL,
+  quote TEXT NOT NULL,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ref TEXT
+);
+CREATE INDEX IF NOT EXISTS rule_evidence_rule ON rule_evidence (rule_id);
 
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,
