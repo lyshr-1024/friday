@@ -131,6 +131,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match (window.label(), event) {
+                // 点 ✕ 不销毁工作台，收进 Dock：销毁之后 Dock 图标跟着没了，看起来就像退出了。
+                // 真退出走菜单栏「退出 Friday」或 ⌘Q。
+                ("chat", WindowEvent::CloseRequested { api, .. }) => {
+                    api.prevent_close();
+                    let _ = window.minimize();
+                }
                 ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
                 // HUD 一律钉住：点外面不收，只有 Esc 关。
                 // 本来是失焦即收（Raycast 手感），但对着 HUD 干活时它总在背后消失。

@@ -21,6 +21,7 @@ fn open(app: &AppHandle, payload: Option<serde_json::Value>) {
     let _ = app.set_activation_policy(ActivationPolicy::Regular);
     activate(app);
     if let Some(win) = app.get_webview_window("chat") {
+        let _ = win.unminimize();
         let _ = win.show();
         let _ = win.set_focus();
         if let Some(p) = payload {
