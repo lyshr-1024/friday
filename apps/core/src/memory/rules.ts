@@ -26,6 +26,9 @@ interface EvidenceRow {
 export interface RulesSnapshot {
   rules: RuleRow[];
   evidence: EvidenceRow[];
+  /** 只存了某些规则的前态：还原时只动这些 id 和 added，别的规则（之后你手改的、下一轮加的）不碰 */
+  scoped?: boolean;
+  added?: string[];
 }
 
 const toEvidence = (e: EvidenceRow): RuleEvidence => ({ quote: e.quote, at: e.at, kind: e.kind, ...(e.ref ? { ref: e.ref } : {}) });
@@ -114,19 +117,42 @@ export function staleRules(project: string, weeks = 8, now = new Date()): Rule[]
   return activeRules(project).filter((r) => r.lastConfirmedAt < cutoff);
 }
 
-export function snapshotRules(): RulesSnapshot {
+export function snapshotRules(ids?: string[]): RulesSnapshot {
+  if (!ids) {
+    return {
+      rules: db().prepare("SELECT * FROM rules").all() as unknown as RuleRow[],
+      evidence: db().prepare("SELECT * FROM rule_evidence").all() as unknown as EvidenceRow[],
+    };
+  }
+  const q = ids.map(() => "?").join(",");
   return {
-    rules: db().prepare("SELECT * FROM rules").all() as unknown as RuleRow[],
-    evidence: db().prepare("SELECT * FROM rule_evidence").all() as unknown as EvidenceRow[],
+    rules: ids.length ? (db().prepare(`SELECT * FROM rules WHERE id IN (${q})`).all(...ids) as unknown as RuleRow[]) : [],
+    evidence: ids.length ? (db().prepare(`SELECT * FROM rule_evidence WHERE rule_id IN (${q})`).all(...ids) as unknown as EvidenceRow[]) : [],
+    scoped: true,
+    added: [],
   };
 }
 
-export function restoreRules(s: RulesSnapshot): void {
+/** 规则还原后涉及到哪些项目，调用方据此重新渲染手册 */
+export function restoreRules(s: RulesSnapshot): string[] {
   const d = db();
+  const ids = s.scoped ? [...new Set([...s.rules.map((r) => r.id), ...(s.added ?? [])])] : undefined;
+  const projects = new Set<string>(s.rules.map((r) => r.project));
+  for (const id of ids ?? []) {
+    const cur = getRule(id);
+    if (cur) projects.add(cur.project);
+  }
+  if (!ids) for (const r of activeRules()) projects.add(r.project);
   d.exec("BEGIN");
   try {
-    d.exec("DELETE FROM rule_evidence");
-    d.exec("DELETE FROM rules");
+    if (ids) {
+      const del = (table: string, col: string) => ids.length && d.prepare(`DELETE FROM ${table} WHERE ${col} IN (${ids.map(() => "?").join(",")})`).run(...ids);
+      del("rule_evidence", "rule_id");
+      del("rules", "id");
+    } else {
+      d.exec("DELETE FROM rule_evidence");
+      d.exec("DELETE FROM rules");
+    }
     const ins = d.prepare("INSERT INTO rules (id, project, section, text, status, origin, created_at, last_confirmed_at, retired_at, retired_why) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const r of s.rules) ins.run(r.id, r.project, r.section, r.text, r.status, r.origin, r.created_at, r.last_confirmed_at, r.retired_at, r.retired_why);
     const ev = d.prepare("INSERT INTO rule_evidence (id, rule_id, quote, at, kind, ref) VALUES (?, ?, ?, ?, ?, ?)");
@@ -136,6 +162,7 @@ export function restoreRules(s: RulesSnapshot): void {
     d.exec("ROLLBACK");
     throw e;
   }
+  return [...projects];
 }
 
 /** handbooks/<项目>.md 是这张表的渲染：给你看、给 Claude Code 读，不再是可编辑的源 */

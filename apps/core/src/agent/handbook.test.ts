@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GLOBAL, handbookPath } from "../memory/handbooks.js";
 import { createRun, finishRun, setRunOutcome } from "../memory/runs.js";
-import { activeRules, addRule, getRule, restoreRules } from "../memory/rules.js";
+import { activeRules, addRule, getRule, restoreRules, retireRule, setRuleText } from "../memory/rules.js";
 import { createTask } from "../memory/tasks.js";
 import {
   HISTORY_EVERY_DAYS,
@@ -12,6 +12,7 @@ import {
   historyDue,
   outcomeCandidates,
   parseOps,
+  restoreMemorySnapshot,
   type Candidate,
   type GroupDraft,
 } from "./handbook.js";
@@ -99,6 +100,62 @@ describe("applyHandbookDraft：按操作落表，证据从候选里取，可整�
 
     restoreRules(snapshot.rules!);
     expect(activeRules("p-apply").map((r) => r.text).sort()).toEqual(["旧规则", "要退役的"]);
+  });
+
+  it("卡挂着期间你手改或退役了的规则，通过时不再被覆盖，跳过数写进结果", () => {
+    const edited = addRule({ project: "p-late", section: "约定", text: "原样", origin: "history", evidence: [ev("原")] });
+    const gone = addRule({ project: "p-late", section: "约定", text: "已退", origin: "history", evidence: [ev("退")] });
+    const group: GroupDraft = {
+      project: "p-late",
+      candidates: cands(1),
+      ops: [
+        { op: "revise", id: edited.id, text: "模型改写", evidence: [1], why: "x" },
+        { op: "confirm", id: gone.id, evidence: [1] },
+      ],
+      conflicts: [],
+      stale: [],
+      dropped: 0,
+      decisions: [],
+      people: [],
+      aliases: [],
+      sources: 1,
+    };
+    // 审核卡生成之后、点通过之前，你在设置页动了这两条
+    setRuleText(edited.id, "我改的");
+    retireRule(gone.id, "不算了");
+    const { wrote } = applyHandbookDraft({ groups: [group] });
+    expect(getRule(edited.id)!.text).toBe("我改的");
+    expect(getRule(gone.id)!.evidence).toHaveLength(1);
+    expect(wrote.join(" ")).toContain("跳过 2 条");
+  });
+
+  it("撤销只还原这次动过的规则：之后你手改的别的规则、别的轮次加的规则都留着", () => {
+    const touched = addRule({ project: "p-undo", section: "约定", text: "会被改写", origin: "history", evidence: [ev("旧")] });
+    const other = addRule({ project: "p-undo", section: "约定", text: "没被这轮碰", origin: "history", evidence: [ev("别的")] });
+    const group: GroupDraft = {
+      project: "p-undo",
+      candidates: cands(1),
+      ops: [
+        { op: "add", section: "流程", text: "这轮新加的", evidence: [1], why: "x" },
+        { op: "revise", id: touched.id, text: "改写后", evidence: [1], why: "x" },
+      ],
+      conflicts: [],
+      stale: [],
+      dropped: 0,
+      decisions: [],
+      people: [],
+      aliases: [],
+      sources: 1,
+    };
+    const { snapshot } = applyHandbookDraft({ groups: [group] });
+    setRuleText(other.id, "之后我手改的");
+    const later = addRule({ project: "p-undo", section: "约定", text: "下一轮加的", origin: "history", evidence: [ev("后")] });
+    restoreMemorySnapshot(snapshot);
+    expect(getRule(touched.id)).toMatchObject({ text: "会被改写" });
+    expect(getRule(touched.id)!.evidence).toHaveLength(1);
+    expect(activeRules("p-undo").some((r) => r.text === "这轮新加的")).toBe(false);
+    expect(getRule(other.id)).toMatchObject({ text: "之后我手改的", origin: "manual" });
+    expect(getRule(later.id)?.status).toBe("active");
   });
 
   it("来自结果的证据记成 outcome，指回任务", () => {

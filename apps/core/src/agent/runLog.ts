@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RunExit } from "@friday/shared";
 import { getJob } from "../memory/jobs.js";
-import { createRun, finishRun, roundCostSoFar, runByJob } from "../memory/runs.js";
+import { createRun, finishRun, roundCostSoFar, runByJob, setRunCost } from "../memory/runs.js";
 import { currentBranchSync, diffStatSync, headShaSync } from "./git.js";
 import { sessionCost } from "./transcript.js";
 
@@ -32,4 +32,13 @@ export function recordRound(jobId: string, taskId: string, project: string): voi
   const snap = snapshot(job.dir, job.claudeSessionId);
   const costUsd = snap.costUsd === undefined ? undefined : Math.max(0, snap.costUsd - roundCostSoFar(jobId));
   finishRun(id, { exit: "report", ...snap, ...(costUsd === undefined ? {} : { costUsd }) });
+}
+
+/** 收尾之后再补一次成本：friday_done 那一刻 claude -p 还没退出，最后一条 cost-state 要等它退出才落盘 */
+export function fillRunCost(jobId: string): void {
+  const run = runByJob(jobId);
+  const job = getJob(jobId);
+  if (!run || run.costUsd !== undefined || !job) return;
+  const cost = sessionCost(job.dir, job.claudeSessionId);
+  if (cost) setRunCost(run.id, cost.costUsd, cost.model);
 }

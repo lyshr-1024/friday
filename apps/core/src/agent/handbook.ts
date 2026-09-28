@@ -385,8 +385,10 @@ function evidenceFrom(g: GroupDraft, ns: number[]): RuleEvidence[] {
 
 /** 用户点「通过并执行」之后才真正写记忆库。返回撤销用的快照。 */
 export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnapshot; wrote: string[] } {
+  const touched = draft.groups.flatMap((g) => g.ops.flatMap((o) => (o.op === "add" ? [] : [o.id])));
+  const rules = snapshotRules([...new Set(touched)]);
   const snapshot: MemorySnapshot = {
-    rules: snapshotRules(),
+    rules,
     decisions: readMemoryFile("decisions"),
     people: readMemoryFile("people"),
     projects: readMemoryFile("projects"),
@@ -394,13 +396,22 @@ export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnap
   const wrote: string[] = [];
   const stamp = new Date().toISOString().slice(0, 10);
 
+  let skipped = 0;
   for (const g of draft.groups) {
     let n = 0;
     for (const o of g.ops) {
+      // 卡可能挂了好几天：这期间你手改过或退役了的，通过时也不能动
+      if (o.op !== "add") {
+        const cur = getRule(o.id);
+        if (!cur || cur.status !== "active" || (o.op !== "confirm" && cur.origin === "manual")) {
+          skipped++;
+          continue;
+        }
+      }
       if (o.op === "add") {
         const evidence = evidenceFrom(g, o.evidence);
         const origin = evidence.every((e) => e.kind === "outcome") ? "outcome" : "history";
-        addRule({ project: g.project, section: o.section, text: o.text, origin, evidence });
+        rules.added!.push(addRule({ project: g.project, section: o.section, text: o.text, origin, evidence }).id);
       } else if (o.op === "confirm") for (const e of evidenceFrom(g, o.evidence)) confirmRule(o.id, e);
       else if (o.op === "revise") {
         const [first, ...rest] = evidenceFrom(g, o.evidence);
@@ -434,16 +445,13 @@ export function applyHandbookDraft(draft: HandbookDraft): { snapshot: MemorySnap
       if (r.changed) wrote.push(`projects.md 别名 +${r.added.aliases.length}`);
     }
   }
+  if (skipped) wrote.push(`跳过 ${skipped} 条（审核期间你改过或退役了）`);
   return { snapshot, wrote };
 }
 
 /** 整体还原到 apply 之前：规则表按快照整张换回，再把涉及的手册重新渲染 */
 export function restoreMemorySnapshot(s: MemorySnapshot): boolean {
-  if (s.rules) {
-    const before = new Set(activeRules().map((r) => r.project));
-    restoreRules(s.rules);
-    for (const project of new Set([...before, ...s.rules.rules.map((r) => r.project)])) writeHandbook(project, renderHandbook(project));
-  }
+  if (s.rules) for (const project of restoreRules(s.rules)) writeHandbook(project, renderHandbook(project));
   for (const [slug, content] of Object.entries(s.handbooks ?? {})) writeHandbook(slug, content);
   writeMemoryFile("decisions", s.decisions);
   writeMemoryFile("people", s.people);

@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { app } from "../api/index.js";
-import { createJob } from "../memory/jobs.js";
-import { createRun, runByJob, runsForTask } from "../memory/runs.js";
+import { createJob, setJobSession } from "../memory/jobs.js";
+import { createRun, runByJob, runsForTask, runsSummary } from "../memory/runs.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { onJobExit } from "./pipeline.js";
 
@@ -124,5 +124,56 @@ describe("runs 三处记账", () => {
     expect(rounds).toHaveLength(2);
     expect(rounds.every((r) => r.exit === "report" && r.branch === "feat/k")).toBe(true);
     updateTask(t.id, { status: "done" });
+  });
+
+  it("后台查询调 friday_done 不算「你开的终端」一轮——它的账只在查询那一行", async () => {
+    const repo = repoOnBranch("main-ish");
+    createJob({ id: "rh-q", project: "demo", dir: repo, task: "查一下", logPath: "/tmp/x.log" });
+    const t = createTask({ title: "查询", kind: "slack", source: { jobId: "rh-q", headless: true, conversation: "C1:1" }, project: "demo", status: "processing" });
+    createRun({ id: "rh-q", jobId: "rh-q", taskId: t.id, project: "demo", kind: "query", trigger: "slack" });
+    await rpc("rh-q", "friday_done", { summary: "查到了", testResult: "无" });
+    expect(runsForTask(t.id).map((r) => r.kind)).toEqual(["query"]);
+  });
+
+  it("friday_done 时 cost-state 还没写出来：进程退出时补上成本；一直读不到的在汇总里算「成本未知」", async () => {
+    const home = mkdtempSync(join(tmpdir(), "friday-home-"));
+    const realHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const repo = repoOnBranch("fix/cost");
+      autonomousTask("rh-cost", repo);
+      setJobSession("rh-cost", "sess-cost");
+      await rpc("rh-cost", "friday_done", { summary: "改完", testResult: "过" });
+      expect(runByJob("rh-cost")!.costUsd).toBeUndefined();
+      // claude -p 退出时才把最后一条 cost-state 落盘
+      const dir = join(home, ".claude", "projects", repo.replace(/[^A-Za-z0-9]/g, "-"));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "sess-cost.jsonl"), JSON.stringify({ type: "cost-state", totalCostUSD: 2.5, modelUsage: { "claude-opus-5": { costUSD: 2.5 } } }) + "\n");
+      onJobExit("rh-cost", 0);
+      expect(runByJob("rh-cost")).toMatchObject({ costUsd: 2.5, model: "claude-opus-5", exit: "report" });
+
+      autonomousTask("rh-nocost", repoOnBranch("fix/nocost"));
+      await rpc("rh-nocost", "friday_done", { summary: "改完", testResult: "过" });
+      onJobExit("rh-nocost", 0);
+      const g = runsSummary("30d").byProject.find((p) => p.project === "demo" && p.kind === "autonomous")!;
+      expect(g.costUnknown).toBeGreaterThanOrEqual(1);
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("不经 Friday 在别处合进了主干（MR），标完成时认出来：merged_as_is；没合进去的记 closed_unverified，不算 abandoned", async () => {
+    const repo = repoOnBranch("fix/mr");
+    const t = autonomousTask("rh-mr", repo);
+    await rpc("rh-mr", "friday_done", { summary: "改完", testResult: "过" });
+    execFileSync("git", ["-C", repo, "switch", "-q", "main"], { env });
+    execFileSync("git", ["-C", repo, "merge", "-q", "--no-ff", "fix/mr", "-m", "MR !42"], { env });
+    await app.request(`/tasks/${t.id}/done`, { method: "POST" });
+    expect(runByJob("rh-mr")).toMatchObject({ outcome: "merged_as_is" });
+
+    const t2 = autonomousTask("rh-open", repoOnBranch("fix/open"));
+    await rpc("rh-open", "friday_done", { summary: "改完", testResult: "过" });
+    await app.request(`/tasks/${t2.id}/done`, { method: "POST" });
+    expect(runByJob("rh-open")).toMatchObject({ outcome: "closed_unverified" });
   });
 });

@@ -2,6 +2,7 @@ import { syncMeegleOnce as syncOnce } from "./meegle.js";
 import { createTask as mkTask, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
 import { state as schedState } from "../scheduler/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
+import { createRun, runByJob, setRunOutcome } from "../memory/runs.js";
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
@@ -93,6 +94,14 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
     expect(r.reopened).toBe(1);
     expect(readTask(t.id)!.status).toBe("understood");
     expect(schedState.notices.some((n) => n.title.includes("Reopen"))).toBe(true);
+  });
+
+  it("收工时认不出合没合的交付，工单被 Reopen 也算负信号", async () => {
+    const t = mkTask({ title: "缺陷 r9", kind: "meegle", source: { meegleId: "r9", url: "https://x/r9" }, status: "done" });
+    createRun({ id: "run-r9", jobId: "run-r9", taskId: t.id, project: "demo", kind: "autonomous", trigger: "retry" });
+    setRunOutcome("run-r9", "closed_unverified", "你标完成");
+    await syncOnce(fake([item("r9", "Reopened")]));
+    expect(runByJob("run-r9")!.outcome).toBe("reopened");
   });
 
   it("Friday 里主动标完成、Meegle 状态不是 Reopen → 不动，免得每 15 分钟翻回来", async () => {

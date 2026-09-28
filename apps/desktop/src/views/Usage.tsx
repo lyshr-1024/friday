@@ -122,11 +122,13 @@ export function UsageStrip() {
                       <li key={`${p.project}:${p.kind}`}>
                         <span className="usage__name">{p.project} · {RUN_KIND[p.kind]}</span>
                         <span className="usage__calls mono">{p.runs}</span>
-                        <span className="usage__cost mono">{money(p.costUsd)}</span>
+                        <span className="usage__cost mono">{p.costUnknown === p.runs && p.runs ? "未知" : money(p.costUsd)}</span>
+                        {p.costUnknown > 0 && p.costUnknown < p.runs && <span className="usage__work-sub mono">另有 {p.costUnknown} 次没读到成本，不在金额里</span>}
                         {p.kind === "autonomous" && (
                           <span className="usage__work-sub mono">
                             原样收下 {p.mergedAsIs} · 改过再收 {p.mergedModified} · 打回 {p.rejected}
                             {p.reopened ? ` · 被 Reopen ${p.reopened}` : ""}
+                            {p.unverified ? ` · 标了完成没找到提交 ${p.unverified}` : ""}
                             {p.pending ? ` · 待定 ${p.pending}` : ""}
                             {p.medianMinutes ? ` · 中位 ${p.medianMinutes} 分` : ""}
                           </span>

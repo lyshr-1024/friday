@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal, say } from "./terminal.js";
-import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree, commitsSinceSync } from "./git.js";
-import type { OkrWeeklyDraft, Task, RunTrigger } from "@friday/shared";
+import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree, commitsSinceSync, isMergedSync } from "./git.js";
+import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,7 +16,7 @@ import { collectReport, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
-import { closeRun } from "./runLog.js";
+import { closeRun, fillRunCost } from "./runLog.js";
 import { createRun, pendingRunsForTask, runByJob, setRunOutcome } from "../memory/runs.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
@@ -39,10 +39,22 @@ const execFileP = promisify(execFile);
  * `keepTerminal`：Meegle 节点自己走完（提测、RESOLVED、FE 发布）不代表 MR 合了，
  * 用户要的是终端留到 MR 合并、本地 worktree 清理完——那由终端里的 Claude 调 friday_finish 来收。
  */
+/**
+ * 收工时这次交付算什么：多数时候你是在 MR 里合的，不经 Friday 的 git_merge，
+ * 所以去本地主干里找交付时的那个提交。找不到不等于没合（squash、还没 pull），记成「没确认」而不是「白干」。
+ */
+function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: string): void {
+  if (status === "ignored") return void setRunOutcome(r.id, "abandoned", why);
+  const repo = t.source.repoDir || getJob(r.jobId)?.dir;
+  if (!r.tipSha || !repo || !isMergedSync(repo, r.tipSha)) return void setRunOutcome(r.id, "closed_unverified", why);
+  const extra = r.branch ? commitsSinceSync(repo, r.tipSha, r.branch) : undefined;
+  if (extra) setRunOutcome(r.id, "merged_modified", `你在分支上又提交了 ${extra} 次`);
+  else setRunOutcome(r.id, "merged_as_is", extra === undefined ? "分支已不在，只确认了交付的提交进了主干" : undefined);
+}
+
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
-  // 没合并就收工：这次交付没被用上
-  if (t) for (const r of pendingRunsForTask(id)) setRunOutcome(r.id, "abandoned", why);
+  if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous") settleRun(r, t, status, why);
   if (t && !keepTerminal) {
     await closeTaskTerminal(t, why);
     await cleanupTaskWorktree(t, why);
@@ -179,6 +191,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
   if (job.task.report && job.task.status === "review") {
+    fillRunCost(jobId);
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return job.task;
   }
@@ -190,6 +203,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   }
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
+  fillRunCost(jobId);
   // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
   const conv = isQueryTask(job.task.source) ? job.task.source.conversation : undefined;
   if (conv) {

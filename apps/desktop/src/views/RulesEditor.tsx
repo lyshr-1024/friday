@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RULE_SECTIONS, type Rule } from "@friday/shared";
 import { listRules, patchRule } from "../lib/core";
+import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 
 const STALE_MS = 8 * 7 * 86_400_000;
@@ -15,6 +16,8 @@ export function RulesEditor({ project, onBack }: { project: string; onBack: () =
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // 拼音选词的回车在 WebKit 里 isComposing 已经是 false；退役框里误触等于误删一条规则
+  const ime = useImeGuard();
 
   useEffect(() => {
     listRules(project).then(setRules).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
@@ -38,7 +41,7 @@ export function RulesEditor({ project, onBack }: { project: string; onBack: () =
   }
 
   const keys = (e: React.KeyboardEvent, submit: () => void, cancel: () => void) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !ime.isImeEnter(e)) {
       e.preventDefault();
       submit();
     }
@@ -78,6 +81,7 @@ export function RulesEditor({ project, onBack }: { project: string; onBack: () =
                           maxLength={120}
                           disabled={busy}
                           onChange={(e) => setEditing({ id: r.id, text: e.target.value })}
+                          {...ime.handlers}
                           onKeyDown={(e) => keys(e, () => editing.text.trim() && void save(r.id, { text: editing.text.trim() }), () => setEditing(null))}
                           aria-label="改规则，回车保存，Esc 取消"
                         />
@@ -106,7 +110,8 @@ export function RulesEditor({ project, onBack }: { project: string; onBack: () =
                             maxLength={200}
                             disabled={busy}
                             onChange={(e) => setRetiring({ id: r.id, why: e.target.value })}
-                            onKeyDown={(e) => keys(e, () => retiring.why.trim() && void save(r.id, { retire: retiring.why.trim() }), () => setRetiring(null))}
+                            {...ime.handlers}
+                          onKeyDown={(e) => keys(e, () => retiring.why.trim() && void save(r.id, { retire: retiring.why.trim() }), () => setRetiring(null))}
                           />
                           <button className="b" disabled={busy || !retiring.why.trim()} onClick={() => void save(r.id, { retire: retiring.why.trim() })}>退役这条</button>
                           <button className="b b--ghost" onClick={() => setRetiring(null)}>取消</button>

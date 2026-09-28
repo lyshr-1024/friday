@@ -732,7 +732,8 @@ export interface Rule {
 export type RunKind = "autonomous" | "query" | "interactive_round";
 export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
-export type RunOutcome = "pending" | "merged_as_is" | "merged_modified" | "rejected" | "abandoned" | "reopened";
+/** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
+export type RunOutcome = "pending" | "merged_as_is" | "merged_modified" | "rejected" | "abandoned" | "reopened" | "closed_unverified";
 
 export interface RunRecord {
   /** = jobId；交互式每轮是 `${jobId}#${毫秒}` */
@@ -767,8 +768,11 @@ export interface RunsProjectSummary {
   rejected: number;
   abandoned: number;
   reopened: number;
+  unverified: number;
   pending: number;
   costUsd: number;
+  /** 结束了却读不到成本的次数（cost-state 没落盘）：costUsd 不含它们，面板上要说出来 */
+  costUnknown: number;
   medianMinutes: number;
 }
 

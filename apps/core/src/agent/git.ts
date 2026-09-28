@@ -34,6 +34,11 @@ export function diffStatSync(dir: string, base?: string): { filesChanged: number
   return { filesChanged: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?/), deletions: n(/(\d+) deletions?/) };
 }
 
+/** 这个提交是不是已经在主干里（本地 main / master，或上次 fetch 下来的 origin/*）。不 fetch：收工时不该等网络 */
+export function isMergedSync(dir: string, sha: string): boolean {
+  return ["main", "master", "origin/main", "origin/master"].some((ref) => gitSync(dir, ["merge-base", "--is-ancestor", sha, ref]) !== undefined);
+}
+
 /** 从 sha 到分支头又多了几个提交。sha 已经不在分支上（amend / rebase 过）返回 undefined */
 export function commitsSinceSync(dir: string, sha: string, branch: string): number | undefined {
   if (gitSync(dir, ["merge-base", "--is-ancestor", sha, branch]) === undefined) return undefined;

@@ -93,6 +93,11 @@ export function finishRun(
   return getRun(id);
 }
 
+/** 只补空着的成本：friday_done 收尾时 cost-state 往往还没落盘，进程退出时再补一次 */
+export function setRunCost(id: string, costUsd: number, model: string): void {
+  db().prepare("UPDATE runs SET cost_usd = ?, model = COALESCE(model, ?) WHERE id = ? AND cost_usd IS NULL").run(costUsd, model || null, id);
+}
+
 export function setRunOutcome(id: string, outcome: RunOutcome, why?: string): RunRecord | undefined {
   db().prepare("UPDATE runs SET outcome = ?, outcome_at = ?, outcome_why = ? WHERE id = ?").run(outcome, new Date().toISOString(), why ?? null, id);
   return getRun(id);
@@ -141,7 +146,7 @@ export function runsSummary(range: UsageRange, now = new Date()): RunsSummary {
     let g = groups.get(key);
     if (!g) {
       g = {
-        base: { project: r.project, kind: r.kind, runs: 0, mergedAsIs: 0, mergedModified: 0, rejected: 0, abandoned: 0, reopened: 0, pending: 0, costUsd: 0, medianMinutes: 0 },
+        base: { project: r.project, kind: r.kind, runs: 0, mergedAsIs: 0, mergedModified: 0, rejected: 0, abandoned: 0, reopened: 0, unverified: 0, pending: 0, costUsd: 0, costUnknown: 0, medianMinutes: 0 },
         minutes: [],
       };
       groups.set(key, g);
@@ -149,11 +154,13 @@ export function runsSummary(range: UsageRange, now = new Date()): RunsSummary {
     const b = g.base;
     b.runs++;
     b.costUsd += r.cost_usd ?? 0;
+    if (r.ended_at && r.cost_usd === null) b.costUnknown++;
     if (r.outcome === "merged_as_is") b.mergedAsIs++;
     else if (r.outcome === "merged_modified") b.mergedModified++;
     else if (r.outcome === "rejected") b.rejected++;
     else if (r.outcome === "abandoned") b.abandoned++;
     else if (r.outcome === "reopened") b.reopened++;
+    else if (r.outcome === "closed_unverified") b.unverified++;
     else b.pending++;
     if (r.ended_at) g.minutes.push((Date.parse(r.ended_at) - Date.parse(r.started_at)) / 60_000);
   }

@@ -258,7 +258,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
       const t = updateTask(task.id, { report, attention: "review", progress: `这轮做完了：${report.summary}` })!;
-      recordRound(jobId, t.id, job.project);
+      if (!task.source.headless) recordRound(jobId, t.id, job.project);
       // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「进行中」
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });

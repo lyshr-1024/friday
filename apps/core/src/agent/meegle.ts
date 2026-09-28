@@ -331,7 +331,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source, stage: "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         // 合进去的改动被打回来了：这是比「被你改过」更强的负信号
-        for (const r of runsForTask(existing.id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified") setRunOutcome(r.id, "reopened", `Meegle ${item.status}`);
+        for (const r of runsForTask(existing.id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified") setRunOutcome(r.id, "reopened", `Meegle ${item.status}`);
         state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120), taskId: existing.id });
         reopened++;
       }
