@@ -131,11 +131,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match (window.label(), event) {
-                // 点 ✕ 不销毁工作台，收进 Dock：销毁之后 Dock 图标跟着没了，看起来就像退出了。
-                // 真退出走菜单栏「退出 Friday」或 ⌘Q。
+                // 点 ✕ 像 Claude 那类常驻 app：窗口藏起来、收回菜单栏，App 不退。
+                // 不销毁窗口，再打开时停在原来的视图；真退出走菜单栏「退出 Friday」或 ⌘Q。
                 ("chat", WindowEvent::CloseRequested { api, .. }) => {
                     api.prevent_close();
-                    let _ = window.minimize();
+                    let _ = window.hide();
+                    window::on_chat_closed(window.app_handle());
                 }
                 ("chat", WindowEvent::Destroyed) => window::on_chat_closed(window.app_handle()),
                 // HUD 一律钉住：点外面不收，只有 Esc 关。
