@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse, RunsSummary } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -234,19 +234,20 @@ export async function listHandbooks(): Promise<string[]> {
   return ((await res.json()) as { files: string[] }).files;
 }
 
-export async function readHandbook(slug: string): Promise<{ name: string; path: string; content: string }> {
-  const res = await fetch(`${await coreBaseUrl()}/handbooks/${encodeURIComponent(slug)}`);
+export async function listRules(project: string): Promise<Rule[]> {
+  const res = await fetch(`${await coreBaseUrl()}/rules?project=${encodeURIComponent(project)}`);
   if (!res.ok) throw new Error(`读取失败：core 返回 ${res.status}`);
-  return res.json();
+  return ((await res.json()) as { rules: Rule[] }).rules;
 }
 
-export async function writeHandbook(slug: string, content: string): Promise<{ name: string; path: string; content: string }> {
-  const res = await fetch(`${await coreBaseUrl()}/handbooks/${encodeURIComponent(slug)}`, {
-    method: "PUT",
+/** 改文字（之后成了你手改的，Friday 提炼不会再动它）或退役（要写一句为什么） */
+export async function patchRule(id: string, patch: { text: string } | { retire: string }): Promise<Rule> {
+  const res = await fetch(`${await coreBaseUrl()}/rules/${encodeURIComponent(id)}`, {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`保存失败：core 返回 ${res.status}`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `保存失败：core 返回 ${res.status}`);
   return res.json();
 }
 

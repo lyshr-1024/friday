@@ -1,6 +1,6 @@
 import type { RawItem } from "../connectors/news.js";
 import type { MemoryContext } from "../memory/context.js";
-import { handbookBlock } from "../memory/handbooks.js";
+import { handbookBlock } from "../memory/rules.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 

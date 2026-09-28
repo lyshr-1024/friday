@@ -61,12 +61,3 @@ export function handbookExists(project: string): boolean {
   return existsSync(handbookPath(project));
 }
 
-/**
- * 派去终端干活的 Claude 要吃到的那段：这个项目的手册 + 通用习惯。
- * 提示词里塞太多会挤掉任务本身，各截 1500 字。
- */
-export function handbookBlock(project: string, limit = 1500): string {
-  const cut = (s: string) => (s.length > limit ? `${s.slice(0, limit)}\n…（略）` : s);
-  const parts = [readHandbook(project), readHandbook(GLOBAL)].filter((s) => s.trim());
-  return parts.length ? parts.map(cut).join("\n\n") : "";
-}

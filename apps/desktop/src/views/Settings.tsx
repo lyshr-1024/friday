@@ -5,6 +5,7 @@ import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type Settings
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
+import { RulesEditor } from "./RulesEditor";
 import { coreBaseUrl, health, learnHistory, listHandbooks, okrWeeklyNow, settings, testNotification, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
@@ -105,6 +106,10 @@ export function Settings() {
     setAutostart(await isEnabled());
   }
 
+  if (editing?.kind === "handbook") {
+    return <RulesEditor project={editing.slug} onBack={() => setEditing(null)} />;
+  }
+
   if (editing) {
     return (
       <MemoryEditor
@@ -143,8 +148,8 @@ export function Settings() {
           ) : (
             <>
               {handbooks.map((slug) => (
-                <Row key={slug} label={slug === "_global" ? "通用习惯" : slug} hint="派去终端干活的 Claude 会先读这份；学错了直接删掉那一行">
-                  <button className="btn" onClick={() => setEditing({ kind: "handbook", slug })}>编辑…</button>
+                <Row key={slug} label={slug === "_global" ? "通用习惯" : slug} hint="派去终端干活的 Claude 会先读这份；学错了点「退役」写一句为什么，你改过的 Friday 不会再动">
+                  <button className="btn" onClick={() => setEditing({ kind: "handbook", slug })}>规则…</button>
                 </Row>
               ))}
               <Row label="再学一轮" hint="扫上次之后的 Claude Code 会话，提炼结果会挂成待审任务，点头才写进来">

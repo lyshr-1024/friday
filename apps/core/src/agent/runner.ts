@@ -11,7 +11,7 @@ import { record } from "../memory/audit.js";
 import { publish } from "../bus.js";
 import { userSettings } from "../settings.js";
 import type { TerminalApp } from "../settings.js";
-import { handbookBlock } from "../memory/handbooks.js";
+import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";

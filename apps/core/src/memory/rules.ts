@@ -157,3 +157,24 @@ export function renderHandbook(project: string): string {
   if (notes) parts.push(notes, "");
   return parts.join("\n");
 }
+
+/**
+ * 派去终端干活的 Claude 要吃到的那段：只带规则正文（出处是给你核对的，不是给模型的），
+ * 按最近确认的先放，整行截到预算；手写笔记放得下才整段带上，不切半截。
+ */
+export function handbookBlock(project: string, limit = 1500): string {
+  const block = (p: string, label: string) => {
+    const lines: string[] = [];
+    let used = 0;
+    for (const r of [...activeRules(p)].sort((a, b) => b.lastConfirmedAt.localeCompare(a.lastConfirmedAt))) {
+      const line = `- ${r.text}`;
+      if (used + line.length + 1 > limit) break;
+      lines.push(line);
+      used += line.length + 1;
+    }
+    const notes = readHandbookNotes(p);
+    if (notes && used + notes.length <= limit) lines.push(notes);
+    return lines.length ? `${label}：\n${lines.join("\n")}` : "";
+  };
+  return [project === GLOBAL ? "" : block(project, `项目 ${project}`), block(GLOBAL, "通用")].filter(Boolean).join("\n\n");
+}
