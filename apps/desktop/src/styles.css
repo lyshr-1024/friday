@@ -5144,7 +5144,10 @@ body:has(.hud)::-webkit-scrollbar {
 .ac__checks label { display: flex; gap: 10px; align-items: flex-start; }
 .ac__checks input { margin-top: 3px; }
 .ac__files { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.ac__file { padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08); color: var(--fg-2); }
+.ac__file { display: flex; gap: 10px; padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08); color: var(--fg-2); }
+.ac__path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac__ins { color: #45d483; font-variant-numeric: tabular-nums; }
+.ac__del { color: #ff5d6c; font-variant-numeric: tabular-nums; }
 .ac .stage { margin: 0; }
 .ac .stage__row { gap: 6px; }
 .ac .stage__step { padding: 5px 12px; border-radius: 6px; border-color: rgba(255, 255, 255, 0.10); color: var(--fg-3); font-size: 12px; }

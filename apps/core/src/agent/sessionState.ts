@@ -28,7 +28,7 @@ export function taskSession(t: Task): TaskSession {
     ...(state === "deciding" && waitingSince ? { waitingSince } : {}),
     ...(own ? { name: own.tmuxName, kind: own.kind, ...(own.worktree ? { worktree: own.worktree } : {}), ...(own.branch ? { branch: own.branch } : {}) } : {}),
     ...(t.source.autonomous && run
-      ? { delivery: { ...(run.filesChanged !== undefined ? { files: run.filesChanged } : {}), ...(run.insertions !== undefined ? { insertions: run.insertions } : {}), ...(run.deletions !== undefined ? { deletions: run.deletions } : {}), ...(run.costUsd !== undefined ? { costUsd: run.costUsd } : {}), ...(minutes ? { minutes } : {}), ...(run.model ? { model: run.model } : {}) } }
+      ? { delivery: { ...(run.filesChanged !== undefined ? { files: run.filesChanged } : {}), ...(run.insertions !== undefined ? { insertions: run.insertions } : {}), ...(run.deletions !== undefined ? { deletions: run.deletions } : {}), ...(run.diffFiles ? { perFile: run.diffFiles } : {}), ...(run.diffBase ? { base: run.diffBase } : {}), ...(run.costUsd !== undefined ? { costUsd: run.costUsd } : {}), ...(minutes ? { minutes } : {}), ...(run.model ? { model: run.model } : {}) } }
       : {}),
   };
 }

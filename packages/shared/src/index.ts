@@ -296,7 +296,7 @@ export interface TaskSession {
   worktree?: string;
   branch?: string;
   kind?: TermSessionKind;
-  delivery?: { files?: number; insertions?: number; deletions?: number; costUsd?: number; minutes?: number; model?: string };
+  delivery?: { files?: number; insertions?: number; deletions?: number; perFile?: DiffFile[]; base?: string; costUsd?: number; minutes?: number; model?: string };
 }
 
 export const SESSION_STATE_LABEL: Record<SessionState, string> = {
@@ -797,6 +797,12 @@ export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
 export type RunOutcome = "pending" | "merged_as_is" | "merged_modified" | "rejected" | "abandoned" | "reopened" | "closed_unverified";
 
+export interface DiffFile {
+  path: string;
+  insertions: number;
+  deletions: number;
+}
+
 export interface RunRecord {
   /** = jobId；交互式每轮是 `${jobId}#${毫秒}` */
   id: string;
@@ -814,6 +820,10 @@ export interface RunRecord {
   filesChanged?: number;
   insertions?: number;
   deletions?: number;
+  /** 相对 diffBase 分叉点的逐文件增删 */
+  diffFiles?: DiffFile[];
+  /** 比的是哪个主干（main / master） */
+  diffBase?: string;
   costUsd?: number;
   model?: string;
   outcome: RunOutcome;

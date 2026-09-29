@@ -49,6 +49,9 @@ export function migrate(d: DatabaseSync): void {
   // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
   if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
   if (!jobCols.includes("session_id")) d.exec("ALTER TABLE jobs ADD COLUMN session_id TEXT");
+  const runCols = (d.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!runCols.includes("diff_files")) d.exec("ALTER TABLE runs ADD COLUMN diff_files TEXT");
+  if (!runCols.includes("diff_base")) d.exec("ALTER TABLE runs ADD COLUMN diff_base TEXT");
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!taskCols.includes("attention")) d.exec("ALTER TABLE tasks ADD COLUMN attention TEXT");
   if (!taskCols.includes("pinned")) d.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");

@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { DiffFile } from "@friday/shared";
 
 const execFileP = promisify(execFile);
 const LIMIT = 6000;
@@ -25,13 +26,22 @@ const gitSync = (dir: string, args: string[]): string | undefined => {
 
 export const headShaSync = (dir: string): string => gitSync(dir, ["rev-parse", "HEAD"]) ?? "";
 
+/** `git diff --numstat` 的输出：二进制文件增删是 `-`，按 0 算、路径留着 */
+export function parseNumstat(out: string): DiffFile[] {
+  return out.split("\n").filter(Boolean).map((line) => {
+    const [ins = "0", del = "0", ...path] = line.split("\t");
+    return { path: path.join("\t"), insertions: ins === "-" ? 0 : Number(ins), deletions: del === "-" ? 0 : Number(del) };
+  }).filter((f) => f.path);
+}
+
 /** 这个分支相对主干改了多少：跟 main（没有就 master）的分叉点比，不是跟主干当前的头比 */
-export function diffStatSync(dir: string, base?: string): { filesChanged: number; insertions: number; deletions: number } | undefined {
+export function diffStatSync(dir: string, base?: string): { filesChanged: number; insertions: number; deletions: number; diffFiles: DiffFile[]; diffBase: string } | undefined {
   const trunk = base ?? (gitSync(dir, ["rev-parse", "--verify", "-q", "main"]) ? "main" : "master");
-  const out = gitSync(dir, ["diff", "--shortstat", `${trunk}...HEAD`]);
+  const out = gitSync(dir, ["diff", "--numstat", `${trunk}...HEAD`]);
   if (out === undefined) return undefined;
-  const n = (re: RegExp) => Number(re.exec(out)?.[1] ?? 0);
-  return { filesChanged: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?/), deletions: n(/(\d+) deletions?/) };
+  const files = parseNumstat(out);
+  const sum = (k: "insertions" | "deletions") => files.reduce((n, f) => n + f[k], 0);
+  return { filesChanged: files.length, insertions: sum("insertions"), deletions: sum("deletions"), diffFiles: files, diffBase: trunk };
 }
 
 /** 这个提交是不是已经在主干里（本地 main / master，或上次 fetch 下来的 origin/*）。不 fetch：收工时不该等网络 */

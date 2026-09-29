@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
@@ -539,11 +539,9 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
   // 同一条任务同时只跑一个动作：连点会把「开始做」开出两个会话、「完成当前节点」流转两次。
   // 锁放 ref 里，state 要等下一次渲染才生效，同一帧的第二次点击拦不住
   const inFlight = useRef(new Set<string>());
-  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const setBusy = (key: string, on: boolean) => {
     if (on) inFlight.current.add(key);
     else inFlight.current.delete(key);
-    setBusyIds(new Set(inFlight.current));
   };
 
   async function act(t: Task | null, fn: () => Promise<unknown>) {
@@ -710,7 +708,6 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                 key={focus.id}
                 t={focus}
                 all={board.tasks}
-                busy={busyIds.has(focus.id)}
                 onAct={act}
                 onPick={setSelectedId}
                 onStartPack={(items) => void startPack(items)}
@@ -759,7 +756,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                           onContextMenu={(e) => { e.preventDefault(); setSelectedId(t.id); setMenu({ t, x: e.clientX, y: e.clientY }); }}
                           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(t.id); } }}
                         >
-                          <span className={`sdot sdot--${st}`} />
+                          <span className={`sdot sdot--${child ? "none" : st}`} />
                           <span className="an__main">
                             <span className="an__t">{t.title}</span>
                             <span className="an__sub">{anchorLine(t)}</span>
@@ -796,10 +793,9 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
  * 详情区。你在做的（有会话）主体就是终端；Friday 自主的主体是交付卡，右上「看终端」切到同一个会话；
  * 没开工的、挂在需求会话里的缺陷没有自己的终端，走卡片。
  */
-function Detail({ t, all, busy, onAct, onPick, onStartPack, packBusy, cardOpen, onDetail, onLedger, onMenu }: {
+function Detail({ t, all, onAct, onPick, onStartPack, packBusy, cardOpen, onDetail, onLedger, onMenu }: {
   t: Task;
   all: Task[];
-  busy: boolean;
   onAct: (t: Task | null, fn: () => Promise<unknown>) => Promise<void>;
   onPick: (id: string) => void;
   onStartPack: (items: Task[]) => void;
@@ -815,7 +811,7 @@ function Detail({ t, all, busy, onAct, onPick, onStartPack, packBusy, cardOpen, 
   const autonomous = Boolean(t.source.autonomous);
   const [showTerm, setShowTerm] = useState(false);
   const counts = {
-    defects: all.filter((x) => x.id !== t.id && (x.source.rootId === t.id || (t.source.meegleId && x.source.linkedStoryId === t.source.meegleId))).length,
+    defects: all.filter((x) => x.id !== t.id && x.status !== "done" && x.status !== "ignored" && (x.source.rootId === t.id || (t.source.meegleId && x.source.linkedStoryId === t.source.meegleId))).length,
     docs: Object.values(t.source.docs ?? {}).filter(Boolean).length,
     convs: (t.conversations ?? []).length,
   };
@@ -840,7 +836,7 @@ function Detail({ t, all, busy, onAct, onPick, onStartPack, packBusy, cardOpen, 
         </div>
       ) : (
         <div className="detail__card">
-          <Focus t={t} all={all} active busy={busy} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
+          <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
         </div>
       )}
     </section>
@@ -864,8 +860,8 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
       {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
       {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
-      {!closed && (t.pending ?? []).filter((a) => a.type !== "slack_reply" && a.type !== "okr_submit").map((a) => (
-        <button key={a.id} role="menuitem" onClick={() => run(() => taskApprove(t.id, a.id))}>通过并执行：{a.label}</button>
+      {!closed && (t.pending ?? []).filter((a) => a.type !== "slack_reply").map((a) => (
+        <button key={a.id} role="menuitem" onClick={() => run(async () => { if (a.type === "okr_submit") await flushOkrDraft(t.id); await taskApprove(t.id, a.id); })}>通过并执行：{a.label}</button>
       ))}
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
@@ -1144,9 +1140,18 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
         )}
         {(d?.files !== undefined || (r?.changes.length ?? 0) > 0) && (
           <section className="ac__sec">
-            {/* 分叉点是主干（main 或 master），这里读不到具体叫哪个 */}
-            <div className="ac__k">改动 {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对主干</span>}</div>
-            {r && r.changes.length > 0 && <div className="ac__files">{r.changes.map((c, i) => <div key={i} className="ac__file">{c}</div>)}</div>}
+            <div className="ac__k">改动 {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对 {d.base ?? "主干"}</span>}</div>
+            {d?.perFile ? (
+              <div className="ac__files">
+                {d.perFile.map((f) => (
+                  <div key={f.path} className="ac__file">
+                    <span className="ac__path">{f.path}</span>
+                    <span className="ac__ins">+{f.insertions}</span>
+                    <span className="ac__del">−{f.deletions}</span>
+                  </div>
+                ))}
+              </div>
+            ) : r && r.changes.length > 0 && <div className="ac__files">{r.changes.map((c, i) => <div key={i} className="ac__file">{c}</div>)}</div>}
           </section>
         )}
         {(t.stage || meegle) && (
@@ -1223,12 +1228,8 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
   );
 }
 
-function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onLedger }: {
+function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
   t: Task;
-  /** 只有选中这张响应回车 */
-  active: boolean;
-  /** 这条任务有动作还没返回，确认发送那块锁住 */
-  busy: boolean;
   /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
   all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
@@ -1238,13 +1239,8 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
   packBusy?: string;
   onLedger: () => void;
 }) {
-  // 给别人发消息前先给用户看要发什么、可以改，确认才发
-  const ime = useImeGuard();
-  const [confirming, setConfirming] = useState(false);
-  const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
   useEffect(() => {
-    setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
   }, [t.id, t.updatedAt]);
   // 非自主任务的 report 不往卡上放：那几条验收点本机确认不了，摊在这儿只会逼你勾一个假结论
@@ -1262,12 +1258,6 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
   // 人工审核通过走 executePending，记的同样是 slack_reply_sent 但没有这个标记，两者文案不能混为一谈。
   const sentEvent = events.find((e) => e.action === "slack_reply_sent" && e.reversible && e.status !== "undone");
   const autoSent = sentEvent?.evidence.auto === true;
-
-  const [trs, setTrs] = useState<StateTransition[]>([]);
-  useEffect(() => {
-    setTrs([]);
-    if (isIssue(t)) void taskTransitions(t.id).then(setTrs).catch(() => {});
-  }, [t.id, t.source.statusKey]);
 
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
@@ -1289,55 +1279,6 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
   // Friday 从这条线程的情境卡里记下的待办：列表里不单独占行，在这儿看
   const derivedTodos = all.filter((x) => x.source.fromTaskId === t.id);
   const openTodos = derivedTodos.filter((c) => c.status !== "done" && c.status !== "ignored").length;
-
-  const first = pending[0];
-  const isMessage = first?.type === "slack_reply";
-  // 开工提案优先于 Meegle 状态流转当主按钮：Friday 提的是「让我去改」，
-  // 缺陷卡上又恰好有流转可选，原来 trs 一非空就把开工挤得没有任何按钮可点。
-  const startJob = pending.find((p) => p.type === "start_job");
-  const primary: { label: string; run: () => Promise<unknown> } | null = startJob
-    ? { label: `开工：${String(startJob.payload.project ?? "")}`.trim(), run: () => taskApprove(t.id, startJob.id) }
-    : isIssue(t) && trs[0]
-    ? { label: trs[0].label, run: () => taskTransition(t.id, trs[0]!) }
-    : t.project && !t.session?.name
-    ? { label: "开始做", run: () => taskStart(t.id) }
-    : first
-    ? first.type === "okr_submit"
-      ? { label: first.label, run: async () => { await flushOkrDraft(t.id); await taskApprove(t.id, first.id); } }
-      : isMessage
-      ? {
-          // 原文和草稿对不上时，默认动作应该是「改」而不是「发」
-          label: pending.length > 1 ? `看一眼再发：${first.label}…` : "看一眼再发…",
-          run: async () => { setSendText(String(first.payload.text ?? first.detail)); setConfirming(true); },
-        }
-      : { label: pending.length > 1 ? `通过并执行：${first.label}` : "通过并执行", run: () => taskApprove(t.id, first.id) }
-    : t.status === "blocked" && t.project
-      ? { label: "重新开工", run: () => taskRetry(t.id) }
-      : t.status === "review"
-        ? { label: "标记完成", run: () => taskSet(t.id, "done") }
-        : null;
-
-  // 回车 = 主动作。轮播里每张卡都渲染着，都挂监听的话按一次回车会把所有卡的主动作一起执行
-  // （2026-09-22 点一条「开始做」，另外三条缺陷跟着自主开工）
-  useEffect(() => {
-    // 周报一次写十几条到平台，只认点按钮
-    if (!primary || !active || first?.type === "okr_submit") return;
-    const run = primary.run;
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Enter" || e.repeat || e.metaKey || e.shiftKey || e.altKey) return;
-      const el = document.activeElement;
-      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (el?.closest(".thread, .xterm, .fx__confirm")) return;
-      // 焦点已经在某个按钮或可聚焦控件上时，Enter 应该触发那个控件，
-      // 而不是抢过来执行主操作——主操作可能是不可逆的（发消息、合并分支）。
-      if (el && el !== document.body && (el.tagName === "BUTTON" || el.tagName === "A" || el.hasAttribute("tabindex"))) return;
-      if (confirming) return;
-      e.preventDefault();
-      void onAct(t, run);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [t.id, t.updatedAt, primary?.label, confirming, active, first?.type]);
 
   return (
     <>
@@ -1438,7 +1379,7 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
           {advice && (
             <div>
               <span className="k">
-                {pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
+                {pending[0] ? `Friday 的建议：${pending[0].label}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
               </span>
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
@@ -1449,7 +1390,7 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
             <div>
               <span className="k">
                 通过前请确认 · {checkedCount}/{r.verify.length}
-                {checkedCount === r.verify.length && <span className="fx__check-all"><Icon name="check" />全部确认{first ? "，点「通过并执行」推进" : t.source.jobId ? "，已让终端继续" : "，可以标记完成"}</span>}
+                {checkedCount === r.verify.length && <span className="fx__check-all"><Icon name="check" />全部确认{pending[0] ? "，待审动作在右键菜单里" : t.source.jobId ? "，已让终端继续" : "，可以标记完成"}</span>}
               </span>
               <ul className="fx__check">
                 {r.verify.map((c, i) => (
@@ -1521,29 +1462,6 @@ function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onL
         </div>
       )}
 
-      {confirming && first && (
-        <div className="fx__confirm">
-          <div className="fx__confirm-head">
-            <span className="k">将以你的身份发给 {String(first.payload.userName ?? "对方")}{first.payload.threadTs ? "（在原线程里回）" : "（私聊）"}</span>
-          </div>
-          <textarea
-            className="fx__confirm-text"
-            autoFocus
-            rows={4}
-            {...ime.handlers}
-            value={sendText}
-            onChange={(e) => setSendText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setConfirming(false);
-              if (e.key === "Enter" && e.metaKey && sendText.trim()) { e.preventDefault(); void onAct(t, () => taskApprove(t.id, first.id, sendText.trim())); }
-            }}
-          />
-          <div className="fx__confirm-acts">
-            <button className="b b--primary" disabled={!sendText.trim() || busy} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发</button>
-            <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

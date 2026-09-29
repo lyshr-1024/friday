@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { gitInspect, worktreeDirt } from "./git.js";
+import { diffStatSync, gitInspect, parseNumstat, worktreeDirt } from "./git.js";
 
 function sh(dir: string, ...args: string[]) {
   return execFileSync("git", ["-C", dir, ...args], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString();
@@ -58,5 +58,37 @@ describe("开工前的工作区检查", () => {
 
   it("不是 git 仓库也拦下", async () => {
     expect(await worktreeDirt(mkdtempSync(join(tmpdir(), "friday-nogit-")))).toBeTruthy();
+  });
+});
+
+describe("逐文件增删（numstat）", () => {
+  it("解析文本行和二进制行（- - 当 0，路径留着）", () => {
+    expect(parseNumstat("54\t8\tsrc/pages/export/BatchExport.tsx\n-\t-\tdocs/shot.png\n5\t0\tsrc/hooks/useExportJob.test.ts\n")).toEqual([
+      { path: "src/pages/export/BatchExport.tsx", insertions: 54, deletions: 8 },
+      { path: "docs/shot.png", insertions: 0, deletions: 0 },
+      { path: "src/hooks/useExportJob.test.ts", insertions: 5, deletions: 0 },
+    ]);
+  });
+
+  it("空输出是空列表", () => {
+    expect(parseNumstat("")).toEqual([]);
+  });
+
+  it("相对主干分叉点统计，并记下比的是哪个主干", () => {
+    const dir = mkdtempSync(join(tmpdir(), "friday-numstat-"));
+    sh(dir, "init", "-q", "-b", "master");
+    writeFileSync(join(dir, "a.txt"), "1\n2\n");
+    sh(dir, "add", "."); sh(dir, "commit", "-qm", "init");
+    sh(dir, "checkout", "-qb", "feat/x");
+    writeFileSync(join(dir, "a.txt"), "1\n3\n4\n");
+    writeFileSync(join(dir, "b.bin"), Buffer.from([0, 1, 2, 0, 255]));
+    sh(dir, "add", "."); sh(dir, "commit", "-qm", "work");
+    expect(diffStatSync(dir)).toEqual({
+      filesChanged: 2,
+      insertions: 2,
+      deletions: 1,
+      diffFiles: [{ path: "a.txt", insertions: 2, deletions: 1 }, { path: "b.bin", insertions: 0, deletions: 0 }],
+      diffBase: "master",
+    });
   });
 });

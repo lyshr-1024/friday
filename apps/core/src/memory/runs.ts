@@ -1,4 +1,4 @@
-import type { RunExit, RunKind, RunOutcome, RunRecord, RunsProjectSummary, RunsSummary, RunTrigger, UsageRange } from "@friday/shared";
+import type { DiffFile, RunExit, RunKind, RunOutcome, RunRecord, RunsProjectSummary, RunsSummary, RunTrigger, UsageRange } from "@friday/shared";
 import { db } from "./db.js";
 import { rangeStart } from "./usage.js";
 
@@ -23,6 +23,8 @@ interface Row {
   files_changed: number | null;
   insertions: number | null;
   deletions: number | null;
+  diff_files: string | null;
+  diff_base: string | null;
   cost_usd: number | null;
   model: string | null;
   outcome: RunOutcome;
@@ -46,6 +48,8 @@ const toRun = (r: Row): RunRecord => ({
   ...(r.files_changed !== null ? { filesChanged: r.files_changed } : {}),
   ...(r.insertions !== null ? { insertions: r.insertions } : {}),
   ...(r.deletions !== null ? { deletions: r.deletions } : {}),
+  ...(r.diff_files ? { diffFiles: JSON.parse(r.diff_files) as DiffFile[] } : {}),
+  ...(r.diff_base ? { diffBase: r.diff_base } : {}),
   ...(r.cost_usd !== null ? { costUsd: r.cost_usd } : {}),
   ...(r.model ? { model: r.model } : {}),
   outcome: r.outcome,
@@ -69,12 +73,13 @@ export function createRun(
 
 export function finishRun(
   id: string,
-  patch: Pick<RunRecord, "exit"> & Partial<Pick<RunRecord, "branch" | "tipSha" | "filesChanged" | "insertions" | "deletions" | "costUsd" | "model">>,
+  patch: Pick<RunRecord, "exit"> & Partial<Pick<RunRecord, "branch" | "tipSha" | "filesChanged" | "insertions" | "deletions" | "diffFiles" | "diffBase" | "costUsd" | "model">>,
 ): RunRecord | undefined {
   db()
     .prepare(
       `UPDATE runs SET ended_at = ?, exit = ?, branch = COALESCE(?, branch), tip_sha = COALESCE(?, tip_sha),
          files_changed = COALESCE(?, files_changed), insertions = COALESCE(?, insertions), deletions = COALESCE(?, deletions),
+         diff_files = COALESCE(?, diff_files), diff_base = COALESCE(?, diff_base),
          cost_usd = COALESCE(?, cost_usd), model = COALESCE(?, model)
        WHERE id = ?`,
     )
@@ -86,6 +91,8 @@ export function finishRun(
       patch.filesChanged ?? null,
       patch.insertions ?? null,
       patch.deletions ?? null,
+      patch.diffFiles ? JSON.stringify(patch.diffFiles) : null,
+      patch.diffBase ?? null,
       patch.costUsd ?? null,
       patch.model ?? null,
       id,

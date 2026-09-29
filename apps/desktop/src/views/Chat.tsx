@@ -250,7 +250,7 @@ export function Chat() {
     function onGlobalKey(e: KeyboardEvent) {
       if (!e.metaKey) return;
       // 终端聚焦时 ⌘ 组合归终端（⌘W 关的是 tmux 窗口，不是 Friday），只留 ⌘N
-      if ((e.target as HTMLElement | null)?.closest?.(".xterm") && e.key.toLowerCase() !== "n") return;
+      if ((e.target as HTMLElement | null)?.closest?.(".xterm") && !(e.key === "n" && !e.shiftKey)) return;
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
         openFree();

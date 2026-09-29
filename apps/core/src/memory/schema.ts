@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS runs (
   files_changed INTEGER,
   insertions INTEGER,
   deletions INTEGER,
+  diff_files TEXT,
+  diff_base TEXT,
   cost_usd REAL,
   model TEXT,
   outcome TEXT NOT NULL DEFAULT 'pending',

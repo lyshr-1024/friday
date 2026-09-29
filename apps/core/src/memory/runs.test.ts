@@ -15,6 +15,13 @@ describe("runs 账本", () => {
     expect(runsForTask("t1").map((r) => r.id)).toEqual(["j1"]);
   });
 
+  it("逐文件增删和主干名存成 JSON，读回来原样", () => {
+    createRun({ id: "j5", jobId: "j5", taskId: "t5", project: "demo", kind: "autonomous", trigger: "retry" });
+    const files = [{ path: "a.ts", insertions: 3, deletions: 1 }, { path: "b.png", insertions: 0, deletions: 0 }];
+    finishRun("j5", { exit: "report", filesChanged: 2, insertions: 3, deletions: 1, diffFiles: files, diffBase: "master" });
+    expect(runByJob("j5")).toMatchObject({ diffFiles: files, diffBase: "master" });
+  });
+
   it("交互式轮次不算 job 的主记录：runByJob 只认 autonomous / query", () => {
     createRun({ id: "j9#1", jobId: "j9", taskId: "t9", project: "demo", kind: "interactive_round", trigger: "user" });
     expect(runByJob("j9")).toBeUndefined();
