@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
-import { getTermSession } from "../memory/termSessions.js";
+import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { setTmuxPath, setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { resetAttachBreaker, setPtySpawner } from "../agent/attach.js";
@@ -65,18 +65,50 @@ describe("/sessions", () => {
     expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
   });
 
-  it("tmux 里已经没有这个会话：attach 回 404 gone，不拉起 pty（否则前端无限重连）", async () => {
-    const id = await session();
+  const noTmux = () => {
     let spawned = 0;
     setPtySpawner(() => { spawned++; return { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => {} }; });
     setTmuxRunner(async (args) => {
       if (args[4] === "has-session") throw new Error("can't find session");
       return "";
     });
+    return () => spawned;
+  };
+
+  it("会话行还在 preparing、tmux 里暂时没有（kill 再重建的间隙）：503 retry，不拉 pty、不算 gone", async () => {
+    const t = createTask({ title: "重建中", kind: "verbal", source: {}, status: "processing", project: "app" });
+    await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
+    expect(getTermSession(t.id)!.status).toBe("preparing");
+    const spawned = noTmux();
+    const r = await post(`/sessions/${t.id}/attach`, { cols: 120, rows: 40 });
+    expect(r.status).toBe(503);
+    const body = await r.json();
+    expect(body).toMatchObject({ retry: true });
+    expect(body).not.toHaveProperty("gone");
+    expect(body).not.toHaveProperty("fatal");
+    expect(spawned()).toBe(0);
+  });
+
+  it("会话行 running / exited 而 tmux 里找不到：同样 503 retry（交给对账去判 closed）", async () => {
+    const id = await session();
+    const spawned = noTmux();
+    expect((await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).status).toBe(503);
+    updateTermSession(id, { status: "exited" });
+    expect((await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).status).toBe(503);
+    expect(spawned()).toBe(0);
+  });
+
+  it("会话行 closed：404 gone，不拉 pty；没有这一行也是 404 gone", async () => {
+    const id = await session();
+    updateTermSession(id, { status: "closed" });
+    const spawned = noTmux();
     const r = await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 });
     expect(r.status).toBe(404);
     expect(await r.json()).toMatchObject({ gone: true });
-    expect(spawned).toBe(0);
+    const none = await post(`/sessions/nope/attach`, { cols: 120, rows: 40 });
+    expect(none.status).toBe(404);
+    expect(await none.json()).toMatchObject({ gone: true });
+    expect(spawned()).toBe(0);
   });
 
   it("tmux 客户端退出（pty exit）：stream 结束，前端据此重连", async () => {

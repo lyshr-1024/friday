@@ -818,7 +818,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         {...(canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
       />
       {termVisible ? (
-        <div className="detail__term"><Terminal sessionId={t.id} /></div>
+        <div className="detail__term"><Terminal key={t.source.jobId ?? ""} sessionId={t.id} /></div>
       ) : autonomous ? (
         <>
           <div className="detail__card detail__card--auto">

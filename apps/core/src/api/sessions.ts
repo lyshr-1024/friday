@@ -33,13 +33,15 @@ export function setClipboardWriter(fn: (text: string) => Promise<void>): void {
 }
 
 export const sessions = new Hono()
-  .use("/sessions/:id/*", async (c, next) => (getTermSession(c.req.param("id")) ? next() : c.json({ error: "没有这个会话" }, 404)))
+  .use("/sessions/:id/*", async (c, next) => (getTermSession(c.req.param("id")) ? next() : c.json({ error: "没有这个会话", gone: true }, 404)))
   .post("/sessions/:id/attach", async (c) => {
     const p = await body(c, z.object({ cols: z.number(), rows: z.number() }));
     if (!p.success) return c.json({ error: "cols / rows 必填" }, 400);
     const s = getTermSession(c.req.param("id"))!;
     // 会话不在还拉 pty：tmux 打一行错误就退，前端把那行当成连上了，会无限重连、每次占一个 ptmx
-    if (s.status === "closed" || !(await hasSession(s.tmuxName))) return c.json({ error: "会话已不在", gone: true }, 404);
+    if (s.status === "closed") return c.json({ error: "会话已不在", gone: true }, 404);
+    // 行没 closed 就只是暂时找不到（开始做会先 kill 同名会话、约一秒后才重建），真没了由对账标 closed
+    if (!(await hasSession(s.tmuxName))) return c.json({ error: "会话还没起来", retry: true }, 503);
     try {
       return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });
     } catch (e) {
