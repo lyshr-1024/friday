@@ -48,7 +48,7 @@ export async function sweepClosedTerminals(): Promise<string[]> {
 export async function closeJobTerminal(jobId: string, why: string, taskId?: string): Promise<boolean> {
   const job = getJob(jobId);
   const s = job?.sessionId ? getTermSession(job.sessionId) : undefined;
-  const killed = Boolean(s && s.status !== "closed" && job?.taskId === s.id);
+  const killed = Boolean(s && s.status !== "closed" && (taskId ?? job?.taskId) === s.id);
   if (s && killed) {
     await killSession(s.tmuxName);
     updateTermSession(s.id, { status: "closed" });

@@ -95,6 +95,16 @@ describe("tmux 版终端", () => {
     expect(getJob(jobId)!.status).not.toBe("running");
   });
 
+  it("缺陷开的会话：需求收工时照样杀（按收工的任务判，不看 job 归谁）", async () => {
+    const root = createTask({ title: "需求3", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = createTask({ title: "缺陷3", kind: "meegle", source: { rootId: root.id }, status: "processing" });
+    await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: "/r/app", task: "z" });
+    const name = getTermSession(root.id)!.tmuxName;
+    await finishTask(root.id, "done", "测试");
+    expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
+    expect(getTermSession(root.id)!.status).toBe("closed");
+  });
+
   it("缺陷收工不杀需求的会话；需求收工才杀", async () => {
     const { t: root } = await running("需求");
     const bug = createTask({ title: "缺陷", kind: "meegle", source: { rootId: root.id }, status: "processing" });
