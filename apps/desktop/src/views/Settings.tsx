@@ -130,7 +130,7 @@ export function Settings() {
       <section>
         <h2>自主开工</h2>
         <div className="group">
-          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握 ≥80）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时最多 1 条、每天最多 3 条；合并前照旧要你点头">
+          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握 ≥80）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时只跑 1 条，跑完再接下一条；合并前照旧要你点头">
             <button
               className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
               role="switch"

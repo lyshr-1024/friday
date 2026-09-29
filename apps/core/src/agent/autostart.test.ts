@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "@friday/shared";
-import { AUTOSTART_MIN_CONFIDENCE, AUTOSTART_PER_DAY, AUTOSTART_SETTLE_MS, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_MIN_CONFIDENCE, AUTOSTART_SETTLE_MS, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
-const env: AutostartEnv = { now: NOW, running: 0, startedToday: 0 };
+const env: AutostartEnv = { now: NOW, running: 0 };
 const settled = new Date(NOW - AUTOSTART_SETTLE_MS - 1000).toISOString();
 
 const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
@@ -72,7 +72,9 @@ describe("pickAutostart：并发和每日上限", () => {
     expect(pickAutostart([defect()], { ...env, running: 1 })).toEqual([]);
   });
 
-  it("今天开够了就不开", () => {
-    expect(pickAutostart([defect()], { ...env, startedToday: AUTOSTART_PER_DAY })).toEqual([]);
+  it("不设每天上限：前一条跑完就接下一条，只受「同时 1 条」约束", () => {
+    const q = [defect({ id: "a" }), defect({ id: "b" })];
+    expect(pickAutostart(q, env).map((t) => t.id)).toEqual(["a"]);
+    expect(pickAutostart(q.slice(1), env).map((t) => t.id)).toEqual(["b"]);
   });
 });

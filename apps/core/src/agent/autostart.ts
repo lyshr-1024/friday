@@ -1,5 +1,5 @@
 import type { Task } from "@friday/shared";
-import { listAudit, record } from "../memory/audit.js";
+import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { listTasks } from "../memory/tasks.js";
@@ -14,14 +14,12 @@ import { startAutonomousJob } from "./pipeline.js";
  */
 export const AUTOSTART_MIN_CONFIDENCE = 80;
 export const AUTOSTART_MAX_RUNNING = 1;
-export const AUTOSTART_PER_DAY = 3;
 /** 缺陷刚建时描述常被反复改，等一个同步周期再开 */
 export const AUTOSTART_SETTLE_MS = 15 * 60_000;
 
 export interface AutostartEnv {
   now: number;
   running: number;
-  startedToday: number;
 }
 
 export function eligible(t: Task, env: AutostartEnv): string | undefined {
@@ -39,9 +37,9 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
   return undefined;
 }
 
-/** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发和每日上限约束。 */
+/** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发约束。 */
 export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
-  const slots = Math.min(AUTOSTART_MAX_RUNNING - env.running, AUTOSTART_PER_DAY - env.startedToday);
+  const slots = AUTOSTART_MAX_RUNNING - env.running;
   if (slots <= 0) return [];
   const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
   return tasks
@@ -54,16 +52,10 @@ function runningAutonomous(): number {
   return listTasks("processing").filter((t) => t.source.autonomous && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }
 
-function startedSinceMidnight(now: number): number {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  return listAudit({ since: d.toISOString(), limit: 500 }).filter((e) => e.action === "autostart").length;
-}
-
 /** 每轮 Meegle 同步后跑一次。开关关着就什么都不做。 */
 export async function autostartTick(now = Date.now()): Promise<number> {
   if (!userSettings().autonomous) return 0;
-  const env: AutostartEnv = { now, running: runningAutonomous(), startedToday: startedSinceMidnight(now) };
+  const env: AutostartEnv = { now, running: runningAutonomous() };
   let started = 0;
   for (const t of pickAutostart(listTasks("understood"), env)) {
     const v = t.source.intake!;
