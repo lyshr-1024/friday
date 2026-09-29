@@ -6,6 +6,7 @@ import { listTasks } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { startAutonomousJob } from "./pipeline.js";
+import { TmuxMissingError } from "./tmux.js";
 
 /**
  * Friday 自己开自主任务的门禁。看的是「这次交付被直接收下的概率」，不是时间：
@@ -76,6 +77,15 @@ export async function autostartTick(now = Date.now()): Promise<number> {
     const v = t.source.intake!;
     const r = resolveProject(t.project!);
     if (r.kind !== "match") continue;
+    try {
+      await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
+    } catch (e) {
+      if (e instanceof TmuxMissingError) {
+        console.warn(`[autostart] ${e.message}，本轮不再尝试`);
+        break;
+      }
+      throw e;
+    }
     record({
       taskId: t.id,
       action: "autostart",
@@ -84,7 +94,6 @@ export async function autostartTick(now = Date.now()): Promise<number> {
       evidence: { confidence: v.confidence, project: r.project.name, meegleId: t.source.meegleId ?? null },
       risk: "reversible",
     });
-    await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
     state.notices.push({ title: `Friday 自己开工了 · ${r.project.name}`, body: t.title.slice(0, 120), taskId: t.id });
     started++;
   }

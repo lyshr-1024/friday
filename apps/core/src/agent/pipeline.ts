@@ -11,7 +11,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
-import { baseBranchOf, joinRootSession, openSession, resolveRoot } from "./sessions.js";
+import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot } from "./sessions.js";
 import { collectReport, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
@@ -72,10 +72,15 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
   if (root.id !== task.id) {
     if ((await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
     if (!root.project) updateTask(root.id, { project });
+    if (await continueRootSession(root, `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`)) return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
     const jobId = await openSession(root, root, { kind: "interactive", project, repoDir: dir, task: `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`, ...baseBranchOf(root) });
     updateTask(root.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } });
     record({ taskId: root.id, action: "terminal_opened", why: "你点了名下缺陷的「开始做」，需求还没有会话", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
     return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
+  }
+  if (await continueRootSession(task, detail)) {
+    record({ taskId: task.id, action: "terminal_continued", why: "这条任务已经有会话，不再开第二个", how: "把这次的话送进原来的 tmux 会话", evidence: { project, dir }, risk: "reversible" });
+    return updateTask(task.id, { status: "processing" })!;
   }
   const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...baseBranchOf(task) });
   record({ taskId: task.id, action: "terminal_opened", why: "你点了「开始做」，这条需求自己动手", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
@@ -86,6 +91,10 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string, trigger: RunTrigger = "retry"): Promise<Task> {
   const root = resolveRoot(task);
   if (root.id !== task.id && (await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
+  if (root.id === task.id && (await continueRootSession(task, detail))) {
+    record({ taskId: task.id, action: "terminal_continued", why: "这条任务已经有会话，不再开第二个", how: "把这次的活送进原来的 tmux 会话", evidence: { project, dir }, risk: "reversible" });
+    return updateTask(task.id, { status: "processing" })!;
+  }
   const dirt = await worktreeDirt(dir);
   if (dirt) {
     record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });

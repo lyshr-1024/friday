@@ -327,9 +327,10 @@ export const tasks = new Hono()
     // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，
     // 拿它当任务描述等于什么都没说；优先用方案，其次标题，最后才退回 understanding。
     const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
-    record({ taskId: t.id, action: "retry", why: "你让它重新开工", how: "重新拉起自主 Claude Code 任务", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
     try {
-      return c.json(await startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`));
+      const next = await startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
+      record({ taskId: t.id, action: "retry", why: "你让它重新开工", how: "重新拉起自主 Claude Code 任务", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
+      return c.json(next);
     } catch (e) {
       if (e instanceof TmuxMissingError) return c.json({ error: e.message }, 400);
       throw e;

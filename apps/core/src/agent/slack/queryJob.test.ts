@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { queryJobPrompt } from "./queryJob.js";
+import { queryJobPrompt, startQueryJob } from "./queryJob.js";
+import { setTmuxRunner } from "../tmux.js";
+import { listJobs } from "../../memory/jobs.js";
+import { findTaskBySource } from "../../memory/tasks.js";
+import type { InboxItem } from "@friday/shared";
 import { initMemory } from "../../memory/db.js";
 import { createTask, updateTask } from "../../memory/tasks.js";
 import { createJob } from "../../memory/jobs.js";
@@ -106,5 +110,22 @@ describe("查询任务收工", () => {
     const out = onJobExit(id, 0)!;
     expect(out.pending?.map((p) => p.type) ?? []).not.toContain("slack_reply");
     expect(out.status).toBe("done");
+  });
+});
+
+describe("startQueryJob：tmux 起不来", () => {
+  it("抛错，建出来的任务标 blocked 而不是留在 processing，也没有 job", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    writeFileSync(`${process.env.FRIDAY_DATA_DIR}/projects.md`, "# 项目\n\n## app\n- 目录：/r/app\n");
+    setTmuxRunner(async () => {
+      throw Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" });
+    });
+    const jobs = listJobs(1000).length;
+    const item = { userName: "拂晓", channelId: "C1", channelName: "#x", text: "这在哪配置？", ts: "1.1", userId: "U1" } as unknown as InboxItem;
+    await expect(startQueryJob(item, "这在哪配置？", "app")).rejects.toThrow("brew install tmux");
+    const t = findTaskBySource((s) => s.channelId === "C1", true)!;
+    expect(t.status).toBe("blocked");
+    expect(t.progress).toContain("brew install tmux");
+    expect(listJobs(1000).length).toBe(jobs);
   });
 });

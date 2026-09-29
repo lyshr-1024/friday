@@ -56,7 +56,14 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const id = randomUUID();
   const dir = picked[0]!.dir;
   const prompt = queryJobPrompt(id, ask, picked.map((p) => ({ name: p.name, dir: p.dir })), item.userName);
-  await openSession(task, task, { kind: "query", project: picked[0]!.name, repoDir: dir, task: prompt, jobId: id });
+  try {
+    await openSession(task, task, { kind: "query", project: picked[0]!.name, repoDir: dir, task: prompt, jobId: id });
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    updateTask(task.id, { status: "blocked", progress: `没能开始查：${reason}` });
+    record({ taskId: task.id, action: "claude_code_blocked", why: "后台查询没能起会话", how: reason, evidence: { jobId: id, conversation: conv }, risk: "read", status: "failed" });
+    throw e;
+  }
   createRun({ id, jobId: id, taskId: task.id, project: picked[0]!.name, kind: "query", trigger: "slack" });
 
   record({

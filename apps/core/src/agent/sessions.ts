@@ -92,6 +92,13 @@ export async function resumeInSession(sessionId: string, prompt?: string): Promi
   return true;
 }
 
+export async function continueRootSession(root: Task, detail: string): Promise<boolean> {
+  const s = getTermSession(root.id);
+  if (!s || s.status === "closed" || !(await hasSession(s.tmuxName))) return false;
+  if (s.status === "exited") return resumeInSession(root.id, detail);
+  return (await sayToSession(root.id, detail)) !== "no-terminal";
+}
+
 export async function joinRootSession(task: Task, root: Task, detail: string): Promise<"joined" | "no-session"> {
   const s = getTermSession(root.id);
   if (!s || s.status === "closed" || !(await hasSession(s.tmuxName))) return "no-session";

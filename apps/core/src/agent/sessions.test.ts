@@ -1,10 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask } from "../memory/tasks.js";
 import { getJob, listJobs } from "../memory/jobs.js";
-import { getTermSession } from "../memory/termSessions.js";
+import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "./tmux.js";
 import { flushQueued, joinRootSession, openSession, prepareFailed, resolveRoot, sayToSession, setLauncher, worktreeReady } from "./sessions.js";
 import { startInteractiveJob } from "./pipeline.js";
+
+vi.mock("./runner.js", async (orig) => ({
+  ...(await orig<typeof import("./runner.js")>()),
+  writeResumeScript: async (req: { id: string }) => `/runs/${req.id}.resume.sh`,
+}));
 
 let calls: string[][] = [];
 let tmuxInstalled = true;
@@ -98,5 +103,31 @@ describe("根任务与会话", () => {
     expect(t.status).toBe("blocked");
     expect(getTermSession(root.id)!.status).toBe("exited");
     expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
+  });
+});
+
+describe("一个根任务只有一个会话", () => {
+  it("同一个根连点两次开始做：只有一个 job 和一个会话，第二次把话送进去", async () => {
+    const t = createTask({ title: "重复开工", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const first = await startInteractiveJob(t, "app", "/r/app", "第一次");
+    await worktreeReady(first.source.jobId!, "/r/app-feat-dup");
+    const jobs = listJobs(1000).length;
+    await startInteractiveJob(getTask(t.id)!, "app", "/r/app", "第二次的话");
+    expect(listJobs(1000).length).toBe(jobs);
+    expect(getTermSession(t.id)!.jobId).toBe(first.source.jobId);
+    expect(sent().at(-1)).toBe("第二次的话");
+    expect(getTask(t.id)!.status).toBe("processing");
+  });
+
+  it("会话已 exited：再开始做是接回（zsh 跑 resume 脚本），不新开会话", async () => {
+    const t = createTask({ title: "退出后再来", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const first = await startInteractiveJob(t, "app", "/r/app", "第一次");
+    const jobId = first.source.jobId!;
+    updateTermSession(t.id, { status: "exited" });
+    const jobs = listJobs(1000).length;
+    await startInteractiveJob(getTask(t.id)!, "app", "/r/app", "接着做");
+    expect(listJobs(1000).length).toBe(jobs);
+    expect(sent().some((x) => x!.includes("/bin/zsh") && x!.includes(`/runs/${jobId}.resume.sh`))).toBe(true);
+    expect(getTermSession(t.id)!.status).toBe("running");
   });
 });

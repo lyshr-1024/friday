@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initMemory } from "../memory/db.js";
+import { createTask, getTask } from "../memory/tasks.js";
+import { listAudit } from "../memory/audit.js";
+import { updateSettings } from "../settings.js";
+import { setTmuxRunner } from "./tmux.js";
 import { AUTOSTART_CONFIDENCE, type Task } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS, autostartTick, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
 const env: AutostartEnv = { now: NOW, running: 0, minConfidence: AUTOSTART_MIN_CONFIDENCE };
@@ -90,5 +99,28 @@ describe("pickAutostart：并发和每日上限", () => {
     const q = [defect({ id: "a" }), defect({ id: "b" })];
     expect(pickAutostart(q, env).map((t) => t.id)).toEqual(["a"]);
     expect(pickAutostart(q.slice(1), env).map((t) => t.id)).toEqual(["b"]);
+  });
+});
+
+describe("autostartTick：tmux 没装", () => {
+  it("不记 autostart 账、任务状态不变，本轮不抛", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const dir = mkdtempSync(join(tmpdir(), "friday-as-"));
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## asproj\n- 目录：${dir}\n`);
+    updateSettings({ autonomous: true });
+    setTmuxRunner(async () => {
+      throw Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" });
+    });
+    const t = createTask({
+      title: "缺陷",
+      kind: "meegle",
+      status: "understood",
+      project: "asproj",
+      source: { meegleType: "issue", meegleId: "AS1", intake: { kind: "start", confidence: 95, project: "asproj", detail: "改一下", why: "具体", at: new Date().toISOString() } },
+    });
+    expect(await autostartTick(Date.now() + AUTOSTART_SETTLE_MS + 60_000)).toBe(0);
+    expect(getTask(t.id)!.status).toBe("understood");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "autostart")).toBe(false);
   });
 });
