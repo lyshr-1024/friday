@@ -25,6 +25,7 @@ beforeEach(() => {
     const sub = args[4];
     const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
     if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
+    if (sub === "list-windows") return "0|claude|1\n";
     if (sub === "list-sessions") {
       if (listFails) throw Object.assign(new Error("spawn tmux EAGAIN"), { code: "EAGAIN" });
       return [...alive].join("\n");

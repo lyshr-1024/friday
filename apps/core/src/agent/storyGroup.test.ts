@@ -19,6 +19,7 @@ beforeEach(() => {
     const sub = args[4];
     const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
     if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
+    if (sub === "list-windows") return "0|claude|1\n";
     if (sub === "rename-session") { alive.delete(target); alive.add(args.at(-1)!); }
     if (sub === "send-keys" && args.includes("-l")) sentTexts.push(args.at(-1)!);
     return "";
