@@ -20,6 +20,7 @@ import { jobs } from "./jobs.js";
 import { links } from "./links.js";
 import { memory } from "./memory.js";
 import { searchApi } from "./search.js";
+import { sessions } from "./sessions.js";
 import { slack } from "./slack.js";
 import { usage } from "./usage.js";
 import { runs } from "./runs.js";
@@ -58,4 +59,5 @@ export const app = new Hono()
   .route("/", runs)
   .route("/", autostart)
   .route("/", activity)
-  .route("/", summonApi);
+  .route("/", summonApi)
+  .route("/", sessions);

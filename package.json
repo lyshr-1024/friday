@@ -11,7 +11,8 @@
     "dev:core": "pnpm --filter @friday/core dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "postinstall": "find node_modules -maxdepth 7 -path '*node-pty*' -name spawn-helper -type f -exec chmod +x {} +"
   },
   "devDependencies": {
     "typescript": "^5.9.0"
