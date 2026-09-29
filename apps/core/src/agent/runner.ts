@@ -246,7 +246,7 @@ export function prepPrompt(id: string, repoDir: string, base?: string, info?: { 
   const about = info?.title ? untrusted("task", [info.title, info.description].filter(Boolean).join("\n")) : undefined;
   const branchSteps = existingBranch
     ? [
-        `0. 这条任务已经在分支 ${existingBranch} 上做过，不要新建分支：为它建 worktree（git worktree add <路径> ${existingBranch}）。这个分支已经在某个 worktree 里检出的话（git worktree list 能看到），直接用那个 worktree。`,
+        `0. 这条任务已经在分支 ${existingBranch} 上做过，不要新建分支：为它建 worktree（git worktree add <路径> ${existingBranch}）。先用 git worktree list 看它检出在哪：检出在另一个不是主仓（${repoDir}）的 worktree 里，就直接复用那个 worktree；检出在主仓里时，不许在主仓执行 git switch / git checkout 把它切走（那是用户正在用的主仓），这时 git worktree add 会失败——直接输出「分支正被主仓检出，无法另建 worktree」，不写路径文件，以非零退出。`,
         "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING 和现有 worktree 的惯例。项目有规则就照项目的来。",
         `2. 项目没有规则时：worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
         `3. 先 git fetch；本地没有 ${existingBranch} 就从 origin/${existingBranch} 检出。`,
@@ -263,7 +263,7 @@ export function prepPrompt(id: string, repoDir: string, base?: string, info?: { 
     ...branchSteps,
     "4. 按项目的方式把依赖装好，让新 worktree 能直接跑起来（前端仓库可以先用 cp -c 从主仓克隆 node_modules，再跑一次 install 补差）。",
     "5. 分支名和 worktree 目录名里都不要出现 friday。",
-    `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。`,
+    `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。不许把主仓（${repoDir}）或它下面的目录写进去——那样会在用户的主仓里直接干活，Friday 会拒收。`,
     existingBranch ? "不要提问——没人会回答；拿不准就自己定，但不要另起分支。" : "不要提问——没人会回答；拿不准就自己定，但绝不复用已有的 worktree 或分支，宁可多建一个。",
   ].join("\n");
 }

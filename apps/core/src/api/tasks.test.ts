@@ -8,10 +8,9 @@ import { addInboxItems } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
 vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
 
@@ -152,10 +151,11 @@ describe("Slack 没接入要说出来", () => {
 
 let seq = 0;
 describe("Friday 推断的归属", () => {
+  const R = mainRepo("rootproj");
   let sent: string[] = [];
   async function guessed() {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "# 项目\n\n## rootproj\n- 目录：/r/rootproj\n");
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## rootproj\n- 目录：${R}\n`);
     const alive = new Set<string>();
     sent = [];
     setTmuxRunner(async (args) => {
@@ -170,9 +170,8 @@ describe("Friday 推断的归属", () => {
     });
     setLauncher(async (_req, name) => { alive.add(name); });
     const root = createTask({ title: "计费对接", kind: "meegle", source: { meegleId: "S9", meegleType: "story" }, status: "processing", project: "rootproj" });
-    const jobId = await openSession(root, root, { kind: "interactive", project: "rootproj", repoDir: "/r/rootproj", task: "x" });
-    const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
-    execFileSync("git", ["init", "-q", "-b", `feat-root-${process.pid}-${seq++}`, wt]);
+    const jobId = await openSession(root, root, { kind: "interactive", project: "rootproj", repoDir: R, task: "x" });
+    const wt = addTestWorktree(R, `rootproj-feat-${seq++}`);
     await worktreeReady(jobId, wt);
     const bug = createTask({ title: "导出按钮点两次重复下载", kind: "slack", source: { rootId: root.id, rootGuess: true }, status: "understood" });
     return { root, bug };

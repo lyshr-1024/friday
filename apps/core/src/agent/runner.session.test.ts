@@ -70,9 +70,13 @@ describe("两段式启动脚本", () => {
     expect(p).not.toContain("必须新建分支");
     expect(p).not.toContain("feat/base");
     expect(p).toContain(worktreeFile("j"));
+    expect(p).toContain("不许把主仓");
+    expect(p).toContain("分支正被主仓检出，无法另建 worktree");
+    expect(p).toMatch(/不许在主仓[^\n]*git switch/);
     const fresh = prepPrompt("j", "/r/app", "feat/base", { title: "导出中心" });
     expect(fresh).toContain("必须新建分支");
     expect(fresh).not.toContain("git worktree add <路径>");
+    expect(fresh).toContain("不许把主仓");
   });
 
   it("启动脚本把已有分支交给准备段", () => {

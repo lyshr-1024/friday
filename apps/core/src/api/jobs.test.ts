@@ -1,7 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { createJob } from "../memory/jobs.js";
@@ -9,6 +5,7 @@ import { createTask, getTask } from "../memory/tasks.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
+import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
 describe("终端任务", () => {
   it("hook 回报最后一轮，退出回报改状态并进通知队列", async () => {
@@ -34,21 +31,17 @@ describe("hook 事件驱动状态位", () => {
     setLauncher(async () => {});
   });
   const hook = (jobId: string, body: unknown) => app.request(`/jobs/${jobId}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const wt = (name: string) => {
-    const dir = join(mkdtempSync(join(tmpdir(), "friday-jh-")), name);
-    mkdirSync(dir);
-    execFileSync("git", ["init", "-q", "-b", `feat/${name}`, dir]);
-    return dir;
-  };
+  const R = mainRepo("app");
+  const wt = (name: string) => addTestWorktree(R, name, `feat/${name}`);
   async function open(title: string) {
     const t = createTask({ title, kind: "verbal", source: {}, status: "processing", project: "app" });
-    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     return { t, jobId };
   }
 
   it("UserPromptSubmit 记输入时间（Esc、斜杠命令、空回车都不会有这条）", async () => {
     const { t, jobId } = await open("提交输入");
-    await worktreeReady(jobId, wt("jh-a"));
+    expect(await worktreeReady(jobId, wt("jh-a"))).toBeTruthy();
     const before = getTermSession(t.id)!.lastInputAt!;
     await new Promise((r) => setTimeout(r, 5));
     expect((await hook(jobId, { event: "UserPromptSubmit", sessionId: "s-1" })).status).toBe(200);
@@ -57,7 +50,7 @@ describe("hook 事件驱动状态位", () => {
 
   it("Notification idle_prompt 当作这轮停了", async () => {
     const { t, jobId } = await open("空闲提示");
-    await worktreeReady(jobId, wt("jh-b"));
+    expect(await worktreeReady(jobId, wt("jh-b"))).toBeTruthy();
     expect(getTermSession(t.id)!.lastStopAt).toBeUndefined();
     await hook(jobId, { event: "Notification", notificationType: "idle_prompt", message: "Claude is waiting for your input", sessionId: "s-2" });
     expect(getTermSession(t.id)!.lastStopAt).toBeTruthy();
@@ -73,7 +66,7 @@ describe("hook 事件驱动状态位", () => {
 
   it("SessionStart 的 cwd 是主仓：不当成 worktree", async () => {
     const { t, jobId } = await open("主仓 cwd");
-    await hook(jobId, { event: "SessionStart", source: "startup", sessionId: "s-4", cwd: "/r/app" });
+    await hook(jobId, { event: "SessionStart", source: "startup", sessionId: "s-4", cwd: R });
     expect(getTermSession(t.id)!.status).toBe("preparing");
     expect(getTermSession(t.id)!.worktree).toBeUndefined();
   });

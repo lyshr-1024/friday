@@ -1,6 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createTask, getTask } from "../memory/tasks.js";
@@ -15,13 +13,9 @@ import { setClaudeFinder } from "./runner.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
 import { startAutonomousJob } from "./pipeline.js";
 import { AUTOSTART_SETTLE_MS, autostartTick } from "./autostart.js";
+import { addTestWorktree, mainRepo } from "./testRepos.js";
 
-const repo = (name: string) => {
-  const dir = join(mkdtempSync(join(tmpdir(), "friday-rs-")), name);
-  mkdirSync(dir);
-  execFileSync("git", ["init", "-q", "-b", "main", dir]);
-  return dir;
-};
+const repo = (name: string) => mainRepo(name);
 
 let calls: string[][] = [];
 let alive = new Set<string>();
@@ -67,7 +61,7 @@ describe("接回不丢守卫", () => {
 
   it("自主任务接回聊天：Bash 守卫和拒答都在", async () => {
     const dir = repo("app");
-    const { t } = await exitedSession("autonomous", dir, repo("app-fix-a"));
+    const { t } = await exitedSession("autonomous", dir, addTestWorktree(dir, "app-fix-a"));
     expect(await resumeInSession(t.id)).toBe(true);
     const pre = settingsOf(scriptOf(typed().at(-1)!)).hooks.PreToolUse!;
     expect(pre.some((h) => h.matcher === "Bash" && h.hooks[0]!.command.includes(".guard.sh"))).toBe(true);
@@ -75,7 +69,8 @@ describe("接回不丢守卫", () => {
   });
 
   it("交互式接回：不挂守卫", async () => {
-    const { t } = await exitedSession("interactive", repo("app"), repo("app-feat-b"));
+    const dir = repo("app");
+    const { t } = await exitedSession("interactive", dir, addTestWorktree(dir, "app-feat-b"));
     expect(await resumeInSession(t.id)).toBe(true);
     const pre = settingsOf(scriptOf(typed().at(-1)!)).hooks.PreToolUse!;
     expect(pre.some((h) => h.matcher === "Bash")).toBe(false);
@@ -85,7 +80,7 @@ describe("接回不丢守卫", () => {
 describe("自主入口遇到已退出的根会话：在原会话里起一次新的自主运行", () => {
   it("retry：不新建 tmux 会话，脚本是 -p --model + 守卫 settings，新 job 与 runs 记账", async () => {
     const dir = repo("app");
-    const { t, jobId: old } = await exitedSession("autonomous", dir, repo("app-fix-c"));
+    const { t, jobId: old } = await exitedSession("autonomous", dir, addTestWorktree(dir, "app-fix-c"));
     launched = [];
     const after = await startAutonomousJob(getTask(t.id)!, "app", dir, "再修一次", "retry");
     expect(launched).toEqual([]);
@@ -110,7 +105,7 @@ describe("autostart 不碰你自己的交互式会话", () => {
     updateSettings({ autonomous: true });
     const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "AS-S1", meegleType: "story" }, status: "processing", project: "asapp" });
     const jobId = await openSession(story, story, { kind: "interactive", project: "asapp", repoDir: dir, task: "x" });
-    await worktreeReady(jobId, repo("asapp-feat-s"));
+    await worktreeReady(jobId, addTestWorktree(dir, "asapp-feat-s"));
     const bug = createTask({
       title: "缺陷",
       kind: "meegle",
@@ -135,7 +130,7 @@ describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求"
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## r1app\n- 目录：${dir}\n`);
     const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "R1-S1", meegleType: "story" }, status: "processing", project: "r1app" });
     const storyJob = await openSession(story, story, { kind: "interactive", project: "r1app", repoDir: dir, task: "x" });
-    await worktreeReady(storyJob, repo("r1app-feat-s"));
+    await worktreeReady(storyJob, addTestWorktree(dir, "r1app-feat-s"));
     setJobSession(storyJob, "sess-story");
     finishJob(storyJob, 0);
     updateTermSession(story.id, { status: "exited" });

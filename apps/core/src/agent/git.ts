@@ -24,6 +24,9 @@ const gitSync = (dir: string, args: string[]): string | undefined => {
   }
 };
 
+export const gitTopSync = (dir: string): string | undefined => gitSync(dir, ["rev-parse", "--show-toplevel"]);
+export const gitCommonDirSync = (dir: string): string | undefined => gitSync(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+
 export const headShaSync = (dir: string): string => gitSync(dir, ["rev-parse", "HEAD"]) ?? "";
 
 /** `git diff --numstat` 的输出：二进制文件增删是 `-`，按 0 算、路径留着 */

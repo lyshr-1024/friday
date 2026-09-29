@@ -1,7 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
@@ -10,14 +6,12 @@ import { setTmuxPath, setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { resetAttachBreaker, setPtySpawner } from "../agent/attach.js";
 import { setClipboardWriter } from "./sessions.js";
+import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
+const R = mainRepo("app");
 let wt = "";
 let seq = 0;
-const freshWorktree = () => {
-  const dir = mkdtempSync(join(tmpdir(), "friday-wt-"));
-  execFileSync("git", ["init", "-q", "-b", `feat-api-${process.pid}-${seq++}`, dir]);
-  return dir;
-};
+const freshWorktree = () => addTestWorktree(R, `app-feat-api-${seq++}`);
 let calls: string[][] = [];
 let written: string[] = [];
 let active: number | Error = 0;
@@ -44,7 +38,7 @@ const post = (path: string, body: unknown = {}) => app.request(path, { method: "
 
 async function session() {
   const t = createTask({ title: "会话接口", kind: "verbal", source: {}, status: "processing", project: "app" });
-  const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+  const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
   wt = freshWorktree();
   await worktreeReady(jobId, wt);
   return t.id;
@@ -101,7 +95,7 @@ describe("/sessions", () => {
   it("准备段回报已被占用的 worktree：409", async () => {
     await session();
     const t = createTask({ title: "撞车", kind: "verbal", source: {}, status: "processing", project: "app" });
-    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     const r = await post(`/jobs/${jobId}/worktree`, { path: wt });
     expect(r.status).toBe(409);
     expect(getTermSession(t.id)!.status).toBe("exited");

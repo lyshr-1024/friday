@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import type { Job, Task, TermSession, TermSessionKind } from "@friday/shared";
 import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, updateTermSession } from "../memory/termSessions.js";
-import { currentBranchSync } from "./git.js";
+import { currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
 import { claudeWindowIndex, hasSession, killSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
@@ -160,22 +161,44 @@ export async function joinRootSession(task: Task, root: Task, detail: string): P
   return "joined";
 }
 
+const real = (p: string) => {
+  const t = p.replace(/\/+$/, "") || "/";
+  try {
+    return realpathSync(t);
+  } catch {
+    return resolve(t);
+  }
+};
+
+function notOwnWorktree(path: string, repoDir: string): string | undefined {
+  const top = gitTopSync(path);
+  const mainTop = gitTopSync(repoDir);
+  if (real(path) === real(repoDir) || (top && mainTop && real(top) === real(mainTop))) return "准备段把主仓当成了 worktree，没开工";
+  const common = gitCommonDirSync(path);
+  const mainCommon = gitCommonDirSync(repoDir);
+  if (!common || !mainCommon || real(common) !== real(mainCommon)) return "准备段回报的路径不是这个仓库的 git worktree，没开工";
+  return undefined;
+}
+
 export async function worktreeReady(jobId: string, path: string): Promise<TermSession | undefined> {
   const job = getJob(jobId);
   const s = job?.sessionId ? getTermSession(job.sessionId) : undefined;
   if (!job || !s) return undefined;
   const branch = currentBranchSync(path) || undefined;
-  const clash = otherOpenSessionUsing(s.id, "worktree", path, s.repoDir) ? `worktree（${path}）` : branch && otherOpenSessionUsing(s.id, "branch", branch, s.repoDir) ? `分支（${branch}）` : undefined;
-  if (clash) {
+  const refuse = (why: string, how: string, progress: string) => {
     finishJob(jobId, 2);
     updateTermSession(s.id, { status: "exited" });
     if (job.taskId) {
-      record({ taskId: job.taskId, action: "claude_code_blocked", why: "准备段复用了别的任务已经在用的 worktree / 分支", how: `${clash}已被另一个未关闭的会话占用`, evidence: { jobId, path, branch: branch ?? null }, risk: "read", status: "failed" });
-      updateTask(job.taskId, { status: "blocked", progress: `准备段复用了别的任务的${clash}，这条没开工` });
+      record({ taskId: job.taskId, action: "claude_code_blocked", why, how, evidence: { jobId, path, repoDir: s.repoDir, branch: branch ?? null }, risk: "read", status: "failed" });
+      updateTask(job.taskId, { status: "blocked", progress });
     }
     publish({ type: "tasks" });
     return undefined;
-  }
+  };
+  const wrong = notOwnWorktree(path, s.repoDir);
+  if (wrong) return refuse("准备段回报的路径不能当这次的 worktree", `${path}（主仓 ${s.repoDir}）`, wrong);
+  const clash = otherOpenSessionUsing(s.id, "worktree", path, s.repoDir) ? `worktree（${path}）` : branch && otherOpenSessionUsing(s.id, "branch", branch, s.repoDir) ? `分支（${branch}）` : undefined;
+  if (clash) return refuse("准备段复用了别的任务已经在用的 worktree / 分支", `${clash}已被另一个未关闭的会话占用`, `准备段复用了别的任务的${clash}，这条没开工`);
   const next = safeName(basename(path));
   const renamed = Boolean(next) && next !== s.tmuxName && (await renameSession(s.tmuxName, next));
   setJobDir(jobId, path);

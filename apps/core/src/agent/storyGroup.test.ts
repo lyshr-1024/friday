@@ -9,6 +9,7 @@ import { listJobs } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { initMemory } from "../memory/db.js";
+import { addTestWorktree, mainRepo } from "./testRepos.js";
 
 let sentTexts: string[] = [];
 let alive = new Set<string>();
@@ -46,8 +47,9 @@ describe("同需求共用一个会话", () => {
   it("需求有活着的会话时，缺陷转达给它而不是另起一个", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const story = createTask({ title: "猜涨跌兜底开奖", kind: "meegle", source: { meegleId: "S1", meegleType: "story" }, status: "processing", project: "p" });
-    const jobId = await openSession(story, story, { kind: "interactive", project: "p", repoDir: "/d", task: "x" });
-    await worktreeReady(jobId, "/d-feat-guess");
+    const repoDir = mainRepo("d");
+    const jobId = await openSession(story, story, { kind: "interactive", project: "p", repoDir, task: "x" });
+    await worktreeReady(jobId, addTestWorktree(repoDir, "d-feat-guess"));
     const jobsBefore = listJobs(1000).length;
 
     const bug = createTask({ title: "开关没有二次确认", kind: "meegle", source: { meegleId: "B1", linkedStoryId: "S1" }, status: "understood" });

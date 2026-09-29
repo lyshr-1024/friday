@@ -7,7 +7,7 @@ import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../a
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { findTaskBySource } from "../memory/tasks.js";
+import { findTaskBySource, getTask } from "../memory/tasks.js";
 import { getTermSession, markInput, markStop } from "../memory/termSessions.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
@@ -119,8 +119,9 @@ export const jobs = new Hono()
     if (!parsed.success) return c.json({ error: "path 必填" }, 400);
     const s = await worktreeReady(c.req.param("id"), parsed.data.path);
     if (s) return c.json(s);
-    const sid = getJob(c.req.param("id"))?.sessionId;
-    return sid && getTermSession(sid) ? c.json({ error: "准备段复用了别的任务的 worktree 或分支，这条没开工" }, 409) : c.json({ error: "没有这个会话" }, 404);
+    const job = getJob(c.req.param("id"));
+    if (!job?.sessionId || !getTermSession(job.sessionId)) return c.json({ error: "没有这个会话" }, 404);
+    return c.json({ error: (job.taskId && getTask(job.taskId)?.progress) || "准备段回报的 worktree 被拒收，这条没开工" }, 409);
   })
   .post("/jobs/:id/exit", async (c) => {
     const parsed = z.object({ code: z.number().int(), phase: z.literal("prepare").optional() }).safeParse(await c.req.json().catch(() => null));

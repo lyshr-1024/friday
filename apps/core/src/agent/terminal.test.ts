@@ -1,7 +1,4 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { getTermSession } from "../memory/termSessions.js";
@@ -12,6 +9,9 @@ import { say, sweepClosedTerminals } from "./terminal.js";
 import { finishTask, rejectTask } from "./pipeline.js";
 import { closeJobTerminal } from "./terminal.js";
 import { db } from "../memory/db.js";
+import { addTestWorktree, mainRepo } from "./testRepos.js";
+
+const R = mainRepo("app");
 
 let calls: string[][] = [];
 let alive = new Set<string>();
@@ -41,8 +41,8 @@ const age = (id: string) => db().prepare("UPDATE term_sessions SET created_at = 
 
 async function running(title: string, extra: Record<string, unknown> = {}) {
   const t = createTask({ title, kind: "verbal", source: extra, status: "processing", project: "app" });
-  const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
-  await worktreeReady(jobId, `/r/app-${t.id.slice(0, 6)}`);
+  const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
+  await worktreeReady(jobId, addTestWorktree(R, `app-${t.id.slice(0, 6)}`));
   return { t, jobId };
 }
 
@@ -100,7 +100,7 @@ describe("tmux 版终端", () => {
   it("缺陷自己的 job 收尾不杀需求的会话", async () => {
     const { t: root } = await running("需求2");
     const bug = createTask({ title: "缺陷2", kind: "meegle", source: { rootId: root.id }, status: "processing" });
-    const jobId = await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: "/r/app", task: "y" });
+    const jobId = await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: R, task: "y" });
     calls = [];
     expect(await closeJobTerminal(jobId, "测试")).toBe(false);
     expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
@@ -111,7 +111,7 @@ describe("tmux 版终端", () => {
   it("缺陷开的会话：需求收工时照样杀（按收工的任务判，不看 job 归谁）", async () => {
     const root = createTask({ title: "需求3", kind: "meegle", source: {}, status: "processing", project: "app" });
     const bug = createTask({ title: "缺陷3", kind: "meegle", source: { rootId: root.id }, status: "processing" });
-    await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: "/r/app", task: "z" });
+    await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: R, task: "z" });
     const name = getTermSession(root.id)!.tmuxName;
     await finishTask(root.id, "done", "测试");
     expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
@@ -130,9 +130,9 @@ describe("tmux 版终端", () => {
   });
 
   it("收工后 worktree 目录还在就记 worktree_kept，Friday 自己不删", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "app-feat-keep-"));
+    const dir = addTestWorktree(R, "app-feat-keep");
     const t = createTask({ title: "留着", kind: "verbal", source: {}, status: "processing", project: "app" });
-    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     await worktreeReady(jobId, dir);
     await finishTask(t.id, "done", "测试");
     expect(listAudit({ limit: 50 }).some((e) => e.taskId === t.id && e.action === "worktree_kept")).toBe(true);
@@ -189,7 +189,7 @@ describe("缺陷的 rootId 指向已收工的需求", () => {
   it("缺陷自己的会话在它收工时照样 kill", async () => {
     const story = createTask({ title: "已收工需求", kind: "meegle", source: {}, status: "done", project: "app" });
     const bug = createTask({ title: "自己开的缺陷", kind: "meegle", source: { rootId: story.id }, status: "processing", project: "app" });
-    await openSession(bug, bug, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    await openSession(bug, bug, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     const name = getTermSession(bug.id)!.tmuxName;
     await finishTask(bug.id, "done", "测试");
     expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
