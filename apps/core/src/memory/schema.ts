@@ -232,6 +232,23 @@ CREATE TABLE IF NOT EXISTS stage_signals (
   rejected INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS term_sessions (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  repo_dir TEXT NOT NULL,
+  tmux_name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('interactive', 'autonomous', 'query')),
+  status TEXT NOT NULL CHECK (status IN ('preparing', 'running', 'exited', 'closed')),
+  job_id TEXT,
+  worktree TEXT,
+  branch TEXT,
+  last_input_at TEXT,
+  last_stop_at TEXT,
+  seen_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

@@ -48,6 +48,7 @@ export function migrate(d: DatabaseSync): void {
   // 这个 job 是替哪条任务干的：开工时写死归属，终端连回来时按它认领，
   // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
   if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
+  if (!jobCols.includes("session_id")) d.exec("ALTER TABLE jobs ADD COLUMN session_id TEXT");
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!taskCols.includes("attention")) d.exec("ALTER TABLE tasks ADD COLUMN attention TEXT");
   if (!taskCols.includes("pinned")) d.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");

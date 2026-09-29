@@ -15,6 +15,7 @@ interface Row {
   terminal: TerminalApp | null;
   ghostty_id: string | null;
   task_id: string | null;
+  session_id: string | null;
   log_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -33,21 +34,26 @@ const toJob = (r: Row): Job => ({
   ...(r.terminal ? { terminal: r.terminal } : {}),
   ...(r.ghostty_id ? { ghosttyId: r.ghostty_id } : {}),
   ...(r.task_id ? { taskId: r.task_id } : {}),
+  ...(r.session_id ? { sessionId: r.session_id } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
 
-export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string; terminal?: TerminalApp; taskId?: string }): Job {
+export function createJob(input: { id: string; project: string; dir: string; task?: string; conversationId?: string; logPath: string; terminal?: TerminalApp; taskId?: string; sessionId?: string }): Job {
   const startedAt = new Date().toISOString();
   db()
-    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)")
-    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal, input.taskId ?? null);
+    .prepare("INSERT INTO jobs (id, project, dir, task, conversation_id, status, log_path, started_at, terminal, task_id, session_id) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)")
+    .run(input.id, input.project, input.dir, input.task ?? null, input.conversationId ?? null, input.logPath, startedAt, input.terminal ?? userSettings().terminal, input.taskId ?? null, input.sessionId ?? null);
   return getJob(input.id)!;
 }
 
 /** 开完 Ghostty 窗口把 terminal id 记下来，之后 say / focus / close 都认它。 */
 export function setGhosttyId(id: string, ghosttyId: string): void {
   db().prepare("UPDATE jobs SET ghostty_id = ? WHERE id = ?").run(ghosttyId, id);
+}
+
+export function setJobDir(id: string, dir: string): void {
+  db().prepare("UPDATE jobs SET dir = ? WHERE id = ?").run(dir, id);
 }
 
 export function getJob(id: string): Job | undefined {

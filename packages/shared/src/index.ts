@@ -277,11 +277,34 @@ export interface Job {
   ghosttyId?: string;
   /** 这个 job 是替哪条任务干的。开工时写死，终端连回来按它认领，不另建任务 */
   taskId?: string;
+  /** 这个 job 对应的 tmux 会话 id */
+  sessionId?: string;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;
   startedAt: string;
   finishedAt?: string;
+}
+
+export type TermSessionKind = "interactive" | "autonomous" | "query";
+export type TermSessionStatus = "preparing" | "running" | "exited" | "closed";
+
+/** 一个根任务的 tmux 会话：根 = worktree = 会话 = 分支 */
+export interface TermSession {
+  id: string;
+  project: string;
+  repoDir: string;
+  tmuxName: string;
+  kind: TermSessionKind;
+  status: TermSessionStatus;
+  jobId?: string;
+  worktree?: string;
+  branch?: string;
+  lastInputAt?: string;
+  lastStopAt?: string;
+  seenAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 
