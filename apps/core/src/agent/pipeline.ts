@@ -65,7 +65,7 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
  * 和自主开工的区别只有一处——没有自主提示词、没有 guard、没有自动收尾：
  * 分支、要不要测、什么时候算完，都是我在终端里说了算，Friday 只负责开会话和跟状态。
  */
-export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
+export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string, conversationId?: string): Promise<Task> {
   const root = resolveRoot(task);
   if (root.id !== task.id) {
     if ((await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
@@ -80,7 +80,7 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
     record({ taskId: task.id, action: "terminal_continued", why: "这条任务已经有会话，不再开第二个", how: "把这次的话送进原来的 tmux 会话", evidence: { project, dir }, risk: "reversible" });
     return updateTask(task.id, { status: "processing" })!;
   }
-  const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...baseBranchOf(task) });
+  const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...(conversationId ? { conversationId } : {}), ...baseBranchOf(task) });
   record({ taskId: task.id, action: "terminal_opened", why: "你点了「开始做」，这条需求自己动手", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
   return updateTask(task.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } })!;
 }

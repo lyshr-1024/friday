@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
+import { listAudit } from "../memory/audit.js";
 
 function repoWithWorktree() {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "wt-repo-")));
@@ -44,6 +45,7 @@ describe("遗留 worktree", () => {
     const forced = (await (await post({ path: tree, force: true })).json()) as { removed: boolean };
     expect(forced.removed).toBe(true);
     expect(existsSync(tree)).toBe(false);
+    expect(listAudit({ limit: 5 }).find((e) => e.action === "worktree_removed")?.risk).toBe("irreversible");
   });
 
   it("列表里的路径按记录里的 repoDir 删，请求里的 repoDir 不作数", async () => {

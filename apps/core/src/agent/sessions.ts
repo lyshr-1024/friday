@@ -33,13 +33,13 @@ export function baseBranchOf(t: Task): { baseBranch?: string } {
 export async function openSession(
   root: Task,
   owner: Task,
-  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string },
+  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string; conversationId?: string },
 ): Promise<string> {
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();
   const jobId = o.jobId ?? randomUUID();
   const name = sessionName(o.repoDir, root.id.slice(0, 8));
-  createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id });
+  createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
     await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}) }, name);

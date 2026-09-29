@@ -36,6 +36,6 @@ export const worktrees = new Hono()
     const entry = leftoverWorktrees().find((w) => w.path === parsed.data.path);
     if (!entry) return c.json({ error: "这个路径不在遗留 worktree 列表里，不删" }, 400);
     const r = await removeWorktree(entry.repoDir, entry.path, parsed.data.force);
-    record({ action: r.removed ? "worktree_removed" : "worktree_kept", why: parsed.data.force ? "你在设置页手动删遗留的 worktree，连没提交的改动一起丢" : "你在设置页手动删遗留的 worktree", how: r.removed ? `删了 ${entry.path}${r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : ""}` : `没删：${r.kept ?? "未知原因"}`, evidence: { path: entry.path, repoDir: entry.repoDir, branch: r.branch ?? null }, risk: "reversible" });
+    record({ action: r.removed ? "worktree_removed" : "worktree_kept", why: parsed.data.force ? "你在设置页手动删遗留的 worktree，连没提交的改动一起丢" : "你在设置页手动删遗留的 worktree", how: r.removed ? `删了 ${entry.path}${r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : ""}` : `没删：${r.kept ?? "未知原因"}`, evidence: { path: entry.path, repoDir: entry.repoDir, branch: r.branch ?? null }, risk: parsed.data.force ? "irreversible" : "reversible" });
     return c.json(r);
   });

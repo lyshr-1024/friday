@@ -441,13 +441,13 @@ export function Settings() {
         </div>
       </section>
       {confirmDrop && (
-        <div className="modal" onMouseDown={() => setConfirmDrop(null)}>
+        <div className="modal" onMouseDown={() => setConfirmDrop(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmDrop(null); }}>
           <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="删掉 worktree">
             <strong className="modal__title">删掉这个 worktree，没提交的改动会丢</strong>
             <p className="modal__note">{confirmDrop.path.replace(/^\/Users\/[^/]+/, "~")} 里有还没提交的改动，删了找不回来。分支{confirmDrop.branch ? ` ${confirmDrop.branch} ` : ""}只在合并过时才会一起删。</p>
             <div className="modal__foot">
-              <button className="b b--primary" autoFocus onClick={() => void dropWorktree(confirmDrop)}>连改动一起删掉</button>
-              <button className="b b--text" onClick={() => setConfirmDrop(null)}>取消</button>
+              <button className="b b--danger" onClick={() => void dropWorktree(confirmDrop)}>连改动一起删掉</button>
+              <button className="b b--text" autoFocus onClick={() => setConfirmDrop(null)}>取消</button>
             </div>
           </div>
         </div>

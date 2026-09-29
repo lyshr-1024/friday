@@ -127,7 +127,7 @@ exec zsh -il          # session 留着，直到根收工
 
 - **建**：根第一次开工时，由准备段的 Claude 建（§4）。不在任务建立时建。
 - **记**：`sessions.worktree` / `branch`；`task.source.worktree` / `repoDir` 继续写在根任务上供 `git_merge` 用。
-- **收**：终端里的 Claude 调 `friday_finish` 时自己合 MR、按项目规则删 worktree 和分支（工具描述补这一句）。`finishTask`（done / ignored）只 `kill-session`；之后若 `worktree` 路径仍存在，记账 `worktree_kept` 并留在 `GET /worktrees/leftover` 列表里，设置页「遗留的 worktree」逐条显示路径、分支、脏不脏，用户点删才 `git worktree remove`（不 force）+ `git branch -d`（拒绝就留分支并说明）。`fridayWorktree` / `addWorktree` / `cleanupTaskWorktree` 删除；`removeWorktree` 保留给手动删。
+- **收**：终端里的 Claude 调 `friday_finish` 时自己合 MR、按项目规则删 worktree 和分支（工具描述补这一句）。**Friday 自己从不删 worktree**：`finishTask`（done / ignored）只 `kill-session`；之后若 `worktree` 路径仍存在，记账 `worktree_kept` 并留在 `GET /worktrees/leftover` 列表里，设置页「遗留的 worktree」逐条显示路径、分支、脏不脏，用户点删才 `git worktree remove`。有未提交改动的 worktree 默认拒绝，只有用户在设置页二次确认（「连改动一起删掉」，带 `force`，账本记 `irreversible`）才连改动一起删；分支一律只用 `git branch -d`（拒绝就留分支并说明）。`fridayWorktree` / `addWorktree` / `cleanupTaskWorktree` 删除；`removeWorktree` 保留给手动删。
 - 老的 `<项目>/.claude/worktrees/friday-*` 一并出现在遗留列表里。
 
 ## 6. 内嵌终端（前端 `views/Terminal.tsx`，后端 `api/pty.ts`；从 `1668499^` 捡回骨架）

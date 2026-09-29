@@ -44,8 +44,8 @@ export const run = new Hono().post("/run", async (c) => {
   }
   const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
   try {
-    const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `在 ${resolved.project.name} 上开个终端`, kind: "code", source: {}, project: resolved.project.name, status: "processing", understanding: task ?? "你手动开的终端会话" });
-    const started = await startInteractiveJob(t, resolved.project.name, resolved.project.dir, task ?? "");
+    const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `在 ${resolved.project.name} 上开个终端`, kind: "code", source: conv ? { conversationId: conv } : {}, project: resolved.project.name, status: "understood", understanding: task ?? "你手动开的终端会话" });
+    const started = await startInteractiveJob(t, resolved.project.name, resolved.project.dir, task ?? "", conv);
     const jobId = started.source.jobId!;
     finishSession(id, `launched tmux ${jobId}`);
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, jobId, ...(task ? { task } : {}) };

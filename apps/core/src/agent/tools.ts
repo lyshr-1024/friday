@@ -236,10 +236,10 @@ export const fridayToolList = (conversationId?: string) => [
               ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
             },
             project: r.name,
-            status: "processing",
+            status: "understood",
             understanding: task ?? "会话里让 Friday 开的终端",
           });
-        const started = await startInteractiveJob(t, r.name, r.dir, task ?? "");
+        const started = await startInteractiveJob(t, r.name, r.dir, task ?? "", conversationId);
         const id = started.source.jobId ?? t.id;
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
         return text(`已在 Friday 里打开 ${r.name}（${r.dir}）的终端${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);

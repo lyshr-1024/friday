@@ -543,7 +543,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
     return root && root !== t.id ? root : undefined;
   };
   const nested = (t: Task) => Boolean(parentOf(t));
-  const childrenOf = (t: Task) => tasks.filter((x) => !closed(x) && parentOf(x) === t.id).sort(byActivity(active));
+  const childrenOf = (t: Task) => tasks.filter((x) => !closed(x) && parentOf(x) === t.id).sort((a, b) => Number(Boolean(a.source.rootGuess)) - Number(Boolean(b.source.rootGuess)) || byActivity(active)(a, b));
   // 情境卡从 Slack 线程派生出来的待办：线程那条还在时它们说的是同一件事，不再单独占一行，
   // 跟缺陷挂需求一样收进父任务里看。线程已经收工的留着独立显示，那才是真正剩下的事。
   const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
@@ -703,7 +703,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                     {g.items.map(({ t, child }) => {
                       const st = t.session?.state ?? "none";
                       const guess = Boolean(t.source.rootGuess);
-                      const kids = child ? 0 : (board?.tasks ?? []).filter((x) => x.source.rootId === t.id && !closed(x)).length;
+                      const kids = child ? 0 : (board?.tasks ?? []).filter((x) => x.source.rootId === t.id && !x.source.rootGuess && !closed(x)).length;
                       return (
                         <div
                           key={t.id}
@@ -1059,7 +1059,7 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
 }
 
 function actionNote(a: PendingAction, conv?: SlackConversation): string {
-  const detail = a.detail.trim().replace(/[。.]?$/, "。");
+  const detail = a.detail.trim() ? a.detail.trim().replace(/[。.]?$/, "。") : "";
   if (a.type === "git_merge") return `${detail}合完可以在操作记录里撤销。`;
   return [detail, consequence(a, conv) ?? ""].join("");
 }

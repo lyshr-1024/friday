@@ -41,7 +41,7 @@ apps/core/src/
 - **挂靠复用 `links` 表**（`memory/links.ts`），没有新建表。两级硬信号零模型调用：①消息里的 Meegle 工单号（`memory/infer.ts` 的 `meegleIdsIn`）②同人同频道 48 小时内挂过的任务。都没中且有候选才问一次 Haiku，记成 `guess` 边。`user > rule > guess` 只升不降，`unlink` 写否决边且自动推断不会再连回来——「纠正以后不能再错」落在这里，不需要额外的映射表。
 - **对话单位是 Slack 原生粒度**：有 `thread_ts` 的整个 thread 算一段，否则单条算一段。键 `channelId:thread_ts|ts`，`conversationKey` 在 `packages/shared` 前后端共用。
 - **唯一的起草场景**：私聊或 @ 我、且带疑问信号（`？?` / 怎么 / 哪里 / 为什么 / 能不能 / 是不是 / 有没有）的消息，`agent/slack/query.ts` 判一句「读代码就能答吗 + 哪个项目」，是就 `startQueryJob` **在后台**起一个**只读**的 `claude -p` 去查。产出 `## 概要 / ## 依据（文件:行号）/ ## 回复草稿`，任务进 review 挂 `slack_reply` 待审。
-- **后台跑，不弹窗口**（你明确要求：主动点的时候才弹出来）。所以不走 `launchClaude`（那条必然 `osascript` + `activate` 抢前台），而是直接 `spawn` 子进程、输出落 `<runs>/<id>.log`、退出时自己回调 `onJobExit`。想看就点任务卡的「打开终端看」，走 `reopenTerminal` 用 `--resume` 接回同一会话，并把 `readonly` 透传回去。
+- **后台跑，不弹窗口**（你明确要求：主动点的时候才弹出来）。所以不弹任何窗口：查询任务走 `openSession`（`kind: "query"`，tmux 里的后台会话，不建 worktree、cwd = 主仓）、输出落 `<runs>/<id>.log`、退出时 `/jobs/:id/exit` 回调 `onJobExit`。想看就在任务详情里看终端；Claude 退出后 `resumeInSession`（仅会话 `exited` 时，`/jobs/:id/reopen` 对还在跑的回 409）用 `--resume` 在同一会话里接回，`readonly` 由查询任务的 guard hook 保证。
 - **只读靠 PreToolUse hook**，不能靠 settings 的 `permissions.deny`——`--dangerously-skip-permissions` 会让它完全失效（实测过），而原有的 Bash 守卫 matcher 只认 `Bash`。`buildHookSettings(hook, guard, readOnly)` 多挂一条 matcher 为 `Edit|Write|MultiEdit|NotebookEdit` 的 deny。隔离验收实锤过：用同一份 settings 手工起 `claude -p` 要求改文件，Write 被拒、目标文件未变。
 - **「这是不是查询任务」统一用 `isQueryTask(source)`**（`packages/shared`，判据是 `headless && conversation`）。别单看 `kind` 或 `conversation`：HUD「建成任务」落成的 `verbal` 任务也带 `conversation`，`onJobExit` 和 `settleQueryTasks` 都因此误判过。
 - **消息状态以 Slack 为准**：每轮同步扫一遍已读已回，命中的对话上挂着的查询任务自动 done、草稿撤下、记一条 `slack_settled_by_user`。只是挂靠在别的任务上的不动它。这是「已处理的事又冒出来」的根治点。
@@ -60,7 +60,7 @@ apps/core/src/
 
 - **门禁看「这次交付被直接收下的概率」，不看时间**（`agent/autostart.ts`）：worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。条件同时满足才开：Meegle **缺陷**（需求一律不接，要先对方案）、`source.intake.kind === "start"` 且 `confidence ≥ 80`（intake 的 prompt 要求「只能从标题推断给 50」，这个阈值正好挡住标题党）、`task.project` 已定且和 intake 判的一致（归属来自所属需求的容器，不是猜的）、卡上没挂着问题、阶段还是「未开始」（2026-09-29 补：同步会把流到测试的缺陷推到「测试中」，不挡的话门槛一调低就会去改已经在测的缺陷）、进来满 15 分钟（缺陷刚建时描述常被反复改）。并发 1（2026-09-29 用户要求去掉「每天 3 条」上限：并发 1 本身就控制节奏，成本看用量面板）。`intakeWorkItem` 现在把判断结果落在 `source.intake`，门禁和卡片都看它。
 - **每轮 Meegle 同步后跑 `autostartTick`**，总开关 `settings.autonomous`（**默认关**，设置页「让 Friday 自己开工」），开工记账 `autostart` 并发通知。前两周看合并时「没被你改过 / 被改过 / 被打回」三档，收下率过半再放宽。
-- **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`LaunchRequest.project` 从 `startInteractiveJob` / `/run` / `reopenTerminal` 传进来；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
+- **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`SessionLaunch.project` 从 `openSession`（`startInteractiveJob` / `/run` / `run_claude`）传进来，`resumeInSession` 接回时同样带上；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
 - **Ghostty 偶发「command 不执行」（09-28）已随 Ghostty 层一起删除**：开窗口 / 聚焦 / 重开全走 tmux 会话，没有 AppleScript、没有窗口 id，这条排查手段不再适用。
 - `playbooks/` 目录（09-17 Slack 旧链路的回复类别）已删，代码里早无引用。
 - **模型不继承你的默认**（2026-09-28）：一次 6 分钟的自主任务花了 $4.46——Claude Code 默认被切成 Fable 忘了切回，而 `claude -p` 不传 `--model` 就继承它。现在 headless（自主 + 后台查询）一律 `--model opus`（`agent/claude.ts` 的 `HEADLESS_MODEL`）；交互式终端不传，那是你自己在用。**所有模型一律写别名**（`opus` / `sonnet` / `haiku`，Claude Code 解析到当前最新版本；只有 Fable 没别名、写全 id），出新模型不用改代码。设置里以前存的 `claude-sonnet-5` 这类版本号，读的时候自动换成别名。
@@ -211,7 +211,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 
 - 每次 `run_claude` / `POST /run` / 「开始做」都经 `openSession` 建 `jobs` 记录和 `term_sessions` 行，并在 tmux 里起两段脚本（`agent/runner.ts`，见上节）。干活段 `script -q <runs>/<id>.log zsh -c 'claude --dangerously-skip-permissions --settings <id>.settings.json …'` 录整个终端会话，退出后 `curl POST /jobs/:id/exit {code}`。
 - `--settings` 注入 Stop hook（`<id>.hook.sh`，用 sidecar 自己的 node 绝对路径，因为 tmux 里没有 nvm PATH），每轮回答结束读 stdin 的 `last_assistant_message` POST 到 `/jobs/:id/message`；错误写 `<id>.hook.log`。
-- 退出回报时：状态改 done/failed，若任务带 conversationId 则往会话追加一条 run 消息，并进通知队列「任务结束 · 项目」。会话里有 `jobs_list` 工具。10 秒内同目录同任务的重复启动直接复用（`recentDuplicate`）。
+- 退出回报时：状态改 done/failed，若 job 带 conversationId（`run_claude` / `POST /run` 经 `openSession` 的 `conversationId` 选项写入；别的开工路径不带）则往那段会话追加一条 run 消息，并进通知队列「任务结束 · 项目」。会话里有 `jobs_list` 工具。10 秒内同目录同任务的重复启动直接复用（`recentDuplicate`）。
 - 从会话往终端里说话：`terminal_say` → `say()` → `send-keys`；会话不在（`has-session` 为假）才回 `no-terminal`。
 
 
