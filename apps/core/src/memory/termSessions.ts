@@ -66,8 +66,9 @@ export function openTermSessions(): TermSession[] {
   return (db().prepare("SELECT * FROM term_sessions WHERE status != 'closed' ORDER BY updated_at DESC").all() as unknown as Row[]).map(toSession);
 }
 
-export function otherOpenSessionUsing(id: string, col: "worktree" | "branch", value: string): TermSession | undefined {
-  const r = db().prepare(`SELECT * FROM term_sessions WHERE id != ? AND status != 'closed' AND ${col} = ? LIMIT 1`).get(id, value) as unknown as Row | undefined;
+export function otherOpenSessionUsing(id: string, col: "worktree" | "branch", value: string, repoDir: string): TermSession | undefined {
+  const scope = col === "branch" ? "AND repo_dir = ?" : "";
+  const r = db().prepare(`SELECT * FROM term_sessions WHERE id != ? AND status != 'closed' AND ${col} = ? ${scope} LIMIT 1`).get(id, value, ...(scope ? [repoDir] : [])) as unknown as Row | undefined;
   return r ? toSession(r) : undefined;
 }
 

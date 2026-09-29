@@ -144,9 +144,9 @@ export async function activeWindowIndex(name: string): Promise<number | undefine
   }
 }
 
-export async function firstWindowIndex(name: string): Promise<number | undefined> {
+export async function claudeWindowIndex(name: string): Promise<number | undefined> {
   try {
-    const idx = (await listWindows(name)).map((w) => w.index).filter(Number.isInteger);
+    const idx = (await listWindows(name)).filter((w) => w.name === "claude").map((w) => w.index);
     return idx.length ? Math.min(...idx) : undefined;
   } catch {
     return undefined;

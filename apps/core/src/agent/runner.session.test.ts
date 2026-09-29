@@ -63,9 +63,11 @@ describe("两段式启动脚本", () => {
     expect(prepPrompt("j", "/r/app")).not.toContain("<untrusted");
   });
 
-  it("准备段回报失败（Friday 拒收）：脚本不往下开工", () => {
+  it("只有 core 明确回 409 才不往下开工，其他失败照常起 claude", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "x", kind: "interactive" }, "/bin/claude", 7788, files, prep);
-    expect(s).toMatch(/curl -sf[^\n]*\/jobs\/j\/worktree[^\n]*\|\| exec \/bin\/zsh -il/);
+    expect(s).toMatch(/wcode=\$\(curl -s -m 10 -o \/dev\/null -w '%\{http_code\}'[^\n]*\/jobs\/j\/worktree/);
+    expect(s).toContain('[ "$wcode" = 409 ] && exec /bin/zsh -il');
+    expect(s).not.toMatch(/curl -sf/);
   });
 
   it("准备段要用的 git 命令不被守卫拦，push 照样拦", () => {

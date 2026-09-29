@@ -81,6 +81,19 @@ describe("/sessions", () => {
     expect(getTermSession(id)!.lastInputAt).toBe(before);
   });
 
+  it("claude 窗口已关（只剩 zsh 且它是活动窗口）：回车不记输入", async () => {
+    const id = await session();
+    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
+    const before = getTermSession(id)!.lastInputAt;
+    setTmuxRunner(async (args) => {
+      if (args[4] === "list-windows") return "1|zsh|1\n";
+      if (args[4] === "display-message") return "1\n";
+      return "";
+    });
+    await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
+    expect(getTermSession(id)!.lastInputAt).toBe(before);
+  });
+
   it("查活动窗口失败：不记输入", async () => {
     const id = await session();
     const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };

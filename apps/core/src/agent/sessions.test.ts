@@ -7,7 +7,7 @@ import { createTask, getTask } from "../memory/tasks.js";
 import { getJob, listJobs } from "../memory/jobs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "./tmux.js";
-import { flushQueued, joinRootSession, openSession, prepareFailed, resolveRoot, sayToSession, setLauncher, worktreeReady } from "./sessions.js";
+import { flushQueued, joinRootSession, openSession, prepareFailed, resolveRoot, resumeInSession, sayToSession, setLauncher, worktreeReady } from "./sessions.js";
 import { startInteractiveJob } from "./pipeline.js";
 
 vi.mock("./runner.js", async (orig) => ({
@@ -25,8 +25,10 @@ const repo = (name: string, branch = name) => {
 let calls: string[][] = [];
 let tmuxInstalled = true;
 let alive = new Set<string>();
+let windowsOut: string | Error = "1|claude|0\n2|zsh|1\n";
 beforeEach(() => {
   calls = [];
+  windowsOut = "1|claude|0\n2|zsh|1\n";
   tmuxInstalled = true;
   setTmuxRunner(async (args) => {
     calls.push(args);
@@ -37,7 +39,10 @@ beforeEach(() => {
     const sub = args[4];
     const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
     if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
-    if (sub === "list-windows") return "1|claude|0\n2|zsh|1\n";
+    if (sub === "list-windows") {
+      if (windowsOut instanceof Error) throw windowsOut;
+      return windowsOut;
+    }
     if (sub === "rename-session") { alive.delete(target); alive.add(args.at(-1)!); }
     return "";
   });
@@ -128,6 +133,43 @@ describe("根任务与会话", () => {
     for (const k of keys) expect(k[k.indexOf("-t") + 1]).toBe(`=${s.tmuxName}:1`);
   });
 
+  it("claude 窗口被关了（只剩 zsh）：转达不送进 shell", async () => {
+    const root = createTask({ title: "关了", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    await worktreeReady(jobId, repo("app-feat-closed"));
+    windowsOut = "1|zsh|1\n";
+    calls = [];
+    expect(await sayToSession(root.id, "继续")).toBe("no-terminal");
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+  });
+
+  it("查窗口失败：转达不发、也不退回活动窗口", async () => {
+    const root = createTask({ title: "查失败", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    await worktreeReady(jobId, repo("app-feat-lookup"));
+    windowsOut = new Error("boom");
+    calls = [];
+    expect(await sayToSession(root.id, "继续")).toBe("no-terminal");
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+  });
+
+  it("接回：会话没有 worktree（准备段失败过）不在主仓起 claude；claude 窗口没了也不接", async () => {
+    const root = createTask({ title: "无树", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    updateTermSession(root.id, { status: "exited" });
+    calls = [];
+    expect(await resumeInSession(root.id)).toBe(false);
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+    prepareFailed(jobId);
+    const other = createTask({ title: "窗口没了", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const j2 = await openSession(other, other, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    await worktreeReady(j2, repo("app-feat-nowin"));
+    windowsOut = "1|zsh|1\n";
+    calls = [];
+    expect(await resumeInSession(other.id)).toBe(false);
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+  });
+
   it("准备段失败：任务 blocked，会话 exited 但 tmux 会话留着", async () => {
     const root = createTask({ title: "失败", kind: "verbal", source: {}, status: "understood", project: "app" });
     const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
@@ -167,6 +209,15 @@ describe("worktree / 分支不许被两个会话共用", () => {
     expect(getTask(b.root.id)!.status).toBe("blocked");
   });
 
+  it("两个仓库里各有一个根用同名分支：都接受", async () => {
+    const a = await open("庚");
+    const root = createTask({ title: "辛", kind: "verbal", source: {}, status: "understood", project: "web" });
+    const bJob = await openSession(root, root, { kind: "interactive", project: "web", repoDir: "/r/web", task: "x" });
+    expect(await worktreeReady(a.jobId, repo("app-deps", "chore/deps"))).toBeTruthy();
+    expect(await worktreeReady(bJob, repo("web-deps", "chore/deps"))).toMatchObject({ status: "running" });
+    expect(getTask(root.id)!.status).not.toBe("blocked");
+  });
+
   it("第一个会话 closed 之后，别的根可以用同一路径", async () => {
     const a = await open("戊");
     const b = await open("己");
@@ -194,6 +245,7 @@ describe("一个根任务只有一个会话", () => {
     const t = createTask({ title: "退出后再来", kind: "verbal", source: {}, status: "understood", project: "app" });
     const first = await startInteractiveJob(t, "app", "/r/app", "第一次");
     const jobId = first.source.jobId!;
+    await worktreeReady(jobId, repo("app-feat-resume"));
     updateTermSession(t.id, { status: "exited" });
     const jobs = listJobs(1000).length;
     await startInteractiveJob(getTask(t.id)!, "app", "/r/app", "接着做");

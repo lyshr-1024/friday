@@ -399,7 +399,8 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
           "  exec /bin/zsh -il",
           "fi",
           `cd "$(cat ${wt})" || exit 1`,
-          `curl -sf -m 3 -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" >/dev/null 2>&1 || exec /bin/zsh -il`,
+          `wcode=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" 2>/dev/null)`,
+          `[ "$wcode" = 409 ] && exec /bin/zsh -il`,
         ];
   return [
     "#!/bin/zsh",
