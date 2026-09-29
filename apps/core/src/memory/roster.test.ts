@@ -17,7 +17,7 @@ describe("前文显示人名", () => {
         { ts: "1", userId: "UME", userName: "", text: "在吗" },
         { ts: "2", userId: "UZL", userName: "", text: "在的" },
       ],
-      { kind: "dm", peer: "张亮 (Zhang Liang)" },
+      { kind: "dm", peer: "张亮 (Zhang Liang)", peerId: "UZL" },
     );
     expect(out).toEqual(["你：在吗", "张亮 (Zhang Liang)：在的"]);
   });
@@ -55,5 +55,19 @@ describe("前文显示人名", () => {
     setPrior(d.id, ["U092UA21P6D：现在 C 用的是 …", "纯文本旧行"] as never);
     const item = listInbox(true, 10).find((i) => i.id === "C9:2")!;
     expect(priorText(item.prior ?? [], { kind: "mention" })).toEqual(["佳成 (Zhou Jiacheng)：现在 C 用的是 …", "纯文本旧行"]);
+  });
+
+  it("slack:me 还没写入时，私聊里我自己的话不能算成对方说的", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    setCursor("slack:me", "");
+    const out = priorText(
+      [
+        { ts: "1", userId: "UME", userName: "", text: "我说的" },
+        { ts: "2", userId: "UZL", userName: "", text: "对方说的" },
+        { ts: "3", userId: "UTHIRD", userName: "", text: "第三个人" },
+      ],
+      { kind: "dm", peer: "张亮 (Zhang Liang)", peerId: "UZL" },
+    );
+    expect(out).toEqual(["未知成员：我说的", "张亮 (Zhang Liang)：对方说的", "未知成员：第三个人"]);
   });
 });

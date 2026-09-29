@@ -68,7 +68,7 @@ async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem)
   const ctx = await fetchContext(call, item, async (id) => roster.get(id) ?? (await lookupUserName(call, id)) ?? "");
   const stored = ctx.map((c) => ({ ts: c.ts, ...(c.userId ? { userId: c.userId } : {}), userName: c.userName, text: c.text }));
   if (stored.length) setPrior(item.id, stored);
-  const lines = priorText(stored, { kind: item.kind, peer: item.userName });
+  const lines = priorText(stored, { kind: item.kind, peer: item.userName, peerId: item.userId });
   priorCache.set(item.id, lines);
   if (priorCache.size > 200) priorCache.clear();
   return lines;
@@ -88,10 +88,10 @@ export async function syncSlackOnce(): Promise<number> {
     if (!me) {
       const auth = (await call("auth.test", {})) as { user_id?: string; team_id?: string; url?: string };
       me = String(auth.user_id ?? "");
-      if (me) setCursor("slack:me", me);
       if (auth.team_id) setSlackTeam(auth.team_id);
       if (auth.url) setCursor("slack:url", auth.url);
     }
+    if (me && getCursor("slack:me") !== me) setCursor("slack:me", me);
     // 每轮同步都扫一遍收件箱：我随时会直接在 Slack 里读掉或回掉，Friday 得跟着收，
     // 否则界面上一直挂着我已经处理完的事（这正是「回复了还是有待办」的由来）。
     if (me) {

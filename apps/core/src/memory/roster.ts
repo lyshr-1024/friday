@@ -31,17 +31,25 @@ export function userNames(): Map<string, string> {
 
 export const selfSlackId = () => getCursor("slack:me") ?? "";
 
+export interface PriorContext {
+  me: string;
+  roster: Map<string, string>;
+}
+
+/** 一次请求里建一份，别每段对话各扫一遍收件箱 */
+export const priorContext = (): PriorContext => ({ me: selfSlackId(), roster: userNames() });
+
 /**
- * 前文渲染成「人名：内容」。纯本地查表：自己是「你」→ 花名册 → 私聊对象 → 入库时认出的名字，
- * 都没有就写「未知成员」，绝不显示 ID。
+ * 前文渲染成「人名：内容」。纯本地查表，绝不猜：自己（me 已知才认）→ 花名册 → 入库时认出的名字
+ * → 私聊里 userId 恰是对方 → 都没有写「未知成员」，不显示 ID。
  */
-export function priorText(lines: PriorLine[], scene: { kind: InboxKind; peer?: string }): string[] {
-  const me = selfSlackId();
-  const roster = userNames();
+export function priorText(lines: PriorLine[], scene: { kind: InboxKind; peer?: string; peerId?: string }, ctx: PriorContext = priorContext()): string[] {
   return lines.map((l) => {
     const stored = l.userName && !ID_SHAPE.test(l.userName) ? l.userName : "";
     const name = l.userId
-      ? l.userId === me ? "你" : (roster.get(l.userId) ?? (scene.kind === "dm" ? scene.peer : undefined) ?? (stored || "未知成员"))
+      ? (ctx.me && l.userId === ctx.me ? "你" : undefined) ??
+        ctx.roster.get(l.userId) ??
+        (stored || (scene.kind === "dm" && scene.peerId === l.userId ? scene.peer : undefined) || "未知成员")
       : stored;
     return name ? `${name}：${l.text}` : l.text;
   });

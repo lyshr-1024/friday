@@ -21,7 +21,7 @@ import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
-import { priorText } from "../memory/roster.js";
+import { priorContext, priorText } from "../memory/roster.js";
 import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
@@ -84,6 +84,7 @@ function slackOf(all: InboxItem[]) {
     (byConv.get(key) ?? byConv.set(key, []).get(key)!).push(i);
   }
   for (const items of byConv.values()) items.sort((a, b) => Number(a.ts) - Number(b.ts));
+  const ctx = priorContext();
   return (t: Task): Task => {
     const conversations = neighbors(taskNode(t.id), "slack")
       .map((n) => {
@@ -97,7 +98,7 @@ function slackOf(all: InboxItem[]) {
           channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
           items: items.map((i) => ({ ts: i.ts, userName: i.userName, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
-          prior: priorText(head.prior ?? [], { kind: head.kind, peer: head.userName }),
+          prior: priorText(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }, ctx),
           source: n.source,
           why: n.why,
         };

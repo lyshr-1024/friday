@@ -1182,7 +1182,7 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
       {convs.map((c) => (
         <div key={c.conv} className="fx__conv">
           <div className="fx__conv-meta">
-            <span className="fx__conv-who">{c.kind === "dm" ? c.channelName : c.userName}</span>
+            <span className="fx__conv-who">{c.kind === "dm" ? c.channelName || `与 ${c.userName} 的私聊` : c.userName}</span>
             {c.kind !== "dm" && c.channelName && <span className="fx__conv-where mono">{c.channelName}</span>}
             {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
             {c.source === "guess" && <span className="k k--guess">Friday 推断</span>}
