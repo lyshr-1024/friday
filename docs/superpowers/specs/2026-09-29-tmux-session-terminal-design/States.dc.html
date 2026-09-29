@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态位与列表行</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+body{margin:0;font-family:"JetBrains Mono","PingFang SC","Noto Sans SC",ui-monospace,monospace;background:#0b0f14;color:#d7e3ee}
+a{color:#38d6ff}a:hover{color:#8fe6ff}
+</style>
+</helmet>
+<div style="width: 1440px; height: 460px; box-sizing: border-box; padding: 28px 32px; background: #0a0e13; color: #d7e3ee; font-size: 13px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px">
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">状态位 · 一条任务同时只有一个</div>
+    <div style="display: grid; grid-template-columns: 150px 1fr 170px; gap: 6px 16px; font-size: 12.5px; align-items: center">
+      <div style="display: flex; align-items: center; gap: 7px; color: #ff5d6c; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5d6c"></span>在问你</div><div style="color: #a8b6c3">AskUserQuestion / 权限提示挂着，没答它不动</div><div style="color: #55636f">你答了就消失</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #38d6ff; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #38d6ff; box-shadow: 0 0 8px #38d6ff"></span>干活中</div><div style="color: #a8b6c3">有输入之后 Stop 还没来</div><div style="color: #55636f">Stop 到了</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #f2b144; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f2b144"></span>等你输入</div><div style="color: #a8b6c3">Stop 到了，你还没看过</div><div style="color: #55636f">终端可见且窗口聚焦，或你敲了字</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #f2b144; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f2b144"></span>待你决定 · 等了 3h</div><div style="color: #a8b6c3">挂着待审动作；只有这档配「等了 N」</div><div style="color: #55636f">通过 / 打回</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #ff5d6c; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5d6c"></span>卡住</div><div style="color: #a8b6c3">blocked，原因写在这一行后面</div><div style="color: #55636f">解除</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #7d8b99; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #7d8b99; box-sizing: border-box"></span>Claude 已退出</div><div style="color: #a8b6c3">session 在，claude 进程退了；旁边给「接着聊」</div><div style="color: #55636f">再拉起</div>
+      <div style="display: flex; align-items: center; gap: 7px; color: #55636f"><span style="width: 8px; height: 8px; border-radius: 50%; background: rgba(125,139,153,0.35)"></span>（无）</div><div style="color: #a8b6c3">没有会话的待办，不显示状态位</div><div style="color: #55636f"></div>
+    </div>
+    <div style="margin-top: 10px; padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: #7d8b99; line-height: 1.7">
+      元信息行固定为：<span style="color: #c9d5df">阶段 · 来源 · 项目 · 排期 · 最近一轮 HH:mm</span>。不再有「更新于」和跟着 updatedAt 走的「等了 N 天」。
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">列表行 · 需求与它名下的缺陷</div>
+    <div style="border-radius: 12px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px">
+      <div style="padding: 8px 12px; border-radius: 8px; background: rgba(56,214,255,0.10); display: flex; gap: 10px; align-items: flex-start">
+        <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #38d6ff; box-shadow: 0 0 8px #38d6ff; flex-shrink: 0"></span>
+        <div style="min-width: 0; flex-grow: 1; display: flex; flex-direction: column; gap: 2px">
+          <div style="color: #f2f7fb">SaaS 计费系统对接 metabase 及线下明细数据</div>
+          <div style="font-size: 11.5px; color: #7d8b99">干活中 · 最近一轮 20:41 · 2 条缺陷</div>
+        </div>
+        <span style="font-size: 11px; color: #55636f; margin-top: 3px">feat/billing-metabase</span>
+      </div>
+      <div style="padding: 6px 12px 6px 30px; display: flex; gap: 10px; align-items: flex-start">
+        <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: #7d8b99; flex-shrink: 0"></span>
+        <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <div style="color: #c9d5df">账单页切换币种后合计没刷新</div>
+          <div style="font-size: 11.5px; color: #7d8b99">缺陷 #2451 · 进行中 · 在需求的会话里改</div>
+        </div>
+      </div>
+      <div style="padding: 6px 12px 6px 30px; display: flex; gap: 10px; align-items: flex-start">
+        <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: #45d483; flex-shrink: 0"></span>
+        <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <div style="color: #c9d5df">明细导出缺少币种列</div>
+          <div style="font-size: 11.5px; color: #7d8b99">缺陷 #2440 · 测试中 · 已提测</div>
+        </div>
+      </div>
+      <div style="padding: 6px 12px 6px 30px; display: flex; gap: 10px; align-items: flex-start">
+        <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: rgba(125,139,153,0.35); flex-shrink: 0"></span>
+        <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <div style="color: #c9d5df"><span style="color: #7d8b99">Friday 推断</span> 拂晓在 #proj-billing 说的：导出按钮点两次会重复下载</div>
+          <div style="font-size: 11.5px; color: #7d8b99">Slack · 还没进会话 · <a href="#" style="color: #38d6ff; text-decoration: none">是它，进会话</a> · <a href="#" style="color: #55636f; text-decoration: none">不是这条</a></div>
+        </div>
+      </div>
+    </div>
+    <div style="padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: #7d8b99; line-height: 1.7">
+      缺陷没有自己的会话和 worktree，点它打开的是需求的终端，卡片页切到它自己。模型推断的挂靶先列在需求下面，点「是它」才说进终端。
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":460}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

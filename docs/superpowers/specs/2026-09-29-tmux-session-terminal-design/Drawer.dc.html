@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>任务页 · 详情弹窗</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+body{margin:0;font-family:"JetBrains Mono","PingFang SC","Noto Sans SC",ui-monospace,monospace;background:#0b0f14;color:#d7e3ee}
+a{color:#38d6ff}a:hover{color:#8fe6ff}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: linear-gradient(160deg, #0d131b 0%, #0a0e13 60%, #0c1016 100%); color: #d7e3ee; font-size: 13px; position: relative; overflow: hidden">
+
+  <div style="height: 52px; box-sizing: border-box; padding: 0 24px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid rgba(56,214,255,0.10)">
+    <div style="font-size: 14px; font-weight: 600; letter-spacing: 0.32em; color: #38d6ff">FRIDAY</div>
+    <div style="display: flex; padding: 3px; gap: 2px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08)">
+      <a href="#" style="padding: 5px 14px; border-radius: 6px; color: #7d8b99; text-decoration: none; font-size: 12.5px">会话</a>
+      <a href="#" style="padding: 5px 14px; border-radius: 6px; background: rgba(56,214,255,0.14); color: #e6f7ff; text-decoration: none; font-size: 12.5px">任务</a>
+    </div>
+    <div style="flex-grow: 1"></div>
+    <div style="display: flex; align-items: center; gap: 18px; font-size: 12px; color: #7d8b99">
+      <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #38d6ff"></span>2 个终端</span>
+      <span>今天 <span style="color: #d7e3ee">$0.62</span> · 24 次</span>
+      <span>Sonnet（最新）</span>
+      <button aria-label="更多" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 14px; cursor: default">···</button>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; display: flex; gap: 16px; padding: 16px 24px 16px 24px; box-sizing: border-box">
+
+    <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); overflow: hidden">
+
+      <div style="padding: 14px 20px 0 20px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #7d8b99">
+          <span style="display: flex; align-items: center; gap: 7px; color: #38d6ff; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #38d6ff; box-shadow: 0 0 8px #38d6ff"></span>干活中</span>
+          <span>·</span><span>测试中</span><span>·</span><span>Meegle</span><span>·</span><span>fe-wealth-admin</span><span>·</span><span>排期 09-25</span><span>·</span><span>最近一轮 20:41</span>
+          <div style="flex-grow: 1"></div>
+          <span style="color: #f2b144">★ 已关注</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px"><div style="font-size: 22px; font-weight: 600; color: #f2f7fb; letter-spacing: -0.01em">SaaS 计费系统对接 metabase 及线下明细数据</div><button aria-label="详情" style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #a8b6c3; font-size: 11.5px; font-family: inherit; cursor: default"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="9" y1="10" x2="9" y2="20"></line></svg>详情</button><span style="font-size: 11.5px; color: #55636f">2 条缺陷 · 4 份资料 · 1 段 Slack 讨论</span></div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; padding-bottom: 10px">
+          <span style="font-size: 11.5px; color: #55636f">../fe-wealth-admin-feat-billing-metabase · feat/billing-metabase</span>
+          <div style="flex-grow: 1"></div>
+        </div>
+      </div>
+
+      <div style="margin: 0 20px; display: flex; align-items: center; gap: 4px; font-size: 11.5px"><span style="padding: 4px 10px; border-radius: 6px 6px 0 0; background: rgba(56,214,255,0.10); border: 1px solid rgba(56,214,255,0.16); border-bottom: none; color: #e6f7ff">1 · claude</span><span style="padding: 4px 10px; color: #7d8b99">2 · pnpm dev</span><span style="padding: 4px 10px; color: #7d8b99">3 · zsh</span><span style="padding: 4px 8px; color: #55636f">＋</span><div style="flex-grow: 1"></div></div>
+      <div style="flex-grow: 1; min-height: 0; margin: 0 20px; position: relative; display: flex; flex-direction: column"><div style="flex-grow: 1; min-height: 0; border: 1px solid rgba(56,214,255,0.16); border-radius: 0 8px 8px 8px; background: #05080c; padding: 16px 18px; box-sizing: border-box; font-size: 12.5px; line-height: 1.75; color: #c9d5df; display: flex; flex-direction: column; gap: 2px; overflow: hidden">
+        <div style="color: #7d8b99">╭─ Claude Code · fe-wealth-admin · feat/billing-metabase ─────────────────────────────╮</div>
+        <div><span style="color: #38d6ff">❯</span> 顺带再改一条同需求下的缺陷：账单页切换币种后合计没刷新（Meegle #2451）。改完在同一个分支上交付。</div>
+        <div><span style="color: #45d483">●</span> 先看下合计是怎么算的。</div>
+        <div><span style="color: #45d483">●</span> <span style="color: #a8b6c3">Read</span> src/pages/billing/Summary.tsx</div>
+        <div><span style="color: #45d483">●</span> <span style="color: #a8b6c3">Grep</span> useBillingTotal</div>
+        <div><span style="color: #7d8b99">  合计走的是 useBillingTotal，依赖里只有 rows 没有 currency，切币种时 memo 没失效。</span></div>
+        <div><span style="color: #45d483">●</span> <span style="color: #a8b6c3">Edit</span> src/hooks/useBillingTotal.ts</div>
+        <div><span style="color: #7d8b99">  - }, [rows]);</span></div>
+        <div><span style="color: #45d483">  + }, [rows, currency]);</span></div>
+        <div><span style="color: #45d483">●</span> <span style="color: #a8b6c3">Bash</span> pnpm typecheck &amp;&amp; pnpm test src/hooks</div>
+        <div><span style="color: #7d8b99">  ✓ 0 errors · 6 passed</span></div>
+        <div><span style="color: #38d6ff">●</span> <span style="color: #a8b6c3">friday_progress</span> 缺陷 #2451 已修，一并在 feat/billing-metabase 上</div>
+        <div><span style="color: #45d483">●</span> 改好了。合计的 memo 漏了 currency 依赖，补上就刷新了。类型检查和 hooks 用例都过，还没提交，你看要不要和 metabase 那部分一起提。</div>
+        <div style="flex-grow: 1"></div>
+        <div style="color: #7d8b99">╰──────────────────────────────────────────────────────────────────────────────────────╯</div>
+        <div><span style="color: #38d6ff">❯</span> <span style="display: inline-block; width: 8px; height: 15px; background: #d7e3ee; vertical-align: -3px"></span></div>
+      </div>
+      
+    </div>
+
+      <div style="height: 16px"></div>
+    </div>
+
+    <div style="width: 380px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); font-size: 12px; color: #55636f">
+        <span style="letter-spacing: 0.12em; font-size: 11px">FIND</span>
+        <span style="flex-grow: 1">搜任务、人、分支、工单号…</span>
+      </div>
+
+      <div style="flex-grow: 1; min-height: 0; border-radius: 12px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); padding: 12px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; overflow: hidden; font-size: 12.5px">
+
+        <div style="padding: 6px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">关注</div>
+        <div style="padding: 8px 12px; border-radius: 8px; background: rgba(56,214,255,0.10); display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #38d6ff; box-shadow: 0 0 8px #38d6ff; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">SaaS 计费系统对接 metabase 及线下明细数据</div>
+            <div style="font-size: 11.5px; color: #7d8b99">干活中 · 最近一轮 20:41</div>
+          </div>
+        </div>
+        <div style="padding: 6px 12px 6px 30px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: #7d8b99; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #c9d5df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">账单页切换币种后合计没刷新</div>
+            <div style="font-size: 11.5px; color: #7d8b99">缺陷 #2451 · 未开始 · 在需求的会话里改</div>
+          </div>
+        </div>
+
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">进行中</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #ff5d6c; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">whale-console：菜单权限按租户维度拆分</div>
+            <div style="font-size: 11.5px; color: #ff9aa4">在问你：用哪个字段做租户 id？</div>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #f2b144; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">导出中心二期：批量导出加进度</div>
+            <div style="font-size: 11.5px; color: #f2b144">待你决定 · 合并 feat/export-progress · 等了 3 小时</div>
+          </div>
+        </div>
+
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">测试中</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #f2b144; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">AI 助理养成赛活动</div>
+            <div style="font-size: 11.5px; color: #f2b144">等你输入 · 最近一轮 18:02</div>
+          </div>
+        </div>
+        <div style="padding: 6px 12px 6px 30px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: #7d8b99; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #c9d5df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">养牛页积分数字换行错位</div>
+            <div style="font-size: 11.5px; color: #7d8b99">缺陷 #2438 · 测试中 · 已提测</div>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #7d8b99; box-sizing: border-box; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">财富首页新增 whatsapp 入口</div>
+            <div style="font-size: 11.5px; color: #7d8b99">Claude 已退出 · 排期 09-21 · 逾期 8 天</div>
+          </div>
+        </div>
+
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">未开始</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: rgba(125,139,153,0.35); flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #c9d5df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">【Cash &amp; Assets-Deposits】入金记录筛选项补齐</div>
+            <div style="font-size: 11.5px; color: #7d8b99">Meegle · P2 · 排期 10-08</div>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: rgba(125,139,153,0.35); flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #c9d5df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">【WBO-0907 集成】【BO】任务包配置页</div>
+            <div style="font-size: 11.5px; color: #7d8b99">Meegle · P1 · 排期 10-10</div>
+          </div>
+        </div>
+
+        <div style="flex-grow: 1"></div>
+        <div style="padding: 10px 12px 4px 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; font-size: 11.5px; color: #55636f">
+          <span>已完成 12 ›</span>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+<div style="position: absolute; left: 0; top: 0; width: 1440px; height: 900px; background: rgba(5,8,12,0.45); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center"><div role="dialog" aria-label="任务详情" style="width: 1040px; max-height: 800px; border: 1px solid rgba(56,214,255,0.28); border-radius: 12px; background: rgba(10,16,24,0.98); box-shadow: 0 24px 60px rgba(0,0,0,0.6); padding: 22px 26px 20px 26px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; font-size: 12.5px; position: relative"><div style="display: flex; align-items: center; gap: 10px"><span style="font-size: 13px; font-weight: 600; color: #f2f7fb">SaaS 计费系统对接 metabase 及线下明细数据</span><span style="font-size: 11.5px; color: #55636f">详情</span><div style="flex-grow: 1"></div><button aria-label="更多操作" style="width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 13px; cursor: default">···</button><button aria-label="关闭" style="width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 13px; cursor: default">×</button></div><div style="display: flex; gap: 28px">
+        <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 6px; align-items: center">
+              <button style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 12px; font-family: inherit; cursor: default">未开始</button>
+              <button style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 12px; font-family: inherit; cursor: default">进行中</button>
+              <button style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(56,214,255,0.4); background: rgba(56,214,255,0.10); color: #e6f7ff; font-size: 12px; font-family: inherit; cursor: default">测试中</button>
+              <button style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 12px; font-family: inherit; cursor: default">待发布</button>
+              <button style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 12px; font-family: inherit; cursor: default">已上线</button>
+              <span style="margin-left: 8px; font-size: 11.5px; color: #55636f">Friday 推的，原来在「进行中」</span>
+            </div>
+            <div style="font-size: 11.5px; color: #55636f">Meegle：SVKS6JnKX · 节点 Admin Frontend Development · P1 · 排期 09-25</div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">名下的缺陷</div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08)"><span style="width: 6px; height: 6px; border-radius: 50%; background: #7d8b99"></span><span style="color: #c9d5df; flex-grow: 1">账单页切换币种后合计没刷新</span><span style="color: #7d8b99; font-size: 11.5px">#2451 · 进行中 · 已在这个终端里改</span></div>
+              <div style="display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08)"><span style="width: 6px; height: 6px; border-radius: 50%; background: #45d483"></span><span style="color: #c9d5df; flex-grow: 1">明细导出缺少币种列</span><span style="color: #7d8b99; font-size: 11.5px">#2440 · 测试中 · 已提测</span></div>
+              <div style="display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 6px; border: 1px dashed rgba(255,255,255,0.14)"><span style="width: 6px; height: 6px; border-radius: 50%; background: rgba(125,139,153,0.35)"></span><span style="color: #c9d5df; flex-grow: 1"><span style="color: #7d8b99">Friday 推断</span> 拂晓：导出按钮点两次会重复下载</span><a href="#" style="color: #38d6ff; text-decoration: none; font-size: 11.5px">是它，进会话</a><a href="#" style="color: #55636f; text-decoration: none; font-size: 11.5px">不是这条</a></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">理解</div>
+            <div style="color: #a8b6c3; line-height: 1.7">Meegle 需求 #SVKS6JnKX，节点「Admin Frontend Development」在等你。SaaS 计费后台接 metabase 报表嵌入，另加线下明细数据的导入与对账页；当前在测试，名下两条缺陷一条已提测。</div>
+          </div>
+        </div>
+        <div style="width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; font-size: 11px; letter-spacing: 0.1em; color: #55636f">资料 <div style="flex-grow: 1"></div><span style="letter-spacing: 0; color: #7d8b99">＋ 贴一个链接</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">飞书</span>SaaS 计费 · metabase 对接 PRD</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">飞书</span>线下明细数据格式说明</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">GitLab</span>!2374 feat(billing): metabase 嵌入</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">Meegle</span>Story #SVKS6JnKX</a>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">Slack 里的讨论</div>
+            <div style="padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+              <div style="display: flex; gap: 8px; color: #7d8b99"><span style="color: #c9d5df">与 张亮 的私聊</span><span>·</span><span>消息里带了工单号</span><div style="flex-grow: 1"></div><a href="#" style="text-decoration: none; color: #55636f">不是这条</a></div>
+              <div style="color: #c9d5df; line-height: 1.6"><span style="color: #7d8b99">张亮：</span>现在 C 用的是 entity_billing_variable_common，D 用的 entity_billing_variable_checking，M 是不是要新增一个？</div>
+              <div style="color: #c9d5df; line-height: 1.6"><span style="color: #7d8b99">你：</span>是一个 ref 吗？</div>
+              <div style="color: #c9d5df; line-height: 1.6"><span style="color: #7d8b99">张亮：</span>要新增一个查 M 变量的列表数据的，产品的意思是按照之前抄一个</div>
+            </div>
+          </div>
+          
+        </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); position: relative"><div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">和 Friday 聊这条任务</div><div style="display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.6"><div style="display: flex; gap: 10px"><span style="color: #7d8b99; flex-shrink: 0; width: 44px">你</span><span style="color: #c9d5df">张亮说的 M 变量那条也算这个需求，一起做</span></div><div style="display: flex; gap: 10px"><span style="color: #38d6ff; flex-shrink: 0; width: 44px">Friday</span><span style="color: #c9d5df">已挂到这条需求下，转达进终端了：「顺带再改一条同需求下的缺陷：账单页切换币种后合计没刷新（#2451）」。</span></div><div style="display: flex; gap: 10px"><span style="color: #7d8b99; flex-shrink: 0; width: 44px">你</span><span style="color: #c9d5df">#2440 提测了，帮我推到测试中</span></div><div style="display: flex; gap: 10px"><span style="color: #38d6ff; flex-shrink: 0; width: 44px">Friday</span><span style="color: #c9d5df">#2440 已推到「测试中」，Meegle 节点流转到 In Testing，记了一条账。</span></div></div><label style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(56,214,255,0.18); background: rgba(5,8,12,0.7)"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">对 Friday 说</span><span style="color: #38d6ff">›</span><input type="text" placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" style="flex-grow: 1; background: transparent; border: none; outline: none; color: #d7e3ee; font-family: inherit; font-size: 12.5px"><span style="font-size: 11px; color: #55636f">@ 引入文件</span></label></div>
+      </div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

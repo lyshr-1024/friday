@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>任务页 · Friday 自主任务</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+body{margin:0;font-family:"JetBrains Mono","PingFang SC","Noto Sans SC",ui-monospace,monospace;background:#0b0f14;color:#d7e3ee}
+a{color:#38d6ff}a:hover{color:#8fe6ff}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: linear-gradient(160deg, #0d131b 0%, #0a0e13 60%, #0c1016 100%); color: #d7e3ee; font-size: 13px">
+
+  <div style="height: 52px; box-sizing: border-box; padding: 0 24px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid rgba(56,214,255,0.10)">
+    <div style="font-size: 14px; font-weight: 600; letter-spacing: 0.32em; color: #38d6ff">FRIDAY</div>
+    <div style="display: flex; padding: 3px; gap: 2px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08)">
+      <a href="#" style="padding: 5px 14px; border-radius: 6px; color: #7d8b99; text-decoration: none; font-size: 12.5px">会话</a>
+      <a href="#" style="padding: 5px 14px; border-radius: 6px; background: rgba(56,214,255,0.14); color: #e6f7ff; text-decoration: none; font-size: 12.5px">任务</a>
+    </div>
+    <div style="flex-grow: 1"></div>
+    <div style="display: flex; align-items: center; gap: 18px; font-size: 12px; color: #7d8b99">
+      <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #38d6ff"></span>2 个终端</span>
+      <span>今天 <span style="color: #d7e3ee">$0.62</span> · 24 次</span>
+      <span>Sonnet（最新）</span>
+      <button aria-label="更多" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #7d8b99; font-size: 14px; cursor: default">···</button>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; display: flex; gap: 16px; padding: 16px 24px 16px 24px; box-sizing: border-box">
+
+    <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); overflow: hidden">
+
+      <div style="padding: 14px 20px 0 20px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #7d8b99">
+          <span style="display: flex; align-items: center; gap: 7px; color: #f2b144; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f2b144"></span>待你决定 · 等了 3 小时</span>
+          <span>·</span><span>进行中</span><span>·</span><span>Meegle</span><span>·</span><span>whale-console</span><span>·</span><span>排期 10-02</span><span>·</span><span>最近一轮 17:20</span>
+          <div style="flex-grow: 1"></div>
+          <span style="color: #55636f">☆ 关注</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 12px">
+          <div style="font-size: 22px; font-weight: 600; color: #f2f7fb; letter-spacing: -0.01em">导出中心二期：批量导出加进度</div>
+          <span style="font-size: 11.5px; color: #55636f">缺陷 #2467 · 属于需求 导出中心二期 · Friday 自己开的工</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; padding-bottom: 10px">
+          <span style="font-size: 11.5px; color: #55636f">../whale-console-feat-export-progress · feat/export-progress · Friday 自主 · opus · $1.12 · 6 分钟</span>
+          <div style="flex-grow: 1"></div>
+          <button style="padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: #a8b6c3; font-size: 11.5px; font-family: inherit; cursor: default">看终端</button>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1; min-height: 0; margin: 0 20px; border: 1px solid rgba(56,214,255,0.16); border-radius: 8px; background: rgba(5,8,12,0.6); padding: 18px 22px; box-sizing: border-box; display: flex; gap: 28px; overflow: hidden">
+
+        <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+
+
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">交付报告 <span style="color: #7d8b99; letter-spacing: 0">17:20</span></div>
+            <div style="font-size: 12.5px; color: #c9d5df; line-height: 1.7">批量导出加了进度轮询和断点续接，后端接口沿用 /export/jobs/:id。改了 3 个文件，typecheck 和 12 个用例全过，截图 2 张。</div>
+            <div style="display: flex; gap: 8px">
+              <div style="width: 140px; height: 84px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #55636f">导出中-进度.png</div>
+              <div style="width: 140px; height: 84px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #55636f">导出完成.png</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">等你点头的动作</div>
+            <div style="padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(242,177,68,0.35); background: rgba(242,177,68,0.06); display: flex; flex-direction: column; gap: 6px">
+              <div style="color: #f2f7fb">合并 feat/export-progress</div>
+              <div style="font-size: 12px; color: #a8b6c3">把 feat/export-progress 合并进 main（不 push），合完收掉 worktree。合完可以在操作记录里撤销。</div>
+            </div>
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f; margin-top: 4px">通过前请确认 <span style="color: #7d8b99; letter-spacing: 0">1 / 3</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: #c9d5df">
+              <label style="display: flex; gap: 10px; align-items: flex-start"><input type="checkbox" checked style="margin-top: 3px">导出中心 → 批量导出，进度条随任务推进，完成后出现下载按钮</label>
+              <label style="display: flex; gap: 10px; align-items: flex-start"><input type="checkbox" style="margin-top: 3px">中途关掉页面再回来，进度能接上</label>
+              <label style="display: flex; gap: 10px; align-items: flex-start"><input type="checkbox" style="margin-top: 3px">导出失败时有错误提示，不会卡在 99%</label>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">改动 <span style="letter-spacing: 0; color: #7d8b99">3 个文件 · +86 −12 · 相对 main</span></div>
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px">
+              <div style="display: flex; gap: 10px; padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08)"><span style="color: #c9d5df; flex-grow: 1">src/pages/export/BatchExport.tsx</span><span style="color: #45d483">+54</span><span style="color: #ff5d6c">−8</span></div>
+              <div style="display: flex; gap: 10px; padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08)"><span style="color: #c9d5df; flex-grow: 1">src/hooks/useExportJob.ts</span><span style="color: #45d483">+27</span><span style="color: #ff5d6c">−4</span></div>
+              <div style="display: flex; gap: 10px; padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08)"><span style="color: #c9d5df; flex-grow: 1">src/hooks/useExportJob.test.ts</span><span style="color: #45d483">+5</span><span style="color: #ff5d6c">−0</span></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 6px">
+              <span style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); color: #7d8b99; font-size: 12px">未开始</span>
+              <span style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(56,214,255,0.4); background: rgba(56,214,255,0.10); color: #e6f7ff; font-size: 12px">进行中</span>
+              <span style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); color: #7d8b99; font-size: 12px">测试中</span>
+              <span style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); color: #7d8b99; font-size: 12px">待发布</span>
+              <span style="padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.10); color: #7d8b99; font-size: 12px">已上线</span>
+            </div>
+            <div style="font-size: 11.5px; color: #55636f">Meegle：Rl3v9Q · 节点 Admin Frontend Development · P1 · 你推的，原来在「未开始」</div>
+          </div>
+        </div>
+
+        <div style="width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; font-size: 11px; letter-spacing: 0.1em; color: #55636f">资料 <div style="flex-grow: 1"></div><span style="letter-spacing: 0; color: #7d8b99">＋ 贴一个链接</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12.5px">
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">飞书</span>导出中心二期 PRD</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">Figma</span>导出中心 · 进度态</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">GitLab</span>!2381 feat(export): 批量导出进度</a>
+              <a href="#" style="text-decoration: none; color: #c9d5df; display: flex; gap: 8px; align-items: baseline"><span style="color: #55636f; font-size: 11px">Meegle</span>Bug #2467</a>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">Slack 里的讨论</div>
+            <div style="padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+              <div style="display: flex; gap: 8px; color: #7d8b99"><span style="color: #c9d5df">#proj-export-center</span><span>·</span><span>Friday 推断</span><div style="flex-grow: 1"></div><a href="#" style="text-decoration: none; color: #55636f">不是这条</a></div>
+              <div style="font-size: 11.5px; color: #55636f">依据：发消息的人是这个需求的测试，消息里带了 PRD 链接</div>
+              <div style="color: #c9d5df; line-height: 1.6"><span style="color: #7d8b99">拂晓：</span>批量导出 300 条以上进度条会跳回 0，是不是轮询没带 offset</div>
+              <div style="color: #c9d5df; line-height: 1.6"><span style="color: #7d8b99">你：</span>看下，晚点回</div>
+            </div>
+          </div>
+
+          <div style="flex-grow: 1"></div>
+          <a href="#" style="font-size: 11.5px; color: #55636f; text-decoration: none">操作记录 · 这条任务 14 条 →</a>
+        </div>
+      </div>
+
+      <div style="margin: 0 20px 16px 20px"><div style="display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); position: relative"><div style="font-size: 11px; letter-spacing: 0.1em; color: #55636f">和 Friday 聊这条任务</div><div style="display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.6"><div style="display: flex; gap: 10px"><span style="color: #38d6ff; flex-shrink: 0; width: 44px">Friday</span><span style="color: #c9d5df">这次改动只碰了导出这一条链路，测试全过，截图里进度条和完成态都对得上。要不要我合进 main？</span></div><div style="display: flex; gap: 10px"><span style="color: #7d8b99; flex-shrink: 0; width: 44px">你</span><span style="color: #c9d5df">先看下 @useExportJob.ts 里轮询的间隔</span></div></div><div style="position: absolute; left: 12px; bottom: 44px; width: 420px; border-radius: 8px; border: 1px solid rgba(56,214,255,0.22); background: rgba(10,16,24,0.98); box-shadow: 0 12px 30px rgba(0,0,0,0.5); padding: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px"><div style="padding: 4px 8px; font-size: 10.5px; letter-spacing: 0.08em; color: #55636f">@ 引入</div><div style="padding: 6px 8px; border-radius: 6px; background: rgba(56,214,255,0.10); color: #e6f7ff; display: flex; gap: 8px"><span style="color: #55636f; width: 40px">文件</span>src/hooks/useExportJob.ts</div><div style="padding: 6px 8px; border-radius: 6px; color: #c9d5df; display: flex; gap: 8px"><span style="color: #55636f; width: 40px">文件</span>src/pages/export/BatchExport.tsx</div><div style="padding: 6px 8px; border-radius: 6px; color: #c9d5df; display: flex; gap: 8px"><span style="color: #55636f; width: 40px">资料</span>导出中心二期 PRD</div><div style="padding: 6px 8px; border-radius: 6px; color: #c9d5df; display: flex; gap: 8px"><span style="color: #55636f; width: 40px">截图</span>导出中-进度.png</div></div><label style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(56,214,255,0.18); background: rgba(5,8,12,0.7)"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">对 Friday 说</span><span style="color: #38d6ff">›</span><input type="text" placeholder="合并吧 / 打回，中途关页面进度接不上 / 完成，不执行" style="flex-grow: 1; background: transparent; border: none; outline: none; color: #d7e3ee; font-family: inherit; font-size: 12.5px"><span style="font-size: 11px; color: #55636f">@ 引入文件</span></label></div></div>
+    </div>
+
+    <div style="width: 380px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); font-size: 12px; color: #55636f">
+        <span style="letter-spacing: 0.12em; font-size: 11px">FIND</span>
+        <span style="flex-grow: 1">搜任务、人、分支、工单号…</span>
+      </div>
+      <div style="flex-grow: 1; min-height: 0; border-radius: 12px; border: 1px solid rgba(56,214,255,0.14); background: rgba(8,13,20,0.82); padding: 12px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; overflow: hidden; font-size: 12.5px">
+        <div style="padding: 6px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">关注</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #38d6ff; box-shadow: 0 0 8px #38d6ff; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">SaaS 计费系统对接 metabase 及线下明细数据</div>
+            <div style="font-size: 11.5px; color: #7d8b99">干活中 · 最近一轮 20:41</div>
+          </div>
+        </div>
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">进行中</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #ff5d6c; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">whale-console：菜单权限按租户维度拆分</div>
+            <div style="font-size: 11.5px; color: #ff9aa4">在问你：用哪个字段做租户 id？</div>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #f2b144; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">导出中心二期：批量导出加进度</div>
+            <div style="font-size: 11.5px; color: #f2b144">待你决定 · 合并 feat/export-progress · 等了 3 小时</div>
+          </div>
+        </div>
+        <div style="padding: 6px 12px 6px 30px; border-radius: 8px; background: rgba(56,214,255,0.10); display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; background: #f2b144; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">批量导出 300 条以上进度跳回 0</div>
+            <div style="font-size: 11.5px; color: #7d8b99">缺陷 #2467 · 进行中 · 在需求的会话里改</div>
+          </div>
+        </div>
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">测试中</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #f2b144; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">AI 助理养成赛活动</div>
+            <div style="font-size: 11.5px; color: #f2b144">等你输入 · 最近一轮 18:02</div>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #7d8b99; box-sizing: border-box; flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #f2f7fb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">财富首页新增 whatsapp 入口</div>
+            <div style="font-size: 11.5px; color: #7d8b99">Claude 已退出 · 排期 09-21 · 逾期 8 天</div>
+          </div>
+        </div>
+        <div style="padding: 12px 12px 4px 12px; font-size: 11px; letter-spacing: 0.08em; color: #55636f">未开始</div>
+        <div style="padding: 8px 12px; display: flex; gap: 10px; align-items: flex-start">
+          <span style="margin-top: 5px; width: 8px; height: 8px; border-radius: 50%; background: rgba(125,139,153,0.35); flex-shrink: 0"></span>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <div style="color: #c9d5df; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">【Cash &amp; Assets-Deposits】入金记录筛选项补齐</div>
+            <div style="font-size: 11.5px; color: #7d8b99">Meegle · P2 · 排期 10-08</div>
+          </div>
+        </div>
+        <div style="flex-grow: 1"></div>
+        <div style="padding: 10px 12px 4px 12px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; font-size: 11.5px; color: #55636f">
+          <span>已完成 12 ›</span>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
