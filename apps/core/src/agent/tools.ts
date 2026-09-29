@@ -144,7 +144,7 @@ export const fridayToolList = (conversationId?: string) => [
         const t = findTaskById(id);
         if (!t) return text(`没有 id 以 ${id} 开头的任务。`);
         const s = t.source;
-        const links = [s.url, ...Object.values(s.docs ?? {})].filter(Boolean);
+        const links = [s.url, ...(s.docs ?? []).map((d) => d.url)].filter(Boolean);
         const acts = listAudit({ taskId: t.id, limit: 8 });
         return text([
           taskLine(t),

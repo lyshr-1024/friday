@@ -3765,11 +3765,6 @@ body,
   margin-top: var(--s-4);
 }
 
-/* 并进来那条需求的文档：缩一档，前面标明是谁的 */
-.fx__docs--merged {
-  margin-top: var(--s-2);
-  font-size: var(--t-aux);
-}
 
 /* 已并入的需求：名字 + 链接，点得开 */
 .fx__merged {
@@ -3894,64 +3889,6 @@ body,
   color: var(--fg-4);
   font-size: var(--t-micro);
   font-variant-numeric: tabular-nums;
-}
-.fx__docs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-/* 文档：标题那行右边挂「贴链接 / 改链接」，不占独立一行 */
-.fx__docs-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-2);
-}
-.fx__docs-head .k {
-  margin-bottom: 0;
-}
-.fx__docs-edit {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  margin-top: var(--s-2);
-  max-width: 560px;
-}
-.fx__docs-row {
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  align-items: center;
-  gap: var(--s-3);
-}
-.fx__docs-label {
-  font-size: var(--t-micro);
-  color: var(--fg-3);
-}
-.fx__docs-input {
-  min-width: 0;
-  padding: 6px var(--s-2);
-  font: inherit;
-  font-size: var(--t-xs);
-  color: var(--fg-1);
-  background: var(--bg-2);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-sm);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
-.fx__docs-input::placeholder {
-  color: var(--fg-4);
-}
-.fx__docs-input:focus {
-  outline: none;
-  border-color: var(--line-2);
-  box-shadow: 0 0 0 3px var(--live-glow);
-}
-.fx__docs-err {
-  font-size: var(--t-micro);
-  color: var(--bad);
-}
-.fx__docs-acts {
-  display: flex;
-  gap: var(--s-2);
 }
 .fx__desc {
   color: var(--fg-2);
@@ -5133,8 +5070,15 @@ body:has(.hud)::-webkit-scrollbar {
 .ac__meegle { font-size: 11.5px; color: var(--fg-4); }
 .ac__add { background: none; border: none; padding: 0; color: var(--fg-3); font: inherit; font-size: 11px; letter-spacing: 0; cursor: default; }
 .ac__docs { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
-.ac__docs a { display: flex; gap: 8px; align-items: baseline; color: var(--fg-2); text-decoration: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ac__src { font-size: 11px; color: var(--fg-4); }
+.res__row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.res__src { width: 44px; flex-shrink: 0; }
+.res__t { flex: 1; min-width: 0; color: var(--fg-2); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res__del { opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-4); font: inherit; cursor: default; }
+.res__row:hover .res__del, .res__del:focus-visible { opacity: 1; }
+.res__input { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(5, 8, 12, 0.7); color: var(--fg-1); font: inherit; font-size: 12.5px; }
+.res__input:focus { outline: none; box-shadow: 0 0 0 3px var(--live-glow); }
+.res__err { font-size: 11px; color: var(--bad); }
 .ac__right .fx__slack { margin: 0; }
 .ac__sp { flex: 1; }
 .ac .attach { margin: 0; }

@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
+import { Resources } from "./Resources";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
@@ -94,8 +95,6 @@ function meegleLine(t: Task): string {
 // 交付报告和验收点是 Friday 自己跑完一轮后写的，只有它自己派出去的任务才有可验之物。
 // Meegle 同步来的需求状态在多方节点上流转，本机勾不出结论。
 const selfRun = (t: Task) => t.source.autonomous === true;
-const DOC_LABELS: Array<[keyof NonNullable<Task["source"]["docs"]>, string]> = [["req", "需求文档"], ["tech", "技术文档"], ["design", "设计稿"], ["meegle", "Meegle"]];
-
 function OpenLink({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} className="link" onClick={(e) => { e.preventDefault(); void openUrl(href); }}>{children}</a>;
 }
@@ -143,61 +142,14 @@ function IssueBody({ t }: { t: Task }) {
   );
 }
 
-/** 四个链接栏，存下来就是一篇文档的地址。Meegle 那栏跟同步无关，只是个链接。 */
-function DocsEditor({ t, onAct, onDone }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onDone: () => void }) {
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(DOC_LABELS.map(([k]) => [k, t.source.docs?.[k] ?? ""])),
-  );
-  const [err, setErr] = useState("");
-  const ime = useImeGuard();
-  const save = async () => {
-    const bad = DOC_LABELS.find(([k]) => draft[k] && !/^https?:\/\//i.test(draft[k]!.trim()));
-    if (bad) { setErr(`${bad[1]} 得是 http/https 开头的完整链接`); return; }
-    setErr("");
-    await onAct(t, () => taskSetDocs(t.id, Object.fromEntries(DOC_LABELS.map(([k]) => [k, draft[k]?.trim() ?? ""]))));
-    onDone();
-  };
-  return (
-    <div className="fx__docs-edit">
-      {DOC_LABELS.map(([k, label]) => (
-        <label key={k} className="fx__docs-row">
-          <span className="fx__docs-label">{label}</span>
-          <input
-            className="fx__docs-input"
-            type="url"
-            inputMode="url"
-            placeholder="贴链接，留空就是没有"
-            value={draft[k] ?? ""}
-            onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-            {...ime.handlers}
-            onKeyDown={(e) => { if (e.key === "Enter") { if (ime.isImeEnter(e)) return; e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); onDone(); } }}
-          />
-        </label>
-      ))}
-      {err && <span className="fx__docs-err">{err}</span>}
-      <div className="fx__docs-acts">
-        <button className="b b--primary" onClick={() => void save()}>保存</button>
-        <button className="b b--text" onClick={onDone}>取消</button>
-      </div>
-    </div>
-  );
-}
-
 /**
  * 任务卡的主体。所有任务都渲染同一套结构——项目、并入、排期、文档——
  * 每块按「有没有数据」决定露不露面，而不是按来源。口头交代的事和 Meegle
  * 同步下来的工单长得一样，差别只在它没有工单号、排期这些同步来的字段。
  */
 function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
-  const { docs } = t.source;
-  const links = DOC_LABELS.filter(([k]) => docs?.[k]);
-  // 合并进来的需求各自带着文档：一期二期的资料都要在这儿点得到
-  const mergedDocs = (t.source.merged ?? [])
-    .map((m) => ({ ...m, docs: m.docs ?? {}, links: DOC_LABELS.filter(([k]) => m.docs?.[k]) }))
-    .filter((m) => m.links.length > 0);
   const [projects, setProjects] = useState<Array<{ name: string; dir: string }>>([]);
   const [merging, setMerging] = useState<Task | null>(null);
-  const [editDocs, setEditDocs] = useState(false);
   // to 用 null 表示「改成没定」，所以开合得另拿一个字段，不能靠 null 兼职
   const [switching, setSwitching] = useState<{ to: string | null } | null>(null);
   const hasTerm = Boolean(t.session?.name);
@@ -275,26 +227,6 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
           </div>
         </div>
       )}
-      <div>
-        <div className="fx__docs-head">
-          <span className="k">DOCS</span>
-          <button className="b b--text" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>
-            {editDocs ? "收起" : links.length ? "改链接" : "贴链接"}
-          </button>
-        </div>
-        {links.length > 0 && !editDocs && (
-          <div className="fx__docs">{links.map(([k, label]) => <OpenLink key={k} href={docs![k]!}>{label} ↗</OpenLink>)}</div>
-        )}
-        {!links.length && !editDocs && <span className="fx__meta-dim">还没有链接</span>}
-        {editDocs && <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} />}
-        {/* 并进来那些需求的文档也要点得到，标明是谁的 */}
-        {mergedDocs.map((m) => (
-          <div key={m.meegleId} className="fx__docs fx__docs--merged">
-            <span className="fx__meta-dim">#{m.meegleId} {m.title.slice(0, 16)}</span>
-            {m.links.map(([k, label]) => <OpenLink key={k} href={m.docs[k]!}>{label} ↗</OpenLink>)}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -851,7 +783,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   const [showTerm, setShowTerm] = useState(false);
   const counts = {
     defects: defectsOf(t, all).length,
-    docs: Object.values(t.source.docs ?? {}).filter(Boolean).length,
+    docs: (t.source.docs ?? []).length,
     convs: (t.conversations ?? []).length,
   };
   const termVisible = hasTerm && (!autonomous || showTerm);
@@ -1225,19 +1157,6 @@ function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
         {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，重新打开后可以继续聊" } : {})}
       />
     </div>
-  );
-}
-
-function Resources({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
-  const [editDocs, setEditDocs] = useState(false);
-  const docs = DOC_LABELS.filter(([k]) => t.source.docs?.[k]);
-  return (
-    <section className="ac__sec">
-      <div className="ac__k ac__k--row">资料<span className="th__sp" /><button className="ac__add" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>{editDocs ? "收起" : "＋ 贴一个链接"}</button></div>
-      {editDocs ? <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} /> : docs.length > 0 ? (
-        <div className="ac__docs">{docs.map(([k, label]) => <OpenLink key={k} href={t.source.docs![k]!}><span className="ac__src">{label}</span>{t.source.docs![k]!.replace(/^https?:\/\//, "").slice(0, 48)}</OpenLink>)}</div>
-      ) : <div className="ac__text ac__text--dim">还没有</div>}
-    </section>
   );
 }
 

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
 import { getAttachment, saveAttachment } from "../memory/attachments.js";
 import { readResearchNote } from "../memory/research.js";
+import { fillDocTitles, mergeDocs, normUrl } from "../agent/docTitle.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
@@ -35,7 +36,7 @@ const IMAGE_MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image
 
 const worktreeOf = (t: Task) => t.source.worktree ?? (t.source.rootId ? getTask(t.source.rootId)?.source.worktree : undefined);
 
-const docList = (t: Task) => Object.values(t.source.docs ?? {}).filter(Boolean).map((url) => ({ url: url as string, title: undefined as string | undefined }));
+const docList = (t: Task) => t.source.docs ?? [];
 
 async function startTask(t: Task): Promise<{ task: Task } | { error: string; status: 400 | 409 }> {
   const project = t.project ?? (t.source.rootId ? getTask(t.source.rootId)?.project : undefined);
@@ -44,7 +45,7 @@ async function startTask(t: Task): Promise<{ task: Task } | { error: string; sta
   if (r.kind !== "match") return { error: `找不到项目 ${project}`, status: 400 };
   const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
   if (running?.status === "running") return { error: "这条任务已经有终端在跑了", status: 409 };
-  const docs = Object.values(t.source.docs ?? {}).filter(Boolean);
+  const docs = (t.source.docs ?? []).map((d) => d.url);
   const detail = [
     `我要开始做这条需求：${t.title}`,
     t.source.url ? `工单：${t.source.url}` : "",
@@ -251,33 +252,23 @@ export const tasks = new Hono()
     }
     return c.json(t);
   })
-  /** 手填文档链接：口头交代的任务没有 Meegle 同步下来的资料，得能自己贴。
-      Meegle 任务同步会覆盖 req/tech/design，手填的 meegle 键它不碰。 */
   .post("/tasks/:id/docs", async (c) => {
-    const url = z.string().trim().url().max(2000).or(z.literal(""));
-    const parsed = z
-      .object({ req: url.optional(), tech: url.optional(), design: url.optional(), meegle: url.optional() })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "链接得是完整的 URL（http/https）" }, 400);
-    const before = getTask(c.req.param("id"));
-    if (!before) return c.json({ error: "任务不存在" }, 404);
-    // 空串表示删掉这一栏；没传的键保持原样
-    const docs = { ...(before.source.docs ?? {}) };
-    for (const [k, v] of Object.entries(parsed.data)) {
-      if (v === undefined) continue;
-      if (v === "") delete docs[k as keyof typeof docs];
-      else docs[k as keyof typeof docs] = v;
-    }
-    const t = updateTask(c.req.param("id"), { source: { docs } })!;
-    record({
-      taskId: t.id,
-      action: "docs_set",
-      why: "你手动贴了文档链接",
-      how: Object.keys(docs).length ? `现在有 ${Object.keys(docs).length} 个链接` : "清空了",
-      evidence: { docs, from: before.source.docs ?? {} },
-      risk: "reversible",
-    });
-    return c.json(t);
+    const p = z.object({ url: z.string().trim().url().max(2000) }).safeParse(await c.req.json().catch(() => null));
+    const t = getTask(c.req.param("id"));
+    if (!p.success || !/^https?:\/\//i.test(p.data.url)) return c.json({ error: "链接得是完整的 URL（http/https）" }, 400);
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    const next = updateTask(t.id, { source: { docs: mergeDocs(t.source.docs ?? [], [{ url: p.data.url, from: "user" }]) } })!;
+    record({ taskId: t.id, action: "doc_added", why: "你贴了一份资料", how: p.data.url, evidence: { url: p.data.url }, risk: "reversible" });
+    fillDocTitles(t.id, p.data.url);
+    return c.json(next);
+  })
+  .delete("/tasks/:id/docs", (c) => {
+    const url = c.req.query("url") ?? "";
+    const t = getTask(c.req.param("id"));
+    if (!t || !url) return c.json({ error: "url 必填" }, 400);
+    const next = updateTask(t.id, { source: { docs: (t.source.docs ?? []).filter((d) => normUrl(d.url) !== normUrl(url)) } })!;
+    record({ taskId: t.id, action: "doc_removed", why: "你删了一份资料", how: url, evidence: { url }, risk: "reversible" });
+    return c.json(next);
   })
   /**
    * 把另一条需求并进这条：二期跟一期是同一件事、同一个分支，板上不该并排两条。
@@ -308,12 +299,12 @@ export const tasks = new Hono()
             meegleId: from.source.meegleId,
             title: from.title,
             ...(from.source.url ? { url: from.source.url } : {}),
-            ...(from.source.docs ? { docs: from.source.docs } : {}),
+            ...(from.source.docs?.length ? { docs: from.source.docs } : {}),
           }]
         : []),
       ...(from.source.merged ?? []),
     ].filter((m, i, a) => a.findIndex((x) => x.meegleId === m.meegleId) === i);
-    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids, merged } })!;
+    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids, merged, docs: mergeDocs(into.source.docs ?? [], from.source.docs ?? []) } })!;
     const row = deleteTask(from.id);
     record({
       taskId: into.id,

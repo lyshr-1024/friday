@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import type { TaskDoc } from "@friday/shared";
 
 // esbuild 不认识 node:sqlite，会把 node: 前缀剥掉导致运行时找不到包，改为运行时 require。
 const { DatabaseSync: Database } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -23,6 +24,27 @@ export function initMemory(dir = config.dataDir): DatabaseSync {
   instance.exec(SCHEMA);
   migrate(instance);
   return instance;
+}
+
+export function migrateDocs(raw: unknown): TaskDoc[] {
+  if (Array.isArray(raw)) return raw as TaskDoc[];
+  if (!raw || typeof raw !== "object") return [];
+  return Object.entries(raw as Record<string, unknown>)
+    .filter(([, v]) => typeof v === "string" && v.trim())
+    .map(([k, v]) => ({ url: (v as string).trim(), from: k === "meegle" ? ("user" as const) : ("meegle" as const) }));
+}
+
+function migrateTaskDocs(d: DatabaseSync): void {
+  const rows = d.prepare(`SELECT id, source FROM tasks WHERE source LIKE '%"docs":{%'`).all() as Array<{ id: string; source: string }>;
+  const upd = d.prepare("UPDATE tasks SET source = ? WHERE id = ?");
+  d.exec("BEGIN");
+  for (const r of rows) {
+    const src = JSON.parse(r.source) as { docs?: unknown; merged?: Array<{ docs?: unknown }> };
+    if (src.docs !== undefined) src.docs = migrateDocs(src.docs);
+    for (const m of src.merged ?? []) if (m.docs !== undefined) m.docs = migrateDocs(m.docs);
+    upd.run(JSON.stringify(src), r.id);
+  }
+  d.exec("COMMIT");
 }
 
 // 增量列：CREATE TABLE IF NOT EXISTS 不会给老库加列，这里按需补。
@@ -88,6 +110,8 @@ export function migrate(d: DatabaseSync): void {
             AND json_extract(source, '$.fromTaskId') IS NULL`);
   // 上面那条曾经没排除周报 / 手册卡，review 状态的被补成了 testing，卡上能点「已上线」直接收工
   d.exec("UPDATE tasks SET stage = NULL, stage_by = NULL WHERE kind IN ('okr_weekly', 'handbook') AND stage_by = 'auto'");
+
+  migrateTaskDocs(d);
 
   const unbound = d.prepare("SELECT id FROM tasks WHERE status NOT IN ('done', 'ignored') AND json_extract(source, '$.conversationId') IS NULL").all() as Array<{ id: string }>;
   if (!unbound.length) return;

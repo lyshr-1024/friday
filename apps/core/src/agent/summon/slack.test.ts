@@ -128,7 +128,7 @@ describe("HUD 在 Slack 前台", () => {
     const t = createTask({
       title: "免佣卡多时段",
       kind: "meegle",
-      source: { meegleId: "24400010", docs: { req: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v" } },
+      source: { meegleId: "24400010", docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v", from: "meegle" }] },
       status: "understood",
     });
     dmMock.mockResolvedValue({

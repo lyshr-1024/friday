@@ -105,4 +105,20 @@ describe("老库迁移", () => {
     expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
     expect((d.prepare("SELECT why FROM links WHERE id = 's1'").get() as { why: string }).why).toBe("旧边");
   });
+
+  it("四槽 docs 迁成数组：主任务和 merged 里的链接一条不丢，重复跑不变", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    migrate(d);
+    const src = { docs: { req: "https://a/req", tech: "https://a/tech", meegle: "https://a/mine" }, merged: [{ meegleId: "2", title: "二期", docs: { design: "https://a/ui" } }, { meegleId: "3", title: "无资料" }] };
+    d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at) VALUES ('t1', 't', 'meegle', ?, 'understood', 'x', 'x')").run(JSON.stringify(src));
+    d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at) VALUES ('t2', 't', 'verbal', ?, 'understood', 'x', 'x')").run(JSON.stringify({ docs: [{ url: "https://n/1", from: "user" }] }));
+    migrate(d);
+    migrate(d);
+    const read = (id: string) => JSON.parse((d.prepare("SELECT source FROM tasks WHERE id = ?").get(id) as { source: string }).source);
+    expect(read("t1").docs).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }, { url: "https://a/mine", from: "user" }]);
+    expect(read("t1").merged[0].docs).toEqual([{ url: "https://a/ui", from: "meegle" }]);
+    expect(read("t1").merged[1]).toEqual({ meegleId: "3", title: "无资料" });
+    expect(read("t2").docs).toEqual([{ url: "https://n/1", from: "user" }]);
+  });
 });

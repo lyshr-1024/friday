@@ -535,9 +535,15 @@ export async function taskSetProject(id: string, project: string | null): Promis
   return res.json();
 }
 
-/** 手填文档链接。空串表示删掉那一栏。 */
-export async function taskSetDocs(id: string, docs: Record<string, string>): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/docs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(docs) });
+/** 贴一份资料链接；标题由 core 异步补，补完会推一次 tasks 事件。 */
+export async function taskDocAdd(id: string, url: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/docs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function taskDocRemove(id: string, url: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/docs?url=${encodeURIComponent(url)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }

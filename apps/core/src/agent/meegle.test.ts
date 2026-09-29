@@ -244,16 +244,16 @@ describe("需求的资料链接与当前节点", () => {
 
   it("带出资料链接与流转要用的 node_key", () => {
     const item = toWorkItem("h", todo, story([{ key: "field_8fe714", name: "Requirement doc URL", value: "https://a/req" }]));
-    expect(item.docs).toEqual({ req: "https://a/req" });
+    expect(item.docs).toEqual([{ url: "https://a/req", from: "meegle" }]);
     expect(item.nodeKey).toBe("state_16");
   });
 
   it("三份资料都写进 source，没填的键不出现", () => {
     const t = workItemToTask(
-      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: { req: "https://a/req", tech: "https://a/tech" } },
+      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: [{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }] },
       [],
     );
-    expect(t.source.docs).toEqual({ req: "https://a/req", tech: "https://a/tech" });
+    expect(t.source.docs).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }]);
     expect(t.source.nodeKey).toBe("state_16");
   });
 });

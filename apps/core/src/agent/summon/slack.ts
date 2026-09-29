@@ -8,6 +8,7 @@ import {
   slackSelfId,
   type SlackContextLine,
 } from "../../connectors/slack.js";
+import { normUrl } from "../docTitle.js";
 import { attachedTasks } from "../slack/attach.js";
 import { linkUp } from "../../memory/links.js";
 import { listTasks } from "../../memory/tasks.js";
@@ -92,10 +93,10 @@ function attachByTicket(conv: string, lines: SlackContextLine[]): string | undef
   }
 
   // 产品经理发的多是需求文档链接而不是工单号（实测频道里 16 条只有 1 条带工单号），
-  // 而任务上本来就存着 docs.req / tech / design——同一篇文档就是同一件事。
+  // 而任务上本来就存着需求资料链接——同一篇文档就是同一件事。
+  const normed = new Set([...urls].map(normUrl));
   for (const t of tasks) {
-    const docs = Object.values(t.source.docs ?? {}).filter(Boolean) as string[];
-    const same = docs.find((d) => urls.has(d));
+    const same = (t.source.docs ?? []).find((d) => normed.has(normUrl(d.url)));
     if (!same) continue;
     linkUp(slackNode(conv), taskNode(t.id), "rule", "这段对话里贴的就是这条任务的需求文档");
     return t.id;

@@ -1,4 +1,4 @@
-import type { StateTransition, Todo } from "@friday/shared";
+import type { StateTransition, TaskDoc, Todo } from "@friday/shared";
 import type { Connector } from "./types.js";
 import { mapLimit, runJson } from "./exec.js";
 
@@ -30,7 +30,7 @@ export interface MeegleWorkItem {
   tags?: string[];
   node?: string;
   nodeKey?: string;
-  docs?: Docs;
+  docs?: TaskDoc[];
   reporter?: string;
   description?: string;
   projectName: string;
@@ -122,25 +122,19 @@ export function nodeKeyOf(nodeStateKey: string | undefined, workItemId: number |
   return nodeStateKey.slice(5, -tail.length) || undefined;
 }
 
-export interface Docs {
-  req?: string;
-  tech?: string;
-  design?: string;
-}
-
 /** 三份资料的字段 key 会随模板变，字段名兜底 */
-const DOC_FIELDS: Array<[keyof Docs, string, RegExp]> = [
-  ["req", "field_8fe714", /requirement\s*doc|需求文档/i],
-  ["tech", "field_8190c7", /technical\s*doc|技术文档/i],
-  ["design", "field_1f7126", /design\s*url|设计稿/i],
+const DOC_FIELDS: Array<[string, RegExp]> = [
+  ["field_8fe714", /requirement\s*doc|需求文档/i],
+  ["field_8190c7", /technical\s*doc|技术文档/i],
+  ["field_1f7126", /design\s*url|设计稿/i],
 ];
 
-export function pickDocs(fields: Array<{ key: string; name?: string; value: unknown }>): Docs {
-  const out: Docs = {};
-  for (const [slot, key, name] of DOC_FIELDS) {
+export function pickDocs(fields: Array<{ key: string; name?: string; value: unknown }>): TaskDoc[] {
+  const out: TaskDoc[] = [];
+  for (const [key, name] of DOC_FIELDS) {
     const hit = fields.find((f) => f.key === key) ?? fields.find((f) => f.name && name.test(f.name));
     const url = typeof hit?.value === "string" ? hit.value.trim() : "";
-    if (url) out[slot] = url;
+    if (url) out.push({ url, from: "meegle" });
   }
   return out;
 }
@@ -279,7 +273,7 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
     statusKey: a.work_item_status.key ?? "",
     projectKey: todo.project_key,
     ...(tags?.length ? { tags } : {}),
-    ...(Object.keys(docs).length ? { docs } : {}),
+    ...(docs.length ? { docs } : {}),
     ...(nodeKey ? { nodeKey } : {}),
     ...(reporter ? { reporter } : {}),
     ...(description ? { description } : {}),

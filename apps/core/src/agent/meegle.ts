@@ -1,5 +1,6 @@
 import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
 import { onSignal } from "./stage.js";
+import { fillDocTitles, mergeDocs } from "./docTitle.js";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
@@ -313,10 +314,14 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     for (const item of items) {
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id || (s.mergedMeegleIds ?? []).includes(item.id), true);
+      // 资料只增不删：你手贴的、已经取到的标题，同步都不能覆盖
+      const docs = mergeDocs(existing?.source.docs ?? [], input.source.docs ?? []);
+      input.source.docs = docs.length ? docs : undefined;
       if (!existing) {
         const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });
         record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
         added++;
+        fillDocTitles(t.id);
         fresh.push({ task: t, item });
       } else if (OPEN.includes(existing.status)) {
         const { status: _s, ...patch } = input;
@@ -344,6 +349,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120), taskId: existing.id });
         reopened++;
       }
+      if (existing && docs.length > (existing.source.docs ?? []).length) fillDocTitles(existing.id);
     }
     const live = new Set(items.map((it) => it.id));
     let closed = 0;
