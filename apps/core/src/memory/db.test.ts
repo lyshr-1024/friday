@@ -55,6 +55,22 @@ describe("老库迁移", () => {
     expect(statusOf("has-merge")).toBe("review");
   });
 
+  it("旧版没有 tmux 会话的 running job 一次性收掉，对应任务写明需重新开工", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    migrate(d);
+    d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at) VALUES ('t1', 't1', 'code', '{}', 'processing', ?, ?)").run("2026-09-28T00:00:00Z", "2026-09-28T00:00:00Z");
+    const job = d.prepare("INSERT INTO jobs (id, project, dir, status, log_path, started_at, task_id, session_id) VALUES (?, 'p', '/tmp', 'running', '/tmp/x.log', ?, ?, ?)");
+    job.run("old", "2026-09-28T00:00:00Z", "t1", null);
+    job.run("new", "2026-09-29T00:00:00Z", null, "s1");
+    migrate(d);
+
+    const row = (id: string) => d.prepare("SELECT status, exit_code FROM jobs WHERE id = ?").get(id) as { status: string; exit_code: number | null };
+    expect(row("old")).toMatchObject({ status: "done", exit_code: -1 });
+    expect(row("new").status).toBe("running");
+    expect((d.prepare("SELECT progress FROM tasks WHERE id = 't1'").get() as { progress: string }).progress).toBe("旧版终端已不可接回，需重新开工");
+  });
+
   it("周报和手册卡不补阶段；之前被自动补上的清掉，手动拨过的不动", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);

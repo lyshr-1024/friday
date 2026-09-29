@@ -10,7 +10,7 @@ import { getTask } from "../memory/tasks.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { getJob } from "../memory/jobs.js";
 import { say } from "../agent/terminal.js";
-import { reopenTerminal } from "../agent/runner.js";
+import { resumeInSession } from "../agent/sessions.js";
 import { loadProjects, matchEnv, resolveProject } from "../memory/projects.js";
 import { askStream } from "../agent/claude.js";
 import { classifyIntent } from "../agent/summon/intent.js";
@@ -59,7 +59,8 @@ async function relayToTerminal(text: string, taskId?: string, scene?: string, ur
     if (job?.status === "running" && (await say(jobId, said)) === "sent") {
       return { kind: "said", message: "已转达给终端", taskId: task.id, jobId };
     }
-    if ((await reopenTerminal(jobId)) === "no-job") return undefined;
+    const sid = job?.sessionId;
+    if (!sid || !(await resumeInSession(sid))) return undefined;
     await say(jobId, said);
     return { kind: "opened", message: "终端没开，已重开并接回原会话", taskId: task.id, jobId };
   }

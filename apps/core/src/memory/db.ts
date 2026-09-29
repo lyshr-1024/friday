@@ -75,8 +75,6 @@ export function migrate(d: DatabaseSync): void {
   const jobCols = (d.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!jobCols.includes("claude_session_id")) d.exec("ALTER TABLE jobs ADD COLUMN claude_session_id TEXT");
   if (!jobCols.includes("terminal")) d.exec("ALTER TABLE jobs ADD COLUMN terminal TEXT");
-  // Ghostty 的 terminal id：开窗口时拿到，say / focus / close 都靠它认窗口
-  if (!jobCols.includes("ghostty_id")) d.exec("ALTER TABLE jobs ADD COLUMN ghostty_id TEXT");
   // 这个 job 是替哪条任务干的：开工时写死归属，终端连回来时按它认领，
   // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
   if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
@@ -121,6 +119,14 @@ export function migrate(d: DatabaseSync): void {
   d.exec("UPDATE tasks SET stage = NULL, stage_by = NULL WHERE kind IN ('okr_weekly', 'handbook') AND stage_by = 'auto'");
 
   migrateTaskDocs(d);
+
+  const legacy = d.prepare("SELECT id, task_id FROM jobs WHERE status = 'running' AND session_id IS NULL").all() as Array<{ id: string; task_id: string | null }>;
+  if (legacy.length) {
+    const at = new Date().toISOString();
+    d.prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE status = 'running' AND session_id IS NULL").run(at);
+    const note = d.prepare("UPDATE tasks SET progress = ?, updated_at = ? WHERE id = ? AND status = 'processing'");
+    for (const j of legacy) if (j.task_id) note.run("旧版终端已不可接回，需重新开工", at, j.task_id);
+  }
 
   const unbound = d.prepare("SELECT id FROM tasks WHERE status NOT IN ('done', 'ignored') AND json_extract(source, '$.conversationId') IS NULL").all() as Array<{ id: string }>;
   if (!unbound.length) return;

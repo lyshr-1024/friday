@@ -1,11 +1,9 @@
-import type { TerminalState } from "@friday/shared";
 import { coreBaseUrl } from "./core";
 
 export type FridayEvent =
   | { type: "hello" }
   | { type: "ping" }
   | { type: "tasks" }
-  | { type: "terminal"; jobId: string; state: TerminalState }
   | { type: "conversation"; id: string; running: boolean };
 
 /** 连上 core 的 /events，把推送转成 window 事件；断了按退避重连。 */

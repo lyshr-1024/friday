@@ -13,7 +13,7 @@ import { writeTmuxConf } from "./agent/tmux.js";
 initMemory();
 writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
-// 上次进程没了，库里还标着 running 的挨个问一句窗口在不在：外部 Ghostty 不跟着
+// 上次进程没了，库里还标着 running 的挨个问一句会话在不在：tmux 不跟着
 // sidecar 死，还开着的要留下，只收真没了的那些
 const reaped = await sweepClosedTerminals();
 if (reaped.length) console.log(`收尾 ${reaped.length} 个上次遗留的终端记录`);

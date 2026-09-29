@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, TerminalState, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -195,20 +195,6 @@ export async function routeAsk(prompt: string): Promise<RouteResult> {
   return res.json();
 }
 
-export interface Activity {
-  ts: string;
-  kind: "say" | "tool" | "user";
-  text: string;
-  ok?: boolean;
-}
-
-/** 终端里 Claude Code 最近的动作（从 transcript 读）+ 此刻的终端状态 */
-export async function jobActivity(id: string, limit = 6): Promise<{ items: Activity[]; terminal: TerminalState }> {
-  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/activity?limit=${limit}`);
-  if (!res.ok) throw new Error(`activity ${res.status}`);
-  return res.json();
-}
-
 export async function openTodos(): Promise<Todo[]> {
   const res = await fetch(`${await coreBaseUrl()}/todos`);
   if (!res.ok) throw new Error(`todos ${res.status}`);
@@ -346,17 +332,18 @@ export async function jobsSweep(): Promise<string[]> {
   return ((await res.json().catch(() => null)) as { closed?: string[] } | null)?.closed ?? [];
 }
 
-/** 终端窗口关了但任务没完：重开一个，接回原来那个 Claude 会话。 */
-export async function jobReopen(id: string): Promise<{ status: string }> {
-  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/reopen`, { method: "POST" });
-  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+export interface LeftoverWorktree { path: string; repoDir: string; branch?: string; dirty: boolean; taskId?: string; title?: string }
+export interface WorktreeRemoval { removed: boolean; branch?: string; branchDeleted: boolean; kept?: string }
+
+export async function leftoverWorktrees(): Promise<LeftoverWorktree[]> {
+  const res = await fetch(`${await coreBaseUrl()}/worktrees/leftover`);
+  if (!res.ok) throw new Error(`worktrees ${res.status}`);
   return res.json();
 }
 
-/** 把终端窗口拉到前台。窗口已经没了的话后端会重开一个接回原会话，返回 reopened。 */
-export async function jobFocus(id: string): Promise<{ focused: boolean; reopened?: string }> {
-  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/focus`, { method: "POST" }).catch(() => null);
-  if (!res?.ok) return { focused: false };
+export async function removeWorktree(path: string, force = false): Promise<WorktreeRemoval> {
+  const res = await fetch(`${await coreBaseUrl()}/worktrees/remove`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, ...(force ? { force } : {}) }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }
 

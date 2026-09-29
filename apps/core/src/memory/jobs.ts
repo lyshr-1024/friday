@@ -13,7 +13,6 @@ interface Row {
   last_message: string | null;
   claude_session_id: string | null;
   terminal: TerminalApp | null;
-  ghostty_id: string | null;
   task_id: string | null;
   session_id: string | null;
   log_path: string | null;
@@ -32,7 +31,6 @@ const toJob = (r: Row): Job => ({
   ...(r.last_message ? { lastMessage: r.last_message } : {}),
   ...(r.claude_session_id ? { claudeSessionId: r.claude_session_id } : {}),
   ...(r.terminal ? { terminal: r.terminal } : {}),
-  ...(r.ghostty_id ? { ghosttyId: r.ghostty_id } : {}),
   ...(r.task_id ? { taskId: r.task_id } : {}),
   ...(r.session_id ? { sessionId: r.session_id } : {}),
   startedAt: r.started_at,

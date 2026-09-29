@@ -1,17 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
-import { TERMINAL_LABEL, type RunResponse } from "@friday/shared";
+import type { RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { launchClaude } from "../agent/runner.js";
-import { createJob, recentDuplicate } from "../memory/jobs.js";
+import { startInteractiveJob } from "../agent/pipeline.js";
+import { recentDuplicate } from "../memory/jobs.js";
 import { createTask } from "../memory/tasks.js";
-import { record } from "../memory/audit.js";
 import { resolveProject } from "../memory/projects.js";
-import { jobLog } from "../agent/runner.js";
 import { finishSession, startSession } from "../memory/sessions.js";
-import { userSettings } from "../settings.js";
 
 const body = z.object({
   project: z.string().trim().min(1),
@@ -43,19 +39,17 @@ export const run = new Hono().post("/run", async (c) => {
 
   const dup = recentDuplicate(resolved.project.dir, task);
   if (dup) {
-    const res: RunResponse = { status: "launched", project: dup.project, dir: dup.dir, terminal: userSettings().terminal, jobId: dup.id, ...(dup.task ? { task: dup.task } : {}) };
+    const res: RunResponse = { status: "launched", project: dup.project, dir: dup.dir, jobId: dup.id, ...(dup.task ? { task: dup.task } : {}) };
     return c.json(res);
   }
   const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
-  const { terminal } = userSettings();
   try {
-    const { script } = await launchClaude({ id, dir: resolved.project.dir, terminal, project: resolved.project.name, ...(task ? { task } : {}) });
-    finishSession(id, `launched ${terminal} ${script}`);
-    createJob({ id, project: resolved.project.name, dir: resolved.project.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conv ? { conversationId: conv } : {}) });
-    const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `${resolved.project.name}：交互式会话`, kind: "code", source: { jobId: id }, project: resolved.project.name, status: "processing", understanding: task ?? "你手动开的终端会话" });
-    record({ taskId: t.id, action: "claude_code_start", why: "你让 Friday 跑项目", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: resolved.project.name, dir: resolved.project.dir }, risk: "reversible" });
-    const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, terminal, jobId: id, ...(task ? { task } : {}) };
-    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 ${TERMINAL_LABEL[terminal]} 打开 ${res.project}`, payload: res });
+    const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `在 ${resolved.project.name} 上开个终端`, kind: "code", source: {}, project: resolved.project.name, status: "processing", understanding: task ?? "你手动开的终端会话" });
+    const started = await startInteractiveJob(t, resolved.project.name, resolved.project.dir, task ?? "");
+    const jobId = started.source.jobId!;
+    finishSession(id, `launched tmux ${jobId}`);
+    const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, jobId, ...(task ? { task } : {}) };
+    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 Friday 里打开 ${res.project} 的终端`, payload: res });
     return c.json(res);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

@@ -65,7 +65,7 @@ export const links = new Hono()
       taskId: target.taskId,
       action: "terminal_say",
       why: "你对着页面说了一句，Friday 认出是哪个终端在改它",
-      how: "写进 Ghostty 窗口",
+      how: "写进 tmux 会话",
       evidence: { jobId: target.jobId, url, text },
       risk: "reversible",
     });

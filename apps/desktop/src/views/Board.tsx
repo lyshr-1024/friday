@@ -297,7 +297,7 @@ function dueBits(t: Task): string[] {
 }
 
 /** 列表行的灰字：你在做的写状态位，Friday 自主的写交付，缺陷写它在哪个会话里改 */
-function anchorLine(t: Task): string {
+function anchorLine(t: Task, kids = 0): string {
   const s = t.session;
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
@@ -309,7 +309,7 @@ function anchorLine(t: Task): string {
   }
   const label = stateLabel(t);
   const head = label || s?.name ? [label, s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""] : [KIND[t.kind] ?? t.kind, t.priority === "high" ? "高优先级" : ""];
-  return [...head, ...dueBits(t)].filter(Boolean).join(" · ") || anchorSub(t);
+  return [...head, ...(kids > 0 ? [`${kids} 条缺陷`] : dueBits(t))].filter(Boolean).join(" · ") || anchorSub(t);
 }
 
 /** 活跃的排前面：终端在干活 / Friday 在回 > 最近更新 */
@@ -702,6 +702,8 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                     <div className="anchors__g">{g.label}</div>
                     {g.items.map(({ t, child }) => {
                       const st = t.session?.state ?? "none";
+                      const guess = Boolean(t.source.rootGuess);
+                      const kids = child ? 0 : (board?.tasks ?? []).filter((x) => x.source.rootId === t.id && !closed(x)).length;
                       return (
                         <div
                           key={t.id}
@@ -716,9 +718,19 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                         >
                           <span className={`sdot sdot--${child ? "none" : st}`} />
                           <span className="an__main">
-                            <span className="an__t">{t.title}</span>
-                            <span className="an__sub">{anchorLine(t)}</span>
+                            <span className="an__t">{guess && <span className="an__guess">Friday 推断</span>}{t.title}</span>
+                            {guess ? (
+                              <span className="an__sub">
+                                {t.kind === "slack" ? "Slack" : "任务"} · 还没进会话 ·{" "}
+                                <button className="an__act" onClick={(e) => { e.stopPropagation(); void act(t, () => taskRoot(t.id, true)); }}>是它，进会话</button>
+                                {" · "}
+                                <button className="an__act an__act--dim" onClick={(e) => { e.stopPropagation(); void act(t, () => taskRoot(t.id, false)); }}>不是这条</button>
+                              </span>
+                            ) : (
+                              <span className="an__sub">{anchorLine(t, kids)}</span>
+                            )}
                           </span>
+                          {!child && t.session?.branch && <span className="an__br">{t.session.branch}</span>}
                         </div>
                       );
                     })}

@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import type { Attachment, HotItem, Job, Message, RunResponse } from "@friday/shared";
-import { attachmentUrl, jobFocus } from "../lib/core";
+import { attachmentUrl } from "../lib/core";
 
 export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   if (m.kind === "error") return <div className="err">{m.content}</div>;
@@ -168,7 +168,7 @@ export function elapsed(job: Job, now = Date.now()): string {
 
 /**
  * 终端最后一轮说的话取头一句。
- * 上面 Friday 已经讲过一遍了，这里只要够认出「它说到哪儿了」，看全文点「聚焦终端」。
+ * 上面 Friday 已经讲过一遍了，这里只要够认出「它说到哪儿了」，看全文去任务详情里的终端。
  */
 export function gist(text: string, max = 80): string {
   const line = text
@@ -194,7 +194,6 @@ export function JobCard({ job, onLog }: { job: Job; onLog?: (job: Job) => void }
       {/* job.task 是发给终端的整段提示词，上面 Friday 已经说过要干什么了，不再重复一遍 */}
       {last && <div className="job__last">{last}</div>}
       <div className="job__actions">
-        <button onClick={() => void jobFocus(job.id)}>聚焦终端</button>
         {onLog && <button onClick={() => onLog(job)}>看日志</button>}
       </div>
     </div>

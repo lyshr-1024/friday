@@ -1,17 +1,10 @@
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import type { TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
-import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
-import { getJob, reviveJob } from "../memory/jobs.js";
-import { findTaskBySource } from "../memory/tasks.js";
-import { record } from "../memory/audit.js";
-import { publish } from "../bus.js";
-import { userSettings } from "../settings.js";
-import type { TerminalApp } from "../settings.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
@@ -20,21 +13,6 @@ import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession } from "./tmux.js";
 
 const execFileP = promisify(execFile);
-
-export interface LaunchRequest {
-  id: string;
-  dir: string;
-  task?: string;
-  terminal: TerminalApp;
-  /** 自主模式：claude -p 跑完即退，按交付报告约定产出 report.md 与截图 */
-  autonomous?: boolean;
-  /** 重开这条任务的终端：用 --resume 接回原来那个 Claude 会话，而不是从头开始 */
-  resumeSessionId?: string;
-  /** 只读任务：查代码回答问题，不许改文件 */
-  readonly?: boolean;
-  /** 项目名，交互式终端按它把手册塞进 system prompt；自主任务的手册已经在 autonomousPrompt 里 */
-  project?: string;
-}
 
 export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
 export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
@@ -91,7 +69,7 @@ export const jobLog = (id: string) => join(runsDir(), `${id}.log`);
  * 脚本取最后一段 assistant 文本 POST 回 Friday，会话窗里的任务卡片就能显示终端里 Claude 刚说了什么。
  */
 export function buildHookScript(id: string, port: number, nodePath = process.execPath): string {
-  // Ghostty 由 open 拉起，环境里没有 nvm 的 PATH，所以 node 用 sidecar 自己的绝对路径；出错写到 <id>.hook.log。
+  // tmux 里没有 nvm 的 PATH，所以 node 用 sidecar 自己的绝对路径；出错写到 <id>.hook.log。
   return [
     "#!/bin/zsh",
     `exec >>${shellQuote(join(runsDir(), `${id}.hook.log`))} 2>&1`,
@@ -161,35 +139,12 @@ export function buildHookSettings(hookScript: string, guardScript?: string, read
   );
 }
 
-// 用 script 录下整个终端会话，退出时把退出码回报给 Friday；claude 用绝对路径避开别名，Friday 只透传用户指令所以跳过权限确认。
-// 见 env.ts cleanEnv：外部终端由 Ghostty 拉起同样会继承这些变量
+// 见 env.ts cleanEnv：tmux 里拉起的 claude 同样会继承这些变量
 const UNSET_CLAUDE_ENV = "unset CLAUDECODE CLAUDE_PID $(env | sed -n 's/^\\(CLAUDE_CODE_[A-Z_]*\\)=.*/\\1/p') 2>/dev/null";
 
 /** Claude Code 的 transcript 放在 ~/.claude/projects/<cwd 里所有非字母数字换成 ->/<session>.jsonl */
 export function transcriptPath(dir: string, sessionId: string): string {
   return join(homedir(), ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
-}
-
-export function buildScript(req: LaunchRequest, claudePath: string, port: number, files: ClaudeFiles): string {
-  const flags = claudeFlags(files, req.autonomous || req.readonly, req.project);
-  // 重开：接回这条任务原来那个 Claude 会话；transcript 可能还没落盘，交给 claude 自己判断，接不上就新开
-  const resume = req.resumeSessionId
-    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)} || ${shellQuote(claudePath)} ${flags}`
-    : undefined;
-  const claude = resume ?? `${shellQuote(claudePath)} ${flags}${req.task ? ` ${shellQuote(req.task)}` : ""}`;
-  return [
-    "#!/bin/zsh",
-    `cd ${shellQuote(req.dir)} || exit 1`,
-    UNSET_CLAUDE_ENV,
-    `printf '\\033]0;Friday · %s\\007' ${shellQuote(req.dir.split("/").pop() ?? "")}`,
-    `script -q ${req.resumeSessionId ? "-a " : ""}${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
-    "code=$?",
-    `curl -s -m 3 -X POST ${shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/exit`)} -H 'content-type: application/json' -d "{\\"code\\":$code}" >/dev/null 2>&1`,
-    // 不留交互 shell：Claude Code 一退窗口就跟着关，「关终端」才是真的关干净。
-    // 原来这里 exec zsh -il 留个壳给你接着用，代价是关不掉、窗口标题还挂着旧任务名。
-    "exit $code",
-    "",
-  ].join("\n");
 }
 
 /** 写 Stop hook 脚本与 --settings 文件；每次启动/重开都重写，保证用的是当前版本的 hook。 */
@@ -269,76 +224,6 @@ export function claudeFlags(files: ClaudeFiles, headless = false, project?: stri
   return claudeArgs(files, headless, project)
     .map((a) => (a.startsWith("-") ? a : shellQuote(a)))
     .join(" ");
-}
-
-export async function launchClaude(req: LaunchRequest): Promise<{ script: string; ghosttyId?: string }> {
-  const claudePath = await findClaude();
-  const files = writeHookFiles(req.id, req.autonomous, req.readonly);
-
-  const ext = req.terminal === "terminal" ? ".command" : ".sh";
-  const script = join(runsDir(), `${req.id}${ext}`);
-  writeFileSync(script, buildScript(req, claudePath, config.port, files));
-  chmodSync(script, 0o755);
-
-  // Terminal.app 没有脚本接口，只能 open；Ghostty 走 AppleScript，为的是开完就能拿到
-  // terminal id——之后 say / focus / close 都认它，标题不行（Claude Code 自己会改）。
-  if (req.terminal === "terminal") {
-    await execFileP("/usr/bin/open", ["-a", "Terminal", script]);
-    return { script };
-  }
-  // id 交回给调用方去写：job 行这会儿还没建出来，在这里 UPDATE 会落空
-  const ghosttyId = await openWindow(script, req.dir);
-  return { script, ...(ghosttyId ? { ghosttyId } : {}) };
-}
-
-/**
- * 窗口关掉了（你手动关的、或者 Claude Code 退出带走的），但这条任务还没做完：
- * 重开一个窗口，用 --resume 接回它原来那个 Claude 会话，上下文不丢。
- *
- * 接不上就新开一个空会话——总比让你从头交代一遍强。
- */
-export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive" | "no-job"> {
-  const job = getJob(jobId);
-  if (!job) return "no-job";
-  if (job.status === "running" && job.ghosttyId && (await isAlive(job.ghosttyId))) return "alive";
-
-  const terminal = job.terminal ?? userSettings().terminal;
-  await launchClaude({
-    id: jobId,
-    dir: job.dir,
-    terminal,
-    project: job.project,
-    ...(job.task ? { task: job.task } : {}),
-    ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}),
-    // 后台查询任务是只读的，接回来的窗口不能顺手开始改文件
-    ...(findTaskBySource((s) => s.jobId === jobId, true)?.source.headless ? { readonly: true } : {}),
-  });
-  reviveJob(jobId);
-  // 只推过 gone 的话前端那张表就是个只进不出的锁存器，按钮永远停在「重开终端」，
-  // 每点一次多开一个窗口。窗口回来了就得说一声。
-  publish({ type: "terminal", jobId, state: "idle" });
-  record({
-    action: "terminal_reopened",
-    why: "终端窗口关掉了但任务还没做完",
-    how: job.claudeSessionId ? "重开窗口并 --resume 接回原会话" : "重开窗口（没有会话 id，开新会话）",
-    evidence: { jobId, project: job.project, resumed: Boolean(job.claudeSessionId) },
-    risk: "reversible",
-  });
-  return "reopened";
-}
-
-/**
- * 把某条 job 的终端窗口带到前台。
- * 找不到那个窗口时返回 false，不要退回 `open -a Ghostty`——那只会激活当前最前的
- * 窗口，用户点「打开终端」却跳进一个不相干的会话里，比什么都不做更糟。
- */
-export async function focusTerminal(terminal: TerminalApp, ghosttyId?: string): Promise<boolean> {
-  if (ghosttyId && terminal === "ghostty") return focusTerminalById(ghosttyId);
-  if (terminal === "terminal") {
-    await execFileP("/usr/bin/open", ["-a", "Terminal"]);
-    return true;
-  }
-  return false;
 }
 
 export interface SessionLaunch {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "./index.js";
@@ -32,6 +32,18 @@ describe("遗留 worktree", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toContain("不在遗留");
     expect(existsSync(tree)).toBe(true);
+  });
+
+  it("有未提交改动默认不删，force 才连改动一起删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    writeFileSync(join(tree, "wip.txt"), "x\n");
+    createTask({ title: "遗留3", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const kept = (await (await post({ path: tree })).json()) as { removed: boolean; kept?: string };
+    expect(kept.removed).toBe(false);
+    expect(existsSync(tree)).toBe(true);
+    const forced = (await (await post({ path: tree, force: true })).json()) as { removed: boolean };
+    expect(forced.removed).toBe(true);
+    expect(existsSync(tree)).toBe(false);
   });
 
   it("列表里的路径按记录里的 repoDir 删，请求里的 repoDir 不作数", async () => {

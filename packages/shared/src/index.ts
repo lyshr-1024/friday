@@ -83,7 +83,7 @@ export interface RunRequest {
 }
 
 export type RunResponse =
-  | { status: "launched"; project: string; dir: string; terminal: TerminalApp; task?: string; jobId?: string }
+  | { status: "launched"; project: string; dir: string; task?: string; jobId?: string }
   | { status: "ambiguous"; candidates: Array<{ name: string; dir: string }> };
 
 export const MODEL_OPTIONS = [
@@ -273,8 +273,6 @@ export interface Job {
   claudeSessionId?: string;
   /** 在哪种终端里跑 */
   terminal?: TerminalApp;
-  /** Ghostty 的 terminal id，开窗口时拿到；say / focus / close 靠它认窗口（标题会被 Claude Code 改掉） */
-  ghosttyId?: string;
   /** 这个 job 是替哪条任务干的。开工时写死，终端连回来按它认领，不另建任务 */
   taskId?: string;
   /** 这个 job 对应的 tmux 会话 id */
@@ -630,8 +628,6 @@ export interface Task {
   /** 等用户点头的不可逆动作 */
   pending?: PendingAction[];
   due?: string;
-  /** 只在 GET /tasks 里有：这条任务终端的真实状态 */
-  terminal?: TerminalState;
   /** 只在 GET /tasks 里有：状态位与会话信息 */
   session?: TaskSession;
   /** 终端最近一轮的结果；任务是否完成由用户说 */
@@ -657,12 +653,6 @@ export interface SlackConversation {
   source: LinkSource;
   why: string;
 }
-
-/**
- * busy 这轮还在干（Stop hook 还没到）/ idle 说完了在等你 / gone 窗口已经关掉。
- * 外部窗口读不到输出流，忙闲靠 Stop hook 判断，所以 busy 只是「还没回报完这一轮」。
- */
-export type TerminalState = "busy" | "idle" | "gone";
 
 export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "custom";
 
@@ -731,7 +721,6 @@ export interface TaskBoard {
   slackConfigured: boolean;
 }
 
-export const TERMINAL_LABEL: Record<TerminalApp, string> = { ghostty: "Ghostty", terminal: "Terminal" };
 
 /** 用量统计的时间档 */
 export type UsageRange = "today" | "7d" | "30d";

@@ -6,14 +6,17 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { RulesEditor } from "./RulesEditor";
-import { autostartPreview, coreBaseUrl, health, learnHistory, listHandbooks, okrWeeklyNow, settings, testNotification, updateSettings } from "../lib/core";
+import { autostartPreview, coreBaseUrl, health, learnHistory, leftoverWorktrees, listHandbooks, okrWeeklyNow, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 import { AUTOSTART_CONFIDENCE } from "@friday/shared";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
-  const [core, setCore] = useState<{ url: string; version?: string; ok: boolean } | null>(null);
+  const [core, setCore] = useState<{ url: string; version?: string; ok: boolean; tmux?: string | null } | null>(null);
+  const [leftover, setLeftover] = useState<LeftoverWorktree[]>([]);
+  const [confirmDrop, setConfirmDrop] = useState<LeftoverWorktree | null>(null);
+  const [dropNote, setDropNote] = useState("");
   const [hotkey, setHotkey] = useState("");
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
   const [editing, setEditing] = useState<EditTarget | null>(null);
@@ -70,17 +73,31 @@ export function Settings() {
     void invoke<string>("current_hotkey").then(setHotkey);
     void settings().then(async (p) => { setPrefs(p); applyTheme(p.theme); applyBackground(p, await coreBaseUrl()); }).catch(() => setPrefs(null));
     refreshPerms();
+    void leftoverWorktrees().then(setLeftover).catch(() => {});
     void (async () => {
       const url = await coreBaseUrl();
       setCoreUrl(url);
       try {
         const h = await health();
-        setCore({ url, version: h.version, ok: true });
+        setCore({ url, version: h.version, ok: true, tmux: h.tmux });
       } catch {
         setCore({ url, ok: false });
       }
     })();
   }, []);
+
+  async function dropWorktree(w: LeftoverWorktree) {
+    setConfirmDrop(null);
+    try {
+      const r = await removeWorktree(w.path, w.dirty);
+      setDropNote(
+        !r.removed ? `没删：${r.kept ?? "未知原因"}` : r.branch && !r.branchDeleted ? `目录删了，分支 ${r.branch} 没合并留着` : r.branch ? `目录和分支 ${r.branch} 都删了` : "目录删了",
+      );
+    } catch (e) {
+      setDropNote(e instanceof Error ? e.message : "删不了");
+    }
+    setLeftover(await leftoverWorktrees().catch(() => []));
+  }
 
   async function runLearn() {
     setLearning(true);
@@ -343,12 +360,36 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
           />
         </Row>
-        <Row label="跑 Claude 用的终端" hint="开工时弹一个终端窗口跑 Claude Code。Ghostty 支持 Friday 往里转达你的指令，Terminal 不支持">
-          <select className="model-select" value={prefs?.terminal ?? "ghostty"} disabled={!prefs} onChange={(e) => void updateSettings({ terminal: e.target.value as "ghostty" | "terminal" }).then(setPrefs)}>
-                        <option value="ghostty">Ghostty</option>
-            <option value="terminal">Terminal</option>
-          </select>
+        </div>
+      </section>
+
+      <section>
+        <h2>终端</h2>
+        <div className="group">
+        <Row label="tmux" hint={core?.tmux === null ? "内嵌终端靠 tmux 持有进程，关掉 Friday 任务也不会断" : "任务的终端跑在 tmux 里，退出 Friday 也不会断"}>
+          <span className="mono">
+            <span className={`dot dot--${core ? (core.tmux ? "ok" : "down") : "checking"}`} />
+            {core ? (core.tmux ? `${core.tmux} · 已就绪` : "没装 tmux，内嵌终端不可用：在终端里跑 brew install tmux") : "检测中"}
+          </span>
         </Row>
+        <Row label="从外部终端接回同一个会话" hint="会话名在任务详情的分支那行">
+          <code className="mono" style={{ userSelect: "all" }}>tmux -L friday attach -t &lt;会话名&gt;</code>
+        </Row>
+        <Row label="快捷键" hint="按住 Option 拖选走系统选区；⌘ 组合在终端聚焦时归终端">
+          <span className="mono">⌘T 新窗口 · ⌘W 关窗口 · ⌘1…9 切窗口 · ⌘D / ⌘⇧D 分屏 · ⌘F 搜历史 · ⌘K 清屏 · ⌘+ / ⌘- / ⌘0 字号</span>
+        </Row>
+        {leftover.length === 0 ? (
+          <Row label="遗留的 worktree" hint={dropNote || "已完成或忽略的任务留在磁盘上的 worktree，没有遗留"}>
+            <span className="mono">0 个</span>
+          </Row>
+        ) : (
+          leftover.map((w) => (
+            <Row key={w.path} label={w.title ?? w.path.split("/").pop() ?? w.path} hint={`${w.path.replace(/^\/Users\/[^/]+/, "~")}${w.branch ? ` · ${w.branch}` : ""}${w.dirty ? " · 有未提交改动" : ""}`}>
+              <button className="btn" onClick={() => (w.dirty ? setConfirmDrop(w) : void dropWorktree(w))}>{w.dirty ? "删掉（会丢改动）" : "删掉"}</button>
+            </Row>
+          ))
+        )}
+        {leftover.length > 0 && dropNote && <Row label="上一次删除" hint={dropNote}><span /></Row>}
         </div>
       </section>
 
@@ -399,6 +440,18 @@ export function Settings() {
         </Row>
         </div>
       </section>
+      {confirmDrop && (
+        <div className="modal" onMouseDown={() => setConfirmDrop(null)}>
+          <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="删掉 worktree">
+            <strong className="modal__title">删掉这个 worktree，没提交的改动会丢</strong>
+            <p className="modal__note">{confirmDrop.path.replace(/^\/Users\/[^/]+/, "~")} 里有还没提交的改动，删了找不回来。分支{confirmDrop.branch ? ` ${confirmDrop.branch} ` : ""}只在合并过时才会一起删。</p>
+            <div className="modal__foot">
+              <button className="b b--primary" autoFocus onClick={() => void dropWorktree(confirmDrop)}>连改动一起删掉</button>
+              <button className="b b--text" onClick={() => setConfirmDrop(null)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

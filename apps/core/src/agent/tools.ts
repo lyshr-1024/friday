@@ -1,16 +1,14 @@
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { STAGE_LABEL, TERMINAL_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
+import { STAGE_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
-import { currentBranchSync, gitInspect } from "./git.js";
+import { gitInspect } from "./git.js";
 import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
-import { jobLog, launchClaude } from "./runner.js";
-import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
+import { getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists, listMessages } from "../memory/conversations.js";
-import { approvePending, rejectTask } from "./pipeline.js";
+import { approvePending, rejectTask, startInteractiveJob } from "./pipeline.js";
 import { closeJobTerminal, say } from "./terminal.js";
 import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
@@ -18,7 +16,7 @@ import { updateTaskFromChat } from "./taskUpdate.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { createTask, findTaskBySource, getTask, listTasks } from "../memory/tasks.js";
 import { listAudit, record } from "../memory/audit.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listInbox } from "../memory/inbox.js";
@@ -26,7 +24,6 @@ import { conversationKey } from "../memory/infer.js";
 import { attachedTasks } from "./slack/attach.js";
 import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
-import { userSettings } from "../settings.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
 
@@ -215,44 +212,37 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "run_claude",
-      "在用户默认终端打开该项目目录并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
+      "在 Friday 的终端里为该项目建好 worktree 并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
       { project, task: z.string().max(4000).optional().describe("对方或用户要什么，照原话转达，保留关键词、报错、路径、工单号。不要写改哪个文件、什么方案、分几步——那由终端自己看代码判断") },
       async ({ project, task }) => {
         const r = resolveOrExplain(project);
         if (typeof r === "string") return text(r);
         if (!decide("reversible").allowed) return text("操作被拒绝");
-        const { terminal } = userSettings();
         const dup = recentDuplicate(r.dir, task);
         if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
-        const id = randomUUID();
-        await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
-        createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conversationId ? { conversationId } : {}) });
         // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
         const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
         // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
         const origin = linked ?? (conversationId ? findTaskBySource((src) => src.conversationId === conversationId, true) : undefined);
-        // 开工时的分支先记下来，终端里 git switch 之后靠 friday_progress 更新
-        const branch0 = currentBranchSync(r.dir) || undefined;
-        const t = linked
-          ? updateTask(linked.id, { status: "processing", project: linked.project ?? r.name, progress: `Claude Code 正在 ${r.name} 上处理${task ? `：${task.slice(0, 80)}` : ""}`, source: { jobId: id, repoDir: r.dir, ...(branch0 ? { branch: branch0 } : {}) } })!
-          : createTask({
-              title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`,
-              kind: "code",
-              // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
-              source: {
-                jobId: id,
-                repoDir: r.dir,
-                ...(branch0 ? { branch: branch0 } : {}),
-                ...(conversationId ? { conversationId } : {}),
-                ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
-              },
-              project: r.name,
-              status: "processing",
-              understanding: task ?? "会话里让 Friday 开的终端",
-            });
-        record({ taskId: t.id, action: "claude_code_start", why: linked ? "讨论这条任务时让 Friday 去干活" : "会话里让 Friday 去干活", how: `${terminal} 终端里启动 Claude Code`, evidence: { jobId: id, project: r.name, dir: r.dir }, risk: "reversible" });
+        const t =
+          linked ??
+          createTask({
+            title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`,
+            kind: "code",
+            // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
+            source: {
+              repoDir: r.dir,
+              ...(conversationId ? { conversationId } : {}),
+              ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
+            },
+            project: r.name,
+            status: "processing",
+            understanding: task ?? "会话里让 Friday 开的终端",
+          });
+        const started = await startInteractiveJob(t, r.name, r.dir, task ?? "");
+        const id = started.source.jobId ?? t.id;
         console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
-        return text(`已在 ${TERMINAL_LABEL[terminal]} 打开 ${r.name}（${r.dir}）${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
+        return text(`已在 Friday 里打开 ${r.name}（${r.dir}）的终端${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
       },
     ),
     tool(
@@ -268,7 +258,7 @@ export const fridayToolList = (conversationId?: string) => [
         if (conversationId && conversationExists(conversationId)) {
           addMessage(conversationId, { role: "assistant", kind: "run", content: `→ 已转达给终端：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
         }
-        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 Ghostty 窗口", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
+        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 tmux 会话", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
         return text("已敲进终端。它回话后会回报到任务卡，不用你复述。");
       },
     ),

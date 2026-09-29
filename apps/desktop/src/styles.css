@@ -4994,10 +4994,15 @@ body:has(.hud)::-webkit-scrollbar {
 .an--child { padding: 6px 12px 6px 30px; }
 .an--child .sdot { width: 6px; height: 6px; }
 .an--child .sdot--none, .an--child .sdot--idle { background: var(--fg-3); }
-.an__main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.an__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .an__t { font-size: 12.5px; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .an--none .an__t, .an--child .an__t { color: var(--fg-2); }
 .an__sub { font-size: 11.5px; color: var(--fg-3); }
+.an__br { margin-left: auto; flex: none; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--fg-4); padding-top: 2px; }
+.an__guess { color: var(--fg-3); margin-right: 6px; }
+.an__act { background: none; border: none; padding: 0; color: #38d6ff; font: inherit; cursor: default; }
+.an__act--dim { color: var(--fg-4); }
+.an__act:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .an--asking .an__sub { color: #ff9aa4; }
 .an--deciding .an__sub, .an--awaiting .an__sub { color: #f2b144; }
 .an--child .an__sub { color: var(--fg-3); }

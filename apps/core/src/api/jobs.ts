@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
-import { focusTerminal, reopenTerminal } from "../agent/runner.js";
 import { closeJobTerminal, sweepClosedTerminals } from "../agent/terminal.js";
-import { flushQueued, prepareFailed, worktreeReady } from "../agent/sessions.js";
+import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
@@ -13,7 +12,6 @@ import { getTermSession, markStop } from "../memory/termSessions.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
 import { state } from "../scheduler/index.js";
-import { userSettings } from "../settings.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g;
 
@@ -135,18 +133,10 @@ export const jobs = new Hono()
     state.notices.push({ title: `任务结束 · ${job.project}`, body: job.lastMessage?.slice(0, 120) ?? `退出码 ${parsed.data.code}`, taskId });
     return c.json(job);
   })
-  /** 窗口关了但任务没完：重开一个，--resume 接回原来那个 Claude 会话 */
+  /** Claude 退出了但任务没完：在同一个 tmux 会话里 --resume 接回原来那个 Claude 会话 */
   .post("/jobs/:id/reopen", async (c) => {
-    const r = await reopenTerminal(c.req.param("id"));
-    if (r === "no-job") return c.json({ error: "没有这个终端任务" }, 404);
-    return c.json({ status: r, id: c.req.param("id") });
-  })
-  .post("/jobs/:id/focus", async (c) => {
     const id = c.req.param("id");
-    const job = getJob(id);
-    if (!job) return c.json({ error: "任务不存在" }, 404);
-    if (await focusTerminal(job.terminal ?? userSettings().terminal, job.ghosttyId)) return c.json({ ok: true, focused: true });
-    // 窗口已经不在了：与其把 Ghostty 随便一个窗口拉到前台，不如重开一个接回原来那个会话
-    const r = await reopenTerminal(id);
-    return c.json({ ok: r !== "no-job", focused: false, reopened: r });
+    const sid = getJob(id)?.sessionId;
+    const ok = sid ? await resumeInSession(sid) : false;
+    return ok ? c.json({ status: "reopened", id }) : c.json({ error: "会话已不在，重新开工" }, 404);
   });

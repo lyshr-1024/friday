@@ -130,9 +130,9 @@ export interface WorktreeCleanup {
  * 分支只用 -d 删，没合并的 git 会拒绝——被忽略的任务里可能有还想捡回来的改动，
  * 不能替用户做这个决定。
  */
-export async function removeWorktree(dir: string, path: string): Promise<WorktreeCleanup> {
+export async function removeWorktree(dir: string, path: string, force = false): Promise<WorktreeCleanup> {
   const branch = currentBranchSync(path) || undefined;
-  const status = await git(path, ["status", "--porcelain"]);
+  const status = force ? "" : await git(path, ["status", "--porcelain"]);
   if (status && !status.startsWith("（")) {
     const n = status.split("\n").length;
     return { removed: false, ...(branch ? { branch } : {}), branchDeleted: false, kept: `有 ${n} 个文件没提交，worktree 留着` };

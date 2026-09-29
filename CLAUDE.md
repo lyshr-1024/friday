@@ -27,7 +27,7 @@ apps/core/src/
 ## 范围
 
 第一版（已完成）：热键呼出浮窗、`POST /ask`、`POST /note`、待办同步 `GET /todos?sync=1`、记忆库初始化、开机自启。原「今日简报」`GET /today`（Claude 总结待办）已按用户要求移除，换成 `GET /hot`（AI 热点）。
-第二版（已完成）：`POST /run` 在 Ghostty 打开项目目录跑交互式 Claude Code；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
+第二版（已完成）：`POST /run` 在 Friday 里开项目终端跑交互式 Claude Code（tmux 会话，见「终端：tmux 持有进程、详情就是终端」）；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
 第三版（已完成，2026-09-21 重做）：Slack 关联源——见下文「Slack：关联源」一节。原「Slack 收件」那套（triage 分类 → 按人聚合线程 → 情境卡 → 起草回复 → 置信度闸门 → 经验闭环）已整体删除，约 1667 行。
 未做：项目智能匹配、自动更新、内嵌 node、Slack 发送。结构预留位置即可，不要提前实现。
 
@@ -61,7 +61,7 @@ apps/core/src/
 - **门禁看「这次交付被直接收下的概率」，不看时间**（`agent/autostart.ts`）：worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。条件同时满足才开：Meegle **缺陷**（需求一律不接，要先对方案）、`source.intake.kind === "start"` 且 `confidence ≥ 80`（intake 的 prompt 要求「只能从标题推断给 50」，这个阈值正好挡住标题党）、`task.project` 已定且和 intake 判的一致（归属来自所属需求的容器，不是猜的）、卡上没挂着问题、阶段还是「未开始」（2026-09-29 补：同步会把流到测试的缺陷推到「测试中」，不挡的话门槛一调低就会去改已经在测的缺陷）、进来满 15 分钟（缺陷刚建时描述常被反复改）。并发 1（2026-09-29 用户要求去掉「每天 3 条」上限：并发 1 本身就控制节奏，成本看用量面板）。`intakeWorkItem` 现在把判断结果落在 `source.intake`，门禁和卡片都看它。
 - **每轮 Meegle 同步后跑 `autostartTick`**，总开关 `settings.autonomous`（**默认关**，设置页「让 Friday 自己开工」），开工记账 `autostart` 并发通知。前两周看合并时「没被你改过 / 被改过 / 被打回」三档，收下率过半再放宽。
 - **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`LaunchRequest.project` 从 `startInteractiveJob` / `/run` / `reopenTerminal` 传进来；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
-- **Ghostty 偶发「command 不执行」（2026-09-28 陪跑时踩到）**：`openWindow` 开出来的窗口标题停在 👻、脚本一行没跑、`.log` 不生成、job 一直 running。用最小脚本复现：同一形式在那 10 分钟里连续失败，之后自己好了，`/bin/sleep`、`/bin/zsh -lc` 一直正常。根因没定位到（怀疑替换 Friday.app 后 macOS 挂了个权限对话框堵住了 Ghostty 的 exec），排查手段：`rtk proxy ps -axo pid,ppid,command | grep 7430`（Ghostty 的 pid）看 surface 下有没有 `login → bash → zsh <脚本>` 这条链。**排查时别连开窗口**，每开一个先跟用户说。
+- **Ghostty 偶发「command 不执行」（09-28）已随 Ghostty 层一起删除**：开窗口 / 聚焦 / 重开全走 tmux 会话，没有 AppleScript、没有窗口 id，这条排查手段不再适用。
 - `playbooks/` 目录（09-17 Slack 旧链路的回复类别）已删，代码里早无引用。
 - **模型不继承你的默认**（2026-09-28）：一次 6 分钟的自主任务花了 $4.46——Claude Code 默认被切成 Fable 忘了切回，而 `claude -p` 不传 `--model` 就继承它。现在 headless（自主 + 后台查询）一律 `--model opus`（`agent/claude.ts` 的 `HEADLESS_MODEL`）；交互式终端不传，那是你自己在用。**所有模型一律写别名**（`opus` / `sonnet` / `haiku`，Claude Code 解析到当前最新版本；只有 Fable 没别名、写全 id），出新模型不用改代码。设置里以前存的 `claude-sonnet-5` 这类版本号，读的时候自动换成别名。
 - **碰远端数据的规矩**：陪跑那次它直接 POST canary 接口改了造数标的（最后还原了），守卫只拦 git 和 rm，拦不了这个。`autonomousPrompt` 第 6 条：只碰工单里给的造数数据、没给就不写、改过的一律还原并把还原步骤和回读结果写进「测试过程」、生产一律不写。
@@ -111,24 +111,31 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 
 原来 `startAutonomousJob` 直接在项目主目录里 `claude -p` 建分支改代码，两个后果：占着主仓（用户没法同时在那儿干活）、`worktreeDirt()` 要求主仓干净才肯开工，用户手上有未提交改动时 Friday 直接 blocked。
 
-- 开工前 `git worktree add --detach <项目>/.claude/worktrees/friday-<id8>`（`git.ts` 的 `fridayWorktree` / `addWorktree`），`launchClaude` 的 cwd 指到那儿。位置跟 Claude Code 客户端一致，用完即删，不混进 orca 的 workspace 列表。**用 `--detach` 不预建分支**——分支名仍由终端里的 Claude 按项目规范自己起（它有完整上下文，Friday 做中文 slug 会变乱码），提示词第一条改成「你已经在一个 worktree 里（detached），先 `git switch -c <分支名>`」。
+- ~~开工前 `git worktree add --detach <项目>/.claude/worktrees/friday-<id8>`（`fridayWorktree` / `addWorktree`）~~ **已被两段脚本的「准备段」取代（2026-09-29）**：worktree 由终端里的 Claude 按项目规则建、路径和分支名都不带 friday、建在主仓兄弟目录，见「终端：tmux 持有进程、详情就是终端」。`git.ts` 里的 `fridayWorktree` / `addWorktree` 只剩测试在用。
 - `worktreeDirt()` 只剩「得是个 git 仓库」这一条。主仓脏不脏跟 Friday 无关了，这正是用 worktree 的意义。
-- **清理**（`cleanupTaskWorktree`）：**有未提交改动的 worktree 整个留着**（账本记 `worktree_kept`；2026-09-23 起，原来 `--force` 直接删，点「完成当前节点」提测时没提交的改动会跟着没），干净的才删目录，**分支只用 `git branch -d` 删**——没合并的 git 会拒绝，那是安全阀不是错误：被忽略的任务里可能有还想捡回来的改动，那个决定归用户，账本 `worktree_removed` 里写明分支留着了。出口三处：`git_merge` 执行成功后（合完再收，这时 `-d` 才删得掉）、`/tasks/:id/done`、`/tasks/:id/ignore`，以及会话里 `task_update` 说收工。
+- **清理（2026-09-29 起改）**：`finishTask`（done / ignored）只 `kill-session`；worktree 目录还在就记账 `worktree_kept`，进 `GET /worktrees/leftover`。设置页「终端」一节逐条列路径、分支、有无未提交改动、所属任务，点「删掉」才 `git worktree remove`，**分支只用 `git branch -d`**（没合并 git 会拒绝，那是安全阀：目录删了、分支留着并写明）；有未提交改动的行要二次确认、带 `force` 才删（`POST /worktrees/remove {path, force?}`，`path` 必须在遗留列表里，`repoDir` 取记录不取请求）。终端里的 Claude 调 `friday_finish` 时自己合 MR、删 worktree 与分支。`cleanupTaskWorktree` 已删。
 - **收工 = 关终端 + 收 worktree，只走 `finishTask` 一处**（2026-09-23）：Meegle 那几条自动收工（流转到 RESOLVED、完成当前节点、需求容器收尾、FE 发布走完）原来直接 `updateTask` 标 done，终端和 worktree 都漏关，「N 个终端在跑」就是这么攒的。交互式终端的 `friday_done` 反过来**不再关窗口**——一个任务常要来回好几轮，交付一轮就关、每次追问都得「重开终端」。自主任务的 `friday_done` 仍关。
 - **终端里调完 Friday 工具后别换成英文（2026-09-29）**：实测一个会话里，Claude 每次调完 `friday_progress` / `friday_done` / `friday_blocked` 或等完后台 agent，下一段就换成英文，用户纠正两次还复发——你全局的 `language: chinese` 压不住工具调用之后那一刻。现在两处补：`terminalBridgePrompt` 点名这两个时刻；这三个工具的返回末尾带一句「接下来跟用户说话一律用中文」。语言现读 `~/.claude/settings.json` 的 `language`（`agent/lang.ts`，测试用 `FRIDAY_CLAUDE_SETTINGS` 换临时文件），没配就「跟随用户说话用的语言」。已开着的终端是旧提示词，要重开才生效。
 - **终端只在 MR 合并、本地 worktree 清理完才关**（2026-09-23 下午，用户定）：上一条让 Meegle 自动收工也走 `finishTask`，结果提测、RESOLVED、FE 发布一走完终端就被关——这些都不等于 MR 合了。现在 Meegle 那五处传 `keepTerminal: true`，只改状态不碰终端和 worktree。关窗口只剩三个入口：用户标完成 / 忽略（照旧）、手动关终端、终端里的 Claude 调新工具 **`friday_finish`**（它自己合完 MR、删完 worktree 最清楚，Friday 不去 `git fetch` 猜）。已经开着的终端是旧的工具列表，要重开才看得到 `friday_finish`。
 - **顺带修了一个一直没被发现的 bug**：`getTaskByJob` 读 `task.source.dir`，而 `TaskSource` 根本没有 `dir` 字段，一直拿到空串 → `currentBranchSync("")` 返回空 → **`git_merge` 待审动作从来没挂上过**。现在 `TaskSource` 加了 `repoDir`（主仓）和 `worktree`（Friday 开的那个），分支名去 worktree 读，合并在主仓做（分支正被 worktree 检出着，在 worktree 里 merge 不了）。
 
-## 终端：外部 Ghostty（2026-09-20 改）
+## 终端：tmux 持有进程、详情就是终端（2026-09-29）
 
-内嵌 PTY 那套（node-pty + xterm + SSE 流 + 重开机制）整体删掉，开工一律弹 Ghostty 窗口。
+09-20 的外部 Ghostty 整层删掉（`agent/ghostty.ts`、`launchClaude` / `reopenTerminal` / `focusTerminal`、`/jobs/:id/focus`、`Task.terminal` / `TerminalState` / `Job.ghosttyId`；`jobs.ghostty_id` 列留在老库里，不再读写）。起因是账本：09-20 至 09-29 交互式终端任务 25 条、`terminal_reopened` 43 次（原因全是「窗口关掉了任务还没做完」）——终端是主工作面，却在另一个应用的窗口里靠 AppleScript 遥控，窗口活不过一次关机而任务活好几天。09-11 那版内嵌 PTY 的死因是 PTY 与 sidecar 共生（重启即丢，攒了 18 个僵尸）、忙闲靠输出流判不准，不是渲染；这次进程归 tmux，Friday 只是观众。
 
-- **为什么能删干净**：Ghostty 自带 AppleScript 接口（`input text` / `send key` / `focus` / `close`），走的是 app 自己的脚本接口而不是模拟键盘，所以只要「自动化」权限、不要「辅助功能」。`terminal_say` 因此原样保留。
-- `agent/ghostty.ts`：开窗口 / 注入文本 / 聚焦 / 关闭 / 存活检查。**认窗口一律用 terminal id**（开窗口时拿到，存 `jobs.ghostty_id`）——标题不能用，Claude Code 自己会改。
-- **两个坑**：①Ghostty 的 `command` 属性按 shell 规则拆词，脚本路径里的「Application Support」不加引号会被拆成两段，**窗口开出来但脚本没跑、随即关闭**（现象极像开窗口失败）；②`setGhosttyId` 必须等 `createJob` 之后再调，原来放在 `launchClaude` 里 UPDATE 落空，`ghostty_id` 一直是空的。所以 `launchClaude` 改成把 id 返回给调用方。
-- **忙闲判断**从「PTY 最近 3 秒有没有输出」换成 Stop hook（外部窗口读不到输出流）。判不准就直接发——Claude Code 忙时输入进它自己的缓冲区不会丢，比攒在 Friday 这边等一个可能不来的信号好。`say` 因此不再有 `queued`，发之前先 `isAlive` 问一句窗口还在不在，免得谎报「已转达」。
-- **连带删掉**：`userTyped`（靠「每键一个 POST」，外部窗口拿不到击键，relay 经验链路自然失效；它带走的 `clearAttention` 交给 Stop hook）、`reopenClaude`（为「PTY 随 sidecar 重启就没」做的，外部窗口没这问题）、`pendingCount` / `resetTerminalState`（本来就是死代码）。`cleanEnv` 搬到 `agent/env.ts`——它在 `pty.ts` 里但外部终端也要用，直接删 `pty.ts` 会误伤。
-- **已知**：`close` 关掉的是 Claude Code 那层，脚本末尾 `exec zsh -il` 留下的交互 shell 壳还在（窗口标题还挂着）。
+- **进程归属**：`tmux` 是前置依赖（`brew install tmux`），没装时 `/health.tmux` 为 `null`、设置页提示，开工入口抛「内嵌终端需要 tmux：brew install tmux」，任务状态不动，其余功能照常。所有命令 `tmux -L friday -f <dataDir>/tmux.conf`（配置每次启动由 Friday 覆盖写，`agent/tmux.ts`：前缀键关掉、鼠标开、`history-limit 50000`、`set-clipboard on`、`allow-passthrough on`），会话 / 窗口目标一律精确匹配（`=<name>`、`=<name>:<idx>`），用绝对路径调 tmux（Finder 拉起的 PATH 极简）。**清理只用 `tmux -L friday kill-server`，不碰默认 socket。**
+- **会话单位**：根任务 = worktree = tmux 会话 = 分支，一一对应（表 `term_sessions`——`sessions` 表已被 `/ask` 日志占用；HTTP 路由仍是 `/sessions/:id/*`，`:id` = 根任务 id）。缺陷不建会话，进所属需求的：`task.source.rootId` 指向根，`resolveRoot` 兜底按 `linkedStoryId` 找 `meegleId` 相同的需求。三种任务（交互式 / 自主 `claude -p` / Slack 后台只读查询）都进 tmux，同一种对象；查询任务不建 worktree，cwd = 主仓，只读靠 `WRITE_TOOLS` deny hook。`jobs` 仍是「一次拉起」的记录（`--resume` 一次一条，多 `session_id`），`runs`、历史学习、`terminal_inputs` 依赖的 jobId 语义不变；会话不存 `claude_session_id`，用 `jobs.claude_session_id`。
+- **两段脚本**（`runner.ts` `buildSessionScript`）：Claude Code 的 cwd 拉起时就定死，所以 worktree 必须在干活的 Claude 之前建好。①**准备段** `claude -p --model sonnet` 按项目自己的规则（CLAUDE.md / 项目 skill / CONTRIBUTING / 现有分支惯例，没有才用 `BRANCH_RULE`）建分支和 worktree（主仓兄弟目录 `../<repo>-<分支简称>`）、装依赖，把绝对路径写进 `<runs>/<id>.worktree`，挂 guard hook，**任何进 git 的名字不带 friday**；②**干活段** `script -q <id>.log claude <flags> <task>`，退出后 `curl /jobs/:id/exit`，`exec zsh -il` 留壳，会话留到根收工。准备段没产出路径 / `code=2` → 根标 `blocked`，原因指向 `<id>.log`，会话留着让你进去看；`POST /jobs/:id/worktree` 回报路径（已被别的会话占用回 409）后会话改名 `<repo>-<worktree 目录名>`（经 `safeName`）。`resumeInSession` 在同一会话里 `send-keys` 一条 `claude --resume <id> || claude`，复用原 job 行（`reviveJob`），不新建 job。
+- **活着与否靠对账**：启动时、每 60 秒、工作台窗口聚焦时（`POST /jobs/sweep`）对一遍 `list-sessions`，库里 `preparing / running / exited` 而 tmux 里没有的标 `closed`、running job 走 `onJobExit(id, -1)`（「会话已不在」）；原来 `reapStaleJobs` 的盲标 done 已删。**旧版没有 `session_id` 的 running job 在 `migrate()` 里一次性收成 done（exit_code -1），对应 processing 任务写「旧版终端已不可接回，需重新开工」**（`db.test.ts` 有测）。
+- **注入**：`send-keys -l <text>`，200ms 后 `Enter`，写 `last_input_at`、`recordTerminalInput`；`say()` 的 `no-terminal` = `has-session` 为假，会话在 `preparing` 时排队、准备段回报后 `flushQueued`。窗口操作（新窗口 / 关 / 切 / 分屏）走 `/sessions/:id/windows` 等一组接口，最后一个窗口不杀；只有根收工才 `kill-session`。
+- **内嵌终端**（`views/Terminal.tsx` + `api/sessions.ts` + `agent/attach.ts`）：sidecar 用 node-pty 跑 `tmux attach` 当客户端，SSE 推输出、`POST /sessions/:id/input|resize` 回写；前端卸载或断流只 kill 这个观众，进程不受影响。node-pty 的 `spawn-helper` 必须可执行（打包后要检查）。xterm 6 + webgl / unicode11 / fit / web-links / clipboard，字体读你的 Ghostty 配置（`GET /terminal/prefs`，只读字体不依赖 Ghostty 运行）。**tmux 客户端在 xterm 里处于 alt screen，历史在 tmux 手里：不做 `capture-pane` 灌历史，滚轮进 tmux copy-mode，`⌘F` 用 copy-mode 的 `search-backward`（不用 `addon-search`）。** 复制：tmux 选区经 OSC 52 → `addon-clipboard` → `POST /clipboard`（`pbcopy`）；按住 Option 拖选走 xterm 本地选区。**中文输入法**：组合期间 `attachCustomKeyEventHandler` 返回 false，组合结束由 `onData` 一次送出，改这里必须真机测。
+- **快捷键**：终端聚焦时 ⌘ 组合归终端层（`⌘T` 新窗口、`⌘W` 关窗口、`⌘1…9` 切、`⌘D` / `⌘⇧D` 分屏、`⌘F` 搜历史、`⌘K` 清屏、`⌘+ - 0` 字号）；Friday 全局只留 `⌘N`（会话）、`⌘\`、`⌘↑` / `⌘↓`（切任务），Friday 搜索是 `⌘P`（原 `⌘K`）。页面上不显示快捷键提示，只写在设置页「终端」一节；同一节写明外部接回 `tmux -L friday attach -t <会话名>`（会话名在任务详情的分支那行），不做「弹到 Ghostty」按钮。
+- **状态位**（`agent/sessionState.ts`，服务端算，列表和详情共用）：只取终端里的现实——在问你（未解除的 AskUserQuestion / permission_prompt）> 干活中（`last_input_at > last_stop_at`）> 等你输入（`last_stop_at > seen_at`，终端可见且窗口聚焦时前端 `POST /sessions/:id/seen`）> 待你决定（`pending.length > 0`，「等了 N」自最早 `pending.at`）> 卡住 > 空闲 / Claude 已退出（旁边「接着聊」）。`turnFinished` 不再往任务会话追加「这轮说完了」、不再写 `attention: "review"`；`task.progress` 只存最新一条、不拼「之前：」。
+- **旧入口全部并到会话上**：`run_claude`、`POST /run`、「跑 <项目>」、HUD relay 一律 `startInteractiveJob`（没有任务就先建一条 `kind: code` 的再开）；`/jobs/:id/reopen` = `resumeInSession(job.sessionId)`，会话已不在回 404「会话已不在，重新开工」；`/jobs/:id/focus` 已删。
+- **Ghostty 时代的两个坑已随它消失**：`command` 属性按 shell 规则拆词（路径里的「Application Support」被拆成两段）、`ghostty_id` 得等 `createJob` 之后才能写，都不再适用；`cleanEnv` 仍在 `agent/env.ts`，脚本里的 `UNSET_CLAUDE_ENV` 照旧。
+- **验证时的进程安全（2026-09-29 事故后）**：禁止 `pkill` / `killall` / 按模式匹配杀进程，只 `kill` 自己用 `$!` 记下的 PID；不结束用户的 App 和别的工作树的 dev server；真机验证前后各看一次 `lsof -nP 2>/dev/null | grep -c /dev/ptmx`，涨到几十立即停。
+- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务详情是交付卡 + 会话框、「看终端」可切；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
+
 
 ## 安全护栏
 
@@ -170,14 +177,14 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - **会话能查自己的数据（2026-09-28）**：用户让 Friday 建任务，它读完手册就回「已建到工作台」，其实根本没调 `task_add`（账本里没有这条）；用户追问「你查下数据」，它又没有任何读任务板的工具，只能继续编。补了三个只读工具：`tasks_list`（按 open/done/all、关键字、项目、阶段筛任务板）、`task_get`（一张卡的完整内容 + 这条任务上的账，id 给前 8 位即可）、`audit_list`（Friday 自己的操作记录，可按 action / 任务筛）；`task_add` 返回值带 id。系统提示加一条：说「已建 / 已开 / 已改」之前这一轮必须真调过对应工具并看到成功，用户问「有没有建」先查再答。
 - 三级权限落地：只读直接做；可逆直接做并记账、可撤销（记待办、更新 people.md）；不可逆挂成任务的 `pending` 动作等用户点「通过并执行」（发 Slack 回复 `slack_reply`、合并分支 `git_merge`）。用户已同意审核通过后由 Friday 发 Slack。
 - **账本** `audit` 表：Friday 每个动作一条（action / why / how / evidence / risk / reversible / status / undo）。`GET /audit`，`POST /audit/:id/undo`。账本视图在会话窗「工作台 → 账本」。
-- **自主改代码**（`agent/pipeline.ts`）：情境卡建议 run_claude 且能定位项目 → `startAutonomousJob`：Ghostty 里 `claude -p`（`autonomousPrompt`：新分支 friday/<id8>、跑类型检查与测试、界面改动用 agent-browser 截图到 `<runs>/<id>.shots/`、交付报告写到 `<runs>/<id>.report.md`，禁止 push/merge/提问）。任务退出 → `onJobExit` 用 `agent/report.ts` 解析报告与截图（存附件）→ 任务进 review，附 `git_merge` 待审核动作。
+- **自主改代码**（`agent/pipeline.ts`）：情境卡建议 run_claude 且能定位项目 → `startAutonomousJob`：tmux 会话里先跑准备段建 worktree、再 `claude -p`（`autonomousPrompt`：新分支按项目规范起、不带 friday、跑类型检查与测试、界面改动用 agent-browser 截图到 `<runs>/<id>.shots/`、交付报告写到 `<runs>/<id>.report.md`，禁止 push/merge/提问）。任务退出 → `onJobExit` 用 `agent/report.ts` 解析报告与截图（存附件）→ 任务进 review，附 `git_merge` 待审核动作。
 - **分支名按项目规范起（2026-09-14）**：原来自主任务写死 `friday/<jobId 前 8 位>`，用户指出这不对——项目有自己的分支命名规范（`~/.claude/skills/harua-dev`：新功能 `feat/<topic>`、修缺陷 `fix/<bug>`、杂活 `chore/<topic>` 或 `style/<topic>`）。改成**让终端里的 Claude 自己起名**：它有完整上下文（任务标题多是中文，Friday 这边做 slug 会变成乱码，而且它才知道这次算 feat 还是 fix）。`autonomousPrompt` 给规则和例子（`feat/export-center`、`fix/withdrawal-rule-tabs`），并要求起好后第一时间用 `friday_progress` 把分支名回报。
   **2026-09-28 补**：规则顺序是「先查项目自己的（CLAUDE.md / 项目 skill / CONTRIBUTING / 现有分支惯例），没有才用 feat/fix/chore 语义化命名」，明确不许 friday 开头——worktree 目录叫 `friday-<id8>`，Claude 会照着目录名起分支。自主任务和交互终端共用 `prompt.ts` 的 `BRANCH_RULE`。
   配套改了三处判据：`onJobExit` 不再拼分支名，改用 `git.currentBranchSync(dir)` 读实际值，读不到或在 main/master 上就不挂 `git_merge` 待审动作（免得挂个假的）；`bridge.friday_done` 里「是不是 `friday/` 开头」的判断换成「不是主干就算功能分支」；`prompt.ts` 的系统提示同步。
 - **交付报告**（`DeliveryReport`）是验收的唯一依据：概要、改动、测试过程、测试结果、截图、请你验证。用户明确要求：功能长什么样 + 测试过程，用截图和文本，不要视频。这条对 Friday 派出的任务和改 Friday 本身都适用。
 - 接口：`GET /tasks`（板 + 计数）、`POST /tasks`（口头 / 文档）、`POST /tasks/:id/approve/:actionId`、`/reject`（带原因，退回 processing 并作废 pending）、`/done`、`/ignore`。
 - 前端：会话窗默认视图是「工作台」（任务板六列 + 任务详情：理解 / 方案 / 进展 / 交付报告 / 等你点头的动作 / 打回 / 在会话里讨论；账本可按任务筛、可撤销）；启动器第一项「工作台」、状态带 `review N`。
-- **内嵌终端**（2026-09-11 做，2026-09-20 已删）：曾用 node-pty 在 sidecar 里跑 PTY、前端 xterm 渲染在任务卡里。现在一律外部 Ghostty，见上文「终端：外部 Ghostty」。
+- **内嵌终端**（2026-09-11 做，09-20 删，09-29 以 tmux 持有进程的形态重做）：见上文「终端：tmux 持有进程、详情就是终端」。
 - 历史遗留：`research/*.md` 笔记与库里已有的 `kind: learn` 任务不动，`readResearchNote` 搬到 `memory/research.ts`，任务卡照样能展开笔记。
 
 ## 收件前的处理（噪音过滤与补拉前文）
@@ -200,15 +207,17 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - 会话窗支持粘贴图片、拖入文件、📎 选文件：前端读成 base64 `POST /attachments` 存到记忆库目录 `attachments/`（表 `attachments`，单个 20MB 上限，一条消息最多 10 个），`/ask` 带 `attachments: [id]`。`agent/content.ts` 组装 Anthropic 消息内容：png/jpg/gif/webp → image 块，pdf → document 块，文本类（按 mime 或扩展名）→ 内联 text 块（10 万字截断），其他类型只告知文件名。带附件时 `askStream` 走流式输入（一条 `SDKUserMessage`）。用户消息 `payload.attachments` 存元数据，缩略图从 `GET /attachments/:id` 加载（CSP `img-src` 已放行 127.0.0.1）。
 - 消息文本里的 URL 由 `Linkified` 变成可点链接（点击 / ⌘点击 都用系统浏览器打开），页面根挂 `LinkMenuHost`：任何 `<a href>` 右键弹「打开链接 / 复制链接」。
 
-## 终端任务（会话 ↔ Ghostty 的关联）
+## 终端任务（会话 ↔ tmux 的关联）
 
-- 每次 run_claude / `POST /run` / 收件「处理」都建一条 `jobs` 记录。启动脚本（`agent/runner.ts`）：`mkdir` 原子锁防 Ghostty 双开 → `script -q <runs>/<id>.log zsh -c 'claude --dangerously-skip-permissions --settings <id>.settings.json <task>'` 录整个终端会话 → 退出后复位终端（关鼠标追踪等）→ `curl POST /jobs/:id/exit {code}` → `exec zsh -il`。
-- `--settings` 注入一个 Stop hook（`<id>.hook.sh`，用 sidecar 自己的 node 绝对路径，因为 Ghostty 由 open 拉起没有 nvm PATH），每轮回答结束读 stdin 的 `last_assistant_message` POST 到 `/jobs/:id/message`；错误写 `<id>.hook.log`。
-- 退出回报时：状态改 done/failed，若任务带 conversationId 则往会话追加一条 run 消息，并进通知队列「任务结束 · 项目」。
-- 前端：会话窗侧栏「任务」面板（运行中 5 秒刷一次）、run 消息下挂任务卡片（状态、耗时、终端里 Claude 最后一轮、聚焦终端、看日志），启动器状态带显示 `jobs N`。会话里有 `jobs_list` 工具。10 秒内同目录同任务的重复启动直接复用（`recentDuplicate`）。
-- 做不到：从会话窗往终端里输入指令（需要接管 TTY）。
+- 每次 `run_claude` / `POST /run` / 「开始做」都经 `openSession` 建 `jobs` 记录和 `term_sessions` 行，并在 tmux 里起两段脚本（`agent/runner.ts`，见上节）。干活段 `script -q <runs>/<id>.log zsh -c 'claude --dangerously-skip-permissions --settings <id>.settings.json …'` 录整个终端会话，退出后 `curl POST /jobs/:id/exit {code}`。
+- `--settings` 注入 Stop hook（`<id>.hook.sh`，用 sidecar 自己的 node 绝对路径，因为 tmux 里没有 nvm PATH），每轮回答结束读 stdin 的 `last_assistant_message` POST 到 `/jobs/:id/message`；错误写 `<id>.hook.log`。
+- 退出回报时：状态改 done/failed，若任务带 conversationId 则往会话追加一条 run 消息，并进通知队列「任务结束 · 项目」。会话里有 `jobs_list` 工具。10 秒内同目录同任务的重复启动直接复用（`recentDuplicate`）。
+- 从会话往终端里说话：`terminal_say` → `say()` → `send-keys`；会话不在（`has-session` 为假）才回 `no-terminal`。
+
 
 ## 工作台（2026-09-08 重设计）：一屏只回答「现在要我决定什么」
+
+> **现状（2026-09-29）**：列表在右、详情一次一条、页头无统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；统筹信息收进「详情」弹窗；每条任务建立时就有一段会话。下面的队列 / 六列 / 抽屉叙述是当时的设计，细节以代码和「终端：tmux 持有进程、详情就是终端」为准。
 
 - 起因：用户看六列看板与纵向分组两版都"迷茫、乱、没重点、配色差"，要求先研究再改。研究笔记在记忆库 `research/2026-09-08-工作台配色与层级.md`（Radix/Geist/Linear/Apple HIG/Refactoring UI/Superhuman triage）。
 - 设计系统：`styles.css` `:root` 用 Radix Slate 深色 12 级（`--bg-1..5` 底与组件、`--line-1..3` 边框、`--fg-1..4` 四级文字），旧变量名（`--page`/`--card`/`--label-*`）映射到新 token。唯一主按钮 `.b--primary` 近白底深字；青色 `--live` 降饱和只标活动态与焦点；状态只用 `.dot--*` 小圆点（等你决定 amber / 卡住 red / 进行中 cyan / 完成 green）。一种边框、圆角 8，列表用分隔线不套卡片。
@@ -251,13 +260,15 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 
 ## 会话归任务（2026-09-09）：没有独立的会话抽屉
 
+> **现状（2026-09-29）**：会话不再懒建——`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删；弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
+
 - 起因：用户"老是对不齐哪个任务对应哪个会话"。根子是任务板、抽屉、终端三个有独立状态、靠两套规则松耦合（抽屉有时跟任务走，⌘N 自由模式又不跟）。换左右边解决不了，所以把抽屉删了，**任务是唯一的锚**。
 - `views/Thread.tsx`：一段会话的消息流 + 输入框 + 附件 + 流式跟随，`forwardRef` 暴露 `load / reset / send / focus`；滚动：切会话 / 自己发消息强制落底，用户在底部才跟着新内容滚，往上翻了就不打扰，右下角浮「↓」（有没看到的新回复时变「有新回复 ↓」）；`conversationId` 为 null 时第一句走 `resolve(prompt)` 决定落到哪。空闲时每 8 秒对一次消息（终端里 Claude 的交付 / 卡住会追加进来）。
 - **主从布局（2026-09-09）**：用户说展开式看不到哪些任务在跑 / 做完了。Board 的 queue / doing / all 视图改成 `.split`：左栏 `.split__list`（分组：待我决定 / Friday 在做 / 待办 / 最近完成；`all` 按状态分组）每条 `.li` = 状态点（attention 优先）+ 标题两行 + 一句状态（needs / doingRight / queuedRight），左栏排序按活跃度：终端在输出 / Friday 在回的排最前，其次最近更新倒序（待我决定里有待审动作的仍优先）；**关注**（`task.pinned`，`POST /tasks/:id/pin`，条目悬停出 ☆、卡片状态行 ☆ 关注）单独一组放最顶上，默认焦点也先看它。右栏 `.split__detail` 是 flex 列：Focus 的 `.fx` 卡片自己滚动（meta sticky），`.fx__foot` 操作栏在卡片外、钉在右栏底部一直可见（独立一条带边框底色）。左栏条目在终端 busy 或该任务会话生成中（Chat 传 `runningConvs`）时显示青色活动条 `.li__bar`；导航底部有「N 个终端在跑」。旧的 `Row` 组件删了；ledger 视图仍是单列页面。
 - **任务卡单列，从上到下按优先级**：标题 → 情境 / 建议 / 报告 → `.fx__talk`「和 Friday 聊这条任务」（`<ChatThread conversationId={task.source.conversationId}>`，高 clamp(300px, 44vh, 480px)，resolve = 新建会话 + `taskBindConversation` + 把 `taskContext(t)` 拼在第一句前）→ 「终端在做」动作流（卡片里不再内嵌终端，2026-09-20 起终端是外部 Ghostty 窗口）。**2026-09-14 起这条只做开合，不写状态**：原来标签上写「终端 · 已断，展开可重新打开」，和左栏那条「终端已断 · 点开重新打开」是同一件事说两遍，措辞还更吓人——终端断掉是常态（sidecar 一重启 PTY 就没了），不该在卡片里反复强调。删掉 `TERM_LABEL`，只留「终端」+「展开/收起」，开合本身做明显（inset 边框 + 底色 + hover + `aria-expanded` + 焦点环，原来没底色没边框没 padding 看不出是控件）。连带删掉因此变成死代码的 `liveBusy` / `onTermOutput`（那套 xterm 输出流判忙闲只用来算标签上的「在输出/空闲」）和 `Terminal` 的 `onOutput` 参数→ 账 → 按钮。用户的心智是「先看 Friday 怎么说，不放心再展开终端自己看」，左右两栏试过被否。「在会话里讨论」按钮删了——讨论一直在卡上。回车 = 主动作在 `.thread` 内不触发。
 - **输入框的 Esc 与发送按钮（2026-09-14）**：两个用户报的问题。①**Esc 退出了全屏**：`Thread` 的 keydown 里处理了 Escape 但**没有 `preventDefault()`**，事件冒到浏览器就触发了原生的退出全屏。补上之后 Esc 只做它该做的：Friday 在回时中断生成、正在路由时取消路由、都不忙时交给 `onEscape`（「问 Friday」视图里是回工作台）。②**发送按钮看不出为什么不能点**：原来四种情况（Friday 在回 / 附件在传 / 正在路由 / 没写内容）都是同一个灰掉的箭头。现在分开：Friday 在回时按钮变成三点动画且**可点，点了就中断**（和 Esc 一个效果，title 写明「点一下中断（Esc 也行）」）；附件上传中和路由中显示转圈；没写内容时 title 说「写点什么再发」。三点动画在 `prefers-reduced-motion` 下停掉但保持半透明实心，仍看得出在忙。
 - **「问 Friday」是一个视图**（`view === "ask"`，侧栏第一项，`⌘N`）：全宽 Thread，`resolve` 走 `POST /route`（接旧 / 新开），命中旧会话时 `.route-hint` 显示「接着：… · 理由」+「其实是新话题」；页头右侧 新对话（`⌘⇧N`）/ Skill / 模型。Esc 回工作台。`openAsk(pending)` 把要做的事排队，Thread 挂上后的 effect 执行（视图切换是异步的）。「会话历史」点一段 → 在这个视图打开。`take_pending_chat` / `friday://open-conversation` 也落到这里。
-- 已删：`.drawer*` 全部 CSS、`syncDrawerToTask`、free 模式标志、`Board.onDiscuss`。「聚焦终端」现在是 `POST /jobs/:id/focus` → 按 `ghostty_id` 把那个窗口拉到前台。
+- 已删：`.drawer*` 全部 CSS、`syncDrawerToTask`、free 模式标志、`Board.onDiscuss`。「聚焦终端」按钮与 `POST /jobs/:id/focus` 已随 Ghostty 层删除：终端就在任务详情里。
 
 ## 窗口形态（2026-09-07 晚重排）：只有工作台
 
@@ -285,7 +296,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - `记 …` 或 `/note …` → `POST /note`。
 - `/hot`、`热点` → `GET /hot`：并行拉 Hacker News（AI 关键词过滤 top 60）、Hugging Face Daily Papers、OpenAI 博客 RSS、Simon Willison Atom、量子位 RSS，只留 48 小时内的，去重后交给 Claude 挑最多 10 条并写中文标题/摘要（输出 JSON，链接按序号回填，Claude 不碰 URL），内存缓存 1 小时，`?refresh=1` 强刷。Anthropic 官网无 RSS，机器之心 RSS 已失效，不要再加回来。源定义在 `connectors/news.ts`。
 - `/todos`、`待办` → `GET /todos?sync=1`：同步 Meegle 后返回未完成待办，不经 Claude。
-- `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，生成 `<dataDir>/runs/<id>.sh`，`open -na Ghostty --args --working-directory=… -e 脚本`。脚本用 `whence -p claude` 拿到的绝对路径并显式加 `--dangerously-skip-permissions`（Friday 只是透传用户指令，权限策略与用户平时用 claude 一致）；Claude 退出后留一个交互 shell。
+- `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，没有任务就先建一条 `kind: code` 的，再走 `startInteractiveJob` 在 tmux 会话里起交互式 Claude Code（准备段先建 worktree）。干活段用 `whence -p claude` 拿到的绝对路径并显式加 `--dangerously-skip-permissions`（Friday 只是透传用户指令，权限策略与用户平时用 claude 一致）；Claude 退出后会话里留一个交互 shell。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。
 - 呼出热键默认 `⌘⇧Space`（`⌥Space` 被 Raycast 占用，`⌃Space` 被输入法占用），可在记忆库目录 `settings.json` 里写 `{"hotkey": "..."}` 覆盖。
 
@@ -348,10 +359,10 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 ## settings.json（记忆库目录下，可选）
 
 ```json
-{ "hotkey": "CmdOrCtrl+Shift+Space", "terminal": "ghostty", "model": "claude-sonnet-5" }
+{ "hotkey": "CmdOrCtrl+Shift+Space", "model": "claude-sonnet-5" }
 ```
 
-壳只读 `hotkey`；core 读写 `terminal`（`ghostty` | `terminal`）和 `model`（空串 = 跟随 Claude Code 默认，候选见 `packages/shared` 的 `MODEL_OPTIONS`），`PUT /settings` 写回时保留其他键。模型对 `/ask` 与 `/hot` 全局生效，设置页和会话窗标题栏都能切。
+壳只读 `hotkey`；core 读写 `model`（`terminal` 字段仍在 schema 里，但设置页的切换控件已删、没有任何行为读它）（空串 = 跟随 Claude Code 默认，候选见 `packages/shared` 的 `MODEL_OPTIONS`），`PUT /settings` 写回时保留其他键。模型对 `/ask` 与 `/hot` 全局生效，设置页和会话窗标题栏都能切。
 
 ## 打包
 

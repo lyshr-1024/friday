@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const say = vi.fn<(jobId: string, text: string) => Promise<"sent" | "no-terminal">>();
-const reopenTerminal = vi.fn<(jobId: string) => Promise<"reopened" | "alive" | "no-job">>();
+const resumeInSession = vi.fn<(sessionId: string, prompt?: string) => Promise<boolean>>();
 const startInteractiveJob = vi.fn();
 
 vi.mock("../agent/terminal.js", async (orig) => ({ ...(await orig<object>()), say }));
-vi.mock("../agent/runner.js", async (orig) => ({ ...(await orig<object>()), reopenTerminal }));
+vi.mock("../agent/sessions.js", async (orig) => ({ ...(await orig<object>()), resumeInSession }));
 vi.mock("../agent/pipeline.js", async (orig) => ({ ...(await orig<object>()), startInteractiveJob }));
 vi.mock("../agent/claude.js", async (orig) => ({
   ...(await orig<object>()),
@@ -34,14 +34,14 @@ async function relay(body: unknown): Promise<string> {
 function taskWithJob(status: "running" | "done") {
   const task = createTask({ title: "改一下导出", kind: "code", source: {}, status: "processing" });
   const jobId = `job-${task.id}`;
-  createJob({ id: jobId, project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: task.id });
+  createJob({ id: jobId, project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: task.id, sessionId: task.id });
   if (status === "done") finishJob(jobId, 0);
   return { task: updateTask(task.id, { source: { jobId } })!, jobId };
 }
 
 beforeEach(() => {
   say.mockReset();
-  reopenTerminal.mockReset();
+  resumeInSession.mockReset();
   startInteractiveJob.mockReset();
 });
 
@@ -57,12 +57,12 @@ describe("POST /summon/relay", () => {
 
   it("终端已经没了：重开接回原会话再转达", async () => {
     const { task, jobId } = taskWithJob("done");
-    reopenTerminal.mockResolvedValue("reopened");
+    resumeInSession.mockResolvedValue(true);
     say.mockResolvedValue("sent");
 
     const body = await relay({ text: "接着改", taskId: task.id });
     expect(body).toContain('"kind":"opened"');
-    expect(reopenTerminal).toHaveBeenCalledWith(jobId);
+    expect(resumeInSession).toHaveBeenCalledWith(task.id);
     expect(say).toHaveBeenCalledWith(jobId, "接着改");
   });
 
