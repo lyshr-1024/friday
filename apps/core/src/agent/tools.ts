@@ -414,10 +414,10 @@ export const fridayToolList = (conversationId?: string) => [
         if (!actionId && pending.length > 1) return text(`这条任务挂着 ${pending.length} 个待审动作，先问清楚用户要执行哪一个，再带 actionId 调：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
         const action = actionId ? pending.find((p) => p.id.startsWith(actionId)) : pending[0];
         if (!action) return text(`没有这个待审动作。现有的：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
-        const rule = APPROVAL[action.type];
-        if (!rule) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
-        const said = listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "";
-        if (!consents(said, rule.ok)) return text(`用户还没明确同意「${action.label}」，不执行。要他明确说${rule.say}再调。`);
+        const forms = APPROVAL[action.type];
+        if (!forms) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
+        const said = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
+        if (!consents(said, forms)) return text(`用户还没明确同意「${action.label}」，不执行。请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`);
         if (action.type === "slack_reply") {
           const body = override?.trim() || String(action.payload.text ?? action.detail);
           const shown = listMessages(conversationId!).filter((m) => m.role === "assistant" && m.kind === "ask").at(-1);
@@ -455,18 +455,18 @@ function boundTask(conversationId?: string): Task | undefined {
 
 const squash = (s: string) => s.replace(/\s+/g, "");
 
-// 批准不可逆的动作只认用户这一轮的原话，不认模型的转述：说的不是这几种就不执行
-const APPROVAL: Partial<Record<PendingActionType, { ok: (s: string) => boolean; say: string }>> = {
-  slack_reply: { ok: (s) => /^(就这么发|发吧|发)(?:[，,。！!\s]|$)/.test(s), say: "「发」或「就这么发」" },
-  git_merge: { ok: (s) => s.includes("合并") || s === "通过", say: "「合并吧」或「通过」" },
-  okr_submit: { ok: (s) => s.includes("提交") || s === "通过", say: "「提交」或「通过」" },
-  start_job: { ok: (s) => /开工|开始做/.test(s) || s === "通过", say: "「开工」或「通过」" },
-  handbook_apply: { ok: (s) => /通过|应用/.test(s), say: "「通过」或「应用」" },
+// 批准不可逆的动作只认用户这一轮的原话，而且整句就是一个短的同意：「发吧，语气再软点」「能合并吗？」都是还在商量
+const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
+  slack_reply: ["发", "发吧", "发出去", "就这么发", "可以发", "发送"],
+  git_merge: ["合并", "合并吧", "可以合并", "合吧", "通过"],
+  okr_submit: ["提交", "提交吧", "可以提交", "通过"],
+  start_job: ["开工", "开工吧", "开始做", "开始做吧", "通过"],
+  handbook_apply: ["通过", "应用", "应用吧"],
 };
 
-function consents(said: string, ok: (s: string) => boolean): boolean {
-  const s = said.trim().replace(/[。！!～~]+$/, "");
-  return !/别|不要|先不|不用|不许|等等|再等/.test(s) && ok(s);
+function consents(said: string, forms: string[]): boolean {
+  if (/[？?]/.test(said)) return false;
+  return forms.includes(said.replace(/[。！!～~\s]+$/, "").trim());
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {

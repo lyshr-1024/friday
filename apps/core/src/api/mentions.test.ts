@@ -32,6 +32,22 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof
 const mention = (id: string, body: unknown) =>
   app.request(`/tasks/${id}/mention`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+function scratchRepo(): string {
+  const repo = mkdtempSync(join(tmpdir(), "friday-approve-"));
+  const git = (...a: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@x", ...a], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "init");
+  git("switch", "-q", "-c", "fix/y");
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  git("commit", "-q", "-am", "fix");
+  git("switch", "-q", "main");
+  execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
+  execFileSync("git", ["-C", repo, "config", "user.email", "t@x"]);
+  return repo;
+}
+
 async function callTool(conversationId: string | undefined, name: string, args: Record<string, unknown>): Promise<string> {
   const t = fridayToolList(conversationId).find((x) => x.name === name)!;
   const r = (await t.handler(args as never, {})) as { content: Array<{ text: string }> };
@@ -164,19 +180,36 @@ describe("会话里批准和打回", () => {
     expect(getTask(t.id)!.pending).toHaveLength(2);
   });
 
+  it("「发吧，语气再软点」是在改稿，不发；「发。」才发", async () => {
+    slackPost.mockClear();
+    const t = slackTask();
+    const conv = t.source.conversationId!;
+    say(conv, "assistant", "要发的是：\n\n明天上线\n\n说「发」我就发。");
+    say(conv, "user", "发吧，语气再软点");
+    expect(await callTool(conv, "task_approve", { text: "明天上线" })).toContain("不执行");
+    expect(slackPost).not.toHaveBeenCalled();
+    say(conv, "user", "发。");
+    expect(await callTool(conv, "task_approve", { text: "明天上线" })).toContain("已执行");
+    expect(slackPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("「能合并吗？」「合并前先跑下测试」都不合；「合并吧！」才合", async () => {
+    const repo = scratchRepo();
+    const t = createTask({ title: "合并我 2", kind: "code", source: { autonomous: true }, status: "review" });
+    addPending(t.id, { type: "git_merge", label: "合并 fix/y", detail: "", payload: { dir: repo, branch: "fix/y" } }, { keepStatus: true });
+    const conv = t.source.conversationId!;
+    for (const said of ["能合并吗？", "合并前先跑下测试"]) {
+      say(conv, "user", said);
+      expect(await callTool(conv, "task_approve", {})).toContain("不执行");
+      expect(getTask(t.id)!.pending).toHaveLength(1);
+    }
+    say(conv, "user", "合并吧！");
+    expect(await callTool(conv, "task_approve", {})).toContain("已执行");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "git_merge")).toBe(true);
+  });
+
   it("合并：你说「好的」不合，说「合并吧」才合", async () => {
-    const repo = mkdtempSync(join(tmpdir(), "friday-approve-"));
-    const git = (...a: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@x", ...a], { stdio: "pipe" });
-    git("init", "-q", "-b", "main");
-    writeFileSync(join(repo, "a.txt"), "one\n");
-    git("add", ".");
-    git("commit", "-q", "-m", "init");
-    git("switch", "-q", "-c", "fix/y");
-    writeFileSync(join(repo, "a.txt"), "two\n");
-    git("commit", "-q", "-am", "fix");
-    git("switch", "-q", "main");
-    execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
-    execFileSync("git", ["-C", repo, "config", "user.email", "t@x"]);
+    const repo = scratchRepo();
     const t = createTask({ title: "合并我", kind: "code", source: { autonomous: true }, status: "review" });
     addPending(t.id, { type: "git_merge", label: "合并 fix/y", detail: "", payload: { dir: repo, branch: "fix/y" } }, { keepStatus: true });
     const conv = t.source.conversationId!;
