@@ -116,7 +116,6 @@ describe("终端 → Friday 的 MCP 桥", () => {
   it("勾选验证点落在任务上；全部勾完记账并在会话里说下一步", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-v", project: "demo", dir: "/tmp", task: "x", conversationId: conv.id, logPath: "/tmp/x.log" });
-    // 会话只记在 job 上（/run 建的任务就是这样），留痕也要能落到会话里
     const task = createTask({ title: "demo：x", kind: "code", source: { jobId: "job-v" }, project: "demo", status: "processing" });
     await rpc("job-v", "tools/call", { name: "friday_done", arguments: { summary: "改完", testResult: "过", verify: ["看 A", "看 B"] } });
     let t = (await (await app.request(`/tasks/${task.id}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index: 0, checked: true }) })).json()) as { report: { checked: boolean[] }; attention?: string };
@@ -128,7 +127,8 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(t.attention).toBeUndefined();
     const audit = (await (await app.request(`/audit?taskId=${task.id}`)).json()) as Array<{ action: string }>;
     expect(audit.some((e) => e.action === "verified_all")).toBe(true);
-    const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
+    // 任务建立就有自己的会话，留痕落在任务会话里，不落到 job 记的那段
+    const c = (await (await app.request(`/conversation/${task.source.conversationId}`)).json()) as { messages: Array<{ content: string }> };
     expect(c.messages.at(-1)!.content).toContain("确认全部验证点");
     expect(await setVerified("nope", 0, true)).toBeUndefined();
   });

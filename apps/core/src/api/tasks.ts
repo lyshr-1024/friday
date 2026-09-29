@@ -1,5 +1,8 @@
 import { Hono } from "hono";
-import { pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, extname, resolve, sep } from "node:path";
+import { getAttachment, saveAttachment } from "../memory/attachments.js";
 import { readResearchNote } from "../memory/research.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
@@ -9,7 +12,7 @@ import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
-import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
+import { approvePending, finishTask, rejectTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
@@ -17,7 +20,7 @@ import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
-import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
+import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
@@ -26,6 +29,13 @@ import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
 import { remove as removeOkrReport } from "../connectors/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
+
+const MENTION_MAX_BYTES = 1024 * 1024;
+const IMAGE_MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+
+const worktreeOf = (t: Task) => t.source.worktree ?? (t.source.rootId ? getTask(t.source.rootId)?.source.worktree : undefined);
+
+const docList = (t: Task) => Object.values(t.source.docs ?? {}).filter(Boolean).map((url) => ({ url: url as string, title: undefined as string | undefined }));
 
 async function startTask(t: Task): Promise<{ task: Task } | { error: string; status: 400 | 409 }> {
   const project = t.project ?? (t.source.rootId ? getTask(t.source.rootId)?.project : undefined);
@@ -164,43 +174,59 @@ export const tasks = new Hono()
     return c.json(t, 201);
   })
   .post("/tasks/:id/approve/:actionId", async (c) => {
-    const before = getTask(c.req.param("id"));
-    const action = before?.pending?.find((p) => p.id === c.req.param("actionId"));
-    const draft = action?.detail ?? "";
-    // 用户在确认框里改过要发的文本：先落到待审动作上，发出去和记账的都是改后的
     const body = (await c.req.json().catch(() => ({}))) as { text?: string };
-    if (typeof body.text === "string" && body.text.trim() && action) {
-      updatePending(before!.id, action.id, { detail: body.text.trim(), payload: { ...action.payload, text: body.text.trim() } });
-    }
-    const text = body.text?.trim() || draft;
-    const creds = await loadSlackCreds();
-    const call = creds ? slackCaller(creds) : undefined;
     try {
-      const t: Task = await executePending(
-        c.req.param("id"),
-        c.req.param("actionId"),
-        {
-          slackPost: async (channel, body, threadTs) => {
-            if (!call) throw new Error("Slack 未接入");
-            return postMessage(call, channel, body, threadTs);
-          },
-        },
-        text ? { text } : undefined,
-      );
-      return c.json(t);
+      return c.json(await approvePending(c.req.param("id"), c.req.param("actionId"), body.text));
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      record({ taskId: c.req.param("id"), action: "approve_failed", why: "执行审核通过的动作失败", how: message, risk: "irreversible", status: "failed" });
-      return c.json({ error: message }, 500);
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   })
   .post("/tasks/:id/reject", async (c) => {
     const { reason } = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const t = rejectTask(c.req.param("id"), reason);
+    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
+  .get("/tasks/:id/mentions", (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
-    record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
-    for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
-    return c.json(updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` }));
+    const q = (c.req.query("q") ?? "").toLowerCase();
+    const wt = worktreeOf(t);
+    let files: string[] = [];
+    if (wt) {
+      try {
+        files = execFileSync("git", ["-C", wt, "ls-files", "--cached", "--others", "--exclude-standard"], { encoding: "utf8", timeout: 5_000, maxBuffer: 16 * 1024 * 1024 }).split("\n").filter(Boolean);
+      } catch {}
+    }
+    const hit = (s: string) => !q || s.toLowerCase().includes(q);
+    return c.json([
+      ...files.filter(hit).slice(0, 20).map((f) => ({ kind: "file" as const, label: f.split("/").pop() ?? f, ref: f })),
+      ...docList(t).filter((d) => hit(d.title ?? d.url)).map((d) => ({ kind: "doc" as const, label: d.title ?? d.url, ref: d.url })),
+      ...(t.report?.screenshots ?? []).filter((s) => hit(s.name)).map((s) => ({ kind: "shot" as const, label: s.name, ref: s.id })),
+    ]);
+  })
+  .post("/tasks/:id/mention", async (c) => {
+    const p = z.object({ kind: z.enum(["file", "doc", "shot"]), ref: z.string().min(1).max(1000) }).safeParse(await c.req.json().catch(() => null));
+    const t = getTask(c.req.param("id"));
+    if (!p.success || !t) return c.json({ error: "kind / ref 必填" }, 400);
+    if (p.data.kind === "doc") return c.json({ text: p.data.ref });
+    if (p.data.kind === "shot") {
+      const a = getAttachment(p.data.ref);
+      if (!a) return c.json({ error: "截图不在了" }, 400);
+      const { path: _, ...attachment } = a;
+      return c.json({ attachmentId: a.id, attachment });
+    }
+    const wt = worktreeOf(t);
+    const abs = wt ? resolve(wt, p.data.ref) : "";
+    const real = abs && existsSync(abs) ? realpathSync(abs) : "";
+    if (!wt || !real || !real.startsWith(realpathSync(wt) + sep)) return c.json({ error: "文件不在这条任务的 worktree 里" }, 400);
+    const st = statSync(real);
+    if (!st.isFile()) return c.json({ error: "只能引入普通文件" }, 400);
+    if (st.size > MENTION_MAX_BYTES) return c.json({ error: "文件超过 1MB，太大了不引入" }, 400);
+    const data = readFileSync(real);
+    const mime = IMAGE_MIME[extname(real).toLowerCase()];
+    if (!mime && data.subarray(0, 8192).includes(0)) return c.json({ error: "二进制文件不能引入" }, 400);
+    const attachment = saveAttachment(basename(real), mime ?? "text/plain", data);
+    return c.json({ attachmentId: attachment.id, attachment });
   })
   // 卡住的任务重新开工（比如用量上限恢复后）
   /** 项目注册表里的项目名，任务卡上手动归属用 */
@@ -363,12 +389,6 @@ export const tasks = new Hono()
       if (e instanceof TmuxMissingError) return c.json({ error: e.message }, 400);
       throw e;
     }
-  })
-  .post("/tasks/:id/conversation", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { conversationId?: string };
-    if (!body.conversationId) return c.json({ error: "需要 conversationId" }, 400);
-    const t = updateTask(c.req.param("id"), { source: { conversationId: body.conversationId } });
-    return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   // 「通过前请确认」勾选状态；全部勾完 = 这轮验收通过，Friday 推进下一步
   .post("/tasks/:id/verify", async (c) => {

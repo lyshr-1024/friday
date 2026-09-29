@@ -8,6 +8,7 @@ import { Icon } from "./Icon";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
+import { Thread } from "./Thread";
 import { TaskDialog, type DialogAction } from "./TaskDialog";
 
 export type BoardView = "queue" | "all" | "ledger";
@@ -810,7 +811,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
           meegle={meegleLine(dialogTask) ? <div className="ac__meegle">{meegleLine(dialogTask)}</div> : null}
           resources={<Resources t={dialogTask} onAct={act} />}
           slack={<SlackConvs t={dialogTask} onAct={act} />}
-          chat={null}
+          chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" />}
           actions={dialogActions(dialogTask)}
           onClose={() => setDialogFor(null)}
           onAdopt={(d) => void act(d, () => taskRoot(d.id, true))}
@@ -869,9 +870,12 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
       {termVisible ? (
         <div className="detail__term"><Terminal sessionId={t.id} /></div>
       ) : autonomous ? (
-        <div className="detail__card detail__card--auto">
-          <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
-        </div>
+        <>
+          <div className="detail__card detail__card--auto">
+            <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
+          </div>
+          <div className="detail__chat"><TaskChat t={t} placeholder="合并吧 / 打回，中途关页面进度接不上 / 完成，不执行" /></div>
+        </>
       ) : (
         <div className="detail__card">
           <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
@@ -1203,6 +1207,15 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
         <span className="ac__sp" />
         <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
       </div>
+    </div>
+  );
+}
+
+function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
+  return (
+    <div className="taskchat">
+      <div className="taskchat__k">和 Friday 聊这条任务</div>
+      <Thread conversationId={t.source.conversationId ?? null} emptyTitle="" emptyHint="" placeholder={placeholder} compact mentionsFor={t.id} />
     </div>
   );
 }

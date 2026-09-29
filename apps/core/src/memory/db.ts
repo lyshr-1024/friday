@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -87,6 +88,19 @@ export function migrate(d: DatabaseSync): void {
             AND json_extract(source, '$.fromTaskId') IS NULL`);
   // 上面那条曾经没排除周报 / 手册卡，review 状态的被补成了 testing，卡上能点「已上线」直接收工
   d.exec("UPDATE tasks SET stage = NULL, stage_by = NULL WHERE kind IN ('okr_weekly', 'handbook') AND stage_by = 'auto'");
+
+  const unbound = d.prepare("SELECT id FROM tasks WHERE status NOT IN ('done', 'ignored') AND json_extract(source, '$.conversationId') IS NULL").all() as Array<{ id: string }>;
+  if (!unbound.length) return;
+  const addConv = d.prepare("INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)");
+  const bind = d.prepare("UPDATE tasks SET source = json_set(source, '$.conversationId', ?) WHERE id = ?");
+  const at = new Date().toISOString();
+  d.exec("BEGIN");
+  for (const { id } of unbound) {
+    const conv = randomUUID();
+    addConv.run(conv, at, at);
+    bind.run(conv, id);
+  }
+  d.exec("COMMIT");
 }
 
 export function db(): DatabaseSync {

@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { addPending, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, findTaskBySource, getTask, updatePending, updateTask } from "../memory/tasks.js";
+import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
 import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot } from "./sessions.js";
@@ -246,6 +247,40 @@ function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
 }
 
 /** 执行一个审核通过的不可逆动作。 */
+export function rejectTask(id: string, reason?: string): Task | undefined {
+  const t = getTask(id);
+  if (!t) return undefined;
+  record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
+  for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
+  return updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` });
+}
+
+/** 审核通过一条待审动作：按钮和会话里的「合并吧 / 发」走同一条路。text 是改过的要发原文 */
+export async function approvePending(taskId: string, actionId: string, text?: string): Promise<Task> {
+  const action = getTask(taskId)?.pending?.find((p) => p.id === actionId);
+  const edited = text?.trim();
+  if (edited && action) updatePending(taskId, action.id, { detail: edited, payload: { ...action.payload, text: edited } });
+  const finalText = edited || action?.detail || "";
+  const creds = await loadSlackCreds();
+  const call = creds ? slackCaller(creds) : undefined;
+  try {
+    return await executePending(
+      taskId,
+      actionId,
+      {
+        slackPost: async (channel, body, threadTs) => {
+          if (!call) throw new Error("Slack 未接入");
+          return postMessage(call, channel, body, threadTs);
+        },
+      },
+      finalText ? { text: finalText } : undefined,
+    );
+  } catch (e) {
+    record({ taskId, action: "approve_failed", why: "执行审核通过的动作失败", how: e instanceof Error ? e.message : String(e), risk: "irreversible", status: "failed" });
+    throw e;
+  }
+}
+
 export async function executePending(
   taskId: string,
   actionId: string,

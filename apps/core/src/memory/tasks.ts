@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DeliveryReport, PendingAction, Stage, StageBy, StageHint, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
+import { createConversation } from "./conversations.js";
 import { inferTaskLinks } from "./infer.js";
 import { publish } from "../bus.js";
 
@@ -73,11 +74,12 @@ export function createTask(input: {
 }): Task {
   const id = randomUUID();
   const t = now();
+  const source = { ...input.source, conversationId: input.source.conversationId ?? createConversation().id };
   db()
     .prepare(
       "INSERT INTO tasks (id, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(input.source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
+    .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
   publish({ type: "tasks" });
   const task = getTask(id)!;
   inferTaskLinks(task);

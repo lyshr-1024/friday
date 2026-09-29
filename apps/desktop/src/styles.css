@@ -1540,27 +1540,9 @@ kbd {
 
 /* ---------- 线程卡片与工作台 ---------- */
 
-.threads {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.thread {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--fill);
-  border: 1px solid var(--separator);
-  border-left: 3px solid var(--separator);
-  font-size: var(--t-sm);
-}
-.thread--high {
-  border-left-color: var(--live);
-}
 /* 拖文件到对话上：整块描边点亮，中间浮一条提示 */
 .thread--drop {
   position: relative;
-  border-color: var(--live);
-  border-left-color: var(--live);
 }
 .thread__drop {
   position: absolute;
@@ -5186,7 +5168,6 @@ body:has(.hud)::-webkit-scrollbar {
 .tdlg__dm { flex: none; color: var(--fg-3); font-size: 11.5px; }
 .tdlg__link { flex: none; background: none; border: none; padding: 0; color: #38d6ff; font: inherit; font-size: 11.5px; cursor: default; }
 .tdlg__link--dim { color: var(--fg-4); }
-.tdlg__chat { padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .tdlg__chat:empty { display: none; }
 
 .ac__right .fx__slack, .tdlg .fx__slack { margin: 0; padding: 0; border: 0; background: none; display: flex; flex-direction: column; gap: 8px; }
@@ -5201,3 +5182,39 @@ body:has(.hud)::-webkit-scrollbar {
 .ac__right .fx__conv-drop, .tdlg .fx__conv-drop { color: var(--fg-4); font-size: 12px; }
 .ac__right .fx__conv-msg, .tdlg .fx__conv-msg { margin: 0; color: var(--fg-1); font-size: 12px; line-height: 1.6; }
 .fx__conv-name { color: var(--fg-3); }
+
+/* 会话组件：弹窗底部、自主卡底部、「问 Friday」同一套消息两列与输入框 */
+.taskchat { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.taskchat__k { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-4); }
+.detail__card--auto:has(+ .detail__chat) { margin-bottom: 12px; }
+.detail__chat { flex: none; margin: 0 20px 16px; }
+.thread .chat__body { gap: 12px; }
+.tm { display: flex; gap: 10px; min-width: 0; font-size: 12.5px; line-height: 1.6; }
+.tm__who { flex-shrink: 0; width: 44px; color: var(--fg-3); }
+.tm__who.is-friday { color: #38d6ff; }
+.tm__body { flex: 1; min-width: 0; color: var(--fg-2); overflow-wrap: anywhere; }
+.tm__text { white-space: pre-wrap; }
+.tm__body .mention { color: #38d6ff; }
+.tm__body .attach { margin: 6px 0 0; }
+.detail__chat .thread--compact .chat__body { max-height: 180px; }
+.tm__body.thinking { flex: none; height: 20px; padding: 0; }
+.thread .composer { position: relative; }
+.thread .composer__box { align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(56, 214, 255, 0.18); background: rgba(5, 8, 12, 0.7); box-shadow: none; }
+.thread .composer__box:focus-within { border-color: rgba(56, 214, 255, 0.4); box-shadow: none; }
+.composer__caret { flex: none; color: #38d6ff; }
+.thread .composer__input { min-height: 0; padding: 0; color: var(--fg-1); font: inherit; font-size: 12.5px; line-height: 1.6; }
+.composer__at { flex: none; padding: 0; border: 0; background: none; font: inherit; font-size: 11px; color: var(--fg-4); cursor: default; }
+.composer__at:hover { color: var(--fg-3); }
+.composer__stop { flex: none; padding: 0 2px; border: 0; background: none; cursor: default; }
+.thread--compact { flex: none; gap: 10px; }
+.thread--compact .thread__scroll { flex: none; }
+.thread--compact .thread__scroll:has(.chat__body:empty) { display: none; }
+.thread--compact .chat__body { flex: none; max-height: 240px; padding: 0; gap: 8px; }
+.thread--compact .composer { padding: 0; background: none; }
+.mention-pop { position: absolute; left: 12px; bottom: 44px; z-index: 5; width: 420px; max-width: calc(100% - 24px); max-height: 280px; overflow-y: auto; border-radius: 8px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(10, 16, 24, 0.98); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); padding: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.mention-pop__k { padding: 4px 8px; font-size: 10.5px; letter-spacing: 0.08em; color: var(--fg-4); }
+.mention-pop__item { display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; color: var(--fg-2); }
+.mention-pop__item[aria-selected="true"] { background: rgba(56, 214, 255, 0.10); color: var(--fg-1); }
+.mention-pop__kind { flex: none; width: 40px; color: var(--fg-4); }
+.mention-pop__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-pop__empty { padding: 6px 8px; color: var(--fg-4); }

@@ -1,7 +1,7 @@
 import { Icon } from "./Icon";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { Attachment, Job, Message } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, jobs as fetchJobs, uploadAttachment } from "../lib/core";
+import { ask, askSubscribe, cancelAsk, conversationById, jobs as fetchJobs, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { useImeGuard } from "../lib/ime";
 import { AssistantBody, AttachmentStrip, Linkified } from "./shared";
@@ -33,6 +33,29 @@ interface Props {
   autoFocus?: boolean;
   /** 嵌在任务卡里：空态压成两行，不要整屏那个大头像 */
   compact?: boolean;
+  /** 任务 id：有它时输入框里敲 @ 能引入这条任务 worktree 里的文件、资料、截图 */
+  mentionsFor?: string;
+}
+
+const MENTION_KIND: Record<MentionItem["kind"], string> = { file: "文件", doc: "资料", shot: "截图" };
+const MENTION_RE = /(?<=^|\s)@[^\s@]+/g;
+
+function mentionAt(value: string, caret: number): { at: number; q: string } | null {
+  const m = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+  return m ? { at: caret - m[1]!.length - 1, q: m[1]! } : null;
+}
+
+function MentionText({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(MENTION_RE)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push(<Linkified key={`t${last}`} text={text.slice(last, at)} />);
+    parts.push(<span key={`m${at}`} className="mention">{m[0]}</span>);
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push(<Linkified key={`t${last}`} text={text.slice(last)} />);
+  return <>{parts}</>;
 }
 
 let localId = 0;
@@ -40,7 +63,7 @@ const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `l
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -59,6 +82,9 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const abortRef = useRef<AbortController | null>(null);
   const convRef = useRef<string | null>(null);
   const ime = useImeGuard();
+  const [mention, setMention] = useState<{ at: number; q: string } | null>(null);
+  const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
+  const [mentionSel, setMentionSel] = useState(0);
   // 滚动：本来在底部就跟着新内容走；用户往上翻了就不打扰，改成右下角提示；切会话时强制落底
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
@@ -121,6 +147,40 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     }, 8000);
     return () => clearInterval(t);
   }, [convId, busy]);
+
+  useEffect(() => {
+    if (!mention || !mentionsFor) {
+      setMentionItems([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      void taskMentions(mentionsFor, mention.q, ctrl.signal)
+        .then((items) => { setMentionItems(items); setMentionSel(0); })
+        .catch(() => {});
+    }, 150);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [mention?.q, mention !== null, mentionsFor]);
+
+  async function pickMention(item: MentionItem) {
+    const m = mention;
+    setMention(null);
+    if (!m || !mentionsFor) return;
+    try {
+      const r = await taskMention(mentionsFor, item);
+      const token = `${r.text ?? `@${item.label}`} `;
+      setInput((v) => v.slice(0, m.at) + token + v.slice(m.at + 1 + m.q.length));
+      if (r.attachment) setPending((p) => (p.some((a) => a.id === r.attachment!.id) ? p : [...p, r.attachment!]));
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(m.at + token.length, m.at + token.length);
+      });
+    } catch (e) {
+      push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   function setConversation(id: string | null) {
     setConvId(id);
@@ -209,6 +269,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     const attachments = pending;
     setInput("");
     setPending([]);
+    setMention(null);
     forceBottomRef.current = true;
     push({ role: "user", kind: "ask", content: text.trim() || prompt, ...(attachments.length ? { payload: { attachments } } : {}) });
     await follow(id, ask({ prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) }, newSubscription()));
@@ -244,6 +305,24 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention && !(e.nativeEvent.isComposing || e.keyCode === 229)) {
+      const n = mentionItems.length;
+      if (n && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        setMentionSel((i) => (i + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
+        return;
+      }
+      if (n && ((e.key === "Enter" && !e.shiftKey && !ime.isImeEnter(e)) || e.key === "Tab")) {
+        e.preventDefault();
+        void pickMention(mentionItems[Math.min(mentionSel, n - 1)]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMention(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       if (ime.isImeEnter(e)) return;
       e.preventDefault();
@@ -260,7 +339,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
 
   return (
     <div
-      className={`thread ${dragging ? "thread--drop" : ""}`}
+      className={`thread${compact ? " thread--compact" : ""}${dragging ? " thread--drop" : ""}`}
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current += 1;
@@ -283,7 +362,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       {banner}
       <div className="thread__scroll">
       <div className="chat__body" ref={bodyRef} onScroll={onBodyScroll}>
-        {messages.length === 0 && !draft && !busy && !resolving && (
+        {messages.length === 0 && !draft && !busy && !resolving && (emptyTitle || emptyHint) && (
           <div className={`chat__empty${compact ? " chat__empty--compact" : ""}`}>
             {!compact && <div className="chat__mark">F</div>}
             <div className="chat__empty-title">{emptyTitle}</div>
@@ -291,37 +370,33 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
           </div>
         )}
         {resolving && <div className="thread__resolving"><span className="side__spin" />{resolvingText ?? "正在准备…"}</div>}
-        {messages.map((m) =>
-          m.role === "user" ? (
-            <div key={m.id} className="turn turn--user">
-              <div className="bubble bubble--user">
-                {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
-                  <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
-                )}
-                <Linkified text={m.content} />
-              </div>
-            </div>
-          ) : (
-            <div key={m.id} className="turn turn--assistant">
-              <div className="avatar">F</div>
-              <div className="bubble bubble--assistant">
+        {messages.map((m) => (
+          <div key={m.id} className="tm">
+            <span className={`tm__who${m.role === "user" ? "" : " is-friday"}`}>{m.role === "user" ? "你" : "Friday"}</span>
+            <div className="tm__body">
+              {m.role === "user" ? (
+                <>
+                  <span className="tm__text"><MentionText text={m.content} /></span>
+                  {(m.payload as { attachments?: Attachment[] } | undefined)?.attachments && (
+                    <AttachmentStrip items={(m.payload as { attachments: Attachment[] }).attachments} />
+                  )}
+                </>
+              ) : (
                 <AssistantBody m={m} jobs={jobList} />
-              </div>
+              )}
             </div>
-          ),
-        )}
+          </div>
+        ))}
         {busy && !draft && (
-          <div className="turn turn--assistant">
-            <div className="avatar avatar--live">F</div>
-            <div className="bubble bubble--assistant thinking" aria-label="思考中">
-              <span /><span /><span />
-            </div>
+          <div className="tm">
+            <span className="tm__who is-friday">Friday</span>
+            <div className="tm__body thinking" aria-label="思考中"><span /><span /><span /></div>
           </div>
         )}
         {draft && (
-          <div className="turn turn--assistant">
-            <div className="avatar avatar--live">F</div>
-            <div className="bubble bubble--assistant answer answer--streaming">{draft}</div>
+          <div className="tm">
+            <span className="tm__who is-friday">Friday</span>
+            <div className="tm__body answer answer--streaming">{draft}</div>
           </div>
         )}
       </div>
@@ -332,27 +407,73 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       )}
       </div>
       <div className="composer">
+        {mention && mentionsFor && (
+          <div className="mention-pop" role="listbox" aria-label="@ 引入">
+            <div className="mention-pop__k">@ 引入</div>
+            {mentionItems.length ? mentionItems.map((it, i) => (
+              <div
+                key={`${it.kind}:${it.ref}`}
+                role="option"
+                aria-selected={i === mentionSel}
+                className="mention-pop__item"
+                onMouseDown={(e) => { e.preventDefault(); void pickMention(it); }}
+                onMouseEnter={() => setMentionSel(i)}
+              >
+                <span className="mention-pop__kind">{MENTION_KIND[it.kind]}</span>
+                <span className="mention-pop__label">{it.kind === "file" ? it.ref : it.label}</span>
+              </div>
+            )) : <div className="mention-pop__empty">没有对得上的文件、资料或截图</div>}
+          </div>
+        )}
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
-        <div className="composer__box">
-          <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" aria-label="添加附件" onClick={() => fileRef.current?.click()}>
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
-          </button>
+        <div className="composer__box" onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
+          <span className="composer__caret" aria-hidden="true">›</span>
+          {!compact && (
+            <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" aria-label="添加附件" onClick={() => fileRef.current?.click()}>
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
+            </button>
+          )}
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
           <textarea
             ref={inputRef}
             className="composer__input"
             rows={1}
+            aria-label="对 Friday 说"
             placeholder={busy ? "生成中，Esc 中断" : uploading ? "上传中…" : placeholder ?? "问 Friday，可粘贴图片或拖入文件"}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (mentionsFor) setMention(mentionAt(e.target.value, e.target.selectionStart ?? e.target.value.length));
+            }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
+            onBlur={() => setMention(null)}
             {...ime.handlers}
             autoFocus={autoFocus}
           />
-          {/* 四种不能发的原因要能看出来，不然只是个灰按钮。
-              Friday 在回时按钮变成「中断」，点了就停——和 Esc 一个效果。 */}
-          {busy ? (
+          {compact ? (
+            busy ? (
+              <button className="composer__stop" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断（Esc 也行）" aria-label="中断">
+                <span className="composer__thinking"><i /><i /><i /></span>
+              </button>
+            ) : uploading > 0 ? (
+              <span className="side__spin" />
+            ) : mentionsFor ? (
+              <button
+                className="composer__at"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const el = inputRef.current;
+                  const at = el?.selectionStart ?? input.length;
+                  const lead = at > 0 && !/\s/.test(input[at - 1]!) ? " " : "";
+                  const next = input.slice(0, at) + lead + "@" + input.slice(at);
+                  setInput(next);
+                  setMention({ at: at + lead.length, q: "" });
+                  requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(at + lead.length + 1, at + lead.length + 1); });
+                }}
+              >@ 引入文件</button>
+            ) : null
+          ) : busy ? (
             <button className="composer__send composer__send--busy" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断（Esc 也行）" aria-label="中断">
               <span className="composer__thinking"><i /><i /><i /></span>
             </button>

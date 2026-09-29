@@ -9,7 +9,8 @@ import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
 import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
-import { addMessage, conversationExists } from "../memory/conversations.js";
+import { addMessage, conversationExists, listMessages } from "../memory/conversations.js";
+import { approvePending, rejectTask } from "./pipeline.js";
 import { closeJobTerminal, say } from "./terminal.js";
 import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
@@ -49,7 +50,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
   tools: fridayToolList(conversationId),
 });
 
-const fridayToolList = (conversationId?: string) => [
+export const fridayToolList = (conversationId?: string) => [
     tool(
       "memory_read",
       "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册。",
@@ -78,7 +79,7 @@ const fridayToolList = (conversationId?: string) => [
       "记一条待办。会建成一条任务，出现在工作台左栏的「待办」分组里。",
       { text: z.string().min(1).max(2000), due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("截止日期 YYYY-MM-DD") },
       async (input) => {
-        const task = addNoteTask({ text: input.text, ...(input.due ? { due: input.due } : {}), ...(conversationId ? { source: { conversationId } } : {}) });
+        const task = addNoteTask({ text: input.text, ...(input.due ? { due: input.due } : {}), ...(freeConversation(conversationId) ? { source: { conversationId } } : {}) });
         return text(`已记到待办：${task.title}${task.due ? `（截止 ${task.due}）` : ""}`);
       },
     ),
@@ -102,7 +103,7 @@ const fridayToolList = (conversationId?: string) => [
           ...(name ? { project: name } : {}),
           ...(input.stage ? { stage: input.stage, kind: "code" as const } : {}),
           ...(input.due ? { due: input.due } : {}),
-          ...(conversationId ? { source: { conversationId } } : {}),
+          ...(freeConversation(conversationId) ? { source: { conversationId } } : {}),
         });
         record({ taskId: task.id, action: "task_add", why: "用户在会话里让建一条任务", how: "建成工作台任务，未开工", evidence: { title: task.title, ...(name ? { project: name } : {}) }, risk: "reversible", undo: { kind: "drop_note_task", id: task.id } });
         return text(`已建任务（id ${task.id.slice(0, 8)}）：${task.title}${task.project ? `（${task.project}）` : ""}${task.due ? `，截止 ${task.due}` : ""}。要开工说一声。`);
@@ -373,7 +374,7 @@ const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "task_update",
-      "把会话里聊出来的结论写回当前任务卡：开发阶段 stage、状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展、待审的 Slack 回复草稿（用户点「看一眼再发」看到的就是这段，讨论改了回复内容必须同步），以及「通过前请确认」的验收列表 verify。用户说不用回了就 dropReply。方案在会话里改过、卡片上那几条验收点已经对不上新方案时，用 verify 重写一遍（会清掉已勾状态，因为新条目还没人验过）。只对这条会话绑定的任务有效。",
+      "把会话里聊出来的结论写回当前任务卡：开发阶段 stage、状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展、待审的 Slack 回复草稿（用户要发之前你贴给他看的就是这段，讨论改了回复内容必须同步），以及「通过前请确认」的验收列表 verify。用户说不用回了就 dropReply。方案在会话里改过、卡片上那几条验收点已经对不上新方案时，用 verify 重写一遍（会清掉已勾状态，因为新条目还没人验过）。只对这条会话绑定的任务有效。",
       {
         understanding: z.string().max(4000).optional().describe("对这件事的最新理解，整段覆盖"),
         plan: z.string().max(4000).optional().describe("最新方案，整段覆盖"),
@@ -398,10 +399,54 @@ const fridayToolList = (conversationId?: string) => [
         if (!decide("reversible").allowed) return text("操作被拒绝");
         const r = updateTaskFromChat(t.id, patch);
         if (!r) return text("任务不存在了。");
-        return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "用户点「看一眼再发」时会看到这段草稿、可以再改，确认后才发。" : ""}` : "和卡片上一样，没改。");
+        return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "要发之前先把这段原文贴给用户，他说「发」再用 task_approve。" : ""}` : "和卡片上一样，没改。");
+      },
+    ),
+    tool(
+      "task_approve",
+      "用户在会话里明确说「合并吧 / 就这么发 / 通过」时，执行这条任务上等他点头的动作。有多个待审动作时用 actionId 指定（先用 task_get 看）；是 Slack 回复时必须先把要发的原文完整贴给用户、他说「发」之后才调，text 填最终原文。没得到明确同意不要调。",
+      { actionId: z.string().max(80).optional(), text: z.string().max(4000).optional() },
+      async ({ actionId, text: override }) => {
+        const t = boundTask(conversationId);
+        if (!t) return text("这条会话没有绑定任务。");
+        const action = actionId ? t.pending?.find((p) => p.id.startsWith(actionId)) : t.pending?.[0];
+        if (!action) return text("这条任务上没有等你点头的动作。");
+        if (action.type === "slack_reply") {
+          const body = override?.trim() || String(action.payload.text ?? action.detail);
+          const shown = listMessages(conversationId!).filter((m) => m.role === "assistant" && m.kind === "ask").at(-1);
+          if (!shown || !squash(shown.content).includes(squash(body))) return text("先把要发的原文完整贴给用户，等他说「发」再调——上一轮你还没给他看过这段原文。");
+        }
+        try {
+          const done = await approvePending(t.id, action.id, override);
+          return text(`已执行「${action.label}」。任务现在是${STATUS_LABEL[done.status]}。`);
+        } catch (e) {
+          return text(`没执行成功：${e instanceof Error ? e.message : String(e)}。动作还挂在任务上。`);
+        }
+      },
+    ),
+    tool(
+      "task_reject",
+      "用户在会话里说「打回，原因是…」时，把这条任务打回：作废待审动作，退回处理中，原因记下来（会进 Friday 的学习）。reason 用用户的原话。",
+      { reason: z.string().min(1).max(500) },
+      async ({ reason }) => {
+        const t = boundTask(conversationId);
+        if (!t) return text("这条会话没有绑定任务。");
+        rejectTask(t.id, reason);
+        return text(`已打回：${reason}`);
       },
     ),
   ];
+
+// 任务自己的会话里再建的任务要有自己的会话：同一段会话绑两条任务，打回 / 批准就可能落到另一条上
+function freeConversation(conversationId?: string): conversationId is string {
+  return Boolean(conversationId) && !findTaskBySource((s) => s.conversationId === conversationId, true);
+}
+
+function boundTask(conversationId?: string): Task | undefined {
+  return conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
+}
+
+const squash = (s: string) => s.replace(/\s+/g, "");
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   collected: "刚收进来",

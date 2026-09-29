@@ -579,9 +579,17 @@ export async function taskSet(id: string, action: "done" | "ignore"): Promise<Ta
   return res.json();
 }
 
-export async function taskBindConversation(id: string, conversationId: string): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/conversation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId }) });
-  if (!res.ok) throw new Error(`task conversation ${res.status}`);
+export interface MentionItem { kind: "file" | "doc" | "shot"; label: string; ref: string }
+
+export async function taskMentions(id: string, q: string, signal?: AbortSignal): Promise<MentionItem[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/mentions?q=${encodeURIComponent(q)}`, signal ? { signal } : {});
+  if (!res.ok) throw new Error(`mentions ${res.status}`);
+  return res.json();
+}
+
+export async function taskMention(id: string, item: MentionItem): Promise<{ attachment?: Attachment; text?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/mention`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: item.kind, ref: item.ref }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
   return res.json();
 }
 
