@@ -38,7 +38,7 @@ export const sessions = new Hono()
     const p = await body(c, z.object({ cols: z.number(), rows: z.number() }));
     if (!p.success) return c.json({ error: "cols / rows 必填" }, 400);
     const s = getTermSession(c.req.param("id"))!;
-    // node-pty 每拉起一个 pty 就漏一个 ptmx（进程退了也不还），会话不在就别拉，否则前端重连会一直漏
+    // 会话不在还拉 pty：tmux 打一行错误就退，前端把那行当成连上了，会无限重连、每次占一个 ptmx
     if (s.status === "closed" || !(await hasSession(s.tmuxName))) return c.json({ error: "会话已不在", gone: true }, 404);
     try {
       return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });

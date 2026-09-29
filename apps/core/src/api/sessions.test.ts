@@ -71,7 +71,7 @@ describe("/sessions", () => {
     expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
   });
 
-  it("tmux 里已经没有这个会话：attach 回 404 gone，不拉起 pty（每个 pty 都会漏一个 ptmx）", async () => {
+  it("tmux 里已经没有这个会话：attach 回 404 gone，不拉起 pty（否则前端无限重连）", async () => {
     const id = await session();
     let spawned = 0;
     setPtySpawner(() => { spawned++; return { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => {} }; });
