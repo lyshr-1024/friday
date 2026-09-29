@@ -1,4 +1,4 @@
-import type { Task } from "@friday/shared";
+import { STAGE_LABEL, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
@@ -27,6 +27,8 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
   if (t.status !== "understood" || t.kind !== "meegle") return "不在排队里";
   if (t.source.meegleType !== "issue") return "不是缺陷";
   if (t.source.jobId) return "已经有终端";
+  // 只接还没开始的：测试中说明改过了在等测试，进行中说明你自己在改
+  if (t.stage && t.stage !== "todo") return `已经在${STAGE_LABEL[t.stage]}`;
   if (t.attention) return "卡上还挂着要你回答的问题";
   const v = t.source.intake;
   if (!v) return "还没判断过";
@@ -58,7 +60,9 @@ function runningAutonomous(): number {
  * 不看「刚进来等稳定」和并发——那两个只影响什么时候开，不影响开不开。
  */
 export function previewAutostart(tasks: Task[], minConfidence: number): { pass: number; candidates: number } {
-  const candidates = tasks.filter((t) => t.status === "understood" && t.kind === "meegle" && t.source.meegleType === "issue" && t.source.intake?.kind === "start" && !t.source.jobId);
+  const candidates = tasks.filter(
+    (t) => t.status === "understood" && t.kind === "meegle" && t.source.meegleType === "issue" && t.source.intake?.kind === "start" && !t.source.jobId && (!t.stage || t.stage === "todo"),
+  );
   const env: AutostartEnv = { now: Number.MAX_SAFE_INTEGER, running: 0, minConfidence };
   return { pass: candidates.filter((t) => !eligible(t, env)).length, candidates: candidates.length };
 }

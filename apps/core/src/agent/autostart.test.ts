@@ -59,6 +59,12 @@ describe("eligible：只放够具体、归属确定、没人碰过的缺陷", ()
     expect(eligible(defect({ attention: "intake" }), env)).toMatch(/问题/);
   });
 
+  it("已经不在「未开始」的不接：测试中说明改过了在等测试，进行中说明有人在改", () => {
+    expect(eligible(defect({ stage: "testing" }), env)).toBe("已经在测试中");
+    expect(eligible(defect({ stage: "dev" }), env)).toBe("已经在进行中");
+    expect(eligible(defect({ stage: "todo" }), env)).toBeUndefined();
+  });
+
   it("刚进来的等一个同步周期——缺陷描述刚建时常被反复改", () => {
     expect(eligible(defect({ createdAt: new Date(NOW - 60_000).toISOString() }), env)).toMatch(/等描述稳定/);
   });
