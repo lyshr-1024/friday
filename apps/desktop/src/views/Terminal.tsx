@@ -8,7 +8,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
-import { attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
+import { attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
 
 function termTheme(): Record<string, string> {
   const s = getComputedStyle(document.documentElement);
@@ -24,6 +24,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
   const [finding, setFinding] = useState(false);
   const [q, setQ] = useState("");
   const [dead, setDead] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const windowsRef = useRef<TmuxWindow[]>([]);
   windowsRef.current = windows;
 
@@ -47,6 +48,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const el = host.current;
     if (!el) return;
     setDead(false);
+    setReconnecting(false);
     const term = new XTerm({ fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace', fontSize: 13, lineHeight: 1.2, cursorBlink: true, allowProposedApi: true, macOptionClickForcesSelection: true, macOptionIsMeta: false, theme: termTheme() });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -83,7 +85,12 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const drain = async () => {
       if (inflight || !pending || !attachId) return;
       inflight = true;
-      while (pending) { const data = pending; pending = ""; await post("input", { attach: attachId, data }); }
+      while (pending && attachId) {
+        const data = pending;
+        pending = "";
+        const res = await post("input", { attach: attachId, data });
+        if (!res?.ok) { pending = data + pending; attachId = ""; break; }
+      }
       inflight = false;
     };
     const onData = term.onData((d) => { pending += d; void drain(); });
@@ -107,23 +114,16 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       return true;
     });
 
-    void (async () => {
-      base = await coreBaseUrl();
-      await new Promise((r) => requestAnimationFrame(r));
-      fit.fit();
-      try {
-        attachId = (await attachSession(sessionId, term.cols, term.rows)).attachId;
-      } catch {
-        setDead(true);
-        return;
-      }
-      void drain();
-      const res = await fetch(`${base}/sessions/${encodeURIComponent(sessionId)}/stream?attach=${encodeURIComponent(attachId)}`, { signal: ctrl.signal }).catch(() => null);
-      if (!res?.ok || !res.body) { setDead(true); return; }
+    let stopped = false;
+    let raf = 0;
+    let out = "";
+    let sleepTimer = 0;
+    const flush = () => { raf = 0; if (out && !stopped) { term.write(out); out = ""; } };
+
+    const pump = async (id: string, onData: () => void) => {
+      const res = await fetch(`${base}/sessions/${encodeURIComponent(sessionId)}/stream?attach=${encodeURIComponent(id)}`, { signal: ctrl.signal });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-      let out = "";
-      let raf = 0;
-      const flush = () => { raf = 0; if (out) { term.write(out); out = ""; } };
       let buf = "";
       for (;;) {
         const { value, done } = await reader.read();
@@ -135,25 +135,62 @@ export function Terminal({ sessionId }: { sessionId: string }) {
           buf = buf.slice(i + 2);
           try {
             const msg = JSON.parse(data) as { d?: string };
-            if (msg.d) { out += msg.d; if (!raf) raf = requestAnimationFrame(flush); }
+            if (msg.d) { onData(); out += msg.d; if (!raf) raf = requestAnimationFrame(flush); }
           } catch {}
         }
       }
       flush();
-      if (!ctrl.signal.aborted) setDead(true);
+    };
+
+    void (async () => {
+      let delay = 500;
+      while (!stopped) {
+        try {
+          if (!base) base = await coreBaseUrl();
+          await new Promise((r) => requestAnimationFrame(r));
+          if (stopped) return;
+          fit.fit();
+          const id = (await attachSession(sessionId, term.cols, term.rows)).attachId;
+          if (stopped) return;
+          attachId = id;
+          setReconnecting(false);
+          term.reset();
+          void post("resize", { attach: id, cols: term.cols, rows: term.rows });
+          void drain();
+          await pump(id, () => { delay = 500; });
+        } catch {}
+        attachId = "";
+        if (stopped) return;
+        const gone = await sessionExists(sessionId).then((x) => !x).catch(() => false);
+        if (stopped) return;
+        if (gone) { setDead(true); setReconnecting(false); return; }
+        setReconnecting(true);
+        await new Promise((r) => { sleepTimer = window.setTimeout(r, delay); });
+        delay = Math.min(delay * 2, 5000);
+      }
     })();
 
     let resizeTimer = 0;
     const ro = new ResizeObserver(() => {
       window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => { fit.fit(); if (attachId) void post("resize", { attach: attachId, cols: term.cols, rows: term.rows }); }, 120);
+      resizeTimer = window.setTimeout(() => fit.fit(), 120);
     });
     ro.observe(el);
+    let sizeTimer = 0;
+    const onResize = term.onResize(({ cols, rows }) => {
+      window.clearTimeout(sizeTimer);
+      sizeTimer = window.setTimeout(() => { if (attachId) void post("resize", { attach: attachId, cols, rows }); }, 120);
+    });
     return () => {
       ta?.removeEventListener("compositionstart", onStart);
       ta?.removeEventListener("compositionend", onEnd);
+      stopped = true;
       onData.dispose();
+      onResize.dispose();
       window.clearTimeout(resizeTimer);
+      window.clearTimeout(sizeTimer);
+      window.clearTimeout(sleepTimer);
+      cancelAnimationFrame(raf);
       ro.disconnect();
       ctrl.abort();
       term.dispose();
@@ -177,7 +214,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setFinding(false); }} placeholder="在历史里往上找" aria-label="搜索终端历史" />
           </form>
         )}
-        {dead && <div className="term__dead">会话已不在</div>}
+        {dead ? <div className="term__dead">会话已不在</div> : reconnecting && <div className="term__dead">重新连接中…</div>}
       </div>
     </div>
   );

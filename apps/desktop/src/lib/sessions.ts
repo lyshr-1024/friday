@@ -22,3 +22,7 @@ export const markSessionSeen = (id: string) => post(`${S(id)}/seen`).catch(() =>
 export const attachSession = (id: string, cols: number, rows: number) => post<{ attachId: string }>(`${S(id)}/attach`, { cols, rows });
 export const terminalPrefs = () => call<{ fontFamily?: string; fontSize?: number }>("/terminal/prefs");
 export const copyText = (text: string) => post("/clipboard", { text });
+export async function sessionExists(id: string): Promise<boolean> {
+  const base = await coreBaseUrl();
+  return (await fetch(`${base}${S(id)}/windows`)).status !== 404;
+}
