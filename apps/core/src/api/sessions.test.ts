@@ -6,9 +6,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
 import { getTermSession } from "../memory/termSessions.js";
-import { setTmuxRunner } from "../agent/tmux.js";
+import { setTmuxPath, setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
-import { setPtySpawner } from "../agent/attach.js";
+import { resetAttachBreaker, setPtySpawner } from "../agent/attach.js";
 import { setClipboardWriter } from "./sessions.js";
 
 const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
@@ -18,6 +18,8 @@ let written: string[] = [];
 beforeEach(() => {
   calls = [];
   written = [];
+  setTmuxPath("/fake/tmux");
+  resetAttachBreaker();
   setTmuxRunner(async (args) => {
     calls.push(args);
     if (args[0] === "-V") return "tmux 3.5a";
@@ -47,6 +49,15 @@ describe("/sessions", () => {
     await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
     expect(written).toEqual(["ls", "\r"]);
     expect(getTermSession(id)!.lastInputAt! > before).toBe(true);
+  });
+
+  it("拉起 tmux 失败：503 fatal，不留观众；输入 404", async () => {
+    const id = await session();
+    setPtySpawner(() => { throw new Error("posix_spawnp failed"); });
+    const r = await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 });
+    expect(r.status).toBe(503);
+    expect(await r.json()).toMatchObject({ fatal: true, error: expect.stringContaining("posix_spawnp") });
+    expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
   });
 
   it("没有 attach 的输入 404", async () => {

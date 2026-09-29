@@ -8,7 +8,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
-import { attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
+import { AttachFatal, attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
 
 function termTheme(): Record<string, string> {
   const s = getComputedStyle(document.documentElement);
@@ -18,6 +18,8 @@ function termTheme(): Record<string, string> {
   return { background: v("bg"), foreground: v("fg"), cursor: v("cursor"), cursorAccent: v("bg"), selectionBackground: v("sel"), ...Object.fromEntries(names.map((n) => [n, v(n)])), ...bright };
 }
 
+const MAX_MISSES = 30;
+
 export function Terminal({ sessionId }: { sessionId: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [windows, setWindows] = useState<TmuxWindow[]>([]);
@@ -25,6 +27,8 @@ export function Terminal({ sessionId }: { sessionId: string }) {
   const [q, setQ] = useState("");
   const [dead, setDead] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [failed, setFailed] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   const windowsRef = useRef<TmuxWindow[]>([]);
   windowsRef.current = windows;
 
@@ -49,6 +53,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     if (!el) return;
     setDead(false);
     setReconnecting(false);
+    setFailed(undefined);
     const term = new XTerm({ fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace', fontSize: 13, lineHeight: 1.2, cursorBlink: true, allowProposedApi: true, macOptionClickForcesSelection: true, macOptionIsMeta: false, theme: termTheme() });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -145,7 +150,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
 
     void (async () => {
       let delay = 500;
+      let misses = 0;
       while (!stopped) {
+        let got = false;
         try {
           if (!base) base = await coreBaseUrl();
           await new Promise((r) => requestAnimationFrame(r));
@@ -158,10 +165,14 @@ export function Terminal({ sessionId }: { sessionId: string }) {
           term.reset();
           void post("resize", { attach: id, cols: term.cols, rows: term.rows });
           void drain();
-          await pump(id, () => { delay = 500; });
-        } catch {}
+          await pump(id, () => { delay = 500; got = true; });
+        } catch (e) {
+          if (e instanceof AttachFatal) { if (!stopped) { setFailed(e.message); setReconnecting(false); } return; }
+        }
         attachId = "";
         if (stopped) return;
+        misses = got ? 0 : misses + 1;
+        if (misses >= MAX_MISSES) { setFailed("连续多次连不上"); setReconnecting(false); return; }
         const gone = await sessionExists(sessionId).then((x) => !x).catch(() => false);
         if (stopped) return;
         if (gone) { setDead(true); setReconnecting(false); return; }
@@ -196,7 +207,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ctrl.abort();
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, attempt]);
 
   return (
     <div className="term">
@@ -215,7 +226,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setFinding(false); }} placeholder="在历史里往上找" aria-label="搜索终端历史" />
           </form>
         )}
-        {dead ? <div className="term__dead">会话已不在</div> : reconnecting && <div className="term__dead">重新连接中…</div>}
+        {dead ? <div className="term__dead">会话已不在</div> : failed ? (
+          <div className="term__dead">终端起不来：{failed} <button className="term__tab" onClick={() => setAttempt((n) => n + 1)}>重试</button></div>
+        ) : reconnecting && <div className="term__dead">重新连接中…</div>}
       </div>
     </div>
   );

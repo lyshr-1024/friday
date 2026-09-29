@@ -1,7 +1,8 @@
+import { accessSync, constants } from "node:fs";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import { cleanEnv } from "./env.js";
-import { tmuxArgs } from "./tmux.js";
+import { tmuxArgs, tmuxPath } from "./tmux.js";
 
 export interface PtyLike {
   onData(fn: (d: string) => void): { dispose(): void };
@@ -12,7 +13,10 @@ export interface PtyLike {
 }
 export type PtySpawner = (file: string, args: string[], opts: { cols: number; rows: number; env: Record<string, string> }) => PtyLike;
 
+export class AttachError extends Error {}
+
 let spawner: PtySpawner = (file, args, opts) => {
+  accessSync(file, constants.X_OK);
   // esbuild 不打包原生模块，运行时 require
   const pty = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
   return pty.spawn(file, args, { name: "xterm-256color", ...opts });
@@ -27,10 +31,29 @@ const viewers = new Map<string, Viewer>();
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
+const BREAKER_FAILS = 3;
+const BREAKER_COOLDOWN_MS = 60_000;
+let spawnFails = 0;
+let breakerUntil = 0;
+export function resetAttachBreaker(): void {
+  spawnFails = 0;
+  breakerUntil = 0;
+}
+
 export function attach(sessionId: string, tmuxName: string, cols: number, rows: number): string {
+  if (Date.now() < breakerUntil) throw new AttachError("终端连续拉起失败，已暂停 60 秒");
   const id = randomUUID();
   const env = { ...cleanEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8" } as Record<string, string>;
-  const pty = spawner("tmux", tmuxArgs("attach-session", "-t", `=${tmuxName}`), { cols: clamp(cols, 20, 400), rows: clamp(rows, 5, 200), env });
+  let pty: PtyLike;
+  try {
+    const bin = tmuxPath();
+    if (!bin) throw new Error("找不到 tmux：brew install tmux");
+    pty = spawner(bin, tmuxArgs("attach-session", "-t", `=${tmuxName}`), { cols: clamp(cols, 20, 400), rows: clamp(rows, 5, 200), env });
+  } catch (e) {
+    if (++spawnFails >= BREAKER_FAILS) breakerUntil = Date.now() + BREAKER_COOLDOWN_MS;
+    throw new AttachError(`拉起 tmux 失败：${(e as Error).message}`);
+  }
+  spawnFails = 0;
   const v: Viewer = { sessionId, pty, listeners: new Set(), backlog: "" };
   // tmux 一接上就整屏重绘，那时 /stream 还没来订阅；丢了这一帧，之后的增量画面全是错位的
   pty.onData((d) => { if (v.listeners.size) v.listeners.forEach((l) => l(d)); else v.backlog += d; });

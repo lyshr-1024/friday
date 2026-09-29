@@ -19,7 +19,15 @@ export const splitSession = (id: string, dir: "h" | "v") => post(`${S(id)}/split
 export const searchSession = (id: string, q: string) => post(`${S(id)}/search`, { q });
 export const clearSession = (id: string) => post(`${S(id)}/clear`);
 export const markSessionSeen = (id: string) => post(`${S(id)}/seen`).catch(() => undefined);
-export const attachSession = (id: string, cols: number, rows: number) => post<{ attachId: string }>(`${S(id)}/attach`, { cols, rows });
+export class AttachFatal extends Error {}
+export async function attachSession(id: string, cols: number, rows: number): Promise<{ attachId: string }> {
+  const base = await coreBaseUrl();
+  const res = await fetch(`${base}${S(id)}/attach`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cols, rows }) });
+  const json = (await res.json().catch(() => ({}))) as { attachId?: string; error?: string; fatal?: boolean };
+  if (res.status === 503 && json.fatal) throw new AttachFatal(json.error ?? "未知原因");
+  if (!res.ok || !json.attachId) throw new Error(json.error ?? `HTTP ${res.status}`);
+  return { attachId: json.attachId };
+}
 export const terminalPrefs = () => call<{ fontFamily?: string; fontSize?: number }>("/terminal/prefs");
 export const copyText = (text: string) => post("/clipboard", { text });
 export async function sessionExists(id: string): Promise<boolean> {

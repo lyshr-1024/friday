@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { hasSession, killWindow, listSessionNames, listWindows, newSession, safeName, sendText, sessionName, setTmuxRunner, tmuxArgs, TMUX_CONF } from "./tmux.js";
+import { findTmux, hasSession, killWindow, listSessionNames, listWindows, newSession, safeName, sendText, sessionName, setTmuxRunner, tmuxArgs, TMUX_CONF } from "./tmux.js";
 
 let calls: string[][] = [];
 let reply: (args: string[]) => string | Error = () => "";
@@ -73,5 +73,18 @@ describe("tmux 封装", () => {
     calls = [];
     expect(await killWindow("repo-1", 0)).toBe(false);
     expect(calls.some((c) => c.includes("kill-window"))).toBe(false);
+  });
+});
+
+describe("findTmux", () => {
+  it("PATH 里有就用 PATH 的", () => {
+    expect(findTmux("/a:/b", (p) => p === "/b/tmux")).toBe("/b/tmux");
+  });
+  it("PATH 里没有：回落到 homebrew / usr/local 候选", () => {
+    expect(findTmux("/usr/bin", (p) => p === "/opt/homebrew/bin/tmux")).toBe("/opt/homebrew/bin/tmux");
+    expect(findTmux(undefined, (p) => p === "/usr/local/bin/tmux")).toBe("/usr/local/bin/tmux");
+  });
+  it("哪都没有返回 undefined", () => {
+    expect(findTmux("/usr/bin", () => false)).toBeUndefined();
   });
 });

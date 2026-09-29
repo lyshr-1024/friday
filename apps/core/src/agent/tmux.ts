@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { accessSync, constants, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config.js";
@@ -33,8 +33,34 @@ export function writeTmuxConf(): void {
 
 export const tmuxArgs = (...args: string[]): string[] => ["-L", TMUX_SOCKET, "-f", tmuxConfPath(), ...args];
 
+const TMUX_FALLBACKS = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"];
+
+const executable = (p: string): boolean => {
+  try {
+    accessSync(p, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export function findTmux(pathEnv: string | undefined, isExec: (p: string) => boolean = executable): string | undefined {
+  const fromPath = (pathEnv ?? "").split(":").filter(Boolean).map((d) => join(d, "tmux"));
+  return [...fromPath, ...TMUX_FALLBACKS].find(isExec);
+}
+
+let resolvedTmux: string | undefined | null = null;
+export const tmuxPath = (): string | undefined => (resolvedTmux === null ? (resolvedTmux = findTmux(process.env.PATH)) : resolvedTmux);
+export function setTmuxPath(p: string | undefined): void {
+  resolvedTmux = p;
+}
+
 type Runner = (args: string[]) => Promise<string>;
-let runner: Runner = async (args) => (await execFileP("tmux", args, { timeout: 5_000 })).stdout;
+let runner: Runner = async (args) => {
+  const bin = tmuxPath();
+  if (!bin) throw new TmuxMissingError();
+  return (await execFileP(bin, args, { timeout: 5_000 })).stdout;
+};
 
 export function setTmuxRunner(fn: Runner): void {
   runner = fn;

@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { attach, detachSession, setPtySpawner, subscribe, viewerSession } from "./attach.js";
+import { AttachError, attach, detachSession, resetAttachBreaker, setPtySpawner, subscribe, viewerSession } from "./attach.js";
+import { setTmuxPath } from "./tmux.js";
 
 let killed: string[] = [];
 let n = 0;
 let emit: (d: string) => void = () => {};
 beforeEach(() => {
   vi.useFakeTimers();
+  setTmuxPath("/fake/tmux");
+  resetAttachBreaker();
   killed = [];
   n = 0;
   setPtySpawner(() => {
@@ -52,5 +55,48 @@ describe("attach 观众生命周期", () => {
     expect(viewerSession(a)).toBeUndefined();
     expect(viewerSession(b)).toBeUndefined();
     expect(viewerSession(c)).toBe("s2");
+  });
+});
+
+describe("attach 拉起失败", () => {
+  it("spawner 抛错：抛 AttachError，不登记观众", () => {
+    setPtySpawner(() => { throw new Error("posix_spawnp failed"); });
+    expect(() => attach("s1", "t", 80, 24)).toThrow(AttachError);
+    detachSession("s1");
+  });
+
+  it("找不到 tmux：不调 spawner", () => {
+    setTmuxPath(undefined);
+    let called = 0;
+    setPtySpawner(() => { called++; throw new Error("x"); });
+    expect(() => attach("s1", "t", 80, 24)).toThrow(AttachError);
+    expect(called).toBe(0);
+  });
+
+  it("连续失败 3 次熔断 60 秒：第 4 次不调 spawner，冷却后恢复", () => {
+    let called = 0;
+    setPtySpawner(() => { called++; throw new Error("posix_spawnp failed"); });
+    for (let i = 0; i < 3; i++) expect(() => attach("s1", "t", 80, 24)).toThrow(AttachError);
+    expect(called).toBe(3);
+    expect(() => attach("s1", "t", 80, 24)).toThrow(/暂停/);
+    expect(called).toBe(3);
+    vi.advanceTimersByTime(61_000);
+    expect(() => attach("s1", "t", 80, 24)).toThrow(AttachError);
+    expect(called).toBe(4);
+  });
+
+  it("成功一次清零失败计数", () => {
+    const ok = () => ({ onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => {} });
+    let fail = true;
+    setPtySpawner(() => { if (fail) throw new Error("x"); return ok(); });
+    for (let i = 0; i < 2; i++) expect(() => attach("s1", "t", 80, 24)).toThrow();
+    fail = false;
+    const id = attach("s1", "t", 80, 24);
+    fail = true;
+    for (let i = 0; i < 2; i++) expect(() => attach("s1", "t", 80, 24)).toThrow(AttachError);
+    fail = false;
+    expect(viewerSession(attach("s1", "t", 80, 24))).toBe("s1");
+    detachSession("s1");
+    expect(viewerSession(id)).toBeUndefined();
   });
 });

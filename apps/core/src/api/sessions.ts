@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { attach, resizeAttach, subscribe, viewerSession, writeAttach } from "../agent/attach.js";
+import { AttachError, attach, resizeAttach, subscribe, viewerSession, writeAttach } from "../agent/attach.js";
 import { clearHistory, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
 import { getTermSession, markInput, markSeen } from "../memory/termSessions.js";
 import { publish } from "../bus.js";
@@ -38,7 +38,12 @@ export const sessions = new Hono()
     const p = await body(c, z.object({ cols: z.number(), rows: z.number() }));
     if (!p.success) return c.json({ error: "cols / rows 必填" }, 400);
     const s = getTermSession(c.req.param("id"))!;
-    return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });
+    try {
+      return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });
+    } catch (e) {
+      if (!(e instanceof AttachError)) throw e;
+      return c.json({ error: e.message, fatal: true }, 503);
+    }
   })
   .get("/sessions/:id/stream", (c) => {
     const attachId = c.req.query("attach") ?? "";
