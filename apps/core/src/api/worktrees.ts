@@ -31,9 +31,11 @@ export function leftoverWorktrees(): Leftover[] {
 export const worktrees = new Hono()
   .get("/worktrees/leftover", (c) => c.json(leftoverWorktrees()))
   .post("/worktrees/remove", async (c) => {
-    const parsed = z.object({ path: z.string().min(1), repoDir: z.string().min(1) }).safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "path / repoDir 必填" }, 400);
-    const r = await removeWorktree(parsed.data.repoDir, parsed.data.path);
-    record({ action: r.removed ? "worktree_removed" : "worktree_kept", why: "你在设置页手动删遗留的 worktree", how: r.removed ? `删了 ${parsed.data.path}${r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : ""}` : `没删：${r.kept ?? "未知原因"}`, evidence: { ...parsed.data, branch: r.branch ?? null }, risk: "reversible" });
+    const parsed = z.object({ path: z.string().min(1) }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "path 必填" }, 400);
+    const entry = leftoverWorktrees().find((w) => w.path === parsed.data.path);
+    if (!entry) return c.json({ error: "这个路径不在遗留 worktree 列表里，不删" }, 400);
+    const r = await removeWorktree(entry.repoDir, entry.path);
+    record({ action: r.removed ? "worktree_removed" : "worktree_kept", why: "你在设置页手动删遗留的 worktree", how: r.removed ? `删了 ${entry.path}${r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : ""}` : `没删：${r.kept ?? "未知原因"}`, evidence: { path: entry.path, repoDir: entry.repoDir, branch: r.branch ?? null }, risk: "reversible" });
     return c.json(r);
   });

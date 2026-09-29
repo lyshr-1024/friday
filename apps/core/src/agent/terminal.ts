@@ -9,6 +9,8 @@ import { killSession, listSessionNames } from "./tmux.js";
 import { sayToSession } from "./sessions.js";
 import { publish } from "../bus.js";
 
+const FRESH_SESSION_MS = 30_000;
+
 export type SayResult = "sent" | "queued" | "no-terminal";
 
 export async function say(jobId: string, text: string): Promise<SayResult> {
@@ -23,6 +25,7 @@ export async function sweepClosedTerminals(): Promise<string[]> {
   const dead: string[] = [];
   for (const s of openTermSessions()) {
     if (live.has(s.tmuxName)) continue;
+    if (Date.now() - Date.parse(s.createdAt) < FRESH_SESSION_MS) continue;
     updateTermSession(s.id, { status: "closed" });
     if (s.jobId && getJob(s.jobId)?.status === "running") {
       finishJob(s.jobId, -1);
@@ -45,7 +48,7 @@ export async function sweepClosedTerminals(): Promise<string[]> {
 export async function closeJobTerminal(jobId: string, why: string, taskId?: string): Promise<boolean> {
   const job = getJob(jobId);
   const s = job?.sessionId ? getTermSession(job.sessionId) : undefined;
-  const killed = Boolean(s && s.status !== "closed");
+  const killed = Boolean(s && s.status !== "closed" && job?.taskId === s.id);
   if (s && killed) {
     await killSession(s.tmuxName);
     updateTermSession(s.id, { status: "closed" });

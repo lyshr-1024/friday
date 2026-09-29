@@ -10,6 +10,8 @@ import { setTmuxRunner } from "./tmux.js";
 import { openSession, setLauncher, worktreeReady } from "./sessions.js";
 import { say, sweepClosedTerminals } from "./terminal.js";
 import { finishTask } from "./pipeline.js";
+import { closeJobTerminal } from "./terminal.js";
+import { db } from "../memory/db.js";
 
 let calls: string[][] = [];
 let alive = new Set<string>();
@@ -33,6 +35,8 @@ beforeEach(() => {
   });
   setLauncher(async (_req, name) => { alive.add(name); });
 });
+
+const age = (id: string) => db().prepare("UPDATE term_sessions SET created_at = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", id);
 
 async function running(title: string, extra: Record<string, unknown> = {}) {
   const t = createTask({ title, kind: "verbal", source: extra, status: "processing", project: "app" });
@@ -63,8 +67,31 @@ describe("tmux 版终端", () => {
   it("tmux 里已经没有的会话才收：会话 closed、job 结束", async () => {
     const { t, jobId } = await running("没了");
     alive.delete(getTermSession(t.id)!.tmuxName);
+    age(t.id);
     expect(await sweepClosedTerminals()).toContain(jobId);
     expect(getTermSession(t.id)!.status).toBe("closed");
+    expect(getJob(jobId)!.status).not.toBe("running");
+  });
+
+  it("刚开的会话（tmux 里还没建出来）不被对账收掉，老的才收", async () => {
+    const { t, jobId } = await running("新会话");
+    alive.delete(getTermSession(t.id)!.tmuxName);
+    expect(await sweepClosedTerminals()).not.toContain(jobId);
+    expect(getTermSession(t.id)!.status).toBe("running");
+    expect(getJob(jobId)!.status).toBe("running");
+    age(t.id);
+    expect(await sweepClosedTerminals()).toContain(jobId);
+    expect(getTermSession(t.id)!.status).toBe("closed");
+  });
+
+  it("缺陷自己的 job 收尾不杀需求的会话", async () => {
+    const { t: root } = await running("需求2");
+    const bug = createTask({ title: "缺陷2", kind: "meegle", source: { rootId: root.id }, status: "processing" });
+    const jobId = await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: "/r/app", task: "y" });
+    calls = [];
+    expect(await closeJobTerminal(jobId, "测试")).toBe(false);
+    expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
+    expect(getTermSession(root.id)!.status).not.toBe("closed");
     expect(getJob(jobId)!.status).not.toBe("running");
   });
 
