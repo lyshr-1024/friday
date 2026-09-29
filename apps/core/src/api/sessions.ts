@@ -6,8 +6,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { AttachError, attach, resizeAttach, subscribe, viewerSession, writeAttach } from "../agent/attach.js";
-import { activeWindowIndex, clearHistory, claudeWindowIndex, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
-import { getTermSession, markInput, markSeen } from "../memory/termSessions.js";
+import { clearHistory, hasSession, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
+import { getTermSession, markSeen } from "../memory/termSessions.js";
 import { publish } from "../bus.js";
 
 const body = async <T extends z.ZodTypeAny>(c: { req: { json(): Promise<unknown> } }, schema: T) => schema.safeParse(await c.req.json().catch(() => null));
@@ -38,6 +38,8 @@ export const sessions = new Hono()
     const p = await body(c, z.object({ cols: z.number(), rows: z.number() }));
     if (!p.success) return c.json({ error: "cols / rows 必填" }, 400);
     const s = getTermSession(c.req.param("id"))!;
+    // node-pty 每拉起一个 pty 就漏一个 ptmx（进程退了也不还），会话不在就别拉，否则前端重连会一直漏
+    if (s.status === "closed" || !(await hasSession(s.tmuxName))) return c.json({ error: "会话已不在", gone: true }, 404);
     try {
       return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });
     } catch (e) {
@@ -50,10 +52,12 @@ export const sessions = new Hono()
     if (viewerSession(attachId) !== c.req.param("id")) return c.json({ error: "没有这个 attach" }, 404);
     return streamSSE(c, async (stream) => {
       await new Promise<void>((resolve) => {
-        const off = subscribe(attachId, (d) => void stream.writeSSE({ data: JSON.stringify({ d }) }).catch(() => {}));
+        let ping: NodeJS.Timeout | undefined;
+        const end = () => { clearInterval(ping); resolve(); };
+        const off = subscribe(attachId, (d) => void stream.writeSSE({ data: JSON.stringify({ d }) }).catch(() => {}), end);
         if (!off) return resolve();
-        const ping = setInterval(() => void stream.writeSSE({ data: JSON.stringify({ ping: 1 }) }).catch(() => {}), 15_000);
-        stream.onAbort(() => { off(); clearInterval(ping); resolve(); });
+        ping = setInterval(() => void stream.writeSSE({ data: JSON.stringify({ ping: 1 }) }).catch(() => {}), 15_000);
+        stream.onAbort(() => { off(); end(); });
       });
     });
   })
@@ -61,11 +65,6 @@ export const sessions = new Hono()
     const p = await body(c, z.object({ attach: z.string(), data: z.string().max(65536) }));
     if (!p.success) return c.json({ error: "attach / data 必填" }, 400);
     if (viewerSession(p.data.attach) !== c.req.param("id") || !writeAttach(p.data.attach, p.data.data)) return c.json({ error: "没有这个 attach" }, 404);
-    if (p.data.data.includes("\r")) {
-      const name = getTermSession(c.req.param("id"))!.tmuxName;
-      const [active, claude] = await Promise.all([activeWindowIndex(name), claudeWindowIndex(name)]);
-      if (active !== undefined && active === claude) { markInput(c.req.param("id")); publish({ type: "tasks" }); }
-    }
     return c.json({ ok: true });
   })
   .post("/sessions/:id/resize", async (c) => {

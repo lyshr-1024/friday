@@ -106,7 +106,7 @@ export async function listSessionNames(): Promise<string[] | undefined> {
     return (await run("list-sessions", "-F", "#{session_name}")).split("\n").map((s) => s.trim()).filter(Boolean);
   } catch (e) {
     const msg = `${(e as { stderr?: string }).stderr ?? ""} ${(e as Error).message}`;
-    return /no server running|error connecting/.test(msg) ? [] : undefined;
+    return /no server running|error connecting to .*\(No such file or directory\)/.test(msg) ? [] : undefined;
   }
 }
 
@@ -133,15 +133,6 @@ export async function sendText(name: string, text: string, windowIndex?: number)
   await run("send-keys", "-t", W(name, windowIndex), "-l", text);
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
   await run("send-keys", "-t", W(name, windowIndex), "Enter");
-}
-
-export async function activeWindowIndex(name: string): Promise<number | undefined> {
-  try {
-    const n = Number((await run("display-message", "-p", "-t", W(name), "#{window_index}")).trim());
-    return Number.isInteger(n) ? n : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export async function claudeWindowIndex(name: string): Promise<number | undefined> {

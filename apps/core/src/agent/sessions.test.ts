@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { getJob, listJobs } from "../memory/jobs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "./tmux.js";
@@ -44,9 +44,13 @@ beforeEach(() => {
       return windowsOut;
     }
     if (sub === "rename-session") { alive.delete(target); alive.add(args.at(-1)!); }
+    if (sub === "kill-session") alive.delete(target);
     return "";
   });
-  setLauncher(async (_req, name) => { alive.add(name); });
+  setLauncher(async (_req, name) => {
+    if (alive.has(name)) throw new Error(`duplicate session: ${name}`);
+    alive.add(name);
+  });
 });
 const sent = () => calls.filter((c) => c[4] === "send-keys" && c.includes("-l")).map((c) => c.at(-1));
 
@@ -252,5 +256,66 @@ describe("一个根任务只有一个会话", () => {
     expect(listJobs(1000).length).toBe(jobs);
     expect(sent().some((x) => x!.includes("/bin/zsh") && x!.includes(`/runs/${jobId}.resume.sh`))).toBe(true);
     expect(getTermSession(t.id)!.status).toBe("running");
+  });
+});
+
+describe("准备段失败 / 被拒收之后还能再开工", () => {
+  it("prepareFailed 之后再开始做：同名的旧 tmux 会话先 kill，再开出新会话", async () => {
+    const t = createTask({ title: "失败后重来", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const first = await startInteractiveJob(t, "app", "/r/app", "第一次");
+    const name = getTermSession(t.id)!.tmuxName;
+    prepareFailed(first.source.jobId!);
+    calls = [];
+    const again = await startInteractiveJob(getTask(t.id)!, "app", "/r/app", "再来");
+    expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
+    expect(again.source.jobId).not.toBe(first.source.jobId);
+    expect(getTermSession(t.id)).toMatchObject({ status: "preparing", tmuxName: name, jobId: again.source.jobId });
+    expect(alive.has(name)).toBe(true);
+  });
+
+  it("同名 tmux 会话属于别的根：不杀，名字加 4 位后缀", async () => {
+    const a = createTask({ title: "甲根", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const b = createTask({ title: "乙根", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const taken = `app-${a.id.slice(0, 8)}`;
+    await openSession(b, b, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    alive.delete(getTermSession(b.id)!.tmuxName);
+    updateTermSession(b.id, { tmuxName: taken });
+    alive.add(taken);
+    calls = [];
+    await openSession(a, a, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
+    expect(getTermSession(a.id)!.tmuxName).toMatch(new RegExp(`^${taken}-[0-9a-f]{4}$`));
+    expect(getTermSession(b.id)!.tmuxName).toBe(taken);
+  });
+});
+
+describe("根任务已收工：缺陷不跟进去", () => {
+  it("rootId 指向的需求已完成：缺陷自己当根，rootId 留着不改", () => {
+    const story = createTask({ title: "收工的需求", kind: "meegle", source: { meegleId: "S9" }, status: "understood" });
+    const bug = createTask({ title: "后来的缺陷", kind: "meegle", source: { meegleId: "B9", linkedStoryId: "S9", rootId: story.id }, status: "understood" });
+    updateTask(story.id, { status: "done" });
+    expect(resolveRoot(getTask(bug.id)!).id).toBe(bug.id);
+    expect(getTask(bug.id)!.source.rootId).toBe(story.id);
+  });
+
+  it("按 linkedStoryId 找到的需求已忽略：不写 rootId", () => {
+    const story = createTask({ title: "忽略的需求", kind: "meegle", source: { meegleId: "S10" }, status: "understood" });
+    updateTask(story.id, { status: "ignored" });
+    const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "B10", linkedStoryId: "S10" }, status: "understood" });
+    expect(resolveRoot(bug).id).toBe(bug.id);
+    expect(getTask(bug.id)!.source.rootId).toBeUndefined();
+  });
+});
+
+describe("旧任务已有分支：准备段为它建 worktree，不新建分支", () => {
+  it("根任务 source.branch 不是主干：启动器拿到 existingBranch；主干或没有时不带", async () => {
+    let got: { existingBranch?: string } = {};
+    setLauncher(async (req, name) => { got = req; alive.add(name); });
+    const old = createTask({ title: "进行中的旧任务", kind: "verbal", source: { branch: "feat/export" }, status: "processing", project: "app" });
+    await openSession(old, old, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    expect(got.existingBranch).toBe("feat/export");
+    const onMain = createTask({ title: "主干上的", kind: "verbal", source: { branch: "main" }, status: "processing", project: "app" });
+    await openSession(onMain, onMain, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    expect(got.existingBranch).toBeUndefined();
   });
 });

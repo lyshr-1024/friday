@@ -46,6 +46,17 @@ describe("attach 观众生命周期", () => {
     off();
   });
 
+  it("pty 退出：订阅方收到结束回调，观众注销", () => {
+    let exit = () => {};
+    setPtySpawner(() => ({ onData: () => ({ dispose() {} }), onExit: (fn) => { exit = fn; return { dispose() {} }; }, write: () => {}, resize: () => {}, kill: () => {} }));
+    const id = attach("s1", "t", 80, 24);
+    let ended = 0;
+    subscribe(id, () => {}, () => ended++);
+    exit();
+    expect(ended).toBe(1);
+    expect(viewerSession(id)).toBeUndefined();
+  });
+
   it("detachSession 只清该会话的观众", () => {
     const a = attach("s1", "t", 80, 24);
     const b = attach("s1", "t", 80, 24);

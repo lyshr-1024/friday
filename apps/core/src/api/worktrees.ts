@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { listTasks } from "../memory/tasks.js";
 import { loadProjects } from "../memory/projects.js";
+import { openTermSessions } from "../memory/termSessions.js";
 import { record } from "../memory/audit.js";
 import { currentBranchSync, removeWorktree, worktreeDirtySync } from "../agent/git.js";
 
@@ -11,10 +12,14 @@ export interface Leftover { path: string; repoDir: string; branch?: string; dirt
 
 export function leftoverWorktrees(): Leftover[] {
   const out = new Map<string, Leftover>();
+  const inUse = new Set([
+    ...openTermSessions().map((s) => s.worktree),
+    ...listTasks(["collected", "understood", "processing", "review", "blocked"], 2000).map((t) => t.source.worktree),
+  ].filter((p): p is string => Boolean(p)));
   for (const t of [...listTasks("done", 2000), ...listTasks("ignored", 2000)]) {
     const p = t.source.worktree;
     const repo = t.source.repoDir;
-    if (!p || !repo || !existsSync(p)) continue;
+    if (!p || !repo || inUse.has(p) || !existsSync(p)) continue;
     out.set(p, { path: p, repoDir: repo, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p), taskId: t.id, title: t.title });
   }
   for (const proj of loadProjects()) {
@@ -22,7 +27,7 @@ export function leftoverWorktrees(): Leftover[] {
     if (!existsSync(dir)) continue;
     for (const name of readdirSync(dir).filter((n) => n.startsWith("friday-"))) {
       const p = join(dir, name);
-      if (!out.has(p)) out.set(p, { path: p, repoDir: proj.dir, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p) });
+      if (!out.has(p) && !inUse.has(p)) out.set(p, { path: p, repoDir: proj.dir, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p) });
     }
   }
   return [...out.values()];

@@ -13,7 +13,7 @@ import { conversationKey } from "../memory/infer.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
-import { say, closeJobTerminal } from "./terminal.js";
+import { say } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
@@ -127,7 +127,7 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",
     task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}` : "",
-    task.source.docs?.length ? `资料：\n${task.source.docs.map((d) => `- ${d.title ?? d.url}：${d.url}`).join("\n")}` : "",
+    task.source.docs?.length ? `资料：\n${untrusted("docs", task.source.docs.map((d) => `- ${(d.title ?? d.url).slice(0, 200)}：${d.url}`).join("\n"))}` : "",
     task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${untrusted("research-note", readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）")}` : "",
     msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${untrusted("slack", msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000))}` : "",
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${projectDetail(project) ? `，说明：${projectDetail(project).replace(/\n/g, "；")}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
@@ -282,8 +282,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary, "finished");
-    void closeJobTerminal(jobId, "终端交付完任务", t.id);
-    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}终端窗口随之关闭。` };
+    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}交付完就结束，会话留着给用户看终端。` };
   }
 
   if (name === "friday_finish") {

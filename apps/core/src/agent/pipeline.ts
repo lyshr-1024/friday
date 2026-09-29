@@ -12,7 +12,8 @@ import { addPending, findTaskBySource, getTask, updatePending, updateTask } from
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
-import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot } from "./sessions.js";
+import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, runInSession } from "./sessions.js";
+import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
@@ -88,19 +89,23 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string, trigger: RunTrigger = "retry"): Promise<Task> {
   const root = resolveRoot(task);
-  if (root.id !== task.id && (await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
-  if (root.id === task.id && (await continueRootSession(task, detail))) {
+  const exited = getTermSession(root.id)?.status === "exited";
+  if (!exited && root.id !== task.id && (await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
+  if (!exited && root.id === task.id && (await continueRootSession(task, detail))) {
     record({ taskId: task.id, action: "terminal_continued", why: "这条任务已经有会话，不再开第二个", how: "把这次的活送进原来的 tmux 会话", evidence: { project, dir }, risk: "reversible" });
     return updateTask(task.id, { status: "processing" })!;
   }
-  const dirt = await worktreeDirt(dir);
-  if (dirt) {
-    record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });
-    return updateTask(task.id, { status: "blocked", progress: `没有开工：${dirt}。提交或清掉这些改动后点「重新开工」。` })!;
-  }
   const id = randomUUID();
-  const base = baseBranchOf(task).baseBranch;
-  await openSession(root, task, { kind: "autonomous", project, repoDir: dir, task: autonomousPrompt(id, detail, project), jobId: id, ...(base ? { baseBranch: base } : {}) });
+  const reran = exited && (await runInSession(root.id, { id, repoDir: dir, kind: "autonomous", project, task: autonomousPrompt(id, detail, project) }, task.id));
+  if (!reran) {
+    const dirt = await worktreeDirt(dir);
+    if (dirt) {
+      record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });
+      return updateTask(task.id, { status: "blocked", progress: `没有开工：${dirt}。提交或清掉这些改动后点「重新开工」。` })!;
+    }
+    const base = baseBranchOf(task).baseBranch;
+    await openSession(root, task, { kind: "autonomous", project, repoDir: dir, task: autonomousPrompt(id, detail, project), jobId: id, ...(base ? { baseBranch: base } : {}) });
+  }
   createRun({ id, jobId: id, taskId: task.id, project, kind: "autonomous", trigger, ...(task.source.intake?.confidence !== undefined ? { intakeConfidence: task.source.intake.confidence } : {}) });
   record({ taskId: task.id, action: "claude_code_start", why: "任务需要改代码，按策略自动在分支上完成再交审核", how: "在 tmux 会话里先按项目规则建 worktree，再跑 claude -p，完成后写交付报告", evidence: { jobId: id, project, dir }, risk: "reversible" });
   // task.progress 可能已经写了「Friday 已自动回复」之类的话（同一条线程既触发了回复又触发了改代码），
@@ -252,7 +257,7 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
   if (!t) return undefined;
   record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
-  return updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}` });
+  return updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
 }
 
 /** 审核通过一条待审动作：按钮和会话里的「合并吧 / 发」走同一条路。text 是改过的要发原文 */

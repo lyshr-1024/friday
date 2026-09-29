@@ -51,16 +51,15 @@ async function session() {
 }
 
 describe("/sessions", () => {
-  it("attach 后输入写进 pty，带回车才记输入时间", async () => {
+  it("attach 后输入写进 pty；回车不再记输入时间（输入由 UserPromptSubmit hook 记）", async () => {
     const id = await session();
     const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
     const before = getTermSession(id)!.lastInputAt!;
     await new Promise((r) => setTimeout(r, 5));
     await post(`/sessions/${id}/input`, { attach: attachId, data: "ls" });
-    expect(getTermSession(id)!.lastInputAt).toBe(before);
     await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
     expect(written).toEqual(["ls", "\r"]);
-    expect(getTermSession(id)!.lastInputAt! > before).toBe(true);
+    expect(getTermSession(id)!.lastInputAt).toBe(before);
   });
 
   it("拉起 tmux 失败：503 fatal，不留观众；输入 404", async () => {
@@ -72,35 +71,31 @@ describe("/sessions", () => {
     expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
   });
 
-  it("回车落在第二个窗口：不记输入", async () => {
+  it("tmux 里已经没有这个会话：attach 回 404 gone，不拉起 pty（每个 pty 都会漏一个 ptmx）", async () => {
     const id = await session();
-    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
-    const before = getTermSession(id)!.lastInputAt;
-    active = 1;
-    await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
-    expect(getTermSession(id)!.lastInputAt).toBe(before);
-  });
-
-  it("claude 窗口已关（只剩 zsh 且它是活动窗口）：回车不记输入", async () => {
-    const id = await session();
-    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
-    const before = getTermSession(id)!.lastInputAt;
+    let spawned = 0;
+    setPtySpawner(() => { spawned++; return { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => {} }; });
     setTmuxRunner(async (args) => {
-      if (args[4] === "list-windows") return "1|zsh|1\n";
-      if (args[4] === "display-message") return "1\n";
+      if (args[4] === "has-session") throw new Error("can't find session");
       return "";
     });
-    await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
-    expect(getTermSession(id)!.lastInputAt).toBe(before);
+    const r = await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 });
+    expect(r.status).toBe(404);
+    expect(await r.json()).toMatchObject({ gone: true });
+    expect(spawned).toBe(0);
   });
 
-  it("查活动窗口失败：不记输入", async () => {
+  it("tmux 客户端退出（pty exit）：stream 结束，前端据此重连", async () => {
     const id = await session();
+    let exit = () => {};
+    setPtySpawner(() => ({ onData: () => ({ dispose() {} }), onExit: (fn) => { exit = fn; return { dispose() {} }; }, write: () => {}, resize: () => {}, kill: () => {} }));
     const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
-    const before = getTermSession(id)!.lastInputAt;
-    active = new Error("no server");
-    expect((await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" })).status).toBe(200);
-    expect(getTermSession(id)!.lastInputAt).toBe(before);
+    const res = await app.request(`/sessions/${id}/stream?attach=${attachId}`);
+    const reader = res.body!.getReader();
+    const drained = (async () => { for (;;) if ((await reader.read()).done) return "ended"; })();
+    setTimeout(() => exit(), 20);
+    expect(await Promise.race([drained, new Promise((r) => setTimeout(() => r("hung"), 1000))])).toBe("ended");
+    expect((await post(`/sessions/${id}/input`, { attach: attachId, data: "a" })).status).toBe(404);
   });
 
   it("准备段回报已被占用的 worktree：409", async () => {

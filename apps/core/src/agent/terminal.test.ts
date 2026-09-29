@@ -9,7 +9,7 @@ import { listAudit } from "../memory/audit.js";
 import { setTmuxRunner } from "./tmux.js";
 import { openSession, setLauncher, worktreeReady } from "./sessions.js";
 import { say, sweepClosedTerminals } from "./terminal.js";
-import { finishTask } from "./pipeline.js";
+import { finishTask, rejectTask } from "./pipeline.js";
 import { closeJobTerminal } from "./terminal.js";
 import { db } from "../memory/db.js";
 
@@ -158,5 +158,28 @@ describe("窗口 / 会话没了：任务得跟着收尾，不能一直挂在 pro
     expect(after.progress).toBe("终端会话已结束（会话已不在）");
     await sweepClosedTerminals();
     expect(getTask(t.id)!.progress).toBe(after.progress);
+  });
+
+  it("打回之后对账不把它当成卡住的任务再收一遍", async () => {
+    job("sw-rej");
+    finishJob("sw-rej", 0);
+    const t = createTask({ title: "demo：rej", kind: "code", source: { jobId: "sw-rej", autonomous: true }, project: "demo", status: "review" });
+    rejectTask(t.id, "改错页面了");
+    await sweepClosedTerminals();
+    const after = getTask(t.id)!;
+    expect(after.status).toBe("processing");
+    expect(after.progress).toContain("被打回");
+    expect((after.pending ?? []).some((p) => p.type === "git_merge")).toBe(false);
+  });
+});
+
+describe("缺陷的 rootId 指向已收工的需求", () => {
+  it("缺陷自己的会话在它收工时照样 kill", async () => {
+    const story = createTask({ title: "已收工需求", kind: "meegle", source: {}, status: "done", project: "app" });
+    const bug = createTask({ title: "自己开的缺陷", kind: "meegle", source: { rootId: story.id }, status: "processing", project: "app" });
+    await openSession(bug, bug, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const name = getTermSession(bug.id)!.tmuxName;
+    await finishTask(bug.id, "done", "测试");
+    expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
   });
 });

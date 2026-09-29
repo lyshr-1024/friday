@@ -60,6 +60,8 @@ describe("tmux 封装", () => {
     expect(await listSessionNames()).toEqual([]);
     reply = () => Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" });
     expect(await listSessionNames()).toBeUndefined();
+    reply = () => Object.assign(new Error("exit 1"), { stderr: "error connecting to /private/tmp/tmux-501/friday (Permission denied)" });
+    expect(await listSessionNames()).toBeUndefined();
     reply = () => "a\nb\n";
     expect(await listSessionNames()).toEqual(["a", "b"]);
   });

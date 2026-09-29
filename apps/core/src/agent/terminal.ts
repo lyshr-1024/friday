@@ -6,7 +6,7 @@ import { listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { getTermSession, openTermSessions, updateTermSession } from "../memory/termSessions.js";
 import { killSession, listSessionNames } from "./tmux.js";
-import { sayToSession } from "./sessions.js";
+import { liveRootId, sayToSession } from "./sessions.js";
 import { detachSession } from "./attach.js";
 import { publish } from "../bus.js";
 
@@ -36,7 +36,11 @@ export async function sweepClosedTerminals(): Promise<string[]> {
   }
   for (const j of runningJobs()) if (!j.sessionId) { finishJob(j.id, -1); dead.push(j.id); }
   const stuck = listTasks("processing", 1000)
-    .filter((t) => isFridayRun(t.source) && t.source.jobId && getJob(t.source.jobId)?.status !== "running")
+    .filter((t) => {
+      const job = isFridayRun(t.source) && t.source.jobId ? getJob(t.source.jobId) : undefined;
+      if (!job || job.status === "running") return false;
+      return !(t.source.rejectedAt && job.finishedAt && t.source.rejectedAt >= job.finishedAt);
+    })
     .map((t) => t.source.jobId!);
   const exits = [...new Set([...dead, ...stuck])];
   if (exits.length) {
@@ -63,8 +67,8 @@ export async function closeJobTerminal(jobId: string, why: string, taskId?: stri
   return killed;
 }
 
-export async function closeTaskTerminal(task: Pick<Task, "id" | "source">, why: string): Promise<boolean> {
-  if (task.source.rootId) return false;
+export async function closeTaskTerminal(task: Task, why: string): Promise<boolean> {
+  if (liveRootId(task)) return false;
   const s = getTermSession(task.id);
   const jobId = s?.jobId ?? task.source.jobId;
   if (!jobId) return false;

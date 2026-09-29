@@ -1,8 +1,9 @@
-import { SESSION_STATE_LABEL } from "@friday/shared";
+import { SESSION_STATE_LABEL, isFridayRun } from "@friday/shared";
 import type { SessionState, Task, TaskSession, TermSession } from "@friday/shared";
 import { findTaskBySource } from "../memory/tasks.js";
 import { getTermSession, termSessionByJob } from "../memory/termSessions.js";
 import { runByJob } from "../memory/runs.js";
+import { liveRootId } from "./sessions.js";
 
 export function sessionState(t: Pick<Task, "attention" | "pending" | "status">, s?: TermSession): SessionState {
   const alive = s?.status === "running" || s?.status === "preparing";
@@ -16,8 +17,8 @@ export function sessionState(t: Pick<Task, "attention" | "pending" | "status">, 
 }
 
 export function taskSession(t: Task): TaskSession {
-  const s = getTermSession(t.source.rootId ?? t.id);
-  const own = s && s.id === t.id ? s : undefined;
+  const s = getTermSession(liveRootId(t) ?? t.id);
+  const own = s && s.id === t.id && s.status !== "closed" ? s : undefined;
   const state = sessionState(t, own);
   const waitingSince = (t.pending ?? []).map((p) => p.at).filter((x): x is string => Boolean(x)).sort()[0];
   const run = t.source.jobId ? runByJob(t.source.jobId) : undefined;
@@ -26,8 +27,8 @@ export function taskSession(t: Task): TaskSession {
     state,
     ...(own?.lastStopAt ? { lastStopAt: own.lastStopAt } : {}),
     ...(state === "deciding" && waitingSince ? { waitingSince } : {}),
-    ...(own ? { name: own.tmuxName, kind: own.kind, ...(own.worktree ? { worktree: own.worktree } : {}), ...(own.branch ? { branch: own.branch } : {}) } : {}),
-    ...(t.source.autonomous && run
+    ...(own ? { name: own.tmuxName, status: own.status, kind: own.kind, ...(own.worktree ? { worktree: own.worktree } : {}), ...(own.branch ? { branch: own.branch } : {}) } : {}),
+    ...(isFridayRun(t.source) && run
       ? { delivery: { ...(run.filesChanged !== undefined ? { files: run.filesChanged } : {}), ...(run.insertions !== undefined ? { insertions: run.insertions } : {}), ...(run.deletions !== undefined ? { deletions: run.deletions } : {}), ...(run.diffFiles ? { perFile: run.diffFiles } : {}), ...(run.diffBase ? { base: run.diffBase } : {}), ...(run.costUsd !== undefined ? { costUsd: run.costUsd } : {}), ...(minutes ? { minutes } : {}), ...(run.model ? { model: run.model } : {}) } }
       : {}),
   };

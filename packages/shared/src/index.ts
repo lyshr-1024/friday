@@ -299,6 +299,7 @@ export interface TaskSession {
   lastStopAt?: string;
   waitingSince?: string;
   name?: string;
+  status?: TermSessionStatus;
   worktree?: string;
   branch?: string;
   kind?: TermSessionKind;
@@ -467,6 +468,8 @@ export interface TaskSource {
   historyCursor?: string;
   /** Friday 自主派出的 -p 任务：用户只审交付报告，friday_done 直接进 review */
   autonomous?: boolean;
+  /** 你打回的时刻：晚于那次运行结束，对账就不再把它当成卡住的任务收一遍 */
+  rejectedAt?: string;
   /** 项目主仓目录：合并分支、收 worktree 都要在这儿操作 */
   repoDir?: string;
   /** Friday 给这条任务开的 worktree，终端就跑在里面；收工时连同分支一起清 */

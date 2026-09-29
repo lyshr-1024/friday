@@ -72,9 +72,9 @@ export function otherOpenSessionUsing(id: string, col: "worktree" | "branch", va
   return r ? toSession(r) : undefined;
 }
 
-const COLS: Record<string, string> = { status: "status", jobId: "job_id", worktree: "worktree", branch: "branch", tmuxName: "tmux_name" };
+const COLS: Record<string, string> = { status: "status", jobId: "job_id", worktree: "worktree", branch: "branch", tmuxName: "tmux_name", kind: "kind" };
 
-export function updateTermSession(id: string, patch: Partial<Pick<TermSession, "status" | "jobId" | "worktree" | "branch" | "tmuxName">>): TermSession | undefined {
+export function updateTermSession(id: string, patch: Partial<Pick<TermSession, "status" | "jobId" | "worktree" | "branch" | "tmuxName" | "kind">>): TermSession | undefined {
   const keys = Object.keys(patch).filter((k) => k in COLS) as Array<keyof typeof patch>;
   if (keys.length) {
     db()

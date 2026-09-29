@@ -25,7 +25,7 @@ export function setPtySpawner(fn: PtySpawner): void {
   spawner = fn;
 }
 
-interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; backlog: string; idleTimer?: NodeJS.Timeout }
+interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; enders: Set<() => void>; backlog: string; idleTimer?: NodeJS.Timeout }
 const UNSUBSCRIBED_TTL_MS = 15_000;
 const viewers = new Map<string, Viewer>();
 
@@ -54,13 +54,14 @@ export function attach(sessionId: string, tmuxName: string, cols: number, rows: 
     throw new AttachError(`拉起 tmux 失败：${(e as Error).message}`);
   }
   spawnFails = 0;
-  const v: Viewer = { sessionId, pty, listeners: new Set(), backlog: "" };
+  const v: Viewer = { sessionId, pty, listeners: new Set(), enders: new Set(), backlog: "" };
   // tmux 一接上就整屏重绘，那时 /stream 还没来订阅；丢了这一帧，之后的增量画面全是错位的
   pty.onData((d) => { if (v.listeners.size) v.listeners.forEach((l) => l(d)); else v.backlog += d; });
   pty.onExit(() => {
     clearTimeout(v.idleTimer);
     v.listeners.forEach((l) => l("\r\n"));
     viewers.delete(id);
+    v.enders.forEach((e) => e());
   });
   viewers.set(id, v);
   v.idleTimer = setTimeout(() => detach(id), UNSUBSCRIBED_TTL_MS);
@@ -72,14 +73,16 @@ export function viewerSession(attachId: string): string | undefined {
   return viewers.get(attachId)?.sessionId;
 }
 
-export function subscribe(attachId: string, fn: (d: string) => void): (() => void) | undefined {
+export function subscribe(attachId: string, fn: (d: string) => void, onEnd?: () => void): (() => void) | undefined {
   const v = viewers.get(attachId);
   if (!v) return undefined;
   clearTimeout(v.idleTimer);
   v.listeners.add(fn);
+  if (onEnd) v.enders.add(onEnd);
   if (v.backlog) { fn(v.backlog); v.backlog = ""; }
   return () => {
     v.listeners.delete(fn);
+    if (onEnd) v.enders.delete(onEnd);
     if (!v.listeners.size) detach(attachId);
   };
 }
@@ -104,6 +107,7 @@ export function detach(attachId: string): void {
   viewers.delete(attachId);
   clearTimeout(v.idleTimer);
   v.pty.kill();
+  v.enders.forEach((e) => e());
 }
 
 export function detachSession(sessionId: string): void {

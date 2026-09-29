@@ -5,7 +5,9 @@ import { resolveProject } from "../memory/projects.js";
 import { listTasks } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
+import { getTermSession } from "../memory/termSessions.js";
 import { startAutonomousJob } from "./pipeline.js";
+import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
 
 /**
@@ -77,6 +79,11 @@ export async function autostartTick(now = Date.now()): Promise<number> {
     const v = t.source.intake!;
     const r = resolveProject(t.project!);
     if (r.kind !== "match") continue;
+    const s = getTermSession(resolveRoot(t).id);
+    if (s?.kind === "interactive" && s.status !== "closed") {
+      console.log(`[autostart] ${t.title.slice(0, 40)}：它的需求开着你的交互式会话，不往里敲字，跳过`);
+      continue;
+    }
     try {
       await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
     } catch (e) {

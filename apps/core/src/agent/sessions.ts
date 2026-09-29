@@ -7,16 +7,26 @@ import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, updateTermSession } from "../memory/termSessions.js";
 import { currentBranchSync } from "./git.js";
-import { jobLog, launchInSession, shellQuote, writeResumeScript } from "./runner.js";
-import { claudeWindowIndex, hasSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
+import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
+import { claudeWindowIndex, hasSession, killSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
 let launch: typeof launchInSession = launchInSession;
 export function setLauncher(fn: typeof launchInSession): void {
   launch = fn;
 }
 
+const isOpen = (t: Task | undefined): t is Task => Boolean(t && t.status !== "done" && t.status !== "ignored");
+
+export function liveRootId(task: Task): string | undefined {
+  const id = task.source.rootId;
+  return id && isOpen(getTask(id)) ? id : undefined;
+}
+
 export function resolveRoot(task: Task): Task {
-  if (task.source.rootId) return getTask(task.source.rootId) ?? task;
+  if (task.source.rootId) {
+    const root = getTask(task.source.rootId);
+    return isOpen(root) ? root : task;
+  }
   const story = task.source.linkedStoryId;
   if (!story) return task;
   const root = findTaskBySource((s) => s.meegleId === story || (s.mergedMeegleIds ?? []).includes(story));
@@ -38,11 +48,16 @@ export async function openSession(
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();
   const jobId = o.jobId ?? randomUUID();
-  const name = sessionName(o.repoDir, root.id.slice(0, 8));
+  let name = sessionName(o.repoDir, root.id.slice(0, 8));
+  if (await hasSession(name)) {
+    if (getTermSession(root.id)?.tmuxName === name) await killSession(name);
+    else name = `${name}-${randomUUID().slice(0, 4)}`;
+  }
+  const existingBranch = [root.source.branch, owner.source.branch].find((b) => b && b !== "main" && b !== "master");
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
-    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}) }, name);
+    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}) }, name);
   } catch (e) {
     finishJob(jobId, 1);
     updateTermSession(root.id, { status: "closed" });
@@ -87,12 +102,35 @@ export async function resumeInSession(sessionId: string, prompt?: string): Promi
   const file = await writeResumeScript(
     { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}), ...(prompt ? { task: prompt } : {}) },
     s.worktree ?? s.repoDir,
+    s.kind,
   );
   await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
   reviveJob(job.id);
   updateTermSession(sessionId, { status: "running" });
   markInput(sessionId);
   record({ taskId: job.taskId, action: "terminal_reopened", why: "Claude 退出了但任务还没做完", how: job.claudeSessionId ? "在同一个会话里 --resume 接回" : "在同一个会话里开新 Claude", evidence: { jobId: job.id, session: s.tmuxName }, risk: "reversible" });
+  publish({ type: "tasks" });
+  return true;
+}
+
+export async function runInSession(sessionId: string, launch: SessionLaunch, ownerId = sessionId): Promise<boolean> {
+  const s = getTermSession(sessionId);
+  if (!s || s.status === "closed" || !(await hasSession(s.tmuxName))) return false;
+  if (launch.kind !== "query" && !s.worktree) return false;
+  const win = await claudeWindowIndex(s.tmuxName);
+  if (win === undefined) return false;
+  const cwd = s.worktree ?? s.repoDir;
+  const file = await writeResumeScript({ ...launch, repoDir: s.repoDir, project: s.project }, cwd);
+  createJob({ id: launch.id, project: s.project, dir: cwd, task: (launch.task ?? "").slice(0, 500), logPath: jobLog(launch.id), taskId: ownerId, sessionId });
+  try {
+    await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
+  } catch (e) {
+    finishJob(launch.id, 1);
+    throw e;
+  }
+  updateTermSession(sessionId, { status: "running", jobId: launch.id, kind: launch.kind });
+  markInput(sessionId);
+  record({ taskId: ownerId, action: "terminal_run", why: "会话里的 Claude 已经退出，这次的活在同一个会话、同一个 worktree 里接着跑", how: `新起一次 ${launch.kind} 运行`, evidence: { jobId: launch.id, session: s.tmuxName }, risk: "reversible" });
   publish({ type: "tasks" });
   return true;
 }

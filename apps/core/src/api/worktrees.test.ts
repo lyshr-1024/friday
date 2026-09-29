@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
+import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { listAudit } from "../memory/audit.js";
 
 function repoWithWorktree() {
@@ -54,5 +55,26 @@ describe("遗留 worktree", () => {
     const res = await post({ path: tree, repoDir: "/nonexistent" });
     expect(res.status).toBe(200);
     expect(existsSync(tree)).toBe(false);
+  });
+
+  it("还开着的会话在用的 worktree 不算遗留", async () => {
+    const { repo, tree } = repoWithWorktree();
+    const done = createTask({ title: "旧的收工了", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const live = createTask({ title: "新会话接着用", kind: "verbal", source: {}, status: "processing" });
+    createTermSession({ id: live.id, project: "p", repoDir: repo, tmuxName: "x", kind: "interactive", jobId: "j" });
+    updateTermSession(live.id, { status: "exited", worktree: tree });
+    const list = (await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string }>;
+    expect(list.some((w) => w.path === tree)).toBe(false);
+    expect((await post({ path: tree })).status).toBe(400);
+    expect(existsSync(tree)).toBe(true);
+    expect(done.id).toBeTruthy();
+  });
+
+  it("开着的任务记着的 worktree 不算遗留", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "旧的收工了2", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    createTask({ title: "还开着", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "review" });
+    const list = (await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string }>;
+    expect(list.some((w) => w.path === tree)).toBe(false);
   });
 });

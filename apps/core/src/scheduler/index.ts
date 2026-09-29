@@ -102,7 +102,7 @@ export async function syncSlackOnce(): Promise<number> {
         );
         if (swept) {
           console.log(`把 ${swept} 条我已在 Slack 读过或回过的消息标成已处理`);
-          settleQueryTasks();
+          await settleQueryTasks();
         }
       } catch (e) {
         console.error(`[slack] 收件箱对齐失败：${e instanceof Error ? e.message : String(e)}`);

@@ -8,10 +8,11 @@ import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource } from "../memory/tasks.js";
-import { getTermSession, markStop } from "../memory/termSessions.js";
+import { getTermSession, markInput, markStop } from "../memory/termSessions.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
 import { state } from "../scheduler/index.js";
+import { publish } from "../bus.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g;
 
@@ -73,11 +74,12 @@ export const jobs = new Hono()
         toolInput: z.string().max(4000).optional(),
         message: z.string().max(1000).optional(),
         notificationType: z.string().max(40).optional(),
+        cwd: z.string().max(1000).optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId && !parsed.data.toolName && !parsed.data.message)) return c.json({ error: "text / sessionId / toolName / message 至少一个" }, 400);
     const id = c.req.param("id");
-    const { text, sessionId, event, source, toolName, toolInput, message, notificationType } = parsed.data;
+    const { text, sessionId, event, source, toolName, toolInput, message, notificationType, cwd } = parsed.data;
     if (!getJob(id)) return c.json({ error: "任务不存在" }, 404);
     // 交互式提问：PreToolUse 进来就是阻塞，PostToolUse 说明答了
     if (event === "PreToolUse" && toolName && /^(AskUserQuestion|ExitPlanMode)$/.test(toolName)) terminalAsking(id, describeQuestion(toolName, toolInput));
@@ -86,15 +88,22 @@ export const jobs = new Hono()
     const okText = text ? setJobMessage(id, text) : true;
     const okSid = sessionId ? setJobSession(id, sessionId) : true;
     if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);
-    if (event === "SessionStart") {
-      const sid = getJob(id)?.sessionId;
-      if (sid) await flushQueued(sid);
+    const sid = getJob(id)?.sessionId;
+    if (event === "SessionStart" && sid) {
+      // 准备段期间 core 重启过，POST /worktree 没送到：按干活段 Claude 的 cwd 补上，走同一套占用校验
+      const s = getTermSession(sid);
+      if (s?.status === "preparing" && cwd && cwd !== s.repoDir) await worktreeReady(id, cwd);
+      await flushQueued(sid);
     }
-    // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
-    if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) {
-      const sid = getJob(id)?.sessionId;
+    if (event === "UserPromptSubmit" && sid) {
+      markInput(sid);
+      publish({ type: "tasks" });
+    }
+    // 一轮说完（Stop）、--resume 回来、或 Claude 在空等输入（Esc 中断不会有 Stop），都是"终端空闲"
+    if (event === "Stop" || (event === "SessionStart" && source === "resume") || (event === "Notification" && notificationType === "idle_prompt") || (!event && text)) {
       if (sid) markStop(sid);
       clearAttention(id);
+      if (sid) publish({ type: "tasks" });
     }
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
     return c.json({ ok: true });

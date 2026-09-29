@@ -63,6 +63,23 @@ describe("两段式启动脚本", () => {
     expect(prepPrompt("j", "/r/app")).not.toContain("<untrusted");
   });
 
+  it("准备段提示词：已有分支时为它建 worktree，不新建分支；没有时维持新建", () => {
+    const p = prepPrompt("j", "/r/app", "feat/base", { title: "导出中心" }, "feat/export");
+    expect(p).toContain("git worktree add <路径> feat/export");
+    expect(p).toContain("不要新建分支");
+    expect(p).not.toContain("必须新建分支");
+    expect(p).not.toContain("feat/base");
+    expect(p).toContain(worktreeFile("j"));
+    const fresh = prepPrompt("j", "/r/app", "feat/base", { title: "导出中心" });
+    expect(fresh).toContain("必须新建分支");
+    expect(fresh).not.toContain("git worktree add <路径>");
+  });
+
+  it("启动脚本把已有分支交给准备段", () => {
+    const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "x", kind: "interactive", existingBranch: "feat/export" }, "/bin/claude", 7788, files, prep);
+    expect(s).toContain("git worktree add <路径> feat/export");
+  });
+
   it("只有 core 明确回 409 才不往下开工，其他失败照常起 claude", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "x", kind: "interactive" }, "/bin/claude", 7788, files, prep);
     expect(s).toMatch(/wcode=\$\(curl -s -m 10 -o \/dev\/null -w '%\{http_code\}'[^\n]*\/jobs\/j\/worktree/);

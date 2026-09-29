@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationSummary } from "@friday/shared";
 import { parseRoute, routeCandidates, routePrompt } from "./route.js";
+import { createTask } from "../memory/tasks.js";
 
 const conv = (id: string, title: string, messageCount = 4): ConversationSummary => ({ id, title, messageCount, createdAt: "2026-09-05T02:00:00Z", updatedAt: "2026-09-07T02:00:00Z" });
 const convs = [conv("a", "提款规则加多语言字段"), conv("b", "Slack 怎么拿浏览器登录态"), conv("c", "买杯咖啡")];
@@ -23,6 +24,14 @@ describe("会话路由", () => {
     expect(out).toHaveLength(20);
     expect(out.map((c) => c.id)).not.toContain("c1");
     expect(out.map((c) => c.id)).not.toContain("c3");
+  });
+
+  it("绑了任务的会话不进候选：自由会话不能被路由进任务会话", () => {
+    const t = createTask({ title: "合并那个分支", kind: "verbal", source: {}, status: "review" });
+    const bound = t.source.conversationId!;
+    expect(bound).toBeTruthy();
+    const out = routeCandidates([conv(bound, "合并那个分支"), conv("free", "随便聊聊")], []);
+    expect(out.map((c) => c.id)).toEqual(["free"]);
   });
 
   it("提示词带上这句话、候选标题和项目别名，规则偏保守", () => {

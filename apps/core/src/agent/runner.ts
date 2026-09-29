@@ -78,10 +78,10 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type, cwd } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
-    if (!text && transcript_path && fs.existsSync(transcript_path)) {
+    if (!text && (!hook_event_name || hook_event_name === "Stop") && transcript_path && fs.existsSync(transcript_path)) {
       const lines = fs.readFileSync(transcript_path, "utf8").trim().split("\\n");
       for (let i = lines.length - 1; i >= 0 && !text; i--) {
         try {
@@ -93,7 +93,7 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
       }
     }
     if (!text && !session_id && !tool_name && !message) { console.error("nothing to post"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}) }) })
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}), ...(cwd ? { cwd: String(cwd).slice(0, 1000) } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }
@@ -133,7 +133,7 @@ export function buildHookSettings(hookScript: string, guardScript?: string, read
     : [];
   const askHooks = guardScript ? refuseAsking : asking;
   return JSON.stringify(
-    { hooks: { SessionStart: hook, Stop: hook, PreToolUse: [...guard, ...refuseWrite, ...askHooks], PostToolUse: guardScript ? [] : asking, Notification: hook } },
+    { hooks: { SessionStart: hook, UserPromptSubmit: hook, Stop: hook, PreToolUse: [...guard, ...refuseWrite, ...askHooks], PostToolUse: guardScript ? [] : asking, Notification: hook } },
     null,
     2,
   );
@@ -236,24 +236,35 @@ export interface SessionLaunch {
   resumeSessionId?: string;
   title?: string;
   description?: string;
+  existingBranch?: string;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
 
-export function prepPrompt(id: string, repoDir: string, base?: string, info?: { title?: string; description?: string }): string {
+export function prepPrompt(id: string, repoDir: string, base?: string, info?: { title?: string; description?: string }, existingBranch?: string): string {
   const repo = repoDir.replace(/\/+$/, "").split("/").pop() ?? "repo";
   const about = info?.title ? untrusted("task", [info.title, info.description].filter(Boolean).join("\n")) : undefined;
+  const branchSteps = existingBranch
+    ? [
+        `0. 这条任务已经在分支 ${existingBranch} 上做过，不要新建分支：为它建 worktree（git worktree add <路径> ${existingBranch}）。这个分支已经在某个 worktree 里检出的话（git worktree list 能看到），直接用那个 worktree。`,
+        "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING 和现有 worktree 的惯例。项目有规则就照项目的来。",
+        `2. 项目没有规则时：worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
+        `3. 先 git fetch；本地没有 ${existingBranch} 就从 origin/${existingBranch} 检出。`,
+      ]
+    : [
+        "0. 必须新建分支和新 worktree，不许复用已有的 worktree 或分支：git worktree list 里的那些属于别的任务，只拿来参考命名惯例。",
+        "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING 和现有分支的惯例。项目有规则就照项目的来。",
+        `2. 项目没有规则时：分支名按「${BRANCH_RULE}」；worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
+        base ? `3. 基线是分支 ${base}：先 git fetch，再从它检出新分支。` : "3. 基线是默认分支：先 git fetch，再从 origin 的默认分支检出新分支。",
+      ];
   return [
     `你在 ${repoDir} 这个仓库的主目录里，只做一件事：为接下来的任务准备好分支和 git worktree，然后退出。不要改任何业务代码，不要 push。`,
-    ...(about ? [`这次的任务是：\n${about}`, UNTRUSTED_NOTE, "分支名要能看出是这件事。"] : []),
-    "0. 必须新建分支和新 worktree，不许复用已有的 worktree 或分支：git worktree list 里的那些属于别的任务，只拿来参考命名惯例。",
-    "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING 和现有分支的惯例。项目有规则就照项目的来。",
-    `2. 项目没有规则时：分支名按「${BRANCH_RULE}」；worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
-    base ? `3. 基线是分支 ${base}：先 git fetch，再从它检出新分支。` : "3. 基线是默认分支：先 git fetch，再从 origin 的默认分支检出新分支。",
+    ...(about ? [`这次的任务是：\n${about}`, UNTRUSTED_NOTE, ...(existingBranch ? [] : ["分支名要能看出是这件事。"])] : []),
+    ...branchSteps,
     "4. 按项目的方式把依赖装好，让新 worktree 能直接跑起来（前端仓库可以先用 cp -c 从主仓克隆 node_modules，再跑一次 install 补差）。",
     "5. 分支名和 worktree 目录名里都不要出现 friday。",
     `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。`,
-    "不要提问——没人会回答；拿不准就自己定，但绝不复用已有的 worktree 或分支，宁可多建一个。",
+    existingBranch ? "不要提问——没人会回答；拿不准就自己定，但不要另起分支。" : "不要提问——没人会回答；拿不准就自己定，但绝不复用已有的 worktree 或分支，宁可多建一个。",
   ].join("\n");
 }
 
@@ -278,7 +289,7 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
       ? []
       : [
           `rm -f ${wt}`,
-          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }))}`,
+          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }, req.existingBranch))}`,
           `if [ ! -s ${wt} ]; then`,
           `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
           "  exec /bin/zsh -il",
@@ -309,8 +320,13 @@ export function writePrepSettings(id: string): string {
   return settings;
 }
 
+let claudeFinder: () => Promise<string> = findClaude;
+export function setClaudeFinder(fn: () => Promise<string>): void {
+  claudeFinder = fn;
+}
+
 export async function launchInSession(req: SessionLaunch, tmuxName: string): Promise<void> {
-  const claudePath = await findClaude();
+  const claudePath = await claudeFinder();
   const files = writeHookFiles(req.id, req.kind === "autonomous", req.kind === "query");
   const prep = req.kind === "query" ? undefined : writePrepSettings(req.id);
   const script = join(runsDir(), `${req.id}.sh`);
@@ -319,9 +335,9 @@ export async function launchInSession(req: SessionLaunch, tmuxName: string): Pro
   await newSession(tmuxName, req.repoDir, script);
 }
 
-export async function writeResumeScript(req: SessionLaunch, cwd: string): Promise<string> {
-  const claudePath = await findClaude();
-  const files = writeHookFiles(req.id, false, false);
+export async function writeResumeScript(req: SessionLaunch, cwd: string, hooks: TermSessionKind = req.kind): Promise<string> {
+  const claudePath = await claudeFinder();
+  const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query");
   const script = join(runsDir(), `${req.id}.resume.sh`);
   writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ""].join("\n"));
   chmodSync(script, 0o755);
