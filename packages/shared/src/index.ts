@@ -234,10 +234,18 @@ export interface InboxItem {
   /** 这条消息所在 thread 的根 ts。有值说明它是某个 thread 里的回复，前文要去 conversations.replies 取。 */
   threadTs?: string;
   /** 这条之前聊的是什么，同步时拉下来存着。老消息补不回来。 */
-  prior?: string[];
+  prior?: PriorLine[];
   ts: string;
   receivedAt: string;
   done: boolean;
+}
+
+/** 前文里的一行。userId 用来在显示时换成人名；userName 是入库时能认出来的名字，可能为空 */
+export interface PriorLine {
+  ts?: string;
+  userId?: string;
+  userName: string;
+  text: string;
 }
 
 /** 一段对话：thread 里的回复归到根消息，散消息自己算一段 */

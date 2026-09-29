@@ -290,6 +290,7 @@ export async function fetchSlack(
 /** 一条消息落在收件箱之前，它前面已经聊过的内容。 */
 export interface SlackContextLine {
   ts: string;
+  userId?: string;
   userName: string;
   text: string;
 }
@@ -335,7 +336,7 @@ export async function fetchContext(
     if (m.subtype) continue;
     const text = (m.text ?? "").trim();
     if (!text) continue;
-    lines.push({ ts: m.ts, userName: m.username ?? (m.user ? await resolveName(m.user) : m.bot_id ? "机器人" : "未知"), text });
+    lines.push({ ts: m.ts, ...(m.user ? { userId: m.user } : {}), userName: m.username ?? (m.user ? await resolveName(m.user) : m.bot_id ? "机器人" : "未知"), text });
   }
   lines.sort((a, b) => Number(a.ts) - Number(b.ts));
   return lines.slice(-limit);
@@ -388,6 +389,16 @@ export async function fetchChannelRecent(
 
 /** 显示名常带英文后缀（「拂晓 (Chen Xiaofu)」），窗口标题里可能只剩中文名，两边都剥一次再比 */
 const bareName = (s: string) => s.replace(/\s*[（(][^（）()]*[）)]\s*/g, "").trim();
+
+/** users.info 查显示名；Enterprise Grid 下常被限制，查不到返回 undefined，绝不拿 ID 充数 */
+export async function lookupUserName(call: Call, id: string): Promise<string | undefined> {
+  try {
+    const res = (await call("users.info", { user: id })) as { user?: { real_name?: string; name?: string } };
+    return res.user?.real_name || res.user?.name || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 async function resolveName(call: Call, id: string, cache: Map<string, string>): Promise<string> {
   if (!id) return "未知";

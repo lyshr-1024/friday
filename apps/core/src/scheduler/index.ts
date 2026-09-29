@@ -17,10 +17,12 @@ import {
   fetchSlack,
   isRead,
   loadSlackCreds,
+  lookupUserName,
   repliedSince,
   slackCaller,
   type SlackCreds,
 } from "../connectors/slack.js";
+import { priorText, userNames } from "../memory/roster.js";
 import { addInboxItems, getCursor, setCursor, setPrior, setSlackTeam, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
@@ -62,8 +64,11 @@ const priorCache = new Map<string, string[]>();
 async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem): Promise<string[]> {
   const hit = priorCache.get(item.id);
   if (hit) return hit;
-  const lines = (await fetchContext(call, item, async (id) => id)).map((c) => `${c.userName}：${c.text}`);
-  if (lines.length) setPrior(item.id, lines);
+  const roster = userNames();
+  const ctx = await fetchContext(call, item, async (id) => roster.get(id) ?? (await lookupUserName(call, id)) ?? "");
+  const stored = ctx.map((c) => ({ ts: c.ts, ...(c.userId ? { userId: c.userId } : {}), userName: c.userName, text: c.text }));
+  if (stored.length) setPrior(item.id, stored);
+  const lines = priorText(stored, { kind: item.kind, peer: item.userName });
   priorCache.set(item.id, lines);
   if (priorCache.size > 200) priorCache.clear();
   return lines;
@@ -83,6 +88,7 @@ export async function syncSlackOnce(): Promise<number> {
     if (!me) {
       const auth = (await call("auth.test", {})) as { user_id?: string; team_id?: string; url?: string };
       me = String(auth.user_id ?? "");
+      if (me) setCursor("slack:me", me);
       if (auth.team_id) setSlackTeam(auth.team_id);
       if (auth.url) setCursor("slack:url", auth.url);
     }

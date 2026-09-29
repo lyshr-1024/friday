@@ -1,4 +1,4 @@
-import type { InboxItem } from "@friday/shared";
+import type { InboxItem, PriorLine } from "@friday/shared";
 import { db } from "./db.js";
 
 interface Row {
@@ -28,6 +28,13 @@ const appLink = (r: Row): string | undefined => {
   return team ? `slack://channel?team=${team}&id=${r.channel_id}&message=${r.ts}` : undefined;
 };
 
+/** 旧数据存的是拼好的「ID：内容」字符串，能认出 ID 前缀就还原成结构 */
+function toPriorLine(p: string | PriorLine): PriorLine {
+  if (typeof p !== "string") return p;
+  const m = /^([UW][A-Z0-9]{8,})[：:]\s*([\s\S]*)$/.exec(p);
+  return m ? { userId: m[1]!, userName: "", text: m[2]! } : { userName: "", text: p };
+}
+
 const toItem = (r: Row): InboxItem => ({
   id: r.id,
   kind: r.kind,
@@ -39,7 +46,7 @@ const toItem = (r: Row): InboxItem => ({
   permalink: r.permalink,
   ...(appLink(r) ? { appLink: appLink(r)! } : {}),
   ...(r.thread_ts ? { threadTs: r.thread_ts } : {}),
-  ...(r.prior ? { prior: JSON.parse(r.prior) as string[] } : {}),
+  ...(r.prior ? { prior: (JSON.parse(r.prior) as Array<string | PriorLine>).map(toPriorLine) } : {}),
   ts: r.ts,
   receivedAt: r.received_at,
   done: r.done === 1,
@@ -72,7 +79,7 @@ export function listInbox(includeDone = false, limit = 50): InboxItem[] {
   return rows.map(toItem);
 }
 
-export function setPrior(id: string, lines: string[]): void {
+export function setPrior(id: string, lines: PriorLine[]): void {
   db().prepare("UPDATE inbox SET prior = ? WHERE id = ?").run(JSON.stringify(lines), id);
 }
 

@@ -96,6 +96,7 @@ describe("补拉对话上下文", () => {
     const ctx = await fetchContext(c, item, nameOf);
     expect(ctx.map((l) => l.text)).toEqual(["多级标题在 iOS 上错位了"]);
     expect(ctx[0]!.userName).toBe("灵雨");
+    expect(ctx[0]!.userId).toBe("U2");
     expect(seen[0]!.method).toBe("conversations.history");
     expect(seen[0]!.latest).toBe(item.ts);
   });
