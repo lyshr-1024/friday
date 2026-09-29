@@ -146,6 +146,7 @@ export interface SettingsResponse {
   autonomous: boolean;
   /** 自主开工的把握门槛：intake 给的 confidence 不低于它才开，50–100 */
   autonomousMinConfidence: number;
+  meegleDefects: boolean;
   summon: SummonSettings;
   dataDir: string;
   projects: string[];
@@ -164,6 +165,7 @@ export interface SettingsUpdate {
   okrWeekly?: boolean;
   autonomous?: boolean;
   autonomousMinConfidence?: number;
+  meegleDefects?: boolean;
   summon?: Partial<SummonSettings>;
 }
 

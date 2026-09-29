@@ -20,6 +20,7 @@ const patch = z.object({
   okrWeekly: z.boolean().optional(),
   autonomous: z.boolean().optional(),
   autonomousMinConfidence: z.number().int().min(AUTOSTART_CONFIDENCE.min).max(AUTOSTART_CONFIDENCE.max).optional(),
+  meegleDefects: z.boolean().optional(),
   summon: z.object({
     screenshotFallback: z.boolean().optional(),
     urlAllowlist: z.array(z.string()).optional(),

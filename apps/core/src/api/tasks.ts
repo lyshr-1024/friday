@@ -8,7 +8,7 @@ import { fillDocTitles, mergeDocs, normUrl } from "../agent/docTitle.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
 import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
 import { z } from "zod";
-import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task } from "@friday/shared";
+import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
@@ -556,6 +556,11 @@ export const tasks = new Hono()
           return c.json({ error: `删了 ${removed} 条，第 ${removed + 1} 条（report id ${reportId}）删不掉：${e instanceof Error ? e.message : String(e)}。被锁定的报告只能去平台上改` }, 409);
         }
       }
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "reopen_task") {
+      if (!updateTask(plan.id, { status: plan.status as TaskStatus })) return c.json({ error: "任务已不在" }, 409);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

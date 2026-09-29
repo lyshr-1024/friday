@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { initMemory } from "../../memory/db.js";
 import { addInboxItems, markInboxDone } from "../../memory/inbox.js";
 import { addPending, createTask, getTask } from "../../memory/tasks.js";
-import { settleQueryTasks } from "./settle.js";
+import { archiveStaleTasks, settleQueryTasks, STALE_MS } from "./settle.js";
 import { setTmuxRunner } from "../tmux.js";
 import { openSession, setLauncher } from "../sessions.js";
 import { getTermSession } from "../../memory/termSessions.js";
@@ -69,5 +69,32 @@ describe("你自己在 Slack 回了", () => {
     expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
     expect(getTermSession(t.id)!.status).toBe("closed");
     expect(jobId).toBeTruthy();
+  });
+});
+
+describe("挂过一天没动的 Slack 待决定", () => {
+  it("归档，草稿作废，记一笔可撤销的账", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    let t = createTask({ title: "回答青禾", kind: "slack", source: { conversation: "S3:1", channelId: "S3" }, status: "review" });
+    t = addPending(t.id, { type: "slack_reply", label: "回复青禾", detail: "草稿", payload: { channel: "S3", text: "草稿" } })!;
+    await archiveStaleTasks(Date.parse(t.updatedAt) + STALE_MS + 1);
+    const after = getTask(t.id)!;
+    expect(after.status).toBe("ignored");
+    expect(after.pending ?? []).toHaveLength(0);
+  });
+
+  it("不到一天的不动", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "回答松石", kind: "slack", source: { conversation: "S4:1", channelId: "S4" }, status: "review" });
+    await archiveStaleTasks(Date.parse(t.updatedAt) + STALE_MS - 1000);
+    expect(getTask(t.id)!.status).toBe("review");
+  });
+
+  it("挂着开工动作的不归档：事情本身还没做", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    let t = createTask({ title: "改个 bug", kind: "slack", source: { conversation: "S5:1", channelId: "S5" }, status: "review" });
+    t = addPending(t.id, { type: "start_job", label: "开工", detail: "", payload: {} })!;
+    await archiveStaleTasks(Date.parse(t.updatedAt) + STALE_MS + 1);
+    expect(getTask(t.id)!.status).toBe("review");
   });
 });

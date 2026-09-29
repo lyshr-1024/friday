@@ -29,6 +29,7 @@ export type Undo =
   | { kind: "restore_task"; row: Record<string, string | number | null> }
   | { kind: "stage_set"; taskId: string; stage: string | null }
   | { kind: "delete_okr_reports"; ids: number[] }
+  | { kind: "reopen_task"; id: string; status: string }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

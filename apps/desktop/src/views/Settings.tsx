@@ -360,6 +360,15 @@ export function Settings() {
             onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
           />
         </Row>
+        <Row label="拉 Meegle 缺陷" hint="分派给你的缺陷进「待办 › 缺陷」分组；关掉后只拉需求，已经在列表里的缺陷留着不动">
+          <button
+            className={`switch ${prefs?.meegleDefects ? "switch--on" : ""}`}
+            role="switch"
+            aria-checked={!!prefs?.meegleDefects}
+            disabled={!prefs}
+            onClick={() => prefs && void updateSettings({ meegleDefects: !prefs.meegleDefects }).then(setPrefs)}
+          />
+        </Row>
         </div>
       </section>
 
