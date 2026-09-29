@@ -1,17 +1,14 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
 import type { InboxItem, Task } from "@friday/shared";
 import { record } from "../../memory/audit.js";
 import { conversationKey, slackNode, taskNode } from "../../memory/infer.js";
-import { createJob } from "../../memory/jobs.js";
 import { createRun } from "../../memory/runs.js";
 import { linkUp } from "../../memory/links.js";
 import { loadProjects } from "../../memory/projects.js";
 import { createTask, updateTask } from "../../memory/tasks.js";
-import { cleanEnv } from "../env.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
-import { claudeArgs, findClaude, jobLog, reportPath, writeHookFiles } from "../runner.js";
+import { reportPath } from "../runner.js";
+import { openSession } from "../sessions.js";
 
 export function queryJobPrompt(id: string, ask: string, projects: Array<{ name: string; dir: string }>, asker: string): string {
   const multi = projects.length > 1;
@@ -59,9 +56,8 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const id = randomUUID();
   const dir = picked[0]!.dir;
   const prompt = queryJobPrompt(id, ask, picked.map((p) => ({ name: p.name, dir: p.dir })), item.userName);
-  createJob({ id, project: picked[0]!.name, dir, task: ask.slice(0, 500), logPath: jobLog(id), taskId: task.id });
+  await openSession(task, task, { kind: "query", project: picked[0]!.name, repoDir: dir, task: prompt, jobId: id });
   createRun({ id, jobId: id, taskId: task.id, project: picked[0]!.name, kind: "query", trigger: "slack" });
-  spawnHeadless(id, dir, prompt);
 
   record({
     taskId: task.id,
@@ -73,33 +69,4 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   });
 
   return updateTask(task.id, { source: { jobId: id, headless: true }, progress: "Friday 正在代码里找答案" });
-}
-
-/**
- * 后台跑一个只读的 claude -p：不开终端窗口，输出落日志文件。
- * 没有终端脚本替它回报退出码，所以进程退出时自己调 onJobExit。
- */
-export function spawnHeadless(id: string, dir: string, prompt: string): void {
-  void (async () => {
-    const claudePath = await findClaude();
-    const files = writeHookFiles(id, false, true);
-    const log = createWriteStream(jobLog(id), { flags: "a" });
-    const child = spawn(claudePath, [...claudeArgs(files, true), prompt], {
-      cwd: dir,
-      env: cleanEnv(process.env),
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-    });
-    child.stdout.pipe(log);
-    child.stderr.pipe(log);
-    child.on("exit", (code) => {
-      log.end();
-      void import("../pipeline.js").then((m) => m.onJobExit(id, code ?? -1));
-    });
-    child.on("error", (e) => {
-      log.end();
-      console.error(`[slack-query] ${id} 起不来：${e.message}`);
-      void import("../pipeline.js").then((m) => m.onJobExit(id, -1));
-    });
-  })();
 }

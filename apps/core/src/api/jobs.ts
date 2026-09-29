@@ -4,11 +4,13 @@ import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal, reopenTerminal } from "../agent/runner.js";
 import { closeJobTerminal, markStop, sweepClosedTerminals, terminalState } from "../agent/terminal.js";
+import { flushQueued, prepareFailed, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource } from "../memory/tasks.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
+import { updateTermSession } from "../memory/termSessions.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 
@@ -85,6 +87,10 @@ export const jobs = new Hono()
     const okText = text ? setJobMessage(id, text) : true;
     const okSid = sessionId ? setJobSession(id, sessionId) : true;
     if (!okText || !okSid) return c.json({ error: "任务不存在" }, 404);
+    if (event === "SessionStart") {
+      const sid = getJob(id)?.sessionId;
+      if (sid) await flushQueued(sid);
+    }
     // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
     if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) {
       markStop(id);
@@ -101,11 +107,22 @@ export const jobs = new Hono()
     if (!job) return c.json({ error: "任务不存在" }, 404);
     return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)), terminal: job.status === "running" ? terminalState(job.id) : "gone" });
   })
+  .post("/jobs/:id/worktree", async (c) => {
+    const parsed = z.object({ path: z.string().min(1).max(1000) }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "path 必填" }, 400);
+    const s = await worktreeReady(c.req.param("id"), parsed.data.path);
+    return s ? c.json(s) : c.json({ error: "没有这个会话" }, 404);
+  })
   .post("/jobs/:id/exit", async (c) => {
-    const parsed = z.object({ code: z.number().int() }).safeParse(await c.req.json().catch(() => null));
+    const parsed = z.object({ code: z.number().int(), phase: z.literal("prepare").optional() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "code 需为整数" }, 400);
+    if (parsed.data.phase === "prepare") {
+      const t = prepareFailed(c.req.param("id"));
+      return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+    }
     const job = finishJob(c.req.param("id"), parsed.data.code);
     if (!job) return c.json({ error: "任务不存在" }, 404);
+    if (job.sessionId) updateTermSession(job.sessionId, { status: "exited" });
     const task = onJobExit(job.id, parsed.data.code);
     if (task) state.notices.push({ title: `交付待审核 · ${job.project}`, body: task.report?.summary ?? task.progress ?? "", taskId: task.id });
     const summary = `${job.project} 的终端任务已结束（退出码 ${parsed.data.code}）${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 300)}` : ""}`;

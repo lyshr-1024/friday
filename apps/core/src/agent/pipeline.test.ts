@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startAutonomousJob, reportBackToOrigin } from "./pipeline.js";
@@ -16,18 +15,6 @@ describe("开工前的体检", () => {
     expect(out.status).toBe("blocked");
     expect(out.progress).toContain("不是 git 仓库");
     expect(out.source.jobId).toBeUndefined();
-  });
-
-  it("开不出 worktree 就不开工，不留半拉子任务", async () => {
-    // 空仓库（还没有任何提交）开不出 worktree
-    const dir = mkdtempSync(join(tmpdir(), "friday-empty-"));
-    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
-    const task = createTask({ title: "改点东西", kind: "code", source: {}, status: "understood" });
-    const out = await startAutonomousJob(task, "demo", dir, "修登录报错");
-    expect(out.status).toBe("blocked");
-    expect(out.progress).toContain("没有开工");
-    expect(out.source.jobId).toBeUndefined();
-    expect(out.source.worktree).toBeUndefined();
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseReport, queryReplyDraft } from "./report.js";
-import { autonomousPrompt, buildScript, claudeArgs } from "./runner.js";
+import { autonomousPrompt, buildScript, claudeArgs, prepPrompt } from "./runner.js";
 
 describe("交付报告", () => {
   it("按约定结构解析，截图存为附件", () => {
@@ -14,14 +14,15 @@ describe("交付报告", () => {
     expect(r.screenshots[0]!.name).toBe("login-before.png");
   });
 
-  it("自主模式脚本用 claude -p，提示词带分支命名规范、报告路径与截图目录", () => {
+  it("自主模式脚本用 claude -p，提示词说明已在分支上、带报告路径与截图目录", () => {
     const prompt = autonomousPrompt("abcdef12-0000", "修登录报错", "whale-console");
-    // 分支名由终端里的 Claude 按项目规范自己起，提示词只给规则不给固定名字
-    expect(prompt).toContain("feat/<topic>");
-    expect(prompt).toContain("fix/<bug>");
+    // 分支由准备段按项目规范建好，干活提示词只说已经在分支上，命名规则在 prepPrompt
+    expect(prompt).toContain("不要再建分支");
     expect(prompt).not.toContain("friday/abcdef12");
-    expect(prompt).toContain("先按项目自己的规则起");
-    expect(prompt).toContain("不要用 friday 开头");
+    const prep = prepPrompt("abcdef12-0000", "/r/whale-console");
+    expect(prep).toContain("feat/<topic>");
+    expect(prep).toContain("fix/<bug>");
+    expect(prep).toContain("不要用 friday 开头");
     expect(prompt).toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");

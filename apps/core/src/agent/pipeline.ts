@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { closeTaskTerminal, say } from "./terminal.js";
-import { addWorktree, currentBranchSync, fridayWorktree, removeWorktree, commitsSinceSync, isMergedSync } from "./git.js";
+import { closeTaskTerminal } from "./terminal.js";
+import { currentBranchSync, removeWorktree, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
-import { createJob, getJob, setGhosttyId } from "../memory/jobs.js";
+import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { userSettings } from "../settings.js";
 import type { HandbookDraft } from "./handbook.js";
-import { autonomousPrompt, jobLog, launchClaude } from "./runner.js";
+import { autonomousPrompt, jobLog } from "./runner.js";
+import { baseBranchOf, joinRootSession, openSession, resolveRoot } from "./sessions.js";
 import { collectReport, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
@@ -63,99 +63,43 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
 }
 
 /**
- * 同一个需求下的活要走同一个终端、同一个分支。
- * 两个缺陷各起一个终端各建一个分支去改同一片代码，合起来必冲突——所以缺陷不自己开工，
- * 而是把要改的内容转达给需求那条任务已有的终端。
- *
- * 返回 true 表示已经交给需求的终端了，调用方不必再开新的。
- */
-export async function handOffToStory(task: Task, detail: string): Promise<boolean> {
-  const storyId = task.source.linkedStoryId;
-  if (!storyId) return false;
-  const story = findTaskBySource((s) => s.meegleId === storyId, true);
-  const jobId = story?.source.jobId;
-  if (!story || !jobId) return false;
-  const job = getJob(jobId);
-  // 终端已经退出的不算：转达进去没人看，得让它自己开
-  if (!job || job.status !== "running") return false;
-
-  const r = await say(jobId, `顺带再改一条同需求下的缺陷：\n${detail}\n\n改完一并在同一个分支上交付，不要另起分支。`);
-  if (r === "no-terminal") return false;
-  const note = "已转达给需求的终端";
-  updateTask(task.id, {
-    status: "processing",
-    progress: `${note}（和「${story.title.slice(0, 24)}」共用一个终端和分支）`,
-    source: { jobId },
-  });
-  record({
-    taskId: task.id,
-    action: "handed_to_story_terminal",
-    why: "同一个需求下的改动要走同一个分支，免得两个终端改同一片代码后合不上",
-    how: `转达给需求任务 ${story.id.slice(0, 8)} 的终端（${r}）`,
-    evidence: { storyId, jobId, detail: detail.slice(0, 300) },
-    risk: "reversible",
-  });
-  return true;
-}
-
-/**
- * 我自己做：开一个交互式终端到项目目录，把这条任务的上下文交代给 Claude Code，然后就交给我了。
+ * 我自己做：在 tmux 会话里起交互式 Claude Code，准备段先按项目规则建好 worktree，再把这条任务的上下文交代给它。
  * 和自主开工的区别只有一处——没有自主提示词、没有 guard、没有自动收尾：
- * 分支、要不要测、什么时候算完，都是我在终端里说了算，Friday 只负责开窗口和跟状态。
- * 也不开 worktree：自己做就在主仓里做，平时怎么干现在还怎么干。
+ * 分支、要不要测、什么时候算完，都是我在终端里说了算，Friday 只负责开会话和跟状态。
  */
 export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string): Promise<Task> {
-  const id = randomUUID();
-  const { ghosttyId } = await launchClaude({ id, dir, terminal: userSettings().terminal, task: detail, project });
-  createJob({ id, project, dir, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
-  if (ghosttyId) setGhosttyId(id, ghosttyId);
-  record({
-    taskId: task.id,
-    action: "terminal_opened",
-    why: "你点了「开始做」，这条需求自己动手",
-    how: `在 ${dir} 开了一个交互式终端，把需求交代给 Claude Code`,
-    evidence: { jobId: id, project, dir },
-    risk: "reversible",
-  });
-  return updateTask(task.id, { status: "processing", source: { jobId: id, autonomous: false, repoDir: dir } })!;
+  const root = resolveRoot(task);
+  if (root.id !== task.id) {
+    if ((await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
+    if (!root.project) updateTask(root.id, { project });
+    const jobId = await openSession(root, root, { kind: "interactive", project, repoDir: dir, task: `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`, ...baseBranchOf(root) });
+    updateTask(root.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } });
+    record({ taskId: root.id, action: "terminal_opened", why: "你点了名下缺陷的「开始做」，需求还没有会话", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
+    return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
+  }
+  const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...baseBranchOf(task) });
+  record({ taskId: task.id, action: "terminal_opened", why: "你点了「开始做」，这条需求自己动手", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
+  return updateTask(task.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } })!;
 }
 
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string, trigger: RunTrigger = "retry"): Promise<Task> {
-  // 归在某个需求下、而那个需求已经有终端在跑：交给它，不要另起一个改同一片代码
-  if (await handOffToStory(task, detail)) return getTask(task.id)!;
+  const root = resolveRoot(task);
+  if (root.id !== task.id && (await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
   const dirt = await worktreeDirt(dir);
   if (dirt) {
     record({ taskId: task.id, action: "claude_code_blocked", why: "开工前体检不通过", how: dirt, evidence: { dir, project }, risk: "read", status: "failed" });
     return updateTask(task.id, { status: "blocked", progress: `没有开工：${dirt}。提交或清掉这些改动后点「重新开工」。` })!;
   }
   const id = randomUUID();
-  // 在独立 worktree 里干活，不占主仓：用户可以同时在主仓改自己的东西
-  const tree = fridayWorktree(dir, id);
-  // 二期在一期分支上接着开：基线任务还有分支就从那儿检出，而不是从主干拉新的
-  const base = task.source.baseTaskId ? getTask(task.source.baseTaskId)?.source.branch : undefined;
-  const failed = await addWorktree(dir, tree, base);
-  if (failed) {
-    record({ taskId: task.id, action: "claude_code_blocked", why: "开不出 worktree", how: failed, evidence: { dir, project, tree }, risk: "read", status: "failed" });
-    return updateTask(task.id, { status: "blocked", progress: `没有开工：${failed}` })!;
-  }
-  const prompt = autonomousPrompt(id, detail, project, base);
-  const { ghosttyId } = await launchClaude({ id, dir: tree, terminal: userSettings().terminal, task: prompt, autonomous: true });
-  createJob({ id, project, dir: tree, task: detail.slice(0, 500), logPath: jobLog(id), taskId: task.id });
+  const base = baseBranchOf(task).baseBranch;
+  await openSession(root, task, { kind: "autonomous", project, repoDir: dir, task: autonomousPrompt(id, detail, project), jobId: id, ...(base ? { baseBranch: base } : {}) });
   createRun({ id, jobId: id, taskId: task.id, project, kind: "autonomous", trigger, ...(task.source.intake?.confidence !== undefined ? { intakeConfidence: task.source.intake.confidence } : {}) });
-  if (ghosttyId) setGhosttyId(id, ghosttyId);
-  record({
-    taskId: task.id,
-    action: "claude_code_start",
-    why: "任务需要改代码，按策略自动在分支上完成再交审核",
-    how: `在 worktree ${tree} 里跑 claude -p，按项目规范建分支，完成后写交付报告`,
-    evidence: { jobId: id, project, dir, worktree: tree },
-    risk: "reversible",
-  });
+  record({ taskId: task.id, action: "claude_code_start", why: "任务需要改代码，按策略自动在分支上完成再交审核", how: "在 tmux 会话里先按项目规则建 worktree，再跑 claude -p，完成后写交付报告", evidence: { jobId: id, project, dir }, risk: "reversible" });
   // task.progress 可能已经写了「Friday 已自动回复」之类的话（同一条线程既触发了回复又触发了改代码），
   // 这里是覆盖 progress 的地方，得接上而不是整句丢掉，不然工作台上那条已经发出去的回复就查无痕迹。
   const progress = [task.progress, `Claude Code 正在 ${project} 上处理`].filter(Boolean).join("\n");
-  return updateTask(task.id, { status: "processing", progress, source: { ...task.source, jobId: id, autonomous: true, repoDir: dir, worktree: tree } })!;
+  return updateTask(task.id, { status: "processing", progress, source: { jobId: id, autonomous: true, repoDir: dir } })!;
 }
 
 /**

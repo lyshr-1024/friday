@@ -8,6 +8,7 @@ import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
+import { TmuxMissingError } from "../agent/tmux.js";
 import { executePending, finishTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
@@ -308,7 +309,12 @@ export const tasks = new Hono()
       "",
       "先把需求和相关代码读一遍，跟我说你打算怎么改，别急着动手。",
     ].filter(Boolean).join("\n");
-    return c.json(await startInteractiveJob(t, r.project.name, r.project.dir, detail));
+    try {
+      return c.json(await startInteractiveJob(t, r.project.name, r.project.dir, detail));
+    } catch (e) {
+      if (e instanceof TmuxMissingError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
   })
   .post("/tasks/:id/retry", async (c) => {
     const t = getTask(c.req.param("id"));
@@ -322,8 +328,12 @@ export const tasks = new Hono()
     // 拿它当任务描述等于什么都没说；优先用方案，其次标题，最后才退回 understanding。
     const detail = t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
     record({ taskId: t.id, action: "retry", why: "你让它重新开工", how: "重新拉起自主 Claude Code 任务", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
-    const next = await startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`);
-    return c.json(next);
+    try {
+      return c.json(await startAutonomousJob(t, r.project.name, r.project.dir, `${detail}\n\n背景：${t.understanding ?? ""}`));
+    } catch (e) {
+      if (e instanceof TmuxMissingError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
   })
   .post("/tasks/:id/conversation", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { conversationId?: string };

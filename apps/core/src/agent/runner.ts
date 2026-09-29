@@ -40,7 +40,7 @@ export const reportPath = (id: string) => join(runsDir(), `${id}.report.md`);
 export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 
 /** 自主任务的提示词：分支、测试、交付报告、截图，全部落在约定路径，Friday 事后解析进审核。 */
-export function autonomousPrompt(id: string, task: string, project: string, base?: string): string {
+export function autonomousPrompt(id: string, task: string, project: string): string {
   const handbook = handbookBlock(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
@@ -48,13 +48,8 @@ export function autonomousPrompt(id: string, task: string, project: string, base
     "开工前先调 friday_context 拿完整背景（原话、Slack 全文、关联工单、人物）。改哪里、怎么改、分几步由你自己看代码判断，别照搬转述。",
     "",
     "规则：",
-    "1. 你已经在一个专门给这次任务开的 git worktree 里（detached HEAD），主仓不受影响。",
-    ...(base
-      ? [`   注意：这个 worktree 是从分支 ${base} 检出的，不是主干——上一期的改动还没上线，这次在它基础上接着做。`,
-         `   先 git switch -c <分支名> 建新分支（基线就是 ${base}），不要直接在 ${base} 上改。`]
-      : ["   先 git switch -c <分支名> 建分支再改，不要 push，不要 merge，不要回主仓操作。"]),
-    `   分支名：${BRANCH_RULE}`,
-    "   起好后第一时间调 friday_progress 把分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
+    "1. 你已经在为这次任务准备好的 git worktree 里、在新分支上，直接开工；不要再建分支，不要回主仓操作。",
+    "   开工先调 friday_progress 把当前分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
     "   push、merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,

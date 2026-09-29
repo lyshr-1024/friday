@@ -423,6 +423,8 @@ export interface TaskSource {
   url?: string;
   note?: string;
   jobId?: string;
+  /** 缺陷挂在哪个需求（根任务）下：缺陷不建自己的会话和 worktree，进根的 */
+  rootId?: string;
   /** 「在会话里讨论」绑定的会话，下次继续聊而不是新开 */
   conversationId?: string;
   /** 从 Claude Code 历史学到这个时间点为止（ISO），审核通过后成为下次扫描的水位 */
