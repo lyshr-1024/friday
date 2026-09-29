@@ -286,6 +286,30 @@ export interface Job {
   finishedAt?: string;
 }
 
+export type SessionState = "asking" | "working" | "awaiting" | "deciding" | "blocked" | "exited" | "idle" | "none";
+
+export interface TaskSession {
+  state: SessionState;
+  lastStopAt?: string;
+  waitingSince?: string;
+  name?: string;
+  worktree?: string;
+  branch?: string;
+  kind?: TermSessionKind;
+  delivery?: { files?: number; insertions?: number; deletions?: number; costUsd?: number; minutes?: number; model?: string };
+}
+
+export const SESSION_STATE_LABEL: Record<SessionState, string> = {
+  asking: "在问你",
+  working: "干活中",
+  awaiting: "等你输入",
+  deciding: "待你决定",
+  blocked: "卡住",
+  exited: "Claude 已退出",
+  idle: "",
+  none: "",
+};
+
 export type TermSessionKind = "interactive" | "autonomous" | "query";
 export type TermSessionStatus = "preparing" | "running" | "exited" | "closed";
 
@@ -602,6 +626,8 @@ export interface Task {
   due?: string;
   /** 只在 GET /tasks 里有：这条任务终端的真实状态 */
   terminal?: TerminalState;
+  /** 只在 GET /tasks 里有：状态位与会话信息 */
+  session?: TaskSession;
   /** 终端最近一轮的结果；任务是否完成由用户说 */
   attention?: TaskAttention;
   /** 用户星标关注：列表最顶上单独一组 */
@@ -640,6 +666,8 @@ export interface PendingAction {
   label: string;
   detail: string;
   payload: Record<string, unknown>;
+  /** 挂上的时刻；「等了 N」只从它算 */
+  at?: string;
 }
 
 export type OkrRowState = "draft" | "empty" | "existing" | "submitted" | "failed";

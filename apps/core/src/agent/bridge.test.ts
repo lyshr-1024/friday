@@ -37,11 +37,11 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(done.result.isError).toBeUndefined();
     const after = getTask(task.id)!;
     expect(after.status).toBe("processing");
-    expect(after.attention).toBe("review");
+    expect(after.attention).toBeUndefined();
+    expect(after.progress).toBe("这轮做完了：补了 token 刷新");
     expect(after.report).toMatchObject({ summary: "补了 token 刷新", testResult: "全部通过", verify: ["登录后放 1 小时再操作"] });
     // 交互式终端交付一轮不关窗口，用户多半就在那儿接着追问
     expect(getJob("job-mcp-2")!.status).toBe("running");
-    // 再报进展 = 新一轮开始，标记清掉
     await rpc("job-mcp-2", "tools/call", { name: "friday_progress", arguments: { text: "按反馈继续改" } });
     expect(getTask(task.id)!.attention).toBeUndefined();
 
@@ -97,7 +97,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(getTask(task.id)!.pending ?? []).toEqual([]);
   });
 
-  it("终端一轮说完（Stop）：任务标黄、进展换成它说的话、回流到任务会话，并推 tasks 事件", async () => {
+  it("终端一轮说完（Stop）：只把进展换成它说的话，不打标记、不往会话追加消息，并推 tasks 事件", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-turn", project: "demo", dir: "/tmp", task: "修登录", conversationId: conv.id, logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：修登录", kind: "code", source: { jobId: "job-turn", conversationId: conv.id }, project: "demo", status: "processing" });
@@ -106,12 +106,11 @@ describe("终端 → Friday 的 MCP 桥", () => {
     turnFinished("job-turn", "改好了 token 刷新，跑了测试都过，要我提交吗？");
     off();
     const after = getTask(task.id)!;
-    expect(after.attention).toBe("review");
-    expect(after.progress).toContain("这轮说完了：改好了 token 刷新");
+    expect(after.attention).toBeUndefined();
+    expect(after.progress).toBe("这轮说完了：改好了 token 刷新，跑了测试都过，要我提交吗？");
     expect(seen).toContain("tasks");
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
-    expect(c.messages.at(-1)!.content).toContain("终端里的 Claude 这轮说完了");
-    expect(c.messages.at(-1)!.content).toContain("要我提交吗");
+    expect(c.messages.some((m) => m.content.includes("这轮说完了"))).toBe(false);
   });
 
   it("勾选验证点落在任务上；全部勾完记账并在会话里说下一步", async () => {
@@ -122,7 +121,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     await rpc("job-v", "tools/call", { name: "friday_done", arguments: { summary: "改完", testResult: "过", verify: ["看 A", "看 B"] } });
     let t = (await (await app.request(`/tasks/${task.id}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index: 0, checked: true }) })).json()) as { report: { checked: boolean[] }; attention?: string };
     expect(t.report.checked).toEqual([true, false]);
-    expect(t.attention).toBe("review");
+    expect(t.attention).toBeUndefined();
     t = (await (await app.request(`/tasks/${task.id}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index: 1, checked: true }) })).json()) as typeof t;
     expect(t.report.checked).toEqual([true, true]);
     // 没有活着的 PTY：说清楚终端已断，等你看的标记清掉

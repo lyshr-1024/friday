@@ -8,9 +8,10 @@ import { currentBranchSync, gitInspect } from "./git.js";
 import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { jobLog, launchClaude } from "./runner.js";
-import { createJob, getJob, listJobs, recentDuplicate, setGhosttyId } from "../memory/jobs.js";
+import { createJob, getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { TERMINAL_STATE_LABEL, closeJobTerminal, say, terminalState } from "./terminal.js";
+import { closeJobTerminal, say } from "./terminal.js";
+import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
@@ -207,7 +208,7 @@ const fridayToolList = (conversationId?: string) => [
       async () =>
         text(
           listJobs(10)
-            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : `，${TERMINAL_STATE_LABEL[terminalState(j.id)]}`}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
+            .map((j) => `- [${j.status}] ${j.project}${j.task ? `：${j.task}` : ""}（${j.startedAt.slice(11, 16)} 开始${j.exitCode !== undefined ? `，退出码 ${j.exitCode}` : `，${jobStateLabel(j.id)}`}）${j.lastMessage ? `\n  最后一轮：${j.lastMessage.slice(0, 200)}` : ""}`)
             .join("\n") || "还没有任务记录。",
         ),
     ),
@@ -223,9 +224,8 @@ const fridayToolList = (conversationId?: string) => [
         const dup = recentDuplicate(r.dir, task);
         if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
         const id = randomUUID();
-        const { ghosttyId } = await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
+        await launchClaude({ id, dir: r.dir, terminal, ...(task ? { task } : {}) });
         createJob({ id, project: r.name, dir: r.dir, logPath: jobLog(id), ...(task ? { task } : {}), ...(conversationId ? { conversationId } : {}) });
-        if (ghosttyId) setGhosttyId(id, ghosttyId);
         // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
         const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
         // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
@@ -280,7 +280,7 @@ const fridayToolList = (conversationId?: string) => [
         if (!id) return text("没有指定任务，这条会话也没绑定终端任务。");
         const job = getJob(id);
         if (!job) return text("没有这个任务。");
-        return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${TERMINAL_STATE_LABEL[terminalState(id)]}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
+        return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${jobStateLabel(id)}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
       },
     ),
     tool(

@@ -13,7 +13,8 @@ import { executePending, finishTask, startAutonomousJob, startInteractiveJob } f
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { matchProject } from "../agent/meegle.js";
-import { closeJobTerminal, closeTaskTerminal, terminalState } from "../agent/terminal.js";
+import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
+import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
 import { deleteMessage, loadSlackCreds, postMessage, slackCaller, slackConfigured } from "../connectors/slack.js";
@@ -105,11 +106,11 @@ export const tasks = new Hono()
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
-    const withTerminal = (t: Task): Task => (t.source.jobId && t.status === "processing" ? { ...t, terminal: terminalState(t.source.jobId) } : t);
+    const withSession = (t: Task): Task => ({ ...t, session: taskSession(t) });
     const withSlack = slackOf(listInbox(true, CONV_SCAN_LIMIT));
     return c.json({
       ...board,
-      tasks: board.tasks.map((t) => withSlack(withTerminal(t))),
+      tasks: board.tasks.map((t) => withSlack(withSession(t))),
       meegleSyncedAt: meegleState.lastSyncAt,
       slackConfigured: await slackConfigured(),
     });

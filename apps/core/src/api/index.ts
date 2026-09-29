@@ -25,6 +25,7 @@ import { usage } from "./usage.js";
 import { runs } from "./runs.js";
 import { autostart } from "./autostart.js";
 import { summonApi } from "./summon.js";
+import { worktrees } from "./worktrees.js";
 
 // 只放行 Tauri WebView 自己的源；API 虽只监听回环，但浏览器里的任意网页也能打 127.0.0.1，不能用 *。
 // core 只监听回环，任何本机页面（vite 任意端口、截图验收）都可以访问
@@ -37,6 +38,7 @@ export const app = new Hono()
   .route("/", note)
   .route("/", hot)
   .route("/", run)
+  .route("/", worktrees)
   .route("/", settings)
   .route("/", conversation)
   .route("/", memory)

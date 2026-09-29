@@ -129,8 +129,6 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     if (closing) {
       // 即发即忘：关窗口失败不该挡住任务状态更新（这个函数是同步的）
       void closeTaskTerminal(task, "用户在会话里说这条任务收工了");
-      const t = task;
-      void import("./pipeline.js").then((m) => m.cleanupTaskWorktree(t, "用户在会话里说这条任务收工了")).catch(() => {});
     }
   }
 

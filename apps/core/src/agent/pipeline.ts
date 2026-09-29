@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal } from "./terminal.js";
-import { currentBranchSync, removeWorktree, commitsSinceSync, isMergedSync } from "./git.js";
+import { currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
@@ -55,10 +55,7 @@ function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: strin
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous") settleRun(r, t, status, why);
-  if (t && !keepTerminal) {
-    await closeTaskTerminal(t, why);
-    await cleanupTaskWorktree(t, why);
-  }
+  if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
 }
 
@@ -111,34 +108,9 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
   return updateTask(task.id, { status: "processing", progress, source: { jobId: id, autonomous: true, repoDir: dir } })!;
 }
 
-/**
- * 任务收工：收掉 Friday 给它开的 worktree。
- * 有未提交改动的整个留着，干净的才删目录；分支只在已合并时删——没合并的改动
- * 可能还想捡回来，那个决定归用户，账本里写清楚留了什么。
- */
-export async function cleanupTaskWorktree(task: Task, why: string): Promise<void> {
-  const tree = task.source.worktree;
-  const repo = task.source.repoDir;
-  if (!tree || !repo) return;
-  const r = await removeWorktree(repo, tree);
-  if (!r.removed) {
-    if (r.kept) record({ taskId: task.id, action: "worktree_kept", why, how: `${r.kept}：${tree}`, evidence: { worktree: tree, branch: r.branch ?? null }, risk: "read" });
-    return;
-  }
-  record({
-    taskId: task.id,
-    action: "worktree_removed",
-    why,
-    how: r.branchDeleted ? `收掉 worktree 并删了分支 ${r.branch}` : `收掉 worktree${r.branch ? `，${r.kept ?? "分支留着"}：${r.branch}` : ""}`,
-    evidence: { worktree: tree, branch: r.branch ?? null, branchDeleted: r.branchDeleted },
-    risk: "reversible",
-  });
-  updateTask(task.id, { source: { ...task.source, worktree: undefined } });
-}
-
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
 /** -1 是收尸时补的：窗口没了、没有真实退出码 */
-const exitText = (code: number) => (code === -1 ? "终端窗口已关闭" : `退出码 ${code}`);
+const exitText = (code: number) => (code === -1 ? "会话已不在" : `退出码 ${code}`);
 
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
@@ -152,7 +124,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
   if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
-    return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）${job.task.progress ? `。之前：${job.task.progress.slice(0, 120)}` : ""}`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
+    return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
   }
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
@@ -211,7 +183,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   // 合并要在主仓做，不能在 worktree 里（分支正被它检出着，merge 不了）
   const repo = task.source.repoDir || job.dir;
   if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
-    task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push），合完收掉 worktree`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
+    task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
   if (task.status === "review" || task.status === "done") reportBackToOrigin(task);
   return task;
@@ -353,14 +325,12 @@ export async function executePending(
         const why = !run.tipSha ? "交付时没记下提交，无法比对" : extra === undefined ? "分支被改写，无法比对" : extra ? `你在分支上又提交了 ${extra} 次` : undefined;
         setRunOutcome(run.id, extra === 0 ? "merged_as_is" : "merged_modified", why);
       }
-      // 合完再收 worktree：分支这时已经进主干，removeWorktree 的 git branch -d 才删得掉
-      const cleaned = p.worktree ? await removeWorktree(p.dir, p.worktree) : undefined;
       record({
         taskId,
         action: "git_merge",
         why: "你审核通过",
-        how: `git merge --no-ff ${p.branch} 到 ${base}${cleaned?.removed ? `，已收掉 worktree${cleaned.branchDeleted ? " 和分支" : ""}` : ""}`,
-        evidence: { ...p, ...(cleaned ? { worktreeRemoved: cleaned.removed, branchDeleted: cleaned.branchDeleted } : {}) },
+        how: `git merge --no-ff ${p.branch} 到 ${base}`,
+        evidence: p,
         risk: "irreversible",
         status: "approved",
       });

@@ -61,7 +61,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   },
   {
     name: "friday_finish",
-    description: "整条任务收工：只在 MR 已经合并、本地 worktree 也清理完之后调。Friday 会把任务标完成并关掉这个终端窗口。做完一轮、提测了、MR 还没合，都用 friday_done，不要调这个。",
+    description: "整条任务收工：只在 MR 已经合并之后调。调之前你自己按项目规则删掉这次的 worktree 和本地分支（git worktree remove、git branch -d，不要 --force；删不掉就说明原因）。Friday 会把任务标完成并关掉这个终端会话。做完一轮、提测了、MR 还没合，都用 friday_done，不要调这个。",
     inputSchema: { type: "object", properties: { summary: str("一句话：哪个 MR 合了、清理了什么") }, required: ["summary"] },
   },
   {
@@ -144,18 +144,12 @@ export function clearAttention(jobId: string): void {
 }
 
 
-/** 终端里的 Claude 一轮说完（Stop hook）：这就是"这轮做完了等你看"，把它说的话回流到任务会话，用户不用去翻终端 */
+/** 终端里的 Claude 一轮说完（Stop hook）：只更新进展；状态位由终端里的现实（Stop 时间）算，不在任务卡上打标记 */
 export function turnFinished(jobId: string, text: string): void {
-  const job = getJob(jobId);
   const task = findTaskBySource((s) => s.jobId === jobId);
-  if (!job || !task || task.source.autonomous || task.status !== "processing") return;
-  // 这一轮刚用 friday_done 交付过，别重复说一遍
+  if (!task || task.source.autonomous || task.status !== "processing") return;
   if (task.report?.at && Date.now() - new Date(task.report.at).getTime() < 10_000) return;
-  const t = updateTask(task.id, { attention: "review", progress: `这轮说完了：${text.replace(/\s+/g, " ").slice(0, 140)}` })!;
-  const conv = t.source.conversationId ?? job.conversationId;
-  if (conv && conversationExists(conv)) {
-    addMessage(conv, { role: "assistant", kind: "run", content: `终端里的 Claude 这轮说完了：\n${text.slice(0, 1500)}`, payload: { status: "turn", jobId } });
-  }
+  updateTask(task.id, { progress: `这轮说完了：${text.replace(/\s+/g, " ").slice(0, 140)}` });
 }
 
 /** 用户勾了一项「通过前请确认」。全部勾完 = 这轮验收通过：有终端就让它继续下一步，有待审动作就等用户点通过。 */
@@ -261,7 +255,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     const branch = await currentBranch(job.dir);
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
-      const t = updateTask(task.id, { report, attention: "review", progress: `这轮做完了：${report.summary}` })!;
+      const t = updateTask(task.id, { report, progress: `这轮做完了：${report.summary}` })!;
       if (!task.source.headless) recordRound(jobId, t.id, job.project);
       // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「进行中」
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
@@ -280,7 +274,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       t = addPending(t.id, {
         type: "git_merge",
         label: `合并 ${branch}`,
-        detail: `把 ${branch} 合并进主分支（不 push），合完收掉 worktree`,
+        detail: `把 ${branch} 合并进主分支（不 push）`,
         payload: { dir: task.source.repoDir || job.dir, branch, worktree: task.source.worktree ?? "" },
       })!;
     }

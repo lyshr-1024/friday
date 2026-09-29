@@ -192,7 +192,7 @@ export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured
 export function addPending(id: string, action: Omit<PendingAction, "id">, opts?: { keepStatus?: boolean }): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
-  const pending = [...(cur.pending ?? []), { id: randomUUID(), ...action }];
+  const pending = [...(cur.pending ?? []), { id: randomUUID(), at: new Date().toISOString(), ...action }];
   return updateTask(id, opts?.keepStatus ? { pending } : { pending, status: "review" });
 }
 

@@ -47,11 +47,6 @@ export function createJob(input: { id: string; project: string; dir: string; tas
   return getJob(input.id)!;
 }
 
-/** 开完 Ghostty 窗口把 terminal id 记下来，之后 say / focus / close 都认它。 */
-export function setGhosttyId(id: string, ghosttyId: string): void {
-  db().prepare("UPDATE jobs SET ghostty_id = ? WHERE id = ?").run(ghosttyId, id);
-}
-
 export function setJobDir(id: string, dir: string): void {
   db().prepare("UPDATE jobs SET dir = ? WHERE id = ?").run(dir, id);
 }
@@ -125,31 +120,6 @@ export function finishJob(id: string, exitCode: number): Job | undefined {
     .prepare("UPDATE jobs SET status = ?, exit_code = ?, finished_at = ? WHERE id = ? AND status = 'running'")
     .run(exitCode === 0 ? "done" : "failed", exitCode, new Date().toISOString(), id);
   return getJob(id);
-}
-
-/** 收尸：把标着 running 但窗口已经没了的 job 收掉，返回被收掉的 id。
-    启动时跑一次（sidecar 重启后的残留），之后调度器定时跑——用户 ⌘W 手动
-    关掉的窗口没有任何回调，不主动问一句就永远发现不了。 */
-export async function reapStaleJobs(alive?: (ghosttyId: string) => Promise<boolean | undefined>): Promise<string[]> {
-  const rows = db().prepare("SELECT id, ghostty_id FROM jobs WHERE status = 'running'").all() as unknown as { id: string; ghostty_id: string | null }[];
-  if (!rows.length) return [];
-  // 终端是外部 Ghostty 窗口，sidecar 重启它并不会跟着死——不能再像 PTY 时代那样
-  // 一律当僵尸收掉，否则用户手上还开着的终端会被标成已完成、任务也就断了关联。
-  const dead: string[] = [];
-  for (const r of rows) {
-    if (alive && r.ghostty_id) {
-      // undefined = 问不到（权限被重置 / Ghostty 没起来 / 超时）。只有明确答「不在」
-      // 才收尸，问不到就留着——误收的代价是用户手上开着的终端全断了关联，
-      // 而漏收只是下一轮再问一次。
-      if ((await alive(r.ghostty_id)) !== false) continue;
-    }
-    dead.push(r.id);
-  }
-  if (!dead.length) return [];
-  const now = new Date().toISOString();
-  const stmt = db().prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE id = ?");
-  for (const id of dead) stmt.run(now, id);
-  return dead;
 }
 
 /** 10 秒内同目录同任务的运行中记录，用来挡住重复启动。 */

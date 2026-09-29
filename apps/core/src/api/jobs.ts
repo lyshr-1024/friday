@@ -3,12 +3,13 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
 import { focusTerminal, reopenTerminal } from "../agent/runner.js";
-import { closeJobTerminal, markStop, sweepClosedTerminals, terminalState } from "../agent/terminal.js";
+import { closeJobTerminal, sweepClosedTerminals } from "../agent/terminal.js";
 import { flushQueued, prepareFailed, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
 import { describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource } from "../memory/tasks.js";
+import { getTermSession, markStop } from "../memory/termSessions.js";
 import { finishJob, getJob, jobLogPath, listJobs, setJobMessage, setJobSession } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
 import { state } from "../scheduler/index.js";
@@ -93,9 +94,8 @@ export const jobs = new Hono()
     }
     // 一轮说完（Stop）或 --resume 回来直接等输入，都是"终端空闲"，攒着的话这时送进去
     if (event === "Stop" || (event === "SessionStart" && source === "resume") || (!event && text)) {
-      markStop(id);
-      // 外部窗口看不到用户击键（内嵌时代靠 userTyped 清），但它答完这轮 Stop 会到，
-      // 「终端在等你回答」的标记该跟着清掉
+      const sid = getJob(id)?.sessionId;
+      if (sid) markStop(sid);
       clearAttention(id);
     }
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
@@ -105,7 +105,7 @@ export const jobs = new Hono()
   .get("/jobs/:id/activity", (c) => {
     const job = getJob(c.req.param("id"));
     if (!job) return c.json({ error: "任务不存在" }, 404);
-    return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)), terminal: job.status === "running" ? terminalState(job.id) : "gone" });
+    return c.json({ items: jobActivity(job.dir, job.claudeSessionId, Number(c.req.query("limit") ?? 12)), session: job.sessionId ? getTermSession(job.sessionId)?.status ?? "closed" : "closed" });
   })
   .post("/jobs/:id/worktree", async (c) => {
     const parsed = z.object({ path: z.string().min(1).max(1000) }).safeParse(await c.req.json().catch(() => null));

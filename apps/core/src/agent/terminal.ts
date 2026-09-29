@@ -1,143 +1,69 @@
-import type { TerminalState } from "@friday/shared";
+import { existsSync } from "node:fs";
 import type { Task } from "@friday/shared";
 import { isFridayRun } from "@friday/shared";
-import { finishJob, getJob, reapStaleJobs, recordTerminalInput } from "../memory/jobs.js";
+import { finishJob, getJob, runningJobs } from "../memory/jobs.js";
 import { listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
-import { closeTerminalById, inputText, isAlive } from "./ghostty.js";
+import { getTermSession, openTermSessions, updateTermSession } from "../memory/termSessions.js";
+import { killSession, listSessionNames } from "./tmux.js";
+import { sayToSession } from "./sessions.js";
 import { publish } from "../bus.js";
 
-/**
- * Friday 往终端里说话。
- *
- * 内嵌 PTY 时代能直接往文件描述符写字节，还能靠「最近 3 秒有没有输出」判断忙闲。换成外部
- * Ghostty 窗口之后两样都没了：只能走 AppleScript 注入，忙闲只能靠 Stop hook——它每轮结束
- * 都会回报一次，收到就是这轮说完了。
- *
- * 判不准的时候直接发：Claude Code 忙时输入会进它自己的缓冲区，不会丢，最多是晚一轮被读到。
- * 这比攒在 Friday 这边等一个可能永远不来的信号好。
- */
+export type SayResult = "sent" | "queued" | "no-terminal";
 
-/** 最近一次 Stop hook 的时间：有记录且晚于上次说话 = 这轮说完了 */
-const lastStop = new Map<string, number>();
-const lastSaid = new Map<string, number>();
-
-/** Stop hook 到了：这轮说完了。 */
-export function markStop(jobId: string): void {
-  lastStop.set(jobId, Date.now());
-}
-
-/** 说完这轮了没。没有任何 Stop 记录时按「说完了」算——宁可直接发，也不要攒着不发。 */
-export function isIdle(jobId: string): boolean {
-  const stop = lastStop.get(jobId);
-  const said = lastSaid.get(jobId);
-  if (stop === undefined) return true;
-  return said === undefined || stop > said;
-}
-
-export type SayResult = "sent" | "no-terminal";
-
-/**
- * 往这条 job 的 Ghostty 窗口里说一句。窗口已经关掉就返回 no-terminal，调用方据此改口径。
- * 不再有 queued：外部窗口攒着没意义，Claude Code 自己的缓冲区比 Friday 这边更可靠。
- */
 export async function say(jobId: string, text: string): Promise<SayResult> {
-  const job = getJob(jobId);
-  if (!job?.ghosttyId || job.status !== "running") return "no-terminal";
-  // 窗口可能已经被关掉，而 job 还标着 running：先问一句，免得谎报「已转达」。
-  // 只有明确答「不在」才收尾——问不到就照常发，Claude Code 忙时输入进它自己的
-  // 缓冲区不会丢，比误判成没了把任务断掉强。
-  if ((await isAlive(job.ghosttyId)) === false) {
-    finishJob(jobId, 0);
-    publish({ type: "terminal", jobId, state: "gone" });
-    return "no-terminal";
-  }
-  const ok = await inputText(job.ghosttyId, text);
-  if (!ok) return "no-terminal";
-  lastSaid.set(jobId, Date.now());
-  recordTerminalInput(jobId, text);
-  return "sent";
+  const sid = getJob(jobId)?.sessionId;
+  return sid ? sayToSession(sid, text) : "no-terminal";
 }
 
-/** 任务卡上显示用：窗口还在不在、这轮说完了没。 */
-export function terminalState(jobId: string): TerminalState {
-  const job = getJob(jobId);
-  if (!job || job.status !== "running") return "gone";
-  return isIdle(jobId) ? "idle" : "busy";
-}
-
-/**
- * 扫一遍还标着 running 的 job，窗口已经没了的收尾并推给前端。
- *
- * 用户 ⌘W 手动关掉窗口没有任何回调，不主动问一句就永远发现不了——卡片上那圈光
- * 会一直跑、「N 个终端在跑」也一直算着它。所以定时扫 + 工作台窗口聚焦时扫。
- * 每个 job 一次 osascript，所以不放在读状态的路径上（任务板 30 秒一拉还有 SSE，
- * 摊到每次渲染就太贵了）。
- */
 export async function sweepClosedTerminals(): Promise<string[]> {
-  const dead = await reapStaleJobs(isAlive);
-  for (const jobId of dead) publish({ type: "terminal", jobId, state: "gone" });
-  // 窗口没了就没有脚本替它回报退出码，得在这儿补一次收尾，否则任务永远停在 processing。
-  // 顺带兜住以前漏掉的：Friday 自己派的任务 job 早结束了却还挂着的（交互式的收尾只改进展，不重复补）
+  const names = await listSessionNames();
+  if (!names) return [];
+  const live = new Set(names);
+  const dead: string[] = [];
+  for (const s of openTermSessions()) {
+    if (live.has(s.tmuxName)) continue;
+    updateTermSession(s.id, { status: "closed" });
+    if (s.jobId && getJob(s.jobId)?.status === "running") {
+      finishJob(s.jobId, -1);
+      dead.push(s.jobId);
+    }
+  }
+  for (const j of runningJobs()) if (!j.sessionId) { finishJob(j.id, -1); dead.push(j.id); }
   const stuck = listTasks("processing", 1000)
     .filter((t) => isFridayRun(t.source) && t.source.jobId && getJob(t.source.jobId)?.status !== "running")
     .map((t) => t.source.jobId!);
   const exits = [...new Set([...dead, ...stuck])];
   if (exits.length) {
-    // pipeline 反过来依赖这里，静态导入会成环
     const { onJobExit } = await import("./pipeline.js");
     for (const jobId of exits) onJobExit(jobId, -1);
+    publish({ type: "tasks" });
   }
   return dead;
 }
 
-/**
- * 窗口可能被你手动关掉，而 job 还标着 running。问一次 Ghostty，关了就收尾。
- * 要跑 osascript，所以只在真正需要准确值的地方调（任务卡刷新、说话之前）。
- */
-export async function refreshTerminalState(jobId: string): Promise<TerminalState> {
-  const job = getJob(jobId);
-  if (!job || job.status !== "running") return "gone";
-  if (!job.ghosttyId) return isIdle(jobId) ? "idle" : "busy";
-  // 问不到时按「还在」处理：宁可显示成还开着，也不要把用户手上的终端说成已结束
-  if ((await isAlive(job.ghosttyId)) !== false) return isIdle(jobId) ? "idle" : "busy";
-  finishJob(jobId, 0);
-  publish({ type: "terminal", jobId, state: "gone" });
-  return "gone";
-}
-
-/**
- * 关掉一个终端：关 Ghostty 窗口（里面的 Claude Code 跟着结束），job 收尾并记账。
- * taskId 可选——手动关终端时任务不一定还在。
- */
 export async function closeJobTerminal(jobId: string, why: string, taskId?: string): Promise<boolean> {
   const job = getJob(jobId);
-  const closed = job?.ghosttyId ? await closeTerminalById(job.ghosttyId) : false;
-  if (job?.status === "running") finishJob(jobId, 0);
-  if (closed || job?.status === "running") {
-    record({
-      ...(taskId ? { taskId } : {}),
-      action: "terminal_closed",
-      why,
-      how: closed ? "关掉 Ghostty 窗口，job 收尾" : "job 收尾（窗口已不在）",
-      evidence: { jobId, project: job?.project ?? null },
-      risk: "reversible",
-    });
+  const s = job?.sessionId ? getTermSession(job.sessionId) : undefined;
+  const killed = Boolean(s && s.status !== "closed");
+  if (s && killed) {
+    await killSession(s.tmuxName);
+    updateTermSession(s.id, { status: "closed" });
   }
-  lastStop.delete(jobId);
-  lastSaid.delete(jobId);
-  // 返回值表示「有没有真的关掉一个还开着的窗口」——job 收尾不算
-  return closed;
+  if (job?.status === "running") finishJob(jobId, 0);
+  if (killed || job?.status === "running") {
+    record({ ...(taskId ? { taskId } : {}), action: "terminal_closed", why, how: killed ? "关掉 tmux 会话，job 收尾" : "job 收尾（会话已不在）", evidence: { jobId, project: job?.project ?? null }, risk: "reversible" });
+  }
+  return killed;
 }
 
 export async function closeTaskTerminal(task: Pick<Task, "id" | "source">, why: string): Promise<boolean> {
-  const jobId = task.source.jobId;
+  if (task.source.rootId) return false;
+  const s = getTermSession(task.id);
+  const jobId = s?.jobId ?? task.source.jobId;
   if (!jobId) return false;
-  return closeJobTerminal(jobId, why, task.id);
+  const closed = await closeJobTerminal(jobId, why, task.id);
+  const tree = task.source.worktree;
+  if (tree && existsSync(tree)) record({ taskId: task.id, action: "worktree_kept", why, how: `worktree 还在：${tree}，终端里的 Claude 没收，留给你在设置页处理`, evidence: { worktree: tree, branch: task.source.branch ?? null }, risk: "read" });
+  return closed;
 }
-
-export const TERMINAL_STATE_LABEL: Record<TerminalState, string> = {
-  busy: "终端还在这一轮里干活",
-  idle: "终端说完了，在等你",
-  gone: "终端已经关掉了",
-};

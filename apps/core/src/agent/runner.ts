@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import type { TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
 import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
-import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
+import { getJob, reviveJob } from "../memory/jobs.js";
 import { findTaskBySource } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { publish } from "../bus.js";
@@ -303,7 +303,7 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
   if (job.status === "running" && job.ghosttyId && (await isAlive(job.ghosttyId))) return "alive";
 
   const terminal = job.terminal ?? userSettings().terminal;
-  const { ghosttyId } = await launchClaude({
+  await launchClaude({
     id: jobId,
     dir: job.dir,
     terminal,
@@ -314,7 +314,6 @@ export async function reopenTerminal(jobId: string): Promise<"reopened" | "alive
     ...(findTaskBySource((s) => s.jobId === jobId, true)?.source.headless ? { readonly: true } : {}),
   });
   reviveJob(jobId);
-  if (ghosttyId) setGhosttyId(jobId, ghosttyId);
   // 只推过 gone 的话前端那张表就是个只进不出的锁存器，按钮永远停在「重开终端」，
   // 每点一次多开一个窗口。窗口回来了就得说一声。
   publish({ type: "terminal", jobId, state: "idle" });

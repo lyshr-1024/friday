@@ -57,6 +57,14 @@ export function currentBranchSync(dir: string): string {
   }
 }
 
+export function worktreeDirtySync(dir: string): boolean {
+  try {
+    return execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8", timeout: 5_000 }).trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function recentCommits(dir: string, days: number, limit = 20): Promise<string[]> {
   const out = await git(dir, ["log", `--since=${days}.days`, "-n", String(limit), "--date=short", "--format=%ad %s"]);
   return out && !out.startsWith("（") ? out.split("\n") : [];
