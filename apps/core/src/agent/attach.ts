@@ -21,7 +21,8 @@ export function setPtySpawner(fn: PtySpawner): void {
   spawner = fn;
 }
 
-interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void> }
+interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; idleTimer?: NodeJS.Timeout }
+const UNSUBSCRIBED_TTL_MS = 15_000;
 const viewers = new Map<string, Viewer>();
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
@@ -33,10 +34,13 @@ export function attach(sessionId: string, tmuxName: string, cols: number, rows: 
   const v: Viewer = { sessionId, pty, listeners: new Set() };
   pty.onData((d) => v.listeners.forEach((l) => l(d)));
   pty.onExit(() => {
+    clearTimeout(v.idleTimer);
     v.listeners.forEach((l) => l("\r\n"));
     viewers.delete(id);
   });
   viewers.set(id, v);
+  v.idleTimer = setTimeout(() => detach(id), UNSUBSCRIBED_TTL_MS);
+  v.idleTimer.unref();
   return id;
 }
 
@@ -47,6 +51,7 @@ export function viewerSession(attachId: string): string | undefined {
 export function subscribe(attachId: string, fn: (d: string) => void): (() => void) | undefined {
   const v = viewers.get(attachId);
   if (!v) return undefined;
+  clearTimeout(v.idleTimer);
   v.listeners.add(fn);
   return () => {
     v.listeners.delete(fn);
@@ -72,5 +77,10 @@ export function detach(attachId: string): void {
   const v = viewers.get(attachId);
   if (!v) return;
   viewers.delete(attachId);
+  clearTimeout(v.idleTimer);
   v.pty.kill();
+}
+
+export function detachSession(sessionId: string): void {
+  for (const [id, v] of viewers) if (v.sessionId === sessionId) detach(id);
 }

@@ -21,6 +21,17 @@ export function ghosttyPrefs(file = join(homedir(), ".config", "ghostty", "confi
   return { ...(val("font-family") ? { fontFamily: val("font-family")! } : {}), ...(size > 0 ? { fontSize: size } : {}) };
 }
 
+const pbcopy = (text: string) =>
+  new Promise<void>((resolve, reject) => {
+    const child = execFile("/usr/bin/pbcopy", { timeout: 3000 }, (err) => (err ? reject(err) : resolve()));
+    child.stdin?.on("error", reject);
+    child.stdin?.end(text);
+  });
+let clipboardWriter: (text: string) => Promise<void> = pbcopy;
+export function setClipboardWriter(fn: (text: string) => Promise<void>): void {
+  clipboardWriter = fn;
+}
+
 export const sessions = new Hono()
   .use("/sessions/:id/*", async (c, next) => (getTermSession(c.req.param("id")) ? next() : c.json({ error: "没有这个会话" }, 404)))
   .post("/sessions/:id/attach", async (c) => {
@@ -85,9 +96,14 @@ export const sessions = new Hono()
     return c.json({ ok: true });
   })
   .post("/clipboard", async (c) => {
+    if (!c.req.header("content-type")?.startsWith("application/json")) return c.json({ error: "content-type 必须是 application/json" }, 415);
     const p = await body(c, z.object({ text: z.string().max(1_000_000) }));
     if (!p.success) return c.json({ error: "text 必填" }, 400);
-    await new Promise<void>((resolve) => { const child = execFile("/usr/bin/pbcopy", () => resolve()); child.stdin?.end(p.data.text); });
+    try {
+      await clipboardWriter(p.data.text);
+    } catch {
+      return c.json({ error: "写入剪贴板失败" }, 500);
+    }
     return c.json({ ok: true });
   })
   .get("/terminal/prefs", (c) => c.json(ghosttyPrefs()));

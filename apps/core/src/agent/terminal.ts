@@ -7,6 +7,7 @@ import { record } from "../memory/audit.js";
 import { getTermSession, openTermSessions, updateTermSession } from "../memory/termSessions.js";
 import { killSession, listSessionNames } from "./tmux.js";
 import { sayToSession } from "./sessions.js";
+import { detachSession } from "./attach.js";
 import { publish } from "../bus.js";
 
 const FRESH_SESSION_MS = 30_000;
@@ -27,6 +28,7 @@ export async function sweepClosedTerminals(): Promise<string[]> {
     if (live.has(s.tmuxName)) continue;
     if (Date.now() - Date.parse(s.createdAt) < FRESH_SESSION_MS) continue;
     updateTermSession(s.id, { status: "closed" });
+    detachSession(s.id);
     if (s.jobId && getJob(s.jobId)?.status === "running") {
       finishJob(s.jobId, -1);
       dead.push(s.jobId);
@@ -52,6 +54,7 @@ export async function closeJobTerminal(jobId: string, why: string, taskId?: stri
   if (s && killed) {
     await killSession(s.tmuxName);
     updateTermSession(s.id, { status: "closed" });
+    detachSession(s.id);
   }
   if (job?.status === "running") finishJob(jobId, 0);
   if (killed || job?.status === "running") {

@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "./index.js";
 import { createTask } from "../memory/tasks.js";
@@ -5,7 +9,10 @@ import { getTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { setPtySpawner } from "../agent/attach.js";
+import { setClipboardWriter } from "./sessions.js";
 
+const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
+execFileSync("git", ["init", "-q", wt]);
 let calls: string[][] = [];
 let written: string[] = [];
 beforeEach(() => {
@@ -25,7 +32,7 @@ const post = (path: string, body: unknown = {}) => app.request(path, { method: "
 async function session() {
   const t = createTask({ title: "会话接口", kind: "verbal", source: {}, status: "processing", project: "app" });
   const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
-  await worktreeReady(jobId, "/r/app-feat-api");
+  await worktreeReady(jobId, wt);
   return t.id;
 }
 
@@ -58,11 +65,26 @@ describe("/sessions", () => {
     const list = (await (await app.request(`/sessions/${id}/windows`)).json()) as Array<{ index: number; name: string }>;
     expect(list.map((w) => w.name)).toEqual(["claude", "zsh"]);
     await post(`/sessions/${id}/windows`);
-    expect(calls.some((c) => c[4] === "new-window" && c.includes("/r/app-feat-api"))).toBe(true);
+    expect(calls.some((c) => c[4] === "new-window" && c.includes(wt))).toBe(true);
     expect((await app.request(`/sessions/${id}/windows/1`, { method: "DELETE" })).status).toBe(200);
   });
 
   it("不存在的会话 404", async () => {
     expect((await app.request(`/sessions/nope/windows`)).status).toBe(404);
+  });
+
+  it("clipboard：非 JSON content-type 415 且不写剪贴板", async () => {
+    const wrote: string[] = [];
+    setClipboardWriter(async (t) => void wrote.push(t));
+    const r = await app.request("/clipboard", { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ text: "x" }) });
+    expect(r.status).toBe(415);
+    expect(wrote).toEqual([]);
+    expect((await post("/clipboard", { text: "y" })).status).toBe(200);
+    expect(wrote).toEqual(["y"]);
+  });
+
+  it("clipboard：写入失败 500", async () => {
+    setClipboardWriter(async () => { throw new Error("EPIPE"); });
+    expect((await post("/clipboard", { text: "y" })).status).toBe(500);
   });
 });
