@@ -72,6 +72,15 @@ describe("根任务与会话", () => {
     expect(getJob(jobId)).toMatchObject({ taskId: root.id, sessionId: root.id });
   });
 
+  it("开会话：根任务的标题和理解（截 200 字）交给启动器", async () => {
+    const root = createTask({ title: "导出中心", kind: "verbal", source: {}, status: "understood", project: "app", understanding: "长".repeat(300) });
+    let got: { title?: string; description?: string } = {};
+    setLauncher(async (req, name) => { got = req; alive.add(name); });
+    await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    expect(got.title).toBe("导出中心");
+    expect(got.description).toHaveLength(200);
+  });
+
   it("准备段还没跑完时说的话先排队，SessionStart 到了再送", async () => {
     const root = createTask({ title: "排队", kind: "verbal", source: {}, status: "understood", project: "app" });
     await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
@@ -126,6 +135,45 @@ describe("根任务与会话", () => {
     expect(t.status).toBe("blocked");
     expect(getTermSession(root.id)!.status).toBe("exited");
     expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
+  });
+});
+
+describe("worktree / 分支不许被两个会话共用", () => {
+  const open = async (title: string) => {
+    const root = createTask({ title, kind: "verbal", source: {}, status: "understood", project: "app" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    return { root, jobId };
+  };
+
+  it("同一路径被第二个根占用：第二个被拒并 blocked，第一个不受影响", async () => {
+    const a = await open("甲");
+    const b = await open("乙");
+    const dir = repo("app-feat-shared");
+    expect(await worktreeReady(a.jobId, dir)).toBeTruthy();
+    expect(await worktreeReady(b.jobId, dir)).toBeUndefined();
+    expect(getTermSession(a.root.id)).toMatchObject({ status: "running", worktree: dir });
+    expect(getTermSession(b.root.id)).toMatchObject({ status: "exited" });
+    expect(getTermSession(b.root.id)!.worktree).toBeUndefined();
+    expect(getTask(b.root.id)).toMatchObject({ status: "blocked" });
+    expect(getTask(b.root.id)!.progress).toContain("复用了别的任务");
+    expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
+  });
+
+  it("同一分支不同路径同样被拒", async () => {
+    const a = await open("丙");
+    const b = await open("丁");
+    expect(await worktreeReady(a.jobId, repo("app-one", "chore/task"))).toBeTruthy();
+    expect(await worktreeReady(b.jobId, repo("app-two", "chore/task"))).toBeUndefined();
+    expect(getTask(b.root.id)!.status).toBe("blocked");
+  });
+
+  it("第一个会话 closed 之后，别的根可以用同一路径", async () => {
+    const a = await open("戊");
+    const b = await open("己");
+    const dir = repo("app-feat-reuse");
+    await worktreeReady(a.jobId, dir);
+    updateTermSession(a.root.id, { status: "closed" });
+    expect(await worktreeReady(b.jobId, dir)).toMatchObject({ status: "running", worktree: dir });
   });
 });
 

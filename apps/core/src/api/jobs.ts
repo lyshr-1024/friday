@@ -111,7 +111,9 @@ export const jobs = new Hono()
     const parsed = z.object({ path: z.string().min(1).max(1000) }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "path 必填" }, 400);
     const s = await worktreeReady(c.req.param("id"), parsed.data.path);
-    return s ? c.json(s) : c.json({ error: "没有这个会话" }, 404);
+    if (s) return c.json(s);
+    const sid = getJob(c.req.param("id"))?.sessionId;
+    return sid && getTermSession(sid) ? c.json({ error: "准备段复用了别的任务的 worktree 或分支，这条没开工" }, 409) : c.json({ error: "没有这个会话" }, 404);
   })
   .post("/jobs/:id/exit", async (c) => {
     const parsed = z.object({ code: z.number().int(), phase: z.literal("prepare").optional() }).safeParse(await c.req.json().catch(() => null));

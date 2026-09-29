@@ -90,6 +90,15 @@ describe("/sessions", () => {
     expect(getTermSession(id)!.lastInputAt).toBe(before);
   });
 
+  it("准备段回报已被占用的 worktree：409", async () => {
+    await session();
+    const t = createTask({ title: "撞车", kind: "verbal", source: {}, status: "processing", project: "app" });
+    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const r = await post(`/jobs/${jobId}/worktree`, { path: wt });
+    expect(r.status).toBe(409);
+    expect(getTermSession(t.id)!.status).toBe("exited");
+  });
+
   it("没有 attach 的输入 404", async () => {
     const id = await session();
     expect((await post(`/sessions/${id}/input`, { attach: "nope", data: "x" })).status).toBe(404);

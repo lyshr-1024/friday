@@ -5,7 +5,7 @@ import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { createTermSession, getTermSession, markInput, updateTermSession } from "../memory/termSessions.js";
+import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, updateTermSession } from "../memory/termSessions.js";
 import { currentBranchSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript } from "./runner.js";
 import { firstWindowIndex, hasSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
@@ -42,7 +42,7 @@ export async function openSession(
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
-    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}) }, name);
+    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}) }, name);
   } catch (e) {
     finishJob(jobId, 1);
     updateTermSession(root.id, { status: "closed" });
@@ -115,6 +115,17 @@ export async function worktreeReady(jobId: string, path: string): Promise<TermSe
   const s = job?.sessionId ? getTermSession(job.sessionId) : undefined;
   if (!job || !s) return undefined;
   const branch = currentBranchSync(path) || undefined;
+  const clash = otherOpenSessionUsing(s.id, "worktree", path) ? `worktree（${path}）` : branch && otherOpenSessionUsing(s.id, "branch", branch) ? `分支（${branch}）` : undefined;
+  if (clash) {
+    finishJob(jobId, 2);
+    updateTermSession(s.id, { status: "exited" });
+    if (job.taskId) {
+      record({ taskId: job.taskId, action: "claude_code_blocked", why: "准备段复用了别的任务已经在用的 worktree / 分支", how: `${clash}已被另一个未关闭的会话占用`, evidence: { jobId, path, branch: branch ?? null }, risk: "read", status: "failed" });
+      updateTask(job.taskId, { status: "blocked", progress: `准备段复用了别的任务的${clash}，这条没开工` });
+    }
+    publish({ type: "tasks" });
+    return undefined;
+  }
   const next = safeName(basename(path));
   const renamed = Boolean(next) && next !== s.tmuxName && (await renameSession(s.tmuxName, next));
   setJobDir(jobId, path);

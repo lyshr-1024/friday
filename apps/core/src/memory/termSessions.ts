@@ -66,6 +66,11 @@ export function openTermSessions(): TermSession[] {
   return (db().prepare("SELECT * FROM term_sessions WHERE status != 'closed' ORDER BY updated_at DESC").all() as unknown as Row[]).map(toSession);
 }
 
+export function otherOpenSessionUsing(id: string, col: "worktree" | "branch", value: string): TermSession | undefined {
+  const r = db().prepare(`SELECT * FROM term_sessions WHERE id != ? AND status != 'closed' AND ${col} = ? LIMIT 1`).get(id, value) as unknown as Row | undefined;
+  return r ? toSession(r) : undefined;
+}
+
 const COLS: Record<string, string> = { status: "status", jobId: "job_id", worktree: "worktree", branch: "branch", tmuxName: "tmux_name" };
 
 export function updateTermSession(id: string, patch: Partial<Pick<TermSession, "status" | "jobId" | "worktree" | "branch" | "tmuxName">>): TermSession | undefined {

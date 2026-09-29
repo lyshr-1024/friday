@@ -16,7 +16,7 @@ import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
-import { UNTRUSTED_NOTE } from "./fence.js";
+import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession } from "./tmux.js";
 
 const execFileP = promisify(execFile);
@@ -349,21 +349,26 @@ export interface SessionLaunch {
   project?: string;
   baseBranch?: string;
   resumeSessionId?: string;
+  title?: string;
+  description?: string;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
 
-export function prepPrompt(id: string, repoDir: string, base?: string): string {
+export function prepPrompt(id: string, repoDir: string, base?: string, info?: { title?: string; description?: string }): string {
   const repo = repoDir.replace(/\/+$/, "").split("/").pop() ?? "repo";
+  const about = info?.title ? untrusted("task", [info.title, info.description].filter(Boolean).join("\n")) : undefined;
   return [
     `你在 ${repoDir} 这个仓库的主目录里，只做一件事：为接下来的任务准备好分支和 git worktree，然后退出。不要改任何业务代码，不要 push。`,
-    "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING、git worktree list 和现有分支的惯例。项目有规则就照项目的来。",
+    ...(about ? [`这次的任务是：\n${about}`, UNTRUSTED_NOTE, "分支名要能看出是这件事。"] : []),
+    "0. 必须新建分支和新 worktree，不许复用已有的 worktree 或分支：git worktree list 里的那些属于别的任务，只拿来参考命名惯例。",
+    "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING 和现有分支的惯例。项目有规则就照项目的来。",
     `2. 项目没有规则时：分支名按「${BRANCH_RULE}」；worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
     base ? `3. 基线是分支 ${base}：先 git fetch，再从它检出新分支。` : "3. 基线是默认分支：先 git fetch，再从 origin 的默认分支检出新分支。",
     "4. 按项目的方式把依赖装好，让新 worktree 能直接跑起来（前端仓库可以先用 cp -c 从主仓克隆 node_modules，再跑一次 install 补差）。",
     "5. 分支名和 worktree 目录名里都不要出现 friday。",
     `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。`,
-    "拿不准时选最保守的做法，不要提问——没人会回答。",
+    "不要提问——没人会回答；拿不准就自己定，但绝不复用已有的 worktree 或分支，宁可多建一个。",
   ].join("\n");
 }
 
@@ -388,13 +393,13 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
       ? []
       : [
           `rm -f ${wt}`,
-          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch))}`,
+          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }))}`,
           `if [ ! -s ${wt} ]; then`,
           `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
           "  exec /bin/zsh -il",
           "fi",
           `cd "$(cat ${wt})" || exit 1`,
-          `curl -s -m 3 -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" >/dev/null 2>&1`,
+          `curl -sf -m 3 -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" >/dev/null 2>&1 || exec /bin/zsh -il`,
         ];
   return [
     "#!/bin/zsh",
