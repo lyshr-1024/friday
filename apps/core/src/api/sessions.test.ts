@@ -11,19 +11,30 @@ import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { resetAttachBreaker, setPtySpawner } from "../agent/attach.js";
 import { setClipboardWriter } from "./sessions.js";
 
-const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
-execFileSync("git", ["init", "-q", wt]);
+let wt = "";
+let seq = 0;
+const freshWorktree = () => {
+  const dir = mkdtempSync(join(tmpdir(), "friday-wt-"));
+  execFileSync("git", ["init", "-q", "-b", `feat-api-${process.pid}-${seq++}`, dir]);
+  return dir;
+};
 let calls: string[][] = [];
 let written: string[] = [];
+let active: number | Error = 0;
 beforeEach(() => {
   calls = [];
   written = [];
+  active = 0;
   setTmuxPath("/fake/tmux");
   resetAttachBreaker();
   setTmuxRunner(async (args) => {
     calls.push(args);
     if (args[0] === "-V") return "tmux 3.5a";
     if (args[4] === "list-windows") return "0|claude|1\n1|zsh|0\n";
+    if (args[4] === "display-message") {
+      if (active instanceof Error) throw active;
+      return `${active}\n`;
+    }
     return "";
   });
   setLauncher(async () => {});
@@ -34,6 +45,7 @@ const post = (path: string, body: unknown = {}) => app.request(path, { method: "
 async function session() {
   const t = createTask({ title: "会话接口", kind: "verbal", source: {}, status: "processing", project: "app" });
   const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+  wt = freshWorktree();
   await worktreeReady(jobId, wt);
   return t.id;
 }
@@ -58,6 +70,24 @@ describe("/sessions", () => {
     expect(r.status).toBe(503);
     expect(await r.json()).toMatchObject({ fatal: true, error: expect.stringContaining("posix_spawnp") });
     expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
+  });
+
+  it("回车落在第二个窗口：不记输入", async () => {
+    const id = await session();
+    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
+    const before = getTermSession(id)!.lastInputAt;
+    active = 1;
+    await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
+    expect(getTermSession(id)!.lastInputAt).toBe(before);
+  });
+
+  it("查活动窗口失败：不记输入", async () => {
+    const id = await session();
+    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
+    const before = getTermSession(id)!.lastInputAt;
+    active = new Error("no server");
+    expect((await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" })).status).toBe(200);
+    expect(getTermSession(id)!.lastInputAt).toBe(before);
   });
 
   it("没有 attach 的输入 404", async () => {

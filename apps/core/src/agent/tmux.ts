@@ -129,10 +129,28 @@ export async function killSession(name: string): Promise<void> {
 
 const ENTER_DELAY_MS = 200;
 
-export async function sendText(name: string, text: string): Promise<void> {
-  await run("send-keys", "-t", W(name), "-l", text);
+export async function sendText(name: string, text: string, windowIndex?: number): Promise<void> {
+  await run("send-keys", "-t", W(name, windowIndex), "-l", text);
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
-  await run("send-keys", "-t", W(name), "Enter");
+  await run("send-keys", "-t", W(name, windowIndex), "Enter");
+}
+
+export async function activeWindowIndex(name: string): Promise<number | undefined> {
+  try {
+    const n = Number((await run("display-message", "-p", "-t", W(name), "#{window_index}")).trim());
+    return Number.isInteger(n) ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function firstWindowIndex(name: string): Promise<number | undefined> {
+  try {
+    const idx = (await listWindows(name)).map((w) => w.index).filter(Number.isInteger);
+    return idx.length ? Math.min(...idx) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface TmuxWindow {

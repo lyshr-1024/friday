@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { AttachError, attach, resizeAttach, subscribe, viewerSession, writeAttach } from "../agent/attach.js";
-import { clearHistory, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
+import { activeWindowIndex, clearHistory, firstWindowIndex, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
 import { getTermSession, markInput, markSeen } from "../memory/termSessions.js";
 import { publish } from "../bus.js";
 
@@ -61,7 +61,11 @@ export const sessions = new Hono()
     const p = await body(c, z.object({ attach: z.string(), data: z.string().max(65536) }));
     if (!p.success) return c.json({ error: "attach / data 必填" }, 400);
     if (viewerSession(p.data.attach) !== c.req.param("id") || !writeAttach(p.data.attach, p.data.data)) return c.json({ error: "没有这个 attach" }, 404);
-    if (p.data.data.includes("\r")) { markInput(c.req.param("id")); publish({ type: "tasks" }); }
+    if (p.data.data.includes("\r")) {
+      const name = getTermSession(c.req.param("id"))!.tmuxName;
+      const [active, first] = await Promise.all([activeWindowIndex(name), firstWindowIndex(name)]);
+      if (active !== undefined && active === first) { markInput(c.req.param("id")); publish({ type: "tasks" }); }
+    }
     return c.json({ ok: true });
   })
   .post("/sessions/:id/resize", async (c) => {

@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask } from "../memory/tasks.js";
 import { getJob, listJobs } from "../memory/jobs.js";
@@ -10,6 +14,13 @@ vi.mock("./runner.js", async (orig) => ({
   ...(await orig<typeof import("./runner.js")>()),
   writeResumeScript: async (req: { id: string }) => `/runs/${req.id}.resume.sh`,
 }));
+
+const repo = (name: string, branch = name) => {
+  const dir = join(mkdtempSync(join(tmpdir(), "friday-wt-")), name);
+  mkdirSync(dir);
+  execFileSync("git", ["init", "-q", "-b", branch, dir]);
+  return dir;
+};
 
 let calls: string[][] = [];
 let tmuxInstalled = true;
@@ -26,6 +37,7 @@ beforeEach(() => {
     const sub = args[4];
     const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
     if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
+    if (sub === "list-windows") return "1|claude|0\n2|zsh|1\n";
     if (sub === "rename-session") { alive.delete(target); alive.add(args.at(-1)!); }
     return "";
   });
@@ -72,7 +84,7 @@ describe("根任务与会话", () => {
   it("需求的会话在跑：缺陷的活转达进去，不开新会话", async () => {
     const root = createTask({ title: "计费", kind: "meegle", source: { meegleId: "S2" }, status: "processing", project: "app" });
     const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
-    await worktreeReady(jobId, "/r/app-feat-billing");
+    await worktreeReady(jobId, repo("app-feat-billing"));
     const bug = createTask({ title: "合计没刷新", kind: "meegle", source: { meegleId: "B2", linkedStoryId: "S2" }, status: "understood" });
     const jobs = listJobs(1000).length;
     expect(await joinRootSession(bug, resolveRoot(bug), "账单页合计没刷新")).toBe("joined");
@@ -90,10 +102,21 @@ describe("根任务与会话", () => {
   it("准备段回报：会话改名成 worktree 目录名，任务和 job 目录跟着换", async () => {
     const root = createTask({ title: "改名", kind: "verbal", source: {}, status: "understood", project: "app" });
     const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
-    const s = await worktreeReady(jobId, "/r/app-feat-rename");
-    expect(s).toMatchObject({ status: "running", worktree: "/r/app-feat-rename", tmuxName: "app-feat-rename" });
-    expect(getTask(root.id)!.source.worktree).toBe("/r/app-feat-rename");
-    expect(getJob(jobId)!.dir).toBe("/r/app-feat-rename");
+    const dir = repo("app-feat-rename");
+    const s = await worktreeReady(jobId, dir);
+    expect(s).toMatchObject({ status: "running", worktree: dir, tmuxName: "app-feat-rename" });
+    expect(getTask(root.id)!.source.worktree).toBe(dir);
+    expect(getJob(jobId)!.dir).toBe(dir);
+  });
+
+  it("转达固定进 claude 所在的首个窗口，不跟着活动窗口走", async () => {
+    const root = createTask({ title: "转达", kind: "verbal", source: {}, status: "understood", project: "app" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: "/r/app", task: "x" });
+    const s = (await worktreeReady(jobId, repo("app-feat-say")))!;
+    expect(await sayToSession(root.id, "继续")).toBe("sent");
+    const keys = calls.filter((c) => c[4] === "send-keys");
+    expect(keys.length).toBe(2);
+    for (const k of keys) expect(k[k.indexOf("-t") + 1]).toBe(`=${s.tmuxName}:1`);
   });
 
   it("准备段失败：任务 blocked，会话 exited 但 tmux 会话留着", async () => {
@@ -110,7 +133,7 @@ describe("一个根任务只有一个会话", () => {
   it("同一个根连点两次开始做：只有一个 job 和一个会话，第二次把话送进去", async () => {
     const t = createTask({ title: "重复开工", kind: "verbal", source: {}, status: "understood", project: "app" });
     const first = await startInteractiveJob(t, "app", "/r/app", "第一次");
-    await worktreeReady(first.source.jobId!, "/r/app-feat-dup");
+    await worktreeReady(first.source.jobId!, repo("app-feat-dup"));
     const jobs = listJobs(1000).length;
     await startInteractiveJob(getTask(t.id)!, "app", "/r/app", "第二次的话");
     expect(listJobs(1000).length).toBe(jobs);

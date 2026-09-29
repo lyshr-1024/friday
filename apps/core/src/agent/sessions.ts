@@ -8,7 +8,7 @@ import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, updateTermSession } from "../memory/termSessions.js";
 import { currentBranchSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript } from "./runner.js";
-import { hasSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
+import { firstWindowIndex, hasSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
 let launch: typeof launchInSession = launchInSession;
 export function setLauncher(fn: typeof launchInSession): void {
@@ -61,7 +61,7 @@ export async function sayToSession(sessionId: string, text: string): Promise<"se
     queued.set(sessionId, [...(queued.get(sessionId) ?? []), text]);
     return "queued";
   }
-  await sendText(s.tmuxName, text);
+  await sendText(s.tmuxName, text, await firstWindowIndex(s.tmuxName));
   markInput(sessionId);
   if (s.jobId) recordTerminalInput(s.jobId, text);
   return "sent";
@@ -83,7 +83,7 @@ export async function resumeInSession(sessionId: string, prompt?: string): Promi
     { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}), ...(prompt ? { task: prompt } : {}) },
     s.worktree ?? s.repoDir,
   );
-  await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`);
+  await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, await firstWindowIndex(s.tmuxName));
   reviveJob(job.id);
   updateTermSession(sessionId, { status: "running" });
   markInput(sessionId);
