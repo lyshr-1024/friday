@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Task } from "@friday/shared";
-import { AUTOSTART_MIN_CONFIDENCE, AUTOSTART_SETTLE_MS, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_CONFIDENCE, type Task } from "@friday/shared";
+
+const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
+import { AUTOSTART_SETTLE_MS, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
-const env: AutostartEnv = { now: NOW, running: 0 };
+const env: AutostartEnv = { now: NOW, running: 0, minConfidence: AUTOSTART_MIN_CONFIDENCE };
 const settled = new Date(NOW - AUTOSTART_SETTLE_MS - 1000).toISOString();
 
 const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
@@ -34,7 +36,13 @@ describe("eligible：只放够具体、归属确定、没人碰过的缺陷", ()
   });
 
   it("把握不够的不接", () => {
-    expect(eligible(defect({}, { intake: { kind: "start", confidence: AUTOSTART_MIN_CONFIDENCE - 1, project: "whale-console", detail: "x", why: "", at: settled } }), env)).toMatch(/把握/);
+    expect(eligible(defect({}, { intake: { kind: "start", confidence: AUTOSTART_MIN_CONFIDENCE - 1, project: "whale-console", detail: "x", why: "", at: settled } }), env)).toMatch(/门槛/);
+  });
+
+  it("门槛按传进来的值判：75 放行 78，80 挡住 78", () => {
+    const t = defect({}, { intake: { kind: "start", confidence: 78, project: "whale-console", detail: "x", why: "", at: settled } });
+    expect(eligible(t, { ...env, minConfidence: 75 })).toBeUndefined();
+    expect(eligible(t, { ...env, minConfidence: 80 })).toBe("把握 78，门槛 80");
   });
 
   it("intake 判成 ask / queue 的不接", () => {

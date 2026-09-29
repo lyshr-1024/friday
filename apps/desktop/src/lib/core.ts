@@ -623,6 +623,13 @@ export async function auditUndo(id: string): Promise<void> {
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `撤销失败 ${res.status}`);
 }
 
+/** 按某个把握门槛，排队里判成可以开工的缺陷能放进来几条 */
+export async function autostartPreview(min: number): Promise<{ min: number; pass: number; candidates: number }> {
+  const res = await fetch(`${await coreBaseUrl()}/autostart/preview?min=${min}`);
+  if (!res.ok) throw new Error(`preview ${res.status}`);
+  return res.json();
+}
+
 /** Friday 干的活：按项目看收下率与成本 */
 export async function runsSummary(range: UsageRange): Promise<RunsSummary> {
   const res = await fetch(`${await coreBaseUrl()}/runs/summary?range=${range}`);

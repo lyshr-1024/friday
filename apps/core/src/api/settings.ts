@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
+import { AUTOSTART_CONFIDENCE, MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
@@ -19,6 +19,7 @@ const patch = z.object({
   learnHistory: z.boolean().optional(),
   okrWeekly: z.boolean().optional(),
   autonomous: z.boolean().optional(),
+  autonomousMinConfidence: z.number().int().min(AUTOSTART_CONFIDENCE.min).max(AUTOSTART_CONFIDENCE.max).optional(),
   summon: z.object({
     screenshotFallback: z.boolean().optional(),
     urlAllowlist: z.array(z.string()).optional(),

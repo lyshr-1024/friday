@@ -12,7 +12,6 @@ import { startAutonomousJob } from "./pipeline.js";
  * worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。
  * 所以只接缺陷（需求要先对方案）、只接 intake 判成 start 且把握够高的、项目归属得是事实不是猜的。
  */
-export const AUTOSTART_MIN_CONFIDENCE = 80;
 export const AUTOSTART_MAX_RUNNING = 1;
 /** 缺陷刚建时描述常被反复改，等一个同步周期再开 */
 export const AUTOSTART_SETTLE_MS = 15 * 60_000;
@@ -20,6 +19,8 @@ export const AUTOSTART_SETTLE_MS = 15 * 60_000;
 export interface AutostartEnv {
   now: number;
   running: number;
+  /** 设置页「把握门槛」，intake 的 confidence 不低于它才开 */
+  minConfidence: number;
 }
 
 export function eligible(t: Task, env: AutostartEnv): string | undefined {
@@ -30,7 +31,7 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
   const v = t.source.intake;
   if (!v) return "还没判断过";
   if (v.kind !== "start") return `判成 ${v.kind}：${v.why}`;
-  if ((v.confidence ?? 0) < AUTOSTART_MIN_CONFIDENCE) return `把握只有 ${v.confidence ?? 0}`;
+  if ((v.confidence ?? 0) < env.minConfidence) return `把握 ${v.confidence ?? 0}，门槛 ${env.minConfidence}`;
   if (!t.project) return "没有项目归属";
   if (v.project !== t.project) return `intake 判的是 ${v.project}，卡上归 ${t.project}`;
   if (env.now - Date.parse(t.createdAt) < AUTOSTART_SETTLE_MS) return "刚进来，等描述稳定";
@@ -52,10 +53,20 @@ function runningAutonomous(): number {
   return listTasks("processing").filter((t) => t.source.autonomous && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }
 
+/**
+ * 设置页调门槛时看的：排队里判成「可以开工」的缺陷有几条，按这个门槛能放进来几条。
+ * 不看「刚进来等稳定」和并发——那两个只影响什么时候开，不影响开不开。
+ */
+export function previewAutostart(tasks: Task[], minConfidence: number): { pass: number; candidates: number } {
+  const candidates = tasks.filter((t) => t.status === "understood" && t.kind === "meegle" && t.source.meegleType === "issue" && t.source.intake?.kind === "start" && !t.source.jobId);
+  const env: AutostartEnv = { now: Number.MAX_SAFE_INTEGER, running: 0, minConfidence };
+  return { pass: candidates.filter((t) => !eligible(t, env)).length, candidates: candidates.length };
+}
+
 /** 每轮 Meegle 同步后跑一次。开关关着就什么都不做。 */
 export async function autostartTick(now = Date.now()): Promise<number> {
   if (!userSettings().autonomous) return 0;
-  const env: AutostartEnv = { now, running: runningAutonomous() };
+  const env: AutostartEnv = { now, running: runningAutonomous(), minConfidence: userSettings().autonomousMinConfidence };
   let started = 0;
   for (const t of pickAutostart(listTasks("understood"), env)) {
     const v = t.source.intake!;

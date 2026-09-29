@@ -142,6 +142,8 @@ export interface SettingsResponse {
   okrWeekly: boolean;
   /** 够具体的缺陷由 Friday 自己开自主任务 */
   autonomous: boolean;
+  /** 自主开工的把握门槛：intake 给的 confidence 不低于它才开，50–100 */
+  autonomousMinConfidence: number;
   summon: SummonSettings;
   dataDir: string;
   projects: string[];
@@ -159,6 +161,7 @@ export interface SettingsUpdate {
   learnHistory?: boolean;
   okrWeekly?: boolean;
   autonomous?: boolean;
+  autonomousMinConfidence?: number;
   summon?: Partial<SummonSettings>;
 }
 
@@ -697,6 +700,9 @@ export interface UsageEntry {
   cacheWrite: number;
   costUsd: number;
 }
+
+/** 自主开工把握门槛的默认值与可调范围 */
+export const AUTOSTART_CONFIDENCE = { default: 80, min: 50, max: 100 } as const;
 
 /* ---------- 规则：从你的纠正和 Friday 的结果里学到的约定 ---------- */
 
