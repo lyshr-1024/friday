@@ -35,6 +35,8 @@ interface Props {
   compact?: boolean;
   /** 任务 id：有它时输入框里敲 @ 能引入这条任务 worktree 里的文件、资料、截图 */
   mentionsFor?: string;
+  /** 有值时输入框不可用，框里就显示这句为什么 */
+  disabledNote?: string;
 }
 
 const MENTION_KIND: Record<MentionItem["kind"], string> = { file: "文件", doc: "资料", shot: "截图" };
@@ -63,7 +65,7 @@ const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `l
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -426,7 +428,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
           </div>
         )}
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
-        <div className="composer__box" onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
+        <div className={`composer__box${disabledNote ? " is-off" : ""}`} onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
           <span className="composer__caret" aria-hidden="true">›</span>
           {!compact && (
             <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" aria-label="添加附件" onClick={() => fileRef.current?.click()}>
@@ -439,7 +441,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             className="composer__input"
             rows={1}
             aria-label="对 Friday 说"
-            placeholder={busy ? "生成中，Esc 中断" : uploading ? "上传中…" : placeholder ?? "问 Friday，可粘贴图片或拖入文件"}
+            placeholder={disabledNote ?? (busy ? "生成中…" : uploading ? "上传中…" : placeholder ?? "问 Friday，可粘贴图片或拖入文件")}
+            disabled={Boolean(disabledNote)}
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
@@ -453,12 +456,12 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
           />
           {compact ? (
             busy ? (
-              <button className="composer__stop" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断（Esc 也行）" aria-label="中断">
+              <button className="composer__stop" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断" aria-label="中断">
                 <span className="composer__thinking"><i /><i /><i /></span>
               </button>
             ) : uploading > 0 ? (
               <span className="side__spin" />
-            ) : mentionsFor ? (
+            ) : mentionsFor && !disabledNote ? (
               <button
                 className="composer__at"
                 onMouseDown={(e) => e.preventDefault()}
@@ -474,7 +477,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
               >@ 引入文件</button>
             ) : null
           ) : busy ? (
-            <button className="composer__send composer__send--busy" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断（Esc 也行）" aria-label="中断">
+            <button className="composer__send composer__send--busy" onClick={() => convRef.current && void cancelAsk(convRef.current)} title="Friday 正在回答，点一下中断" aria-label="中断">
               <span className="composer__thinking"><i /><i /><i /></span>
             </button>
           ) : (

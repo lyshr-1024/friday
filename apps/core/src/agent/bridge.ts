@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { DeliveryReport, Job, Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
+import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
@@ -120,14 +121,14 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
   const person = who ? personNote(who) : undefined;
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
-    task.understanding ? `这件事是什么：${task.understanding}` : "",
+    task.understanding ? `这件事是什么：\n${untrusted(task.source.meegleId ? "meegle-understanding" : "task-understanding", task.understanding)}` : "",
     audience === "friday" && task.plan ? `和用户聊定的方案：${task.plan}` : "",
     task.progress ? `目前进展：${task.progress}` : "",
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",
     task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}` : "",
-    task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）"}` : "",
-    msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000)}` : "",
+    task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${untrusted("research-note", readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）")}` : "",
+    msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${untrusted("slack", msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000))}` : "",
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${projectDetail(project) ? `，说明：${projectDetail(project).replace(/\n/g, "；")}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
     person ? `人物：${who} — ${person}` : "",
     task.pending?.length ? `等用户点头的动作：${task.pending.map((p) => p.label).join("、")}` : "",

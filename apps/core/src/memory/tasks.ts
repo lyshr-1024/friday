@@ -113,6 +113,8 @@ export function updateTask(
   const cur = getTask(id);
   if (!cur) return undefined;
   const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
+  // 收工时没会话的（迁移只补没收工的）一重新打开就补一段，否则任务卡上的会话是个发不出去的空框
+  if (next.status !== "done" && next.status !== "ignored" && !next.source.conversationId) next.source.conversationId = createConversation().id;
   db()
     .prepare(
       "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, attention = ?, pinned = ?, stage = ?, stage_by = ?, stage_at = ?, stage_prev = ?, stage_hint = ?, released_at = ?, updated_at = ? WHERE id = ?",

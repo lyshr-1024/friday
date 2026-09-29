@@ -5202,6 +5202,8 @@ body:has(.hud)::-webkit-scrollbar {
 .thread .composer__box { align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(56, 214, 255, 0.18); background: rgba(5, 8, 12, 0.7); box-shadow: none; }
 .thread .composer__box:focus-within { border-color: rgba(56, 214, 255, 0.4); box-shadow: none; }
 .composer__caret { flex: none; color: #38d6ff; }
+.thread .composer__box.is-off { border-color: rgba(255, 255, 255, 0.08); }
+.composer__box.is-off .composer__caret { color: var(--fg-4); }
 .thread .composer__input { min-height: 0; padding: 0; color: var(--fg-1); font: inherit; font-size: 12.5px; line-height: 1.6; }
 .composer__at { flex: none; padding: 0; border: 0; background: none; font: inherit; font-size: 11px; color: var(--fg-4); cursor: default; }
 .composer__at:hover { color: var(--fg-3); }

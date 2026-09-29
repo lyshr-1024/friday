@@ -1215,7 +1215,15 @@ function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
   return (
     <div className="taskchat">
       <div className="taskchat__k">和 Friday 聊这条任务</div>
-      <Thread conversationId={t.source.conversationId ?? null} emptyTitle="" emptyHint="" placeholder={placeholder} compact mentionsFor={t.id} />
+      <Thread
+        conversationId={t.source.conversationId ?? null}
+        emptyTitle=""
+        emptyHint=""
+        placeholder={placeholder}
+        compact
+        mentionsFor={t.id}
+        {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，重新打开后可以继续聊" } : {})}
+      />
     </div>
   );
 }

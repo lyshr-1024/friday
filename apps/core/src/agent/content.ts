@@ -1,6 +1,7 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import type { Attachment } from "@friday/shared";
 import { readAttachment } from "../memory/attachments.js";
+import { untrusted } from "./fence.js";
 
 type Block = Exclude<MessageParam["content"], string>[number];
 
@@ -24,7 +25,7 @@ export function buildUserContent(prompt: string, attachmentIds: string[]): { con
       blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: data.toString("base64") }, title: meta.name });
     } else if (TEXT_LIKE.test(meta.mime) || TEXT_EXT.test(meta.name)) {
       const text = data.toString("utf8");
-      blocks.push({ type: "text", text: `文件「${meta.name}」内容：\n\`\`\`\n${text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…（已截断）` : text}\n\`\`\`` });
+      blocks.push({ type: "text", text: `文件「${meta.name}」内容：\n${untrusted(`file:${meta.name}`, text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…（已截断）` : text)}` });
     } else {
       blocks.push({ type: "text", text: `（用户附了文件「${meta.name}」，类型 ${meta.mime}，${meta.size} 字节，这种类型我读不了内容）` });
     }
