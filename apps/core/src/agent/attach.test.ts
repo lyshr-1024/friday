@@ -3,13 +3,14 @@ import { attach, detachSession, setPtySpawner, subscribe, viewerSession } from "
 
 let killed: string[] = [];
 let n = 0;
+let emit: (d: string) => void = () => {};
 beforeEach(() => {
   vi.useFakeTimers();
   killed = [];
   n = 0;
   setPtySpawner(() => {
     const id = `p${n++}`;
-    return { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => void killed.push(id) };
+    return { onData: (fn) => { emit = fn; return { dispose() {} }; }, onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => void killed.push(id) };
   });
 });
 afterEach(() => vi.useRealTimers());
@@ -29,6 +30,16 @@ describe("attach 观众生命周期", () => {
     const off = subscribe(id, () => {})!;
     vi.advanceTimersByTime(60_000);
     expect(killed).toEqual([]);
+    off();
+  });
+
+  it("订阅之前 tmux 画的那一屏攒着，订阅时先补给它", () => {
+    const id = attach("s1", "t", 80, 24);
+    emit("整屏重绘");
+    const got: string[] = [];
+    const off = subscribe(id, (d) => got.push(d))!;
+    emit("增量");
+    expect(got).toEqual(["整屏重绘", "增量"]);
     off();
   });
 

@@ -249,6 +249,8 @@ export function Chat() {
   useEffect(() => {
     function onGlobalKey(e: KeyboardEvent) {
       if (!e.metaKey) return;
+      // 终端聚焦时 ⌘ 组合归终端（⌘W 关的是 tmux 窗口，不是 Friday），只留 ⌘N
+      if ((e.target as HTMLElement | null)?.closest?.(".xterm") && e.key.toLowerCase() !== "n") return;
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
         openFree();
@@ -404,7 +406,7 @@ export function Chat() {
             </div>
           </>
         ) : (
-          <Board view={view} nav={nav} tools={tools} runningConvs={runningConvs} />
+          <Board view={view} nav={nav} tools={tools} go={go} runningConvs={runningConvs} />
         )}
       </div>
       {searching && (

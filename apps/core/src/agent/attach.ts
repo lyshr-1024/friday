@@ -21,7 +21,7 @@ export function setPtySpawner(fn: PtySpawner): void {
   spawner = fn;
 }
 
-interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; idleTimer?: NodeJS.Timeout }
+interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; backlog: string; idleTimer?: NodeJS.Timeout }
 const UNSUBSCRIBED_TTL_MS = 15_000;
 const viewers = new Map<string, Viewer>();
 
@@ -31,8 +31,9 @@ export function attach(sessionId: string, tmuxName: string, cols: number, rows: 
   const id = randomUUID();
   const env = { ...cleanEnv(process.env), TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG ?? "zh_CN.UTF-8" } as Record<string, string>;
   const pty = spawner("tmux", tmuxArgs("attach-session", "-t", `=${tmuxName}`), { cols: clamp(cols, 20, 400), rows: clamp(rows, 5, 200), env });
-  const v: Viewer = { sessionId, pty, listeners: new Set() };
-  pty.onData((d) => v.listeners.forEach((l) => l(d)));
+  const v: Viewer = { sessionId, pty, listeners: new Set(), backlog: "" };
+  // tmux 一接上就整屏重绘，那时 /stream 还没来订阅；丢了这一帧，之后的增量画面全是错位的
+  pty.onData((d) => { if (v.listeners.size) v.listeners.forEach((l) => l(d)); else v.backlog += d; });
   pty.onExit(() => {
     clearTimeout(v.idleTimer);
     v.listeners.forEach((l) => l("\r\n"));
@@ -53,6 +54,7 @@ export function subscribe(attachId: string, fn: (d: string) => void): (() => voi
   if (!v) return undefined;
   clearTimeout(v.idleTimer);
   v.listeners.add(fn);
+  if (v.backlog) { fn(v.backlog); v.backlog = ""; }
   return () => {
     v.listeners.delete(fn);
     if (!v.listeners.size) detach(attachId);

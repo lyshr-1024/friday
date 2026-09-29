@@ -34,7 +34,7 @@ describe("tmux 封装", () => {
 
   it("建会话：detached、工作目录、zsh 跑脚本", async () => {
     await newSession("repo-1", "/x/repo", "/data/runs/j.sh");
-    expect(tail(calls[0]!)).toEqual(["new-session", "-d", "-s", "repo-1", "-c", "/x/repo", "-x", "200", "-y", "50", "/bin/zsh", "/data/runs/j.sh"]);
+    expect(tail(calls[0]!)).toEqual(["new-session", "-d", "-s", "repo-1", "-n", "claude", "-c", "/x/repo", "-x", "200", "-y", "50", "/bin/zsh", "/data/runs/j.sh"]);
   });
 
   it("说话：文本按字面发到精确匹配的会话，再单独发一个回车", async () => {

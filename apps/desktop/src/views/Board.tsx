@@ -1,17 +1,16 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type TerminalState, type SlackConversation } from "@friday/shared";
-import type { Activity } from "../lib/core";
-import type { FridayEvent } from "../lib/events";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, jobActivity, settings, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskNode, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, jobFocus, jobReopen, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type StateTransition, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate, taskTransition, taskTransitions, taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
+import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
+import { Terminal } from "./Terminal";
 
 export type BoardView = "queue" | "all" | "ledger";
 
-const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
 const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "进行中", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
 const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
@@ -65,22 +64,6 @@ function neighbourOf(id: string, order: string[], live: Task[]): string | null {
   if (at < 0) return null;
   const alive = new Set(live.map((t) => t.id));
   return [...order.slice(at + 1), ...order.slice(0, at).reverse()].find((x) => x !== id && alive.has(x)) ?? null;
-}
-
-function waited(iso: string): string {
-  const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (m < 60) return `等了 ${m} 分钟`;
-  if (m < 60 * 24) return `等了 ${Math.round(m / 60)} 小时`;
-  return `等了 ${Math.round(m / 60 / 24)} 天`;
-}
-
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 6) return "夜深了";
-  if (h < 12) return "早上好";
-  if (h < 14) return "中午好";
-  if (h < 18) return "下午好";
-  return "晚上好";
 }
 
 function dueLabel(iso: string): string {
@@ -191,7 +174,7 @@ function DocsEditor({ t, onAct, onDone }: { t: Task; onAct: (t: Task, fn: () => 
  * 同步下来的工单长得一样，差别只在它没有工单号、排期这些同步来的字段。
  */
 function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
-  const { feDue, beDue, docs } = t.source;
+  const { docs } = t.source;
   const links = DOC_LABELS.filter(([k]) => docs?.[k]);
   // 合并进来的需求各自带着文档：一期二期的资料都要在这儿点得到
   const mergedDocs = (t.source.merged ?? [])
@@ -202,7 +185,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
   const [editDocs, setEditDocs] = useState(false);
   // to 用 null 表示「改成没定」，所以开合得另拿一个字段，不能靠 null 兼职
   const [switching, setSwitching] = useState<{ to: string | null } | null>(null);
-  const hasTerm = Boolean(t.source.jobId) && t.terminal !== "gone" && t.status === "processing";
+  const hasTerm = Boolean(t.session?.name);
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能并进来的：别的任务，不看项目也不看状态。Slack 线程除外——那是一段对话，
   // 并进来没有意义。项目多数还没定，要合的那条也可能已经收工了，都不拦。
@@ -251,12 +234,6 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
               </span>
             )}
           </div>
-        </div>
-      )}
-      {(feDue || beDue) && (
-        <div>
-          <span className="k">SCHEDULE</span>
-          <div className="fx__text">{[feDue && `后台前端 ${feDue}`, beDue && `服务端 ${beDue}`].filter(Boolean).join(" · ")}</div>
         </div>
       )}
       {switching && (
@@ -365,31 +342,41 @@ function queuedRight(t: Task): string {
   return `${KIND[t.kind] ?? t.kind}${t.priority === "high" ? " · 高优先级" : ""}`;
 }
 
-const ATTENTION_NOTE: Record<string, string> = {
-  question: " · 终端在问你，回答前它不会继续",
-  intake: " · Friday 有个问题要问你",
-  review: " · 这轮做完了，等你看",
-  blocked: " · 卡住了，需要你",
-};
-
-function meta(t: Task): string {
-  // 阶段排在来源前面：要写代码的活，「走到哪一步」比「哪来的」更值得先看见
-  return [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, t.project, waited(t.updatedAt)].filter(Boolean).join(" · ");
+function dueBits(t: Task): string[] {
+  const feDue = t.source.feDue;
+  if (!feDue) return [];
+  const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  return [`排期 ${feDue.slice(5)}`, ...(d < 0 ? [`逾期 ${-d} 天`] : [])];
 }
 
-/** 活跃的排前面：终端在输出 / Friday 在回 > 最近更新 */
+/** 列表行的灰字：你在做的写状态位，Friday 自主的写交付，缺陷写它在哪个会话里改 */
+function anchorLine(t: Task): string {
+  const s = t.session;
+  if (t.status === "done" || t.status === "ignored") return anchorSub(t);
+  if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
+  if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
+  if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
+  if (t.source.autonomous && t.report) {
+    const d = s?.delivery;
+    return ["交付了", d?.files !== undefined ? `${d.files} 个文件` : "", t.report.testResult.split(/[，。：:;；,\n]/)[0]!.slice(0, 12), d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : ""].filter(Boolean).join(" · ");
+  }
+  const label = stateLabel(t);
+  const head = label || s?.name ? [label, s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""] : [KIND[t.kind] ?? t.kind, t.priority === "high" ? "高优先级" : ""];
+  return [...head, ...dueBits(t)].filter(Boolean).join(" · ") || anchorSub(t);
+}
+
+/** 活跃的排前面：终端在干活 / Friday 在回 > 最近更新 */
 function byActivity(active: (t: Task) => boolean) {
   return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
 }
 
-/** 程序滚动停下多久之后，滚动才重新算作用户在翻页 */
-const SETTLE_MS = 300;
-
-export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningConvs }: {
+export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runningConvs }: {
   view: BoardView;
   /** 顶栏那一行视图切换，由 Chat 给——它知道当前是哪个视图 */
   nav?: React.ReactNode;
   tools: React.ReactNode;
+  /** 切到别的视图（卡片上的「操作记录 →」要用） */
+  go?: (v: BoardView) => void;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
   runningConvs?: Set<string>;
   /** 待办四组各有几条，左栏锚点用 */
@@ -397,10 +384,11 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
   onFocusChange?: (t: Task | null) => void;
 }) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
-  const [name, setName] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const deckRef = useRef<HTMLDivElement | null>(null);
+  const [dialogFor, setDialogFor] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const [ledgerFor, setLedgerFor] = useState<string | null>(null);
   const qRef = useRef<HTMLInputElement | null>(null);
   // ⌘F 搜索结果里点了一条任务：选中它（视图已由 Chat 切到「全部任务」）
   useEffect(() => {
@@ -434,14 +422,6 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
     try {
       const b = await taskBoard();
       setBoard(b);
-      // 快照比之前收到的事件新：清掉这些 job 的本地覆盖。服务端只推 gone 不推 idle，
-      // 留着会变成只进不出的锁存器——终端早重开了，按钮还一直写着「重开终端」
-      setTermStates((m) => {
-        if (!m.size) return m;
-        const next = new Map(m);
-        for (const t of b.tasks) if (t.source.jobId) next.delete(t.source.jobId);
-        return next.size === m.size ? m : next;
-      });
       setErr("");
       failures.current = 0;
     } catch (e) {
@@ -462,7 +442,6 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
       timer = window.setTimeout(loop, failures.current > 0 ? 1500 : 30000);
     };
     void loop();
-    void settings().then((s) => setName(s.name)).catch(() => {});
     // 进展一句一推，攒 200ms 合成一次拉取
     let coalesce = 0;
     const onChanged = () => {
@@ -470,24 +449,17 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
       coalesce = window.setTimeout(() => void load(), 200);
     };
     window.addEventListener("friday:tasks-changed", onChanged);
-    const onEvent = (e: Event) => {
-      const ev = (e as CustomEvent<FridayEvent>).detail;
-      if (ev.type === "terminal") setTermStates((m) => (m.get(ev.jobId) === ev.state ? m : new Map(m).set(ev.jobId, ev.state)));
-    };
-    window.addEventListener("friday:event", onEvent);
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
       window.removeEventListener("friday:tasks-changed", onChanged);
-      window.removeEventListener("friday:event", onEvent);
       window.clearTimeout(coalesce);
     };
   }, []);
-  // 终端忙闲：实时推送的值优先于任务板快照
-  const [termStates, setTermStates] = useState<Map<string, TerminalState>>(new Map());
   useEffect(() => {
-    if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
-  }, [view]);
+    if (view === "ledger") void fetchAudit(ledgerFor ?? undefined, 300).then(setLedger).catch(() => {});
+    else setLedgerFor(null);
+  }, [view, ledgerFor]);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -564,7 +536,7 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
     };
   }, [menu]);
 
-  // 同一条任务同时只跑一个动作：连点会把「打开终端」开出两个窗口、「完成当前节点」流转两次。
+  // 同一条任务同时只跑一个动作：连点会把「开始做」开出两个会话、「完成当前节点」流转两次。
   // 锁放 ref 里，state 要等下一次渲染才生效，同一帧的第二次点击拦不住
   const inFlight = useRef(new Set<string>());
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
@@ -589,7 +561,7 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
       // 处理完接着看相邻的那条。清空选中会让焦点回落到 pinned[0] / decide[0]，
       // 而刚操作的那条常常根本不在顶上那个分组里，看着就是整个列表跳走了。
       if (t && (!after || after.status !== t.status)) setSelectedId(neighbourOf(t.id, order, b.tasks));
-      if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
+      if (view === "ledger") setLedger(await fetchAudit(ledgerFor ?? undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -597,34 +569,33 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
     }
   }
 
-  const tasks = (board?.tasks ?? []).map((t) => (t.source.jobId && termStates.has(t.source.jobId) && t.status === "processing" ? { ...t, terminal: termStates.get(t.source.jobId) } : t));
-  const active = (t: Task) => (t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone") || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
+  const openLedger = (taskId: string) => { setLedgerFor(taskId); go?.("ledger"); };
+
+  const tasks = board?.tasks ?? [];
+  const active = (t: Task) => t.session?.state === "working" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
+  const closed = (t: Task) => t.status === "done" || t.status === "ignored";
   // 星标的单独一组放最顶上，其余分组里不再出现
-  const pinned = tasks.filter((t) => t.pinned && t.status !== "done" && t.status !== "ignored").sort(byActivity(active));
+  const pinned = tasks.filter((t) => t.pinned && !closed(t)).sort(byActivity(active));
   const rest = tasks.filter((t) => !pinned.includes(t));
-  // 需求那条在列表里时，它名下的缺陷不再各自占一行——点开需求就能看到它们。
-  // 需求不在（没分派也没我的角色）的缺陷仍然独立显示，否则就没地方看了。
-  const storyIds = new Set(
-    tasks.flatMap((t) => [...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]),
-  );
-  const nested = (t: Task) => Boolean(t.source.linkedStoryId && storyIds.has(t.source.linkedStoryId));
-  /** 这条需求名下还有几条没完的缺陷，列表右侧要显示 */
-  const nestedCount = (t: Task) => {
-    const mine = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
-    if (!mine.size) return 0;
-    return tasks.filter((x) => x.source.linkedStoryId && mine.has(x.source.linkedStoryId) && x.status !== "done" && x.status !== "ignored").length;
+  const liveIds = new Set(tasks.filter((t) => !closed(t)).map((t) => t.id));
+  // 缺陷嵌在它的需求下面缩进一级，不各自占分组里的一行。需求不在（没分派也没我的角色）的缺陷仍然独立显示
+  const storyOf = new Map<string, string>();
+  for (const t of tasks) if (!closed(t)) for (const m of [...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]) storyOf.set(m, t.id);
+  const parentOf = (t: Task): string | undefined => {
+    const root = t.source.rootId && liveIds.has(t.source.rootId) ? t.source.rootId : t.source.linkedStoryId ? storyOf.get(t.source.linkedStoryId) : undefined;
+    return root && root !== t.id ? root : undefined;
   };
+  const nested = (t: Task) => Boolean(parentOf(t));
+  const childrenOf = (t: Task) => tasks.filter((x) => !closed(x) && parentOf(x) === t.id).sort(byActivity(active));
   // 情境卡从 Slack 线程派生出来的待办：线程那条还在时它们说的是同一件事，不再单独占一行，
   // 跟缺陷挂需求一样收进父任务里看。线程已经收工的留着独立显示，那才是真正剩下的事。
-  const liveIds = new Set(tasks.filter((t) => t.status !== "done" && t.status !== "ignored").map((t) => t.id));
   const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
-  const derivedCount = (t: Task) => tasks.filter((x) => x.source.fromTaskId === t.id && x.status !== "done" && x.status !== "ignored").length;
-  // 列表只按五个开发阶段分组。「要不要你拍板」不再单独列一组——终端在问什么、
-  // 卡在哪，自己开终端看；列表管的是这些活各自走到哪一步。
-  const onBoard = rest.filter((t) => t.status !== "done" && t.status !== "ignored" && !nested(t) && !derived(t));
+  // 列表只按五个开发阶段分组。「要不要你拍板」不再单独列一组——状态位已经在每一行上说了。
+  const onBoard = rest.filter((t) => !closed(t) && !nested(t) && !derived(t));
   const byStage = (st: Stage) => onBoard.filter((t) => t.stage === st).sort(byActivity(active));
   // 没有阶段的（Slack 回消息这类）单独兜底一组，否则它们会从列表里消失
   const noStage = onBoard.filter((t) => !t.stage).sort(byActivity(active));
+  const doneTasks = tasks.filter(closed).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   // 按来源计数给外面用（Slack / 缺陷 / 需求 / 其他）。这里必须复制一份再排，
   // sort 是原地改——直接排 onBoard 会把上面按阶段分好的顺序搅乱
   const queued = [...onBoard].sort(byTier);
@@ -636,87 +607,53 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
   useEffect(() => {
     onQueueCounts?.(queueCounts);
   }, [queueKey]);
-  // 轮播一次只显示一条，所以要一个扁平序列；分组只剩右侧锚点在用。
+  // 一次只显示一条，所以要一个扁平序列；分组只剩右侧列表在用。需求后面紧跟它名下的缺陷。
   const anchorGroups = useMemo(() => {
-    const raw: Array<{ label: string; items: Task[] }> =
+    const withKids = (items: Task[]) => items.flatMap((t) => [{ t, child: false }, ...childrenOf(t).map((c) => ({ t: c, child: true }))]);
+    const raw: Array<{ label: string; items: Array<{ t: Task; child: boolean }> }> =
       view === "all"
         ? ALL_ORDER.flatMap((st) => {
-            const items = tasks.filter((t) => t.status === st);
+            const items = tasks.filter((t) => t.status === st).map((t) => ({ t, child: false }));
             if (st !== "processing") return [{ label: STATUS[st], items }];
             // 「Friday 在做」只放它全权在跑的；你自己开终端驱动的另起一组
             return [
-              { label: "Friday 在做", items: items.filter((t) => isFridayRun(t.source)) },
-              { label: "你在做", items: items.filter((t) => !isFridayRun(t.source)) },
+              { label: "Friday 在做", items: items.filter((x) => isFridayRun(x.t.source)) },
+              { label: "你在做", items: items.filter((x) => !isFridayRun(x.t.source)) },
             ];
           })
         : [
-            { label: "关注", items: pinned },
-            ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: byStage(st) })),
-            { label: "没有阶段", items: noStage },
+            { label: "关注", items: withKids(pinned) },
+            ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: withKids(byStage(st)) })),
+            { label: "没有阶段", items: withKids(noStage) },
+            ...(showDone ? [{ label: "已完成", items: doneTasks.map((t) => ({ t, child: false })) }] : []),
           ];
     const k = q.trim().toLowerCase();
     const hit = (t: Task) =>
       !k ||
-      [t.title, t.project, t.understanding, t.source.branch, t.source.meegleId, t.source.linkedStoryName]
+      [t.title, t.project, t.understanding, t.source.branch, t.session?.branch, t.source.meegleId, t.source.linkedStoryName]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(k));
-    return raw.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length);
-  }, [tasks, pinned, onBoard, view, q]);
-  const flat = useMemo(() => anchorGroups.flatMap((g) => g.items), [anchorGroups]);
-  // 处理完一条自动跳到相邻那条，顺序就是轮播的顺序
+    return raw.map((g) => ({ ...g, items: g.items.filter((x) => hit(x.t)) })).filter((g) => g.items.length);
+  }, [tasks, pinned, onBoard, view, q, showDone]);
+  const flat = useMemo(() => anchorGroups.flatMap((g) => g.items.map((x) => x.t)), [anchorGroups]);
   orderRef.current = flat.map((t) => t.id);
   const ids = flat.map((t) => t.id).join(",");
   const explicit = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
   const focus = (explicit && flat.some((t) => t.id === explicit.id) ? explicit : null) ?? flat[0] ?? null;
   useEffect(() => {
     onFocusChange?.(focus ?? null);
-  }, [focus?.id]);
-  // 自己发起的滚动期间不让观察者接管：平滑滚动会经过中间那些卡，
-  // 观察者一接管就把选中改成途经的那张，滚动被半路劫持，跳不到点的那条
-  const settlingRef = useRef(0);
-  // 选中变了 → 把那张卡滚进视野，右侧锚点跟着走
-  useEffect(() => {
-    if (!focus) return;
-    const card = deckRef.current?.querySelector(`[data-id="${focus.id}"]`);
-    if (card) {
-      settlingRef.current = Date.now();
-      card.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
-    }
     document.querySelector('.an[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
   }, [focus?.id]);
-  // 滚到哪张就选哪张。只在用户真的自己滚过之后才接管，否则首帧会把默认选中顶掉。
-  useEffect(() => {
-    const root = deckRef.current;
-    if (!root || flat.length < 2) return;
-    let scrolled = false;
-    const onScroll = () => {
-      scrolled = true;
-      // 自己发起的滚动还在走就一直续上：跨二十张卡的平滑滚动实测要 870ms，写死时长挡不住
-      if (Date.now() - settlingRef.current < SETTLE_MS) settlingRef.current = Date.now();
-    };
-    root.addEventListener("scroll", onScroll, { passive: true });
-    const io = new IntersectionObserver(
-      (es) => {
-        if (!scrolled) return;
-        // 平滑滚动途经的卡不算用户在翻页
-        if (Date.now() - settlingRef.current < SETTLE_MS) return;
-        const best = es.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        const id = (best?.target as HTMLElement | undefined)?.dataset.id;
-        if (id) setSelectedId(id);
-      },
-      { root, threshold: [0.55, 0.9] },
-    );
-    root.querySelectorAll(".deck__card").forEach((el) => io.observe(el));
-    return () => { io.disconnect(); root.removeEventListener("scroll", onScroll); };
-  }, [ids]);
-  // ↑↓ 翻页、⌘K 搜索。焦点在输入框或终端里时不抢。
+  // ⌘P 搜索、⌘↑↓ 任何时候切任务；不带 ⌘ 的 ↑↓ 只在焦点不在输入框和终端里时切
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); qRef.current?.focus(); qRef.current?.select(); return; }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       const el = document.activeElement as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable || el.closest(".xterm"))) return;
+      const inTerm = Boolean(el?.closest(".xterm"));
+      const cmd = e.metaKey || e.ctrlKey;
+      if (cmd && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p" && !inTerm) { e.preventDefault(); qRef.current?.focus(); qRef.current?.select(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (e.shiftKey || e.altKey || (e.ctrlKey && !e.metaKey)) return;
+      if (!e.metaKey && (inTerm || (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)))) return;
       const i = flat.findIndex((t) => t.id === focus?.id);
       const next = flat[e.key === "ArrowDown" ? Math.min(i + 1, flat.length - 1) : Math.max(i - 1, 0)];
       if (next && next.id !== focus?.id) { e.preventDefault(); setSelectedId(next.id); }
@@ -726,10 +663,6 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
   }, [ids, focus?.id]);
   const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "任务";
   const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : onBoard.length;
-  const liveTerminals = tasks.filter((t) => t.terminal === "busy" || (t.status === "processing" && t.source.jobId)).length;
-
-  // 左栏一条：状态点 + 标题（最多两行）+ 一句状态；选哪条右边就换哪条
-  /** 一组里的行：同一个需求下的缺陷先收成一包，剩下的照常一条一行 */
 
   return (
     <>
@@ -739,36 +672,64 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
           <div className="q__title" data-tauri-drag-region>
             <h1 data-tauri-drag-region>{title}</h1>
             {board ? <span className="q__count">{count} {view === "ledger" ? "条" : "件"}</span> : !err && <span className="q__count">正在连接 Friday…</span>}
+            {view !== "ledger" && (
+              <span className="q__acts">
+                <button className="find__act" title="立刻拉一次 Slack（白天每 3 分钟自动）" disabled={slackSyncing} onClick={() => void doSlackSync()}>
+                  {slackSyncing ? <span className="side__spin" /> : <Icon name="refresh" />} {slackNote ?? "Slack"}
+                </button>
+                <button className="find__act" title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
+                  {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
+                </button>
+                <button className="find__act" title="自己记一件事，落到待办里" onClick={() => setCreating(true)}>＋ 新建</button>
+              </span>
+            )}
           </div>
           <div className="q__tools">{tools}</div>
         </div>
-        {/* 读数条把「几件在等你」说得更清楚，这里只留一句问候 */}
-        {board && name && <p className="q__sub" data-tauri-drag-region>{`Hello ${name}！`}{greeting()}。</p>}
       </header>
-      {board && view !== "ledger" && (
-        <div className="gauges">
-          {/* 读数条跟列表同一套口径：五个阶段各多少件，外加终端在跑几个 */}
-          <Gauge k="TERMINALS" v={liveTerminals} u="ACTIVE" tone={liveTerminals ? "hot" : ""} max={4} />
-          <Gauge k={STAGE_LABEL.dev} v={byStage("dev").length} u="ITEMS" tone={byStage("dev").length ? "hot" : ""} max={8} />
-          <Gauge k={STAGE_LABEL.testing} v={byStage("testing").length} u="ITEMS" tone="" max={8} />
-          <Gauge k={STAGE_LABEL.accepted} v={byStage("accepted").length} u="ITEMS" tone={byStage("accepted").length ? "warn" : ""} max={8} />
-          <Gauge k={STAGE_LABEL.todo} v={byStage("todo").length} u="ITEMS" tone="" max={20} />
-        </div>
-      )}
       {view === "ledger" ? (
         <div className="wb__scroll">
           <div className="wb__page">
             {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
+            {ledgerFor && (
+              <div className="ledger__for">
+                只看「{tasks.find((t) => t.id === ledgerFor)?.title ?? ledgerFor.slice(0, 8)}」
+                <button className="b b--text" onClick={() => setLedgerFor(null)}>看全部</button>
+              </div>
+            )}
             {board && <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />}
           </div>
         </div>
       ) : (
         <div className="deck">
           {creating && <NewTask projects={allProjects} onClose={() => setCreating(false)} onDone={() => { setCreating(false); void load(); }} />}
-          <div className="deck__stage">
+          <div className="deck__one">
             {err && <div className="err" style={{ margin: "0 0 12px" }}>{err}</div>}
+            {!board ? null : focus ? (
+              <Detail
+                key={focus.id}
+                t={focus}
+                all={board.tasks}
+                busy={busyIds.has(focus.id)}
+                onAct={act}
+                onPick={setSelectedId}
+                onStartPack={(items) => void startPack(items)}
+                packBusy={packBusy}
+                cardOpen={dialogFor === focus.id}
+                onDetail={() => setDialogFor((v) => (v === focus.id ? null : focus.id))}
+                onLedger={() => openLedger(focus.id)}
+                onMenu={(x, y) => setMenu({ t: focus, x, y })}
+              />
+            ) : (
+              <div className="empty">
+                <strong>{q ? "没有匹配的任务" : "没有等你决定的事"}</strong>
+                {q ? "换个词试试，或者按 Esc 清空。" : "问 Friday，或者等 Slack 和 Meegle 来活。"}
+              </div>
+            )}
+          </div>
+          <aside className="side">
             <label className="find">
-              <span className="find__k mono">FIND</span>
+              <span className="find__k">FIND</span>
               <input
                 ref={qRef}
                 value={q}
@@ -778,68 +739,44 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
                 aria-label="搜任务"
                 spellCheck={false}
               />
-              <span className="find__n mono">{q ? `${flat.length} 命中` : `${flat.length} 件`}</span>
-              <button className="find__act" title="立刻拉一次 Slack（白天每 3 分钟自动）" disabled={slackSyncing} onClick={(e) => { e.preventDefault(); void doSlackSync(); }}>
-                {slackSyncing ? <span className="side__spin" /> : <Icon name="refresh" />} {slackNote ?? "Slack"}
-              </button>
-              <button className="find__act" title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={(e) => { e.preventDefault(); void doSync(); }}>
-                {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
-              </button>
-              <button className="find__act" title="自己记一件事，落到待办里" onClick={(e) => { e.preventDefault(); setCreating(true); }}>
-                ＋ 新建
-              </button>
             </label>
-            <div className="deck__scroll" ref={deckRef}>
-              {!board ? null : flat.length ? (
-                flat.map((t) => (
-                  <section key={t.id} className="deck__card" data-id={t.id} onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); setMenu({ t, x: e.clientX, y: e.clientY }); }}>
-                    <Focus t={t} all={board.tasks} active={t.id === focus?.id} busy={busyIds.has(t.id)} onAct={act} onClose={() => setSelectedId(null)} onPick={setSelectedId} onStartPack={(items) => void startPack(items)} packBusy={packBusy} closable={false} />
-                  </section>
-                ))
-              ) : (
-                <div className="empty">
-                  <strong>{q ? "没有匹配的任务" : "没有等你决定的事"}</strong>
-                  {q ? "换个词试试，或者按 Esc 清空。" : "⌘N 问 Friday，要干的活它先说判断再开工；或者等 Slack 和 Meegle 来活。"}
-                </div>
-              )}
-            </div>
-            <div className="deck__cmd mono">
-              <span><kbd>↑↓</kbd> 翻页</span>
-              <span><kbd>⌘K</kbd> 搜索</span>
-              <span className="deck__sp" />
-              <span className="deck__pos">{flat.length ? `${String(Math.max(0, flat.findIndex((t) => t.id === focus?.id)) + 1).padStart(2, "0")} / ${String(flat.length).padStart(2, "0")}` : "—"}</span>
-            </div>
-          </div>
-          {flat.length > 1 && (
             <nav className="anchors" aria-label="全部任务">
               <div className="anchors__scroll">
                 {anchorGroups.map((g) => (
                   <Fragment key={g.label}>
-                    <div className="anchors__g mono">{g.label}</div>
-                    {g.items.map((t) => (
-                      <div
-                        key={t.id}
-                        className="an"
-                        role="button"
-                        tabIndex={0}
-                        title={t.title}
-                        aria-current={t.id === focus?.id}
-                        onClick={() => setSelectedId(t.id)}
-                        onContextMenu={(e) => { e.preventDefault(); setSelectedId(t.id); setMenu({ t, x: e.clientX, y: e.clientY }); }}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(t.id); } }}
-                      >
-                        <span className={`dot dot--${t.attention ?? t.status}`} />
-                        <span className="an__main">
-                          <span className="an__t">{t.title}</span>
-                          <span className="an__sub">{anchorSub(t, nestedCount(t), derivedCount(t))}</span>
-                        </span>
-                      </div>
-                    ))}
+                    <div className="anchors__g">{g.label}</div>
+                    {g.items.map(({ t, child }) => {
+                      const st = t.session?.state ?? "none";
+                      return (
+                        <div
+                          key={t.id}
+                          className={`an ${child ? "an--child" : ""} an--${st}`}
+                          role="button"
+                          tabIndex={0}
+                          title={t.title}
+                          aria-current={t.id === focus?.id}
+                          onClick={() => setSelectedId(t.id)}
+                          onContextMenu={(e) => { e.preventDefault(); setSelectedId(t.id); setMenu({ t, x: e.clientX, y: e.clientY }); }}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(t.id); } }}
+                        >
+                          <span className={`sdot sdot--${st}`} />
+                          <span className="an__main">
+                            <span className="an__t">{t.title}</span>
+                            <span className="an__sub">{anchorLine(t)}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </Fragment>
                 ))}
               </div>
+              {view !== "all" && doneTasks.length > 0 && (
+                <button className="anchors__done" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)}>
+                  {showDone ? `收起已完成 ‹` : `已完成 ${doneTasks.length} ›`}
+                </button>
+              )}
             </nav>
-          )}
+          </aside>
         </div>
       )}
       {menu && <TaskMenu t={menu.t} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} onAct={act} onEdit={setEditing} onDelete={setDeleting} />}
@@ -852,6 +789,61 @@ export function Board({ view, nav, tools, onQueueCounts, onFocusChange, runningC
         />
       )}
     </>
+  );
+}
+
+/**
+ * 详情区。你在做的（有会话）主体就是终端；Friday 自主的主体是交付卡，右上「看终端」切到同一个会话；
+ * 没开工的、挂在需求会话里的缺陷没有自己的终端，走卡片。
+ */
+function Detail({ t, all, busy, onAct, onPick, onStartPack, packBusy, cardOpen, onDetail, onLedger, onMenu }: {
+  t: Task;
+  all: Task[];
+  busy: boolean;
+  onAct: (t: Task | null, fn: () => Promise<unknown>) => Promise<void>;
+  onPick: (id: string) => void;
+  onStartPack: (items: Task[]) => void;
+  packBusy: string;
+  /** 详情弹窗之前的过渡：「详情」把终端换成这条任务的卡片 */
+  cardOpen: boolean;
+  onDetail: () => void;
+  onLedger: () => void;
+  onMenu: (x: number, y: number) => void;
+}) {
+  const s = t.session;
+  const hasTerm = Boolean(s?.name) && s!.state !== "none";
+  const autonomous = Boolean(t.source.autonomous);
+  const [showTerm, setShowTerm] = useState(false);
+  const counts = {
+    defects: all.filter((x) => x.id !== t.id && (x.source.rootId === t.id || (t.source.meegleId && x.source.linkedStoryId === t.source.meegleId))).length,
+    docs: Object.values(t.source.docs ?? {}).filter(Boolean).length,
+    convs: (t.conversations ?? []).length,
+  };
+  const termVisible = hasTerm && (autonomous ? showTerm : !cardOpen);
+  return (
+    <section
+      className="detail"
+      onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); onMenu(e.clientX, e.clientY); }}
+    >
+      <TaskHeader
+        t={t}
+        counts={counts}
+        onDetail={onDetail}
+        onPin={() => void onAct(t, () => taskPin(t.id, !t.pinned))}
+        {...(autonomous && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
+      />
+      {termVisible ? (
+        <div className="detail__term"><Terminal sessionId={t.id} /></div>
+      ) : autonomous ? (
+        <div className="detail__card detail__card--auto">
+          <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
+        </div>
+      ) : (
+        <div className="detail__card">
+          <Focus t={t} all={all} active busy={busy} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -870,6 +862,12 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
     <div className="ctx" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
       <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
+      {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
+      {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
+      {!closed && (t.pending ?? []).filter((a) => a.type !== "slack_reply" && a.type !== "okr_submit").map((a) => (
+        <button key={a.id} role="menuitem" onClick={() => run(() => taskApprove(t.id, a.id))}>通过并执行：{a.label}</button>
+      ))}
+      {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "ignore"))}>忽略</button>}
       <button
@@ -992,17 +990,6 @@ function TaskEditor({ t, onClose, onSaved }: { t: Task; onClose: () => void; onS
   );
 }
 
-/** 顶部读数：一个数字 + 单位 + 一条刻度。满格按 max 算，只为看出「多不多」 */
-function Gauge({ k, v, u, tone, max }: { k: string; v: number; u: string; tone: string; max: number }) {
-  return (
-    <div className={`g ${tone ? `g--${tone}` : ""}`}>
-      <div className="g__k">{k}</div>
-      <div className="g__v">{v}<span className="u">{u}</span></div>
-      <div className="g__bar"><i style={{ width: `${Math.min(100, (v / max) * 100)}%` }} /></div>
-    </div>
-  );
-}
-
 /**
  * 阶段条：五档从左到右，当前那档高亮。
  * 点任意一档直接拨过去；往回拨会先问是「Friday 推错了」还是「确实被打回了」——
@@ -1089,43 +1076,173 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
   );
 }
 
-function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, packBusy, closable, ref }: {
+function actionNote(a: PendingAction, conv?: SlackConversation): string {
+  const detail = a.detail.trim().replace(/[。.]?$/, "。");
+  if (a.type === "git_merge") return `${detail}合完可以在操作记录里撤销。`;
+  return [detail, consequence(a, conv) ?? ""].join("");
+}
+
+/** Friday 自主任务的交付卡：按审核顺序排——交付了什么 → 等你点头的 → 改了哪些 → 走到哪一步 */
+function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onLedger: () => void }) {
+  const r = t.report;
+  const d = t.session?.delivery;
+  const pending = t.pending ?? [];
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  useEffect(() => { void fetchAudit(t.id, 50).then(setEvents).catch(() => {}); }, [t.id, t.updatedAt]);
+  const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
+  useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
+  const [editDocs, setEditDocs] = useState(false);
+  const docs = DOC_LABELS.filter(([k]) => t.source.docs?.[k]);
+  const meegle = t.source.meegleId ? [`Meegle：${t.source.meegleId}`, t.source.nodeName ? `节点 ${t.source.nodeName}` : "", t.priority === "high" ? "高优先级" : ""].filter(Boolean).join(" · ") : "";
+  return (
+    <div className="ac">
+      <div className="ac__left">
+        {r ? (
+          <section className="ac__sec">
+            <div className="ac__k">交付报告 {r.at && <span className="ac__kv">{hhmm(r.at)}</span>}</div>
+            {r.summary && <div className="ac__text"><Linkified text={r.summary} /></div>}
+            {r.testResult?.trim() && <div className="ac__text ac__text--dim">{r.testResult}</div>}
+            {r.screenshots.length > 0 && <AttachmentStrip items={r.screenshots} />}
+          </section>
+        ) : (
+          <section className="ac__sec">
+            <div className="ac__k">交付报告</div>
+            <div className="ac__text ac__text--dim">还没交。跑完会把改了什么、怎么测的、截图写在这里；想看它在做什么点右上「看终端」。</div>
+          </section>
+        )}
+        {(pending.length > 0 || (r?.verify.length ?? 0) > 0) && (
+          <section className="ac__sec">
+            {pending.length > 0 && (
+              <>
+                <div className="ac__k">等你点头的动作</div>
+                {pending.map((a) => (
+                  <div key={a.id} className="ac__pend">
+                    <div className="ac__pend-t">{a.label}</div>
+                    <div className="ac__pend-d">{actionNote(a, t.conversations?.[0])}</div>
+                  </div>
+                ))}
+              </>
+            )}
+            {r && r.verify.length > 0 && (
+              <>
+                <div className={`ac__k ${pending.length ? "ac__k--gap" : ""}`}>通过前请确认 <span className="ac__kv">{checked.filter(Boolean).length} / {r.verify.length}</span></div>
+                <div className="ac__checks">
+                  {r.verify.map((c, i) => (
+                    <label key={i}>
+                      <input
+                        type="checkbox"
+                        checked={checked[i] ?? false}
+                        onChange={(e) => { const v = e.target.checked; setChecked((x) => { const n = [...x]; n[i] = v; return n; }); void taskVerify(t.id, i, v).catch(() => {}); }}
+                      />
+                      {c}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+        {(d?.files !== undefined || (r?.changes.length ?? 0) > 0) && (
+          <section className="ac__sec">
+            {/* 分叉点是主干（main 或 master），这里读不到具体叫哪个 */}
+            <div className="ac__k">改动 {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对主干</span>}</div>
+            {r && r.changes.length > 0 && <div className="ac__files">{r.changes.map((c, i) => <div key={i} className="ac__file">{c}</div>)}</div>}
+          </section>
+        )}
+        {(t.stage || meegle) && (
+          <section className="ac__sec">
+            <StageBar t={t} onAct={onAct} />
+            {meegle && <div className="ac__meegle">{meegle}</div>}
+          </section>
+        )}
+      </div>
+      <div className="ac__right">
+        <section className="ac__sec">
+          <div className="ac__k ac__k--row">资料<span className="th__sp" /><button className="ac__add" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>{editDocs ? "收起" : "＋ 贴一个链接"}</button></div>
+          {editDocs ? <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} /> : docs.length > 0 ? (
+            <div className="ac__docs">{docs.map(([k, label]) => <OpenLink key={k} href={t.source.docs![k]!}><span className="ac__src">{label}</span>{t.source.docs![k]!.replace(/^https?:\/\//, "").slice(0, 48)}</OpenLink>)}</div>
+          ) : <div className="ac__text ac__text--dim">还没有</div>}
+        </section>
+        <SlackConvs t={t} onAct={onAct} />
+        <span className="ac__sp" />
+        <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
+      </div>
+    </div>
+  );
+}
+
+/** 「Slack 里的讨论」：挂在这条任务上的对话，推断出来的标明依据，可以「不是这条」 */
+function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
+  const convs = t.conversations ?? [];
+  if (!convs.length) return null;
+  return (
+    <div className="fx__slack">
+      <div className="fx__slack-head">Slack 里的讨论</div>
+      {convs.map((c) => (
+        <div key={c.conv} className="fx__conv">
+          <div className="fx__conv-meta">
+            <span className="fx__conv-who">{c.userName}</span>
+            <span className="fx__conv-where mono">{c.channelName || "私聊"}</span>
+            {/* 按需求建的群：频道名约等于需求名，整个挂过去，后面的消息不用再逐条判 */}
+            {c.kind === "mention" && c.channelName && (
+              c.channelLinked
+                ? <button className="fx__conv-chan is-on" title="点掉就不再把这个频道归到本条需求" onClick={() => void onAct(t, () => unlinkChannel(c.channelName, t.id))}>频道已对应本需求</button>
+                : <button className="fx__conv-chan" onClick={() => void onAct(t, () => linkChannel(c.channelName, t.id))}>把 #{c.channelName.replace(/^#/, "")} 都归到这条</button>
+            )}
+            {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
+            {c.source === "guess" && <span className="k k--guess" title={c.why}>Friday 推断</span>}
+            <button className="fx__conv-drop" onClick={() => void onAct(t, () => detachConversation(c.conv, t.id))}>不是这条</button>
+          </div>
+          {c.source === "guess" && c.why && <div className="fx__conv-why">{c.why}</div>}
+          {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
+          {c.prior.length > 0 && (
+            <details className="fx__prior">
+              <summary>
+                <span>这之前聊的是什么</span>
+                <span className="fx__prior-count">{c.prior.length} 条</span>
+              </summary>
+              {c.prior.map((p, i) => <div key={i} className="fx__prior-line">{p}</div>)}
+            </details>
+          )}
+          {c.items.map((m) => (
+            <div key={m.ts} className="fx__conv-msg">
+              {m.text.trim()
+                ? <Linkified text={decodeSlack(m.text)} />
+                : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
+              <a
+                href={m.appLink ?? m.permalink}
+                className="link"
+                title="在 Slack 里打开这条"
+                onClick={(e) => { e.preventDefault(); void openUrl(m.appLink ?? m.permalink); }}
+              >在 Slack 打开</a>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Focus({ t, all, active, busy, onAct, onPick, onStartPack, packBusy, onLedger }: {
   t: Task;
-  /** 轮播里所有卡都挂着，只有选中这张响应回车 */
+  /** 只有选中这张响应回车 */
   active: boolean;
-  /** 这条任务有动作还没返回，操作栏整排锁住 */
+  /** 这条任务有动作还没返回，确认发送那块锁住 */
   busy: boolean;
   /** 全部任务，用来找这条的关联需求 / 它名下的缺陷 */
   all: Task[];
   onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>;
-  onClose: () => void;
   onPick?: (id: string) => void;
-  /** 名下这几条一次全开工：同一个需求下的缺陷要走同一个终端同一个分支，各开各的必冲突 */
+  /** 名下这几条一次全开工：同一个需求下的缺陷要走同一个会话同一个分支，各开各的必冲突 */
   onStartPack?: (items: Task[]) => void;
   packBusy?: string;
-  closable: boolean;
-  ref?: React.Ref<HTMLElement>;
+  onLedger: () => void;
 }) {
   // 给别人发消息前先给用户看要发什么、可以改，确认才发
   const ime = useImeGuard();
   const [confirming, setConfirming] = useState(false);
   const [sendText, setSendText] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [acts, setActs] = useState<Activity[]>([]);
-  // 终端还开着，边框上就一直有光绕着跑；终端没了才灭
-  const live = t.status === "processing" && Boolean(t.source.jobId) && t.terminal !== "gone";
-  // 终端在做什么：进行中每 5 秒拉一次动作流，停了就只拉一次
-  useEffect(() => {
-    const jobId = t.source.jobId;
-    setActs([]);
-    if (!jobId) return;
-    let stop = false;
-    const pull = () => void jobActivity(jobId).then((a) => { if (!stop) setActs(a.items); }).catch(() => {});
-    pull();
-    if (t.status !== "processing") return () => { stop = true; };
-    const timer = window.setInterval(pull, 5000);
-    return () => { stop = true; window.clearInterval(timer); };
-  }, [t.source.jobId, t.status]);
   useEffect(() => {
     setConfirming(false);
     void fetchAudit(t.id, 50).then(setEvents).catch(() => {});
@@ -1147,13 +1264,10 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
   const autoSent = sentEvent?.evidence.auto === true;
 
   const [trs, setTrs] = useState<StateTransition[]>([]);
-  const [node, setNode] = useState<{ canConfirm: boolean; missing: string[] } | null>(null);
   useEffect(() => {
     setTrs([]);
-    setNode(null);
     if (isIssue(t)) void taskTransitions(t.id).then(setTrs).catch(() => {});
-    else if (isStory(t) && t.source.nodeKey) void taskNode(t.id).then(setNode).catch(() => {});
-  }, [t.id, t.source.statusKey, t.source.nodeKey]);
+  }, [t.id, t.source.statusKey]);
 
   const pending = t.pending ?? [];
   const advice = pending[0]?.detail || t.plan || r?.summary || "";
@@ -1162,10 +1276,9 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
   const convs = t.conversations ?? [];
   const convMsgs = convs.flatMap((c) => c.items);
   const links = t.kind === "meegle" ? [] : [...new Set([...convMsgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
-  const open = t.status !== "done" && t.status !== "ignored";
   // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
   const asked = t.attention === "intake" && Boolean(t.progress);
-  const rightHas = Boolean(r) || Boolean(!asked && t.progress && (situation || advice)) || pending.length > 1 || links.length > 0;
+  const rightHas = Boolean(r) || pending.length > 1 || links.length > 0;
 
   // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
   const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
@@ -1186,7 +1299,7 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
     ? { label: `开工：${String(startJob.payload.project ?? "")}`.trim(), run: () => taskApprove(t.id, startJob.id) }
     : isIssue(t) && trs[0]
     ? { label: trs[0].label, run: () => taskTransition(t.id, trs[0]!) }
-    : t.project && !t.source.jobId
+    : t.project && !t.session?.name
     ? { label: "开始做", run: () => taskStart(t.id) }
     : first
     ? first.type === "okr_submit"
@@ -1226,49 +1339,9 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
     return () => window.removeEventListener("keydown", onKey);
   }, [t.id, t.updatedAt, primary?.label, confirming, active, first?.type]);
 
-  // 绕框那道光要跟 .fx 那个有边框的盒子严丝合缝，而卡片底下还有块操作栏
-  // （高度会变：后果提示、按钮换行，没展开时整个不存在）。直接量卡片底到
-  // .fx 底的距离写进 --foot——不管有没有操作栏都是对的，比拿它的高度再加个
-  // 猜出来的间距可靠。
-  const footRef = useRef<HTMLDivElement>(null);
-  const fxRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    const fx = fxRef.current;
-    const card = fx?.closest(".deck__card") as HTMLElement | null;
-    if (!fx || !card) return;
-    const sync = () => {
-      const foot = footRef.current;
-      if (!foot) { card.style.setProperty("--foot", "0px"); return; }
-      const cs = getComputedStyle(foot);
-      const gap = foot.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom);
-      card.style.setProperty("--foot", `${gap}px`);
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(card);
-    if (footRef.current) ro.observe(footRef.current);
-    return () => { ro.disconnect(); card.style.removeProperty("--foot"); };
-  }, [open]);
-
   return (
     <>
-    <article
-      className={`fx ${live ? "fx--live" : ""}`}
-      ref={(el) => {
-        fxRef.current = el;
-        if (typeof ref === "function") ref(el);
-        else if (ref) (ref as React.RefObject<HTMLElement | null>).current = el;
-      }}
-    >
-      <div className="fx__meta">
-        <span className={`dot dot--${t.attention ?? t.status}`} />
-        {/* 状态文字去掉了：在不在跑由顶部那条流线说，要看细节有圆点和下面的进展 */}
-        {ATTENTION_NOTE[t.attention ?? ""] && <span className="fx__state">{ATTENTION_NOTE[t.attention ?? ""]!.replace(/^ · /, "")}</span>}
-        <span className="fx__meta-dim">{meta(t)} · 更新于 {fmtTime(t.updatedAt)}</span>
-        {t.pinned && <span className="fx__pinned" title="已关注（右键可取消）"><Icon name="star" filled />已关注</span>}
-        {closable && <button className="b b--text" style={{ height: 22 }} onClick={onClose}>收起</button>}
-      </div>
-      <h2 className="fx__title" title={t.title}>{t.title}</h2>
+    <article className="fx">
       {t.kind !== "okr_weekly" && t.kind !== "handbook" && <StageBar t={t} onAct={onAct} />}
       {/* Meegle 那边的状态只作参考：它依赖别人及时更新，不参与 Friday 的阶段判断 */}
       {t.source.statusKey && (
@@ -1349,52 +1422,7 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
       )}
 
       {isIssue(t) && <IssueBody t={t} />}
-      {convs.length > 0 && (
-        <div className="fx__slack">
-          <div className="fx__slack-head">Slack 里的讨论</div>
-          {convs.map((c) => (
-            <div key={c.conv} className="fx__conv">
-              <div className="fx__conv-meta">
-                <span className="fx__conv-who">{c.userName}</span>
-                <span className="fx__conv-where mono">{c.channelName || "私聊"}</span>
-                {/* 按需求建的群：频道名约等于需求名，整个挂过去，后面的消息不用再逐条判 */}
-                {c.kind === "mention" && c.channelName && (
-                  c.channelLinked
-                    ? <button className="fx__conv-chan is-on" title="点掉就不再把这个频道归到本条需求" onClick={() => void onAct(t, () => unlinkChannel(c.channelName, t.id))}>频道已对应本需求</button>
-                    : <button className="fx__conv-chan" onClick={() => void onAct(t, () => linkChannel(c.channelName, t.id))}>把 #{c.channelName.replace(/^#/, "")} 都归到这条</button>
-                )}
-                {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
-                {c.source === "guess" && <span className="k k--guess" title={c.why}>Friday 推断</span>}
-                <button className="fx__conv-drop" onClick={() => void onAct(t, () => detachConversation(c.conv, t.id))}>不是这条</button>
-              </div>
-              {c.source === "guess" && c.why && <div className="fx__conv-why">{c.why}</div>}
-              {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
-              {c.prior.length > 0 && (
-                <details className="fx__prior">
-                  <summary>
-                    <span>这之前聊的是什么</span>
-                    <span className="fx__prior-count">{c.prior.length} 条</span>
-                  </summary>
-                  {c.prior.map((p, i) => <div key={i} className="fx__prior-line">{p}</div>)}
-                </details>
-              )}
-              {c.items.map((m) => (
-                <div key={m.ts} className="fx__conv-msg">
-                  {m.text.trim()
-                    ? <Linkified text={decodeSlack(m.text)} />
-                    : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
-                  <a
-                    href={m.appLink ?? m.permalink}
-                    className="link"
-                    title="在 Slack 里打开这条"
-                    onClick={(e) => { e.preventDefault(); void openUrl(m.appLink ?? m.permalink); }}
-                  >在 Slack 打开</a>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+      <SlackConvs t={t} onAct={onAct} />
 
       {t.kind !== "okr_weekly" && <TaskBody t={t} all={all} onAct={onAct} />}
 
@@ -1413,12 +1441,6 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
                 {pending[0] ? `Friday 的建议：${pending[0].label}${isMessage ? "（点「看一眼再发」可改）" : ""}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
               </span>
               <div className="fx__quote"><Linkified text={advice} /></div>
-            </div>
-          )}
-          {!situation && !advice && !asked && t.progress && (
-            <div>
-              <span className="k">PROGRESS</span>
-              <div className="fx__text">{t.progress}</div>
             </div>
           )}
         </div>
@@ -1446,12 +1468,6 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
             <div>
               <span className="k">RESULT</span>
               <div className="fx__text">{r.testResult}</div>
-            </div>
-          )}
-          {!r?.testResult?.trim() && !asked && t.progress && (situation || advice) && (
-            <div>
-              <span className="k">PROGRESS</span>
-              <div className="fx__text">{t.progress}</div>
             </div>
           )}
           {links.length > 0 && (
@@ -1485,27 +1501,7 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
           </div>
         </details>
       )}
-      {t.source.jobId && acts.length > 0 && (
-        <div className="fx__doing">
-          <span className="k">终端在做</span>
-          <ul className="fx__activity">
-            {acts.map((a, i) => (
-              <li key={`${a.ts}-${i}`} className={`act act--${a.kind}${a.kind === "tool" ? (a.ok === undefined ? " act--busy" : a.ok ? " act--ok" : " act--err") : ""}`}>
-                <i />{a.text}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {events.length > 0 && (
-        <details className="fx__more">
-          <summary>这条任务的账 · {events.length} 条</summary>
-          <div className="fx__more-body">
-            <ul>{events.map((e) => <li key={e.id}><span className="mono">{fmtTime(e.ts)}</span> {e.action} — {e.why}</li>)}</ul>
-          </div>
-        </details>
-      )}
-
+      <a className="fx__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
     </article>
       {sentEvent && (
         <div className="fx__undo">
@@ -1525,92 +1521,27 @@ function Focus({ t, all, active, busy, onAct, onClose, onPick, onStartPack, pack
         </div>
       )}
 
-      {open && (
-        <div className="fx__foot" ref={footRef}>
-          {first && consequence(first, convs[0]) && (
-            <div className="fx__consequence">
-              <Icon name="alert" />
-              <span>{consequence(first, convs[0])}</span>
-            </div>
-          )}
-          <fieldset className="fx__acts" disabled={busy} aria-busy={busy}>
-            {primary && (
-              <button
-                className="b b--primary"
-                disabled={first?.type === "okr_submit" && okrSubmittable(first) === 0}
-                title={first?.type === "okr_submit" && okrSubmittable(first) === 0 ? "勾上至少一条再提交" : undefined}
-                onClick={() => void onAct(t, primary.run)}
-              >
-                {primary.label}{first?.type !== "okr_submit" && <kbd>↵</kbd>}
-              </button>
-            )}
-            {/* 有待审动作时也能直接收工：done 会把没发出去的动作一起作废，不会发消息给别人 */}
-            {(!primary || first) && (
-              <button className="b b--ghost" title={first ? "任务标记完成，待审的动作作废，不会发出去" : undefined} onClick={() => void onAct(t, () => taskSet(t.id, "done"))}>
-                {first ? (isMessage ? "完成，不发" : "完成，不执行") : "标记完成"}
-              </button>
-            )}
-            {/* 全权代理是重的一档：开 worktree、无人值守、跑完自己进 review。
-                日常是「开始做」自己动手，所以这条摆在次按钮里 */}
-            {t.project && !t.source.jobId && (
-              <button className="b b--ghost" title="Friday 独立在 worktree 里改完再交你验收，中途不问你" onClick={() => void onAct(t, () => taskRetry(t.id))}>
-                交给 Friday 改
-              </button>
-            )}
-            {isIssue(t) && (startJob ? trs : trs.slice(1)).map((tr) => (
-              <button key={tr.id} className="b b--ghost" onClick={() => void onAct(t, () => taskTransition(t.id, tr))}>{tr.label}</button>
-            ))}
-            {isStory(t) && t.source.nodeKey && (
-              <button
-                className="b b--ghost"
-                disabled={!node?.canConfirm}
-                title={node ? (node.canConfirm ? `流转节点「${t.source.nodeName ?? ""}」` : `还差：${node.missing.join("、")}`) : "正在问 Meegle…"}
-                onClick={() => void onAct(t, () => taskConfirmNode(t.id))}
-              >
-                完成当前节点
-              </button>
-            )}
-            {/* 终端是外部 Ghostty 窗口了，「拉到前台」是常用操作，得摆在动手的这一排。
-                窗口关掉之后不是就完了——重开一个 --resume 接回原来那个 Claude 会话 */}
-            {t.source.jobId && (
-              // 后台跑的查询任务压根没开窗口，聚焦无从谈起，只能重开一个 --resume 接回去看
-              t.source.headless || t.terminal === "gone" ? (
-                <button className="b b--ghost" title={t.source.headless ? "它在后台跑，没有窗口；开一个接回同一个会话，能看到它做了什么" : "窗口已经关了，重开一个并接回原来的会话"} onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>
-                  <Icon name="terminal" />{t.source.headless ? "打开终端看" : "重开终端"}
-                </button>
-              ) : (
-                <button className="b b--ghost" title="把这条任务的终端窗口拉到前台；窗口没了就重开一个接回原会话" onClick={() => void onAct(t, () => jobFocus(t.source.jobId!))}>
-                  <Icon name="terminal" />打开终端
-                </button>
-              )
-            )}
-            <button className="b b--text" onClick={() => void onAct(t, () => taskSet(t.id, "ignore"))}>忽略</button>
-            {isStory(t) && node && !node.canConfirm && <span className="fx__miss">还差：{node.missing.join("、")}</span>}
-          </fieldset>
-          {confirming && first && (
-            <div className="fx__confirm">
-              <div className="fx__confirm-head">
-                <span className="k">将以你的身份发给 {String(first.payload.userName ?? "对方")}{first.payload.threadTs ? "（在原线程里回）" : "（私聊）"}</span>
-                <span className="fx__confirm-hint mono">⌘↵ 发送 · Esc 取消</span>
-              </div>
-              <textarea
-                className="fx__confirm-text"
-                autoFocus
-                rows={4}
-                {...ime.handlers}
-                value={sendText}
-                onChange={(e) => setSendText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setConfirming(false);
-                  if (e.key === "Enter" && e.metaKey && sendText.trim()) { e.preventDefault(); void onAct(t, () => taskApprove(t.id, first.id, sendText.trim())); }
-                }}
-              />
-              <div className="fx__confirm-acts">
-                <button className="b b--primary" disabled={!sendText.trim() || busy} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发<kbd>⌘↵</kbd></button>
-                <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
-              </div>
-            </div>
-          )}
+      {confirming && first && (
+        <div className="fx__confirm">
+          <div className="fx__confirm-head">
+            <span className="k">将以你的身份发给 {String(first.payload.userName ?? "对方")}{first.payload.threadTs ? "（在原线程里回）" : "（私聊）"}</span>
+          </div>
+          <textarea
+            className="fx__confirm-text"
+            autoFocus
+            rows={4}
+            {...ime.handlers}
+            value={sendText}
+            onChange={(e) => setSendText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setConfirming(false);
+              if (e.key === "Enter" && e.metaKey && sendText.trim()) { e.preventDefault(); void onAct(t, () => taskApprove(t.id, first.id, sendText.trim())); }
+            }}
+          />
+          <div className="fx__confirm-acts">
+            <button className="b b--primary" disabled={!sendText.trim() || busy} onClick={() => void onAct(t, () => taskApprove(t.id, first.id, sendText.trim()))}>就这么发</button>
+            <button className="b b--text" onClick={() => setConfirming(false)}>先不发</button>
+          </div>
         </div>
       )}
     </>

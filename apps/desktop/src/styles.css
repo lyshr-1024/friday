@@ -174,15 +174,12 @@ body,
   font-variant-numeric: tabular-nums;
 }
 /* 正文里的数字同样要稳：状态行、验证点计数、报告里的数量 */
-.fx__meta,
-.fx__state,
 .fx__meta-dim,
 .k,
 .li__sub,
 .grp__head,
 .rail__item,
 .q__count,
-.act,
 .levent__time {
   font-variant-numeric: tabular-nums;
 }
@@ -1847,40 +1844,10 @@ body,
   margin-bottom: var(--s-2);
   animation: rise-in var(--dur-slow) var(--ease) both;
 }
-.fx__meta {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin: calc(var(--s-6) * -1) calc(var(--s-6) * -1) 0;
-  padding: var(--s-4) var(--s-6) var(--s-2);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
-  background: var(--bg-3);
-  color: var(--fg-3);
-  font-size: var(--t-micro);
-  letter-spacing: 0.01em;
-}
-/* 状态是这一行唯一该被读到的东西，其余压成更弱的一层 */
-.fx__state {
-  color: var(--fg-2);
-  font-weight: 500;
-}
 .fx__meta-dim {
   color: var(--fg-4);
 }
-.fx__title {
-  margin: var(--s-1) 0 0;
-  font-size: var(--t-title);
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: var(--lh-title);
-  color: var(--fg-1);
-  overflow-wrap: anywhere;
-}
-/* 标题、正文、确认项里常有长路径和 URL，没有可断点会撑出卡片被裁掉；允许在任意位置断 */
-.fx__title,
+/* 正文、确认项里常有长路径和 URL，没有可断点会撑出卡片被裁掉；允许在任意位置断 */
 .fx__text,
 .fx__quote,
 .fx__check label,
@@ -1901,19 +1868,8 @@ body,
   grid-template-columns: minmax(0, 1fr);
 }
 /* 操作栏：独立的一条，和正文分开，一眼能认出这是动手的地方 */
-.fx__foot {
-  flex: none;
-  margin-top: var(--s-3);
-  /* 和 .fx 同为 --s-6，堆叠的两个面内容左边缘对齐 */
-  padding: var(--s-3) var(--s-6);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-lg);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-card);
-}
-.fx__foot .fx__acts {
-  margin-top: 0;
-}
+
+
 .fx__col {
   min-width: 0;
   display: flex;
@@ -2031,29 +1987,12 @@ body,
   font-size: var(--t-micro);
   color: var(--fg-3);
 }
-.fx__acts {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  margin-top: var(--s-6);
-}
+
 /* 操作栏是 fieldset（处理中靠 disabled 整排锁住），抹掉它自带的边框和内边距 */
-fieldset.fx__acts {
-  min-inline-size: 0;
-  margin-inline: 0;
-  padding: 0;
-  border: 0;
-}
-.fx__acts[aria-busy="true"] {
-  cursor: progress;
-}
+
+
 /* 同一行的按钮必须等高（原来主按钮 34、其余 32，两条基线） */
-.fx__acts .b--primary {
-  padding: 0 var(--s-4);
-}
-.fx__acts .fx__spacer {
-  flex: 1;
-}
+
 
 .fx__links {
   list-style: none;
@@ -2103,19 +2042,8 @@ fieldset.fx__acts {
 }
 
 /* 终端在做：从 transcript 读出来的动作流，一行一步 */
-.fx__doing {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line-1);
-}
-.fx__activity {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
+
+
 .act {
   display: flex;
   align-items: baseline;
@@ -2135,19 +2063,8 @@ fieldset.fx__acts {
   background: var(--line-3);
   transform: translateY(-1px);
 }
-.act--say {
-  color: var(--fg-3);
-}
-.act--ok i {
-  background: var(--ok);
-}
-.act--err i {
-  background: var(--bad);
-}
-.act--busy i {
-  background: var(--live);
-  animation: pulse 1.2s ease-in-out infinite;
-}
+
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -2978,38 +2895,26 @@ fieldset.fx__acts {
   max-width: var(--deck-max);
   margin: 0 auto;
 }
-/* ── 轮播：一次一条任务铺满中间，右侧一块浮着的锚点条 ──
-   分组列表换成轮播是因为「同时看见十条」在这里没有价值：
-   你每次只处理一条，看板反而让人迷茫（2026-09-17 讨论）。 */
+/* 任务页：左边一条任务的详情，右边搜索 + 列表（一次只处理一条，2026-09-17 讨论） */
 .deck {
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: var(--deck-max);
   display: flex;
-  gap: var(--s-5);
-  margin: var(--s-4) auto 0;
-  padding-right: var(--s-4);
+  gap: 16px;
+  padding: 16px 24px;
+  box-sizing: border-box;
 }
-.deck__stage {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* 对齐轴：和 .q__head 同为 --s-8 */
-  padding-left: var(--s-8);
-}
+
 /* 没有左栏了，红绿灯就在页面左上角。居中后窗口宽到两侧留白各够 88px
    （1400 + 88*2）时它就压不到正文了，让位只在那之前给 */
 @media (max-width: 1575px) {
-  .chat--norail .q__head,
-  .chat--norail .deck__stage {
+  .chat--norail .q__head {
     padding-left: 88px;
   }
 }
 
-/* 搜索：轮播没有全局视野，靠它直达 */
+/* 搜索：一次只看一条，靠它直达 */
 .find {
   flex: none;
   display: flex;
@@ -3080,198 +2985,21 @@ fieldset.fx__acts {
 }
 
 /* 一张卡占满一屏，滚一下翻一页 */
-.deck__scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scroll-snap-type: y mandatory;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.deck__scroll::-webkit-scrollbar {
-  display: none;
-}
-.deck__card {
-  position: relative;
-  height: 100%;
-  scroll-snap-align: center;
-  /* 不写 always：一次滚太多格时强制停在每一张会很粘手 */
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.deck__card .fx {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  margin-bottom: 0;
-  padding-top: 0;
-}
-.deck__card .fx::-webkit-scrollbar {
-  display: none;
-}
+
+
 /* 卡片在滚动容器里，meta 再按 -s-6 出血就会比内容盒宽出滚动条那几 px，
    撑出横向滚动并把最右边的「关注」挤出可视区。底色跟 .fx 一样，不出血看不出差别 */
-.deck__card .fx__meta {
-  margin-top: 0;
-  margin-left: 0;
-  margin-right: 0;
-  padding: var(--s-2) 0;
-}
-.deck__card .fx__foot {
-  margin-top: var(--s-2);
-  margin-bottom: var(--s-1);
-}
-.deck__scroll .empty {
-  padding-top: 96px;
-}
 
-.deck__cmd {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-4);
-  flex-wrap: wrap;
-  margin-top: var(--s-3);
-  padding: var(--s-3) 0 var(--s-4);
-  border-top: 1px solid var(--line-1);
-  font-size: var(--t-micro);
-  color: var(--fg-4);
-}
-.deck__cmd kbd {
-  padding: 0 3px;
-  border: 1px solid var(--line-1);
-  border-radius: 3px;
-  color: var(--fg-3);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-}
-.deck__sp {
-  flex: 1;
-  min-width: 0;
-}
-.deck__pos {
-  color: var(--fg-3);
-  font-variant-numeric: tabular-nums;
-}
 
 /* 锚点条：浮在版心外面。在纯黑底上阴影是看不见的，
    所以「浮起来」靠自发光——底色比页面亮一档、边发光、下方一片辉映。 */
-.anchors {
-  flex: none;
-  position: relative;
-  z-index: 3;
-  width: 248px;
-  align-self: center;
-  max-height: 76%;
-  display: flex;
-  padding: var(--s-4) var(--s-1) var(--s-4) var(--s-3);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  background: linear-gradient(160deg, var(--bg-4), var(--bg-2) 62%, var(--bg-1));
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.6),
-    0 0 18px var(--live-glow),
-    0 24px 56px rgba(0, 0, 0, 0.85),
-    inset 0 1px 0 var(--live-dim);
-}
-.anchors::after {
-  content: "";
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: -14px;
-  height: 20px;
-  background: radial-gradient(ellipse at center, var(--live-glow), transparent 72%);
-  filter: blur(5px);
-  pointer-events: none;
-}
-.anchors__scroll {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  /* 上下渐隐，滚动时不硬切。别超过 6px——第一个分组头贴着顶，
-     渐隐带太宽会把它一起削暗，看着像没渲染完 */
-  mask-image: linear-gradient(180deg, transparent, #000 6px, #000 calc(100% - 6px), transparent);
-}
-.anchors__scroll::-webkit-scrollbar {
-  display: none;
-}
-.anchors__g {
-  padding: var(--s-4) 0 var(--s-2) 2px;
-  font-size: var(--t-micro);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--fg-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.anchors__scroll > .anchors__g:first-child {
-  padding-top: 0;
-}
-.an {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--s-2);
-  align-items: start;
-  padding: 6px var(--s-2) 6px 8px;
-  border-radius: var(--r-sm);
-  cursor: default;
-  transition: background var(--dur) var(--ease);
-}
-.an:hover {
-  background: var(--bg-3);
-}
-.an:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-.an[aria-current="true"] {
-  background: var(--bg-4);
-}
-.an .dot {
-  margin-top: 5px;
-}
-.an__main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.an__t {
-  font-size: var(--t-xs);
-  color: var(--fg-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--dur) var(--ease);
-}
-.an:hover .an__t {
-  color: var(--fg-2);
-}
-.an[aria-current="true"] .an__t {
-  color: var(--fg-1);
-}
-.an__sub {
-  font-size: var(--t-micro);
-  color: var(--fg-4);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
+
 /* 名下的缺陷一次全开工 */
 .fx__pack-start {
   margin: var(--s-2) 0 0;
 }
 
-@media (max-width: 1080px) {
-  .anchors {
-    display: none;
-  }
-}
 
 .grp--side {
   margin-top: var(--s-6);
@@ -3458,15 +3186,7 @@ fieldset.fx__acts {
   font-size: var(--t-xs);
 }
 /* 关注是个状态，不是这行里的动作（动作在右键菜单）：只在已关注时显示 */
-.fx__pinned {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  color: var(--amber);
-  font-size: var(--t-micro);
-  white-space: nowrap;
-}
+
 
 /* 编辑任务的弹层 */
 .modal {
@@ -3713,7 +3433,6 @@ fieldset.fx__acts {
 /* ── 字距按 Apple tracking 表分档：SF Pro 的 optical size 在 Web 上唯一缺的一环。
    字号越小字距越正，越大越负。原来全站只有 6 处零散值，没有规律。 */
 .q__title h1 { letter-spacing: var(--tr-page); }
-.fx__title { letter-spacing: var(--tr-title); }
 .li__title,
 .fx__text,
 .fx__quote,
@@ -3725,8 +3444,7 @@ fieldset.fx__acts {
 .row__meta,
 .q__sub { letter-spacing: var(--tr-aux); }
 .mono,
-.li--empty,
-.fx__meta { letter-spacing: var(--tr-micro); }
+.li--empty { letter-spacing: var(--tr-micro); }
 
 /* ── 对方原话：证据在摘要之前。用户要对产出负责，判断依据不能藏在折叠里。
    基础面保持平（GPUI：Elevation 只解释叠放，不表达重要程度）。 */
@@ -3927,23 +3645,7 @@ fieldset.fx__acts {
 }
 
 /* 后果预览：不可逆的动作点下去会发生什么，就在按钮上方说清楚 */
-.fx__consequence {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-2);
-  margin-bottom: var(--s-3);
-  padding-bottom: var(--s-3);
-  border-bottom: 1px solid var(--line-1);
-  color: var(--fg-2);
-  font-size: var(--t-aux);
-  letter-spacing: var(--tr-aux);
-  line-height: var(--lh-aux);
-}
-.fx__consequence .icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--amber);
-}
+
 
 /* ── 「N 个终端在跑」可点关闭。破坏性动作先问一句（GPUI：有后果的操作要确认，
    按钮用结果词不用「确认」）。 */
@@ -4292,10 +3994,7 @@ fieldset.fx__acts {
 .fx__rline:empty {
   height: 8px;
 }
-.fx__miss {
-  color: var(--fg-3);
-  font-size: 11px;
-}
+
 
 .fx__undo {
   display: flex;
@@ -4976,130 +4675,6 @@ body:has(.hud)::-webkit-scrollbar {
    活的东西发光。骨架用它，但不做旋转环和扫描线——那是电影特效，
    每天用八小时会累。 */
 
-/* 卡片：一圈发光描边，还在推进的事上有一道光巡回 */
-.deck__card .fx {
-  position: relative;
-  border: 1px solid var(--line-2);
-  border-radius: 2px;
-  background: linear-gradient(160deg, rgba(13, 28, 36, 0.5), rgba(4, 9, 13, 0.4) 62%, transparent);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(95, 227, 255, 0.07),
-    inset 0 1px 0 rgba(95, 227, 255, 0.14);
-  padding-left: var(--s-5);
-  padding-right: var(--s-5);
-}
-/* 静态：顶边一道高光，标出这是一张卡 */
-.deck__card .fx::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  top: -1px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--live), transparent);
-  opacity: 0.18;
-  pointer-events: none;
-  z-index: 1;
-}
-/*
- * 终端正在干活：一道光绕着整个边框跑一圈。
- * 做法是一个铺满卡片的 conic-gradient 在转，再用两层 mask 相减只留边框
- * 那一圈——比给四条边各做一个动画省事，拐角也接得上。
- */
-/*
- * 挂在 .deck__card 上而不是 .fx：.fx 是 overflow-y:auto 的滚动容器，绝对定位的
- * 伪元素会跟着内容滚走、负 inset 也会被裁掉。card 里除了 .fx 还有底部操作栏
- * （.fx__foot 自带边框圆角，是独立一块），所以下边界收到操作栏上沿，
- * 靠 --foot 这个变量传高度，没有操作栏时是 0。
- */
-.deck__card:has(.fx--live)::after {
-  content: "";
-  position: absolute;
-  /* 四边归零：环要和 .fx 自己那条 1px 边框重合。
-     原来用 -1px 往外扩，结果贴在边框外侧一格、又正好落在 .deck__scroll
-     （overflow:auto）的裁剪线外——左右顶三条边被整个切掉，只剩底边露在外面。 */
-  left: 0;
-  right: 0;
-  top: 0;
-  /* --foot 由 Board 量出来写进来：卡片底到 .fx 底的实际距离，
-     没有操作栏时是 0。环的底边因此正好压在 .fx 的下边框上。 */
-  bottom: var(--foot, 0px);
-  border-radius: 2px;
-  /* 1px：跟卡片自己的边框同宽，像边框亮起来了而不是多贴了一条带子。
-     细到这个程度还能一眼看见，靠的是下面那道发光而不是线宽。 */
-  padding: 1px;
-  /* 终端还开着就一直有光绕着跑，不分它在不在敲——要表达的是「这条有窗口」，
-     忙不忙下面「终端在做」那段已经在说了。终端没了（gone）整圈才消失。
-     底色透明：只留转动的那一段，扫过之后其余几条边就空着，不垫常亮兜底。 */
-  background:
-    conic-gradient(
-      from var(--ang),
-      var(--live-0) 0deg,
-      var(--live-0) 200deg,
-      var(--live) 300deg,
-      var(--live-hi) 340deg,
-      var(--live) 350deg,
-      var(--live-0) 360deg
-    );
-  opacity: 1;
-  /* 线收到 1px 之后光晕要加厚，否则远看就没了 */
-  filter: drop-shadow(0 0 8px var(--live));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 1;
-}
-@property --ang {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .deck__card:has(.fx--live)::after {
-    animation: hud-orbit 3.2s linear infinite;
-  }
-  @keyframes hud-orbit {
-    to { --ang: 360deg; }
-  }
-}
-/* 关了动效：两档都是整圈常亮，只能靠亮度分——在敲的满亮带光晕，
-   开着在等你的压到 0.3 且不发光 */
-@media (prefers-reduced-motion: reduce) {
-  .deck__card:has(.fx--live)::after {
-    background: var(--live);
-    opacity: 0.85;
-  }
-}
-
-/* 标题：等宽大字，带辉光 */
-.deck__card .fx__title {
-  color: var(--fg-1);
-  text-shadow: 0 0 18px rgba(95, 227, 255, 0.28);
-}
-/* 状态行：全大写字距拉开，活动态发光 */
-.deck__card .fx__state {
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-size: var(--t-micro);
-  color: var(--live);
-  text-shadow: 0 0 8px var(--live-dim), 0 0 18px var(--live-glow);
-}
-.deck__card .fx__meta-dim {
-  letter-spacing: 0.1em;
-}
-
-/* 字段标签（情境 / Friday 的建议 / MEEGLE …）：HUD 的键名样式 */
-.deck__card .k {
-  letter-spacing: 0.22em;
-  color: var(--live-solid);
-  border: 0;
-  padding: 0;
-  font-weight: 400;
-}
-
 /* 信标：圆点换菱形，活的会呼吸 */
 .dot {
   border-radius: 0;
@@ -5120,93 +4695,6 @@ body:has(.hud)::-webkit-scrollbar {
   }
 }
 
-/* 顶部读数条：把「几件」换成仪表盘 */
-.gauges {
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-  gap: 0;
-  /* 和 .deck 用同一个盒子：整块占满版心，左右内边距在盒内留出对齐轴，
-     右边缘因此天然和轮播齐平。边框和格线都画在 .g 上，免得横跨到内边距里 */
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--deck-max);
-  margin: 0 auto var(--s-4);
-  padding: 0 var(--s-4) 0 var(--s-8);
-}
-@media (max-width: 1575px) {
-  .chat--norail .gauges {
-    padding-left: 88px;
-  }
-}
-.g {
-  padding: var(--s-3) var(--s-3) var(--s-2);
-  background: var(--bg-1);
-  border: 1px solid var(--line-1);
-  border-width: 1px 0 1px 1px;
-}
-.g:first-child {
-  border-left-width: 0;
-}
-/* 最左一格的读数要落在标题那条轴上，最右一格靠右边缘 */
-.g:first-child {
-  padding-left: 0;
-}
-.g:last-child {
-  padding-right: 0;
-}
-.g__k {
-  margin-bottom: 5px;
-  font-size: var(--t-micro);
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--fg-3);
-}
-.g__v {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--fg-2);
-  font-variant-numeric: tabular-nums;
-}
-.g__v .u {
-  font-size: var(--t-micro);
-  letter-spacing: 0.14em;
-  color: var(--fg-4);
-}
-.g--hot .g__v {
-  color: var(--live);
-  text-shadow: 0 0 8px var(--live-dim), 0 0 22px var(--live-glow);
-}
-.g--warn .g__v {
-  color: var(--amber);
-  text-shadow: 0 0 8px rgba(255, 179, 71, 0.5);
-}
-.g--bad .g__v {
-  color: var(--red);
-  text-shadow: 0 0 8px rgba(255, 107, 74, 0.5);
-}
-.g__bar {
-  position: relative;
-  height: 2px;
-  margin-top: 7px;
-  overflow: hidden;
-  background: var(--line-1);
-}
-.g__bar i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  display: block;
-  background: var(--live-solid);
-}
-.g--hot .g__bar i {
-  background: var(--live);
-  box-shadow: 0 0 8px var(--live-glow);
-}
-.g--warn .g__bar i { background: var(--amber); }
-.g--bad .g__bar i { background: var(--red); }
 
 /* 品牌字 */
 .rail__brand {
@@ -5450,44 +4938,6 @@ body:has(.hud)::-webkit-scrollbar {
   -webkit-backdrop-filter: blur(6px);
 }
 
-/* 读数条那五格、轮播里的任务卡、右侧锚点栏：这三处都是按纯色底调的实心面板，
-   铺了图之后边缘显得很硬（用户反馈「这两块还是这么尖锐」）。统一改成：
-   跟着 --veil-floor 半透 + 圆角 + 模糊，让它们落在图上而不是切在图上。 */
-/* 读数条：.gauges 是占满版心的布局盒（left 50 / right 1450），而看得见的格子
-   .g 只从 138 排到 1166——圆角加在 .gauges 上等于加在两边的空白内边距上，
-   格子本身仍然是直角。所以底和圆角都要画在 .g 这一层，并且让整条的
-   左右边缘对齐下面 .find / .fx 那根 138 的轴。 */
-/* 读数条原本和 .deck__stage 共用同一套 padding（含窄窗时让开红绿灯的 88px），
-   本来就是对齐的——不要去动它的盒子。这里只让右边缘停在锚点栏左侧，
-   跟下面的 .find / 卡片同宽。 */
-:root[data-bg="on"] .gauges {
-  padding-right: calc(var(--s-4) + 248px + var(--s-5));
-}
-:root[data-bg="on"] .g {
-  background: color-mix(in srgb, var(--bg-1) calc(var(--veil-floor) * 100%), transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  /* 边框用前景色兑出来：--line-* 是给纯色底调的冷灰，压在图上跟画面完全不搭 */
-  border-color: color-mix(in srgb, var(--fg-1) 12%, transparent);
-  padding-left: var(--s-3);
-  padding-right: var(--s-3);
-}
-/* 整条只在两头收圆，中间那几格保持平接，看起来是一条而不是五个盒子 */
-:root[data-bg="on"] .g:first-child {
-  border-left-width: 1px;
-  border-top-left-radius: var(--r-md);
-  border-bottom-left-radius: var(--r-md);
-}
-:root[data-bg="on"] .g:last-child {
-  border-right-width: 1px;
-  border-top-right-radius: var(--r-md);
-  border-bottom-right-radius: var(--r-md);
-}
-
-:root[data-bg="on"] .deck__card .fx {
-  border-radius: var(--r-lg);
-}
-
 /* 右侧锚点栏：那圈纯黑描边和青色辉光是给纯色底调的，压在图上就是一道生硬的黑边 */
 :root[data-bg="on"] .anchors {
   background: color-mix(in srgb, var(--bg-2) calc(min(1, var(--veil-floor) + 0.08) * 100%), transparent);
@@ -5500,10 +4950,6 @@ body:has(.hud)::-webkit-scrollbar {
     inset 0 1px 0 color-mix(in srgb, var(--fg-1) 8%, transparent);
 }
 
-/* 面板下方那道青色辉光是给纯色底加的，压在图上会变成一圈没来由的光晕 */
-:root[data-bg="on"] .anchors::after {
-  opacity: 0.35;
-}
 
 /* 幽灵按钮（问 Friday 那个）本来是 background:none，只靠边框。压在图上就是
    一圈没有面的矩形缝——补一层与面板同源的底，让它也落在图上。 */
@@ -5603,11 +5049,112 @@ body:has(.hud)::-webkit-scrollbar {
   --term-bright-white: #f0f2f5;
 }
 .term { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.term__tabs { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-xs); }
+.term__tabs { display: flex; align-items: center; gap: var(--s-1); font-size: 11.5px; }
 .term__tab { padding: 4px 10px; border-radius: 6px 6px 0 0; color: var(--fg-3); background: none; border: 1px solid transparent; border-bottom: none; font: inherit; cursor: default; }
 .term__tab[aria-current="true"] { background: rgba(56, 214, 255, 0.10); border-color: rgba(56, 214, 255, 0.16); color: var(--fg-1); }
-.term__tab--add { color: var(--fg-4); }
-.term__body { flex: 1; min-height: 0; border: 1px solid rgba(56, 214, 255, 0.16); border-radius: 0 var(--r-md) var(--r-md) var(--r-md); background: var(--term-bg); padding: 10px 12px; }
+.term__tab--add { padding: 4px 8px; color: var(--fg-4); }
+.term__body { flex: 1; min-height: 0; border: 1px solid rgba(56, 214, 255, 0.16); border-radius: 0 var(--r-md) var(--r-md) var(--r-md); background: var(--term-bg); padding: 16px 18px; }
 .term__body .xterm { height: 100%; }
+.term__body .xterm .xterm-viewport { background-color: var(--term-bg); }
 .term__find { position: absolute; top: 8px; right: 12px; display: flex; gap: var(--s-1); }
 .term__dead { padding: var(--s-4); color: var(--fg-3); }
+
+/* ════ 任务页（2026-09-29 详情翻转，值取自设计稿 Main / Card.dc.html）════ */
+.deck__one { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.deck__one > .empty { padding-top: 96px; }
+.side { width: 380px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.side .find { margin: 0; gap: 10px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(56, 214, 255, 0.14); background: rgba(8, 13, 20, 0.82); font-size: 12px; }
+.side .find__k { font-size: 11px; letter-spacing: 0.12em; color: var(--fg-4); }
+.side .find input { font-size: 12px; }
+.q__acts { display: inline-flex; align-items: center; gap: var(--s-2); margin-left: var(--s-2); align-self: center; }
+.ledger__for { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-4); color: var(--fg-3); font-size: var(--t-xs); }
+
+.anchors { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 8px; border-radius: 12px; border: 1px solid rgba(56, 214, 255, 0.14); background: rgba(8, 13, 20, 0.82); font-size: 12.5px; }
+.anchors__scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: 2px; }
+.anchors__scroll::-webkit-scrollbar { display: none; }
+.anchors__g { padding: 12px 12px 4px; font-size: 11px; letter-spacing: 0.08em; color: var(--fg-4); }
+.anchors__scroll > .anchors__g:first-child { padding-top: 6px; }
+.an { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: 8px; cursor: default; transition: background var(--dur) var(--ease); }
+.an:hover { background: rgba(56, 214, 255, 0.05); }
+.an:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.an[aria-current="true"] { background: rgba(56, 214, 255, 0.10); }
+.an .sdot { margin-top: 5px; }
+.an--child { padding: 6px 12px 6px 30px; }
+.an--child .sdot { width: 6px; height: 6px; }
+.an--child .sdot--none, .an--child .sdot--idle { background: var(--fg-3); }
+.an__main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.an__t { font-size: 12.5px; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an--none .an__t, .an--child .an__t { color: var(--fg-2); }
+.an__sub { font-size: 11.5px; color: var(--fg-3); }
+.an--asking .an__sub { color: #ff9aa4; }
+.an--deciding .an__sub, .an--awaiting .an__sub { color: #f2b144; }
+.an--child .an__sub { color: var(--fg-3); }
+.anchors__done { flex: none; margin-top: auto; padding: 10px 12px 4px; border: none; border-top: 1px solid rgba(255, 255, 255, 0.06); background: none; color: var(--fg-4); font: inherit; font-size: 11.5px; text-align: left; cursor: default; }
+.anchors__done:hover { color: var(--fg-2); }
+.anchors__done:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+.th { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 10px; }
+.th__meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--fg-3); }
+.th__state { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+.th__state--asking, .th__state--blocked { color: #ff5d6c; }
+.th__state--working { color: #38d6ff; }
+.th__state--awaiting, .th__state--deciding { color: #f2b144; }
+.th__state--exited { color: var(--fg-3); }
+.th__sep { margin-right: 10px; color: var(--fg-4); }
+.th__sp { flex: 1; }
+.th__pin { background: none; border: none; color: var(--fg-4); font: inherit; cursor: default; }
+.th__pin.is-on { color: #f2b144; }
+.th__pin:focus-visible, .th__detail:focus-visible, .th__btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.th__title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.th__title h2 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 22px; font-weight: 600; color: var(--fg-1); letter-spacing: -0.01em; }
+.th__detail { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); background: transparent; color: var(--fg-2); font-size: 11.5px; font-family: inherit; cursor: default; }
+.th__detail .icon { width: 12px; height: 12px; }
+.th__hint { flex: none; font-size: 11.5px; color: var(--fg-4); }
+.th__branch { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11.5px; color: var(--fg-4); }
+.th__btn { padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); background: transparent; color: var(--fg-2); font-size: 11.5px; font-family: inherit; cursor: default; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.sdot--asking, .sdot--blocked { background: #ff5d6c; }
+.sdot--working { background: #38d6ff; box-shadow: 0 0 8px #38d6ff; }
+.sdot--awaiting, .sdot--deciding { background: #f2b144; }
+.sdot--exited { border: 1.5px solid var(--fg-3); box-sizing: border-box; }
+.sdot--idle, .sdot--none { background: rgba(125, 139, 153, 0.35); }
+.detail { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid rgba(56, 214, 255, 0.14); background: rgba(8, 13, 20, 0.82); overflow: hidden; }
+.detail__term { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 20px 16px; }
+.detail__card { flex: 1; min-height: 0; overflow: auto; margin: 0 20px 16px; }
+.detail__card > .fx { border: none; background: none; box-shadow: none; padding: 0; animation: none; }
+.detail__card--auto { border: 1px solid rgba(56, 214, 255, 0.16); border-radius: 8px; background: rgba(5, 8, 12, 0.6); padding: 18px 22px; }
+.fx__ledger, .ac__ledger { font-size: 11.5px; color: var(--fg-4); text-decoration: none; }
+.fx__ledger { display: inline-block; margin-top: var(--s-4); }
+.fx__ledger:hover, .ac__ledger:hover { color: var(--fg-2); }
+
+.ac { display: flex; gap: 28px; min-height: 100%; }
+.ac__left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.ac__right { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px; }
+.ac__sec { display: flex; flex-direction: column; gap: 8px; }
+.ac__k { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-4); }
+.ac__k--row { display: flex; align-items: center; }
+.ac__k--gap { margin-top: 4px; }
+.ac__kv { letter-spacing: 0; color: var(--fg-3); }
+.ac__text { font-size: 12.5px; color: var(--fg-2); line-height: 1.7; }
+.ac__text--dim { color: var(--fg-3); }
+.ac__pend { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(242, 177, 68, 0.35); background: rgba(242, 177, 68, 0.06); }
+.ac__pend-t { color: var(--fg-1); }
+.ac__pend-d { font-size: 12px; color: var(--fg-2); }
+.ac__checks { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--fg-2); }
+.ac__checks label { display: flex; gap: 10px; align-items: flex-start; }
+.ac__checks input { margin-top: 3px; }
+.ac__files { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ac__file { padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08); color: var(--fg-2); }
+.ac .stage { margin: 0; }
+.ac .stage__row { gap: 6px; }
+.ac .stage__step { padding: 5px 12px; border-radius: 6px; border-color: rgba(255, 255, 255, 0.10); color: var(--fg-3); font-size: 12px; }
+.ac .stage__step.is-on { border-color: rgba(56, 214, 255, 0.4); background: rgba(56, 214, 255, 0.10); color: var(--fg-1); font-weight: 400; }
+.ac__meegle { font-size: 11.5px; color: var(--fg-4); }
+.ac__add { background: none; border: none; padding: 0; color: var(--fg-3); font: inherit; font-size: 11px; letter-spacing: 0; cursor: default; }
+.ac__docs { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.ac__docs a { display: flex; gap: 8px; align-items: baseline; color: var(--fg-2); text-decoration: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ac__src { font-size: 11px; color: var(--fg-4); }
+.ac__right .fx__slack { margin: 0; }
+.ac__sp { flex: 1; }
+.ac .attach { margin: 0; }
+.ac .attach__img { width: 140px; height: 84px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); }

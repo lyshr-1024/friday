@@ -98,6 +98,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     term.attachCustomKeyEventHandler((e) => {
       if (composing || e.isComposing || e.keyCode === 229) return false;
       if (e.type !== "keydown" || !e.metaKey) return true;
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") return false;
       const k = e.key.toLowerCase();
       const act = (fn: () => unknown) => { e.preventDefault(); void Promise.resolve(fn()).then(refreshWindows); return false; };
       if (k === "t") return act(() => newSessionWindow(sessionId));
