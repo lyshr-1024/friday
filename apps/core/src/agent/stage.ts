@@ -27,7 +27,8 @@ export function isStrong(signal: string, score: { confirmed: number; rejected: n
  * 这些信号是本机能直接看到的事实，不依赖别人及时更新，所以直接推。
  * MR 建了、Slack 里说验收通过这些不在里面——前者不等于提测，后者依赖对方发言。
  */
-export const STRONG_SIGNALS = new Set(["branch_commit", "terminal_delivered", "user_said"]);
+// meegle_in_testing 也算：缺陷的当前负责人换成了测试，这是 Meegle 里已经发生的流转，不是等谁去更新状态
+export const STRONG_SIGNALS = new Set(["branch_commit", "terminal_delivered", "user_said", "meegle_in_testing"]);
 
 export interface StageSignal {
   signal: string;

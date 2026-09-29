@@ -1,4 +1,5 @@
 import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
+import { onSignal } from "./stage.js";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
@@ -43,7 +44,15 @@ export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me
 }
 
 /** Meegle 里的终态：关了的需求不必再拉进来当容器，关了的工单直接收工。 */
-const CLOSED_STATUS = /^(CLOSED|RESOLVED|DONE|CANCELLED)$/i;
+/**
+ * 终态，跟你 Meegle 视图里勾掉的那几个一致（2026-09-29：已解决 / 已关闭 / 已终止 / WON'T FIX）。
+ * 自定义状态的 key 是随机码（WON'T FIX 是 TPivPPL9-，已终止是 systemEnded），所以名称和 key 都认，中英文界面都认。
+ */
+const DONE_KEYS = new Set(["closed", "resolved", "done", "cancelled", "systemended"]);
+const DONE_NAMES = /^(closed|resolved|done|cancelled|terminated|won'?t fix|已关闭|已解决|已终止)$/i;
+export const isDoneStatus = (key: string, name = "") => DONE_KEYS.has(key.toLowerCase()) || DONE_NAMES.test(name.trim());
+/** 缺陷流到测试手上了：不是你的待办了，但也还没完 */
+const TESTING_NAMES = /^(in testing|测试中)$/i;
 
 /**
  * 同一个需求下已经有一条在问归属了吗。有就别再问第二遍——答案是同一个。
@@ -107,7 +116,7 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     }
     const story = await connector.getWorkItem(projectKey, storyId);
     if (!story) continue;
-    if (CLOSED_STATUS.test(story.statusKey)) continue;
+    if (isDoneStatus(story.statusKey, story.status)) continue;
     const roles = myRoles(story.roles, me);
     if (!roles.length) continue;
     const projects = loadProjects();
@@ -364,10 +373,14 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       }
       // 缺陷没有「FE 发布」节点，只等它就永远收不掉（实测 21 条 CLOSED 的缺陷一直挂着，
       // 还把名下的需求容器每 15 分钟复活一次）。已经到终态的不必再等。
-      if (now && CLOSED_STATUS.test(now.statusKey)) {
-        await finishTask(t.id, "done", `Meegle 里已经是 ${now.statusKey}`, { keepTerminal: true });
-        record({ taskId: t.id, action: "meegle_done", why: `Meegle 里已经是 ${now.statusKey}`, how: "工单已关闭，收工", evidence: { meegleId: t.source.meegleId }, risk: "read" });
+      if (now && isDoneStatus(now.statusKey, now.status)) {
+        await finishTask(t.id, "done", `Meegle 里已经是 ${now.status || now.statusKey}`, { keepTerminal: true });
+        record({ taskId: t.id, action: "meegle_done", why: `Meegle 里已经是 ${now.status || now.statusKey}`, how: "工单已到终态，收工", evidence: { meegleId: t.source.meegleId, statusKey: now.statusKey }, risk: "read" });
         closed++;
+        continue;
+      }
+      if (now && t.source.meegleType === "issue" && TESTING_NAMES.test(now.status.trim())) {
+        onSignal(t.id, { signal: "meegle_in_testing", to: "testing", ask: "已经提测了？", why: `Meegle 里流转到 ${now.status}，当前负责人已不是你` });
         continue;
       }
       if (!(await connector.feReleased(t.source.meegleProject, t.source.meegleId))) continue;

@@ -347,7 +347,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
   const gone = (feDone: boolean) =>
     ({
       fetchWorkItems: async () => [],
-      getWorkItem: async () => ({ name: "需求", statusKey: "Testing", roles: [] }),
+      getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing", roles: [] }),
       feReleased: async () => feDone,
     }) as never;
 
@@ -372,7 +372,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     const bug = mkTask({ title: "缺陷 b4", kind: "meegle", source: { meegleId: "b4", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s4" }, status: "understood" });
     const conn = {
       fetchWorkItems: async () => [],
-      getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", roles: [] }),
+      getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed", roles: [] }),
       feReleased: async () => false,
       myKey: async () => "me",
     } as never;
@@ -389,7 +389,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
 
   const testing = {
     fetchWorkItems: async () => [],
-    getWorkItem: async () => ({ name: "缺陷", statusKey: "F1y9rIHhh", roles: [] }),
+    getWorkItem: async () => ({ name: "缺陷", statusKey: "F1y9rIHhh", status: "In Testing", roles: [] }),
     feReleased: async () => false,
     myKey: async () => "me",
   } as never;
@@ -459,5 +459,46 @@ describe("贴链接手动加工单", () => {
     const conn = { fetchOne: async () => { throw new Error("不该被调用"); } } as never;
     const r = await addMeegleByRef("待办里没有这个需求", conn);
     expect(r).toHaveProperty("error");
+  });
+});
+
+describe("缺陷掉出分派列表之后：按你视图的终态收工，测试中的挪到「测试中」", () => {
+  /** 分派列表为空，单查这条时 Meegle 返回的状态由参数决定 */
+  const now = (statusKey: string, status: string) =>
+    ({
+      fetchWorkItems: async () => [],
+      getWorkItem: async () => ({ name: "缺陷", statusKey, status, roles: [] }),
+      feReleased: async () => false,
+    }) as never;
+  const defect = (id: string) =>
+    mkTask({ title: `缺陷 ${id}`, kind: "meegle", source: { meegleId: id, meegleProject: "p1", meegleType: "issue", statusKey: "OPEN" }, status: "understood", stage: "todo" });
+
+  it("WON'T FIX 的 key 是随机码，按名称认出来收工", async () => {
+    const t = defect("s-wf");
+    await syncOnce(now("TPivPPL9-", "WON'T FIX"));
+    expect(readTask(t.id)!.status).toBe("done");
+  });
+
+  it("Terminated（systemEnded）和 Resolved 也收工", async () => {
+    const a = defect("s-term");
+    await syncOnce(now("systemEnded", "Terminated"));
+    expect(readTask(a.id)!.status).toBe("done");
+    const b = defect("s-res");
+    await syncOnce(now("RESOLVED", "Resolved"));
+    expect(readTask(b.id)!.status).toBe("done");
+  });
+
+  it("流转到 In Testing（当前负责人是测试）：不收工、不再算待办，阶段推到「测试中」", async () => {
+    const t = defect("s-test");
+    await syncOnce(now("F1y9rIHhh", "In Testing"));
+    const after = readTask(t.id)!;
+    expect(after.status).toBe("understood");
+    expect(after.stage).toBe("testing");
+  });
+
+  it("遗留问题、打包部署这类没勾的状态：不收工也不动阶段", async () => {
+    const t = defect("s-legacy");
+    await syncOnce(now("MG7yKUvQE", "Legacy issue"));
+    expect(readTask(t.id)).toMatchObject({ status: "understood", stage: "todo" });
   });
 });

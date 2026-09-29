@@ -349,7 +349,7 @@ export class MeegleConnector implements Connector {
    * 单独拉一条工单（不经 mywork todo，所以没分派给我的也能拿到）。
    * 用来看缺陷关联的那个需求里有没有我的角色。
    */
-  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; statusKey: string; roles: Array<{ role: string; memberKeys: string[] }> } | undefined> {
+  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; statusKey: string; status: string; roles: Array<{ role: string; memberKeys: string[] }> } | undefined> {
     try {
       const d = await runJson<WorkItem>(this.bin, [
         "workitem", "get",
@@ -362,6 +362,7 @@ export class MeegleConnector implements Connector {
       return {
         name: a.work_item_name.trim(),
         statusKey: a.work_item_status.key ?? "",
+        status: a.work_item_status.name,
         roles: (a.role_members ?? []).map((r) => ({ role: r.name, memberKeys: r.members.map((m) => m.key).filter((k): k is string => Boolean(k)) })),
       };
     } catch {
