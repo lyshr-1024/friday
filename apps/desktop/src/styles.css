@@ -5578,3 +5578,36 @@ body:has(.hud)::-webkit-scrollbar {
 .okr__why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .okr__used { font-size: var(--t-sm); color: var(--fg-3); }
 .okr__used ul { margin: var(--s-2) 0 0; padding-left: 1.2em; }
+
+/* 终端 ANSI 16 色必须给全：缺的会落到 xterm 内置 Tango，那套配紫底，放深底上 blue / magenta 对比度只有 2:1。不随主题走：Claude Code 自带深色 diff 底 */
+:root {
+  --term-bg: #05080c;
+  --term-fg: #e8eaee;
+  --term-cursor: #38d6ff;
+  --term-sel: rgba(56, 214, 255, 0.25);
+  --term-black: #1a1c21;
+  --term-red: #f07178;
+  --term-green: #98c379;
+  --term-yellow: #e5c07b;
+  --term-blue: #61afef;
+  --term-magenta: #c678dd;
+  --term-cyan: #56b6c2;
+  --term-white: #c8ccd4;
+  --term-bright-black: #585e6a;
+  --term-bright-red: #ff7b72;
+  --term-bright-green: #b5e890;
+  --term-bright-yellow: #ffd58a;
+  --term-bright-blue: #82c7ff;
+  --term-bright-magenta: #dba0f0;
+  --term-bright-cyan: #7fdbe8;
+  --term-bright-white: #f0f2f5;
+}
+.term { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.term__tabs { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-xs); }
+.term__tab { padding: 4px 10px; border-radius: 6px 6px 0 0; color: var(--fg-3); background: none; border: 1px solid transparent; border-bottom: none; font: inherit; cursor: default; }
+.term__tab[aria-current="true"] { background: rgba(56, 214, 255, 0.10); border-color: rgba(56, 214, 255, 0.16); color: var(--fg-1); }
+.term__tab--add { color: var(--fg-4); }
+.term__body { flex: 1; min-height: 0; border: 1px solid rgba(56, 214, 255, 0.16); border-radius: 0 var(--r-md) var(--r-md) var(--r-md); background: var(--term-bg); padding: 10px 12px; }
+.term__body .xterm { height: 100%; }
+.term__find { position: absolute; top: 8px; right: 12px; display: flex; gap: var(--s-1); }
+.term__dead { padding: var(--s-4); color: var(--fg-3); }
