@@ -1,3 +1,4 @@
+import { rmSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { addRule } from "../memory/rules.js";
 import { terminalBridgePrompt } from "./prompt.js";
@@ -17,5 +18,16 @@ describe("交互式终端的 system prompt 带项目手册", () => {
     const sys = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
     expect(sys(claudeArgs(files, false, "demo-proj"))).toContain("ghost button");
     expect(sys(claudeArgs(files, true, "demo-proj"))).not.toContain("ghost button");
+  });
+});
+
+describe("交互式终端的 system prompt 点名回复语言", () => {
+  it("调完 Friday 工具之后的汇报也用你的常用语言", () => {
+    writeFileSync(process.env.FRIDAY_CLAUDE_SETTINGS!, JSON.stringify({ language: "chinese" }));
+    try {
+      expect(terminalBridgePrompt()).toMatch(/一律用中文[\s\S]*friday_\* 工具之后/);
+    } finally {
+      rmSync(process.env.FRIDAY_CLAUDE_SETTINGS!, { force: true });
+    }
   });
 });

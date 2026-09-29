@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
@@ -179,4 +180,20 @@ describe("项目明确之后只做决定和转发", () => {
     expect(toFriday).not.toContain("没读过这个项目的代码");
   });
 
+});
+
+describe("Friday 工具的返回提醒回复语言", () => {
+  it("friday_done / friday_blocked / friday_progress 的返回末尾带一句用中文汇报", async () => {
+    writeFile(process.env.FRIDAY_CLAUDE_SETTINGS!, JSON.stringify({ language: "chinese" }));
+    try {
+      createJob({ id: "job-lang", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log" });
+      createTask({ title: "demo：lang", kind: "code", source: { jobId: "job-lang" }, project: "demo", status: "processing" });
+      for (const [name, args] of [["friday_progress", { text: "进展" }], ["friday_done", { summary: "好了", testResult: "过" }], ["friday_blocked", { reason: "卡了" }]] as const) {
+        const r = (await (await rpc("job-lang", "tools/call", { name, arguments: args })).json()) as { result: { content: Array<{ text: string }> } };
+        expect(r.result.content[0]!.text).toContain("用中文");
+      }
+    } finally {
+      rmFile(process.env.FRIDAY_CLAUDE_SETTINGS!, { force: true });
+    }
+  });
 });

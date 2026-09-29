@@ -15,6 +15,10 @@ import { readResearchNote } from "../memory/research.js";
 import { say, closeJobTerminal } from "./terminal.js";
 import { currentBranchSync } from "./git.js";
 import { finishTask } from "./pipeline.js";
+import { replyLanguageLine } from "./lang.js";
+
+/** 贴在工具返回末尾：工具调用之后那段汇报最容易换成英文 */
+const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, recordRound } from "./runLog.js";
 
 const execFileP = promisify(execFile);
@@ -240,7 +244,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     // 分支起好了就是真的动手了，这条信号本机可查，直接推到「进行中」
     if (branch) onSignal(task.id, { signal: "branch_commit", to: "dev", ask: "开始动手了？", why: `终端在 ${branch} 上干活` });
     setJobMessage(jobId, text);
-    return { text: "记下了，用户能在任务卡上看到。" };
+    return { text: `记下了，用户能在任务卡上看到。${lang()}` };
   }
 
   if (name === "friday_done") {
@@ -265,7 +269,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       notify(t, job, "这轮做完了，等你看", report.summary, "finished");
       // 窗口不关：一个任务常要来回好几轮，用户看完多半就在这个窗口里接着追问。
       // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
-      return { text: "已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。" };
+      return { text: `已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。${lang()}` };
     }
     let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     closeRun(jobId, "report");
@@ -306,7 +310,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;
     record({ taskId: t.id, action: "terminal_blocked", why: "终端里的 Claude Code 报告卡住", how: reason, evidence: { jobId }, risk: "read" });
     notify(t, job, "卡住了，需要你", reason, "blocked");
-    return { text: "已通知用户，等用户处理。" };
+    return { text: `已通知用户，等用户处理。${lang()}` };
   }
 
   return { text: `没有这个工具：${name}`, isError: true };

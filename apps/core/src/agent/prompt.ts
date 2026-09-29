@@ -1,6 +1,7 @@
 import type { RawItem } from "../connectors/news.js";
 import type { MemoryContext } from "../memory/context.js";
 import { handbookBlock } from "../memory/rules.js";
+import { replyLanguageLine } from "./lang.js";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
@@ -85,6 +86,7 @@ export function terminalBridgePrompt(project?: string): string {
     "friday_finish：整条任务收工，只在 MR 已经合并、本地 worktree 也清理完之后调，Friday 会标完成并关掉这个终端。提测了、MR 还没合都不算，用 friday_done。",
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
     "不要 push、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。",
+    `${replyLanguageLine()}，调完 friday_* 工具之后给用户的汇报、等完后台任务之后的总结也一样——这两个时刻最容易不自觉换成英文。`,
     `分支名：${BRANCH_RULE}`,
     ...(handbook ? ["", "用户在这个项目里的习惯和口径（从他过去的纠正里提炼的，照着做）：", handbook] : []),
   ].join("\n");
