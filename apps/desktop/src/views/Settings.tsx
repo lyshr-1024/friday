@@ -128,6 +128,21 @@ export function Settings() {
       <h1 className="settings__title">Friday 设置</h1>
 
       <section>
+        <h2>自主开工</h2>
+        <div className="group">
+          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握 ≥80）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时最多 1 条、每天最多 3 条；合并前照旧要你点头">
+            <button
+              className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
+              role="switch"
+              aria-checked={!!prefs?.autonomous}
+              disabled={!prefs}
+              onClick={() => prefs && void updateSettings({ autonomous: !prefs.autonomous }).then(setPrefs)}
+            />
+          </Row>
+        </div>
+      </section>
+
+      <section>
         <h2>记忆库</h2>
         <div className="group">
           {MEMORY_FILES.map((f) => (
@@ -291,15 +306,6 @@ export function Settings() {
             aria-checked={!!prefs?.learnHistory}
             disabled={!prefs}
             onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
-          />
-        </Row>
-        <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握 ≥80）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时最多 1 条、每天最多 3 条；合并前照旧要你点头">
-          <button
-            className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
-            role="switch"
-            aria-checked={!!prefs?.autonomous}
-            disabled={!prefs}
-            onClick={() => prefs && void updateSettings({ autonomous: !prefs.autonomous }).then(setPrefs)}
           />
         </Row>
         <Row label="跑 Claude 用的终端" hint="开工时弹一个终端窗口跑 Claude Code。Ghostty 支持 Friday 往里转达你的指令，Terminal 不支持">
