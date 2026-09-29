@@ -18,13 +18,14 @@ export function stateLabel(t: Task): string {
   return s.state === "deciding" && s.waitingSince ? `${label} · ${waitedFor(s.waitingSince)}` : label;
 }
 
-export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin }: {
+export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume }: {
   t: Task;
   counts: { defects: number; docs: number; convs: number };
   onDetail: () => void;
   onToggleTerminal?: () => void;
   showingTerminal?: boolean;
   onPin: () => void;
+  onResume?: () => void;
 }) {
   const s = t.session;
   const state = s?.state ?? "none";
@@ -32,7 +33,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, t.project, t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
   const hint = [counts.defects ? `${counts.defects} 条缺陷` : "", counts.docs ? `${counts.docs} 份资料` : "", counts.convs ? `${counts.convs} 段 Slack 讨论` : ""].filter(Boolean).join(" · ");
   const d = s?.delivery;
-  const branchLine = [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : ""].filter(Boolean).join(" · ");
+  const branchLine = [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : ""].filter(Boolean).join(" · ");
   return (
     <div className="th">
       <div className="th__meta">
@@ -46,11 +47,12 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
         <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>
         {hint && <span className="th__hint">{hint}</span>}
       </div>
-      {(branchLine || onToggleTerminal) && (
+      {(branchLine || onToggleTerminal || onResume) && (
         <div className="th__branch">
           <span>{branchLine}</span>
           <span className="th__sp" />
-          {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? "看交付" : "看终端"}</button>}
+          {onResume && <button className="th__btn" onClick={onResume}>接着聊</button>}
+          {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? (t.source.headless ? "看结果" : "看交付") : "看终端"}</button>}
         </div>
       )}
     </div>

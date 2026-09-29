@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 import { Resources } from "./Resources";
-import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
+import { OkrWeekly } from "./OkrWeekly";
 import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
@@ -48,7 +48,7 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
   if (a.type === "git_merge") {
-    return "把这个分支合进主干。合完可以在操作记录里撤销。";
+    return "把这个分支合进主干（不 push）。合完撤不回，要退得自己 revert。";
   }
   if (a.type === "okr_submit") {
     return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
@@ -80,7 +80,8 @@ function dueLabel(iso: string): string {
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
-const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && !t.session?.name;
+const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+const canResume = (t: Task) => !isClosed(t) && Boolean(t.source.jobId) && t.session?.status === "exited" && Boolean(t.session.worktree || t.session.kind === "query");
 
 function defectsOf(t: Task, all: Task[]): Task[] {
   const ids = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
@@ -521,6 +522,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
     const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
     return [
       ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }, { label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
+      ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
       ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
       ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : []),
       { label: "归到项目…", run: () => { close(); setEditing(t); } },
@@ -727,7 +729,10 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                                 <button className="an__act an__act--dim" onClick={(e) => { e.stopPropagation(); void act(t, () => taskRoot(t.id, false)); }}>不是这条</button>
                               </span>
                             ) : (
-                              <span className="an__sub">{anchorLine(t, kids)}</span>
+                              <span className="an__sub">
+                                {anchorLine(t, kids)}
+                                {!child && canResume(t) && <>{" · "}<button className="an__act" onClick={(e) => { e.stopPropagation(); void act(t, () => jobReopen(t.source.jobId!)); }}>接着聊</button></>}
+                              </span>
                             )}
                           </span>
                           {!child && t.session?.branch && <span className="an__br">{t.session.branch}</span>}
@@ -791,7 +796,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
 }) {
   const s = t.session;
   const hasTerm = Boolean(s?.name) && s!.state !== "none";
-  const autonomous = Boolean(t.source.autonomous);
+  const autonomous = isFridayRun(t.source);
   const [showTerm, setShowTerm] = useState(false);
   const counts = {
     defects: defectsOf(t, all).length,
@@ -810,6 +815,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         onDetail={onDetail}
         onPin={() => void onAct(t, () => taskPin(t.id, !t.pinned))}
         {...(autonomous && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
+        {...(canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
       />
       {termVisible ? (
         <div className="detail__term"><Terminal sessionId={t.id} /></div>
@@ -818,7 +824,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
           <div className="detail__card detail__card--auto">
             <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
           </div>
-          <div className="detail__chat"><TaskChat t={t} placeholder="合并吧 / 打回，中途关页面进度接不上 / 完成，不执行" /></div>
+          <div className="detail__chat"><TaskChat t={t} placeholder={t.source.headless ? "发吧 / 草稿改成… / 不用回了" : "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行"} /></div>
         </>
       ) : (
         <div className="detail__card">
@@ -846,9 +852,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
       {canStart(t) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
       {canStart(t) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
-      {!closed && (t.pending ?? []).filter((a) => a.type !== "slack_reply").map((a) => (
-        <button key={a.id} role="menuitem" onClick={() => run(async () => { if (a.type === "okr_submit") await flushOkrDraft(t.id); await taskApprove(t.id, a.id); })}>通过并执行：{a.label}</button>
-      ))}
+      {canResume(t) && <button role="menuitem" onClick={() => run(() => jobReopen(t.source.jobId!))}>接着聊</button>}
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "ignore"))}>忽略</button>}
@@ -1060,7 +1064,6 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
 
 function actionNote(a: PendingAction, conv?: SlackConversation): string {
   const detail = a.detail.trim() ? a.detail.trim().replace(/[。.]?$/, "。") : "";
-  if (a.type === "git_merge") return `${detail}合完可以在操作记录里撤销。`;
   return [detail, consequence(a, conv) ?? ""].join("");
 }
 
@@ -1074,20 +1077,27 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
   const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
   useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
   const meegle = meegleLine(t);
+  const query = Boolean(t.source.headless);
   return (
     <div className="ac">
       <div className="ac__left">
         {r ? (
           <section className="ac__sec">
-            <div className="ac__k">交付报告 {r.at && <span className="ac__kv">{hhmm(r.at)}</span>}</div>
+            <div className="ac__k">{query ? "查询结果" : "交付报告"} {r.at && <span className="ac__kv">{hhmm(r.at)}</span>}</div>
             {r.summary && <div className="ac__text"><Linkified text={r.summary} /></div>}
             {r.testResult?.trim() && <div className="ac__text ac__text--dim">{r.testResult}</div>}
             {r.screenshots.length > 0 && <AttachmentStrip items={r.screenshots} />}
           </section>
         ) : (
           <section className="ac__sec">
-            <div className="ac__k">交付报告</div>
-            <div className="ac__text ac__text--dim">还没交。跑完会把改了什么、怎么测的、截图写在这里；想看它在做什么点右上「看终端」。</div>
+            <div className="ac__k">{query ? "查询结果" : "交付报告"}</div>
+            <div className="ac__text ac__text--dim">{query ? "还在查。查完会把答案、依据（文件:行号）和回复草稿写在这里；想看它在做什么点右上「看终端」。" : "还没交。跑完会把改了什么、怎么测的、截图写在这里；想看它在做什么点右上「看终端」。"}</div>
+          </section>
+        )}
+        {query && r?.reply && (
+          <section className="ac__sec">
+            <div className="ac__k">回复草稿</div>
+            <div className="ac__text"><Linkified text={r.reply} /></div>
           </section>
         )}
         {(pending.length > 0 || (r?.verify.length ?? 0) > 0) && (
@@ -1124,7 +1134,7 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
         )}
         {(d?.files !== undefined || (r?.changes.length ?? 0) > 0) && (
           <section className="ac__sec">
-            <div className="ac__k">改动 {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对 {d.base ?? "主干"}</span>}</div>
+            <div className="ac__k">{query ? "依据" : "改动"} {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对 {d.base ?? "主干"}</span>}</div>
             {d?.perFile ? (
               <div className="ac__files">
                 {d.perFile.map((f) => (

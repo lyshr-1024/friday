@@ -8,7 +8,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
-import { AttachFatal, attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
+import { AttachFatal, AttachGone, attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
 
 function termTheme(): Record<string, string> {
   const s = getComputedStyle(document.documentElement);
@@ -92,9 +92,14 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       inflight = true;
       while (pending && attachId) {
         const data = pending;
+        const id = attachId;
         pending = "";
-        const res = await post("input", { attach: attachId, data });
-        if (!res?.ok) { pending = data + pending; attachId = ""; break; }
+        const res = await post("input", { attach: id, data });
+        if (!res?.ok) {
+          pending = data + pending;
+          if (res?.status === 404 && attachId === id) attachId = "";
+          break;
+        }
       }
       inflight = false;
     };
@@ -168,6 +173,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
           await pump(id, () => { delay = 500; got = true; });
         } catch (e) {
           if (e instanceof AttachFatal) { if (!stopped) { setFailed(e.message); setReconnecting(false); } return; }
+          if (e instanceof AttachGone) { if (!stopped) { setDead(true); setReconnecting(false); } return; }
         }
         attachId = "";
         if (stopped) return;

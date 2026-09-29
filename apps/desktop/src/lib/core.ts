@@ -439,6 +439,13 @@ export async function closeJob(id: string): Promise<{ closed: boolean }> {
   return res.json();
 }
 
+/** Claude 退出了：在同一个 tmux 会话里接回（--resume），守卫按会话类型保留 */
+export async function jobReopen(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/jobs/${encodeURIComponent(id)}/reopen`, { method: "POST" });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(json.error ?? `接回失败：core 返回 ${res.status}`);
+}
+
 /** 批量关终端。onlyFinished 只关任务已完成或忽略的。 */
 export async function closeAllJobs(onlyFinished = false): Promise<{ closed: number; scanned: number }> {
   const res = await fetch(`${await coreBaseUrl()}/jobs/close-all`, {
