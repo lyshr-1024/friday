@@ -10,10 +10,12 @@ describe("两段式启动脚本", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "改个按钮", kind: "interactive", project: "app" }, "/bin/claude", 7788, files, prep);
     const lines = s.split("\n");
     expect(lines).toContain("cd '/r/app' || exit 1");
+    const rmAt = lines.findIndex((l) => l.startsWith(`rm -f '${worktreeFile("j")}'`));
     const prepAt = lines.findIndex((l) => l.includes("--model sonnet") && l.includes(prep));
     const cdAt = lines.findIndex((l) => l.startsWith(`cd "$(cat '${worktreeFile("j")}')"`));
     const workAt = lines.findIndex((l) => l.startsWith("script -q"));
-    expect(prepAt).toBeGreaterThan(0);
+    expect(rmAt).toBeGreaterThan(0);
+    expect(prepAt).toBeGreaterThan(rmAt);
     expect(cdAt).toBeGreaterThan(prepAt);
     expect(workAt).toBeGreaterThan(cdAt);
     expect(s).toContain('"code":2,"phase":"prepare"');
@@ -26,13 +28,13 @@ describe("两段式启动脚本", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "查一下", kind: "query" }, "/bin/claude", 7788, files);
     expect(s).not.toContain("--model sonnet");
     expect(s).not.toContain(".worktree");
-    expect(s).toContain("-p --model opus");
+    expect(s).toMatch(/-p --model.*opus/);
   });
 
   it("自主任务：准备段之后干活段用 -p --model opus", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "修 bug", kind: "autonomous", project: "app" }, "/bin/claude", 7788, files, prep);
     expect(s).toContain("--model sonnet");
-    expect(s).toMatch(/script -q .*-p --model opus/);
+    expect(s).toMatch(/script -q .*-p --model.*opus/);
   });
 
   it("接回：带 --resume，接不上就新开；追加写日志；带上要说的话", () => {

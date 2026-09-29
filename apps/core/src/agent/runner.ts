@@ -374,17 +374,11 @@ export function prepPrompt(id: string, repoDir: string, base?: string): string {
 }
 
 export function workCommand(req: SessionLaunch, claudePath: string, port: number, files: ClaudeFiles): string[] {
-  const isHeadless = req.kind !== "interactive";
+  const flags = claudeFlags(files, req.kind !== "interactive", req.project);
   const prompt = req.task ? ` ${shellQuote(req.task)}` : "";
-
-  let baseCmd = `${shellQuote(claudePath)}`;
-  if (isHeadless) baseCmd += " -p --model opus";
-  baseCmd += ` --dangerously-skip-permissions --settings ${shellQuote(files.settings)} --mcp-config ${shellQuote(files.mcp)} --append-system-prompt ${shellQuote(terminalBridgePrompt(isHeadless ? undefined : req.project))}`;
-
   const claude = req.resumeSessionId
-    ? `${baseCmd} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${baseCmd}${prompt}`
-    : `${baseCmd}${prompt}`;
-
+    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
+    : `${shellQuote(claudePath)} ${flags}${prompt}`;
   return [
     `script -q ${req.resumeSessionId ? "-a " : ""}${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
     "code=$?",
@@ -399,6 +393,7 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
     req.kind === "query"
       ? []
       : [
+          `rm -f ${wt}`,
           `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch))}`,
           `if [ ! -s ${wt} ]; then`,
           `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
