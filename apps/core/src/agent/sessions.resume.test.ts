@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createTask, getTask } from "../memory/tasks.js";
-import { finishJob, getJob, runningJobs } from "../memory/jobs.js";
+import { finishJob, getJob, runningJobs, setJobSession } from "../memory/jobs.js";
 import { listAudit } from "../memory/audit.js";
 import { runByJob } from "../memory/runs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
@@ -125,5 +125,55 @@ describe("autostart 不碰你自己的交互式会话", () => {
     expect(launched).toEqual([]);
     expect(listAudit({ taskId: bug.id }).some((e) => e.action === "autostart")).toBe(false);
     expect(getTask(bug.id)!.status).toBe("understood");
+  });
+});
+
+describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求", () => {
+  it("kind / jobId 不被改写；autostart 仍跳过同需求的缺陷；需求接着聊接回自己的对话、交互式 hook；缺陷接着聊接回缺陷自己的", async () => {
+    for (const j of runningJobs()) finishJob(j.id, 0);
+    const dir = repo("r1app");
+    writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## r1app\n- 目录：${dir}\n`);
+    const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "R1-S1", meegleType: "story" }, status: "processing", project: "r1app" });
+    const storyJob = await openSession(story, story, { kind: "interactive", project: "r1app", repoDir: dir, task: "x" });
+    await worktreeReady(storyJob, repo("r1app-feat-s"));
+    setJobSession(storyJob, "sess-story");
+    finishJob(storyJob, 0);
+    updateTermSession(story.id, { status: "exited" });
+    const intake = { kind: "start" as const, confidence: 95, project: "r1app", detail: "改一下", why: "具体", at: new Date().toISOString() };
+    const bugA = createTask({ title: "缺陷甲", kind: "meegle", status: "understood", project: "r1app", source: { meegleType: "issue", meegleId: "R1-B1", linkedStoryId: "R1-S1", intake } });
+
+    const after = await startAutonomousJob(getTask(bugA.id)!, "r1app", dir, "修甲", "retry");
+    const bugJob = after.source.jobId!;
+    expect(bugJob).not.toBe(storyJob);
+    expect(getJob(bugJob)).toMatchObject({ sessionId: story.id, taskId: bugA.id, status: "running" });
+    expect(getTermSession(story.id)).toMatchObject({ kind: "interactive", jobId: storyJob });
+    expect(runByJob(bugJob)).toMatchObject({ taskId: bugA.id });
+    setJobSession(bugJob, "sess-bug");
+    finishJob(bugJob, 0);
+    updateTermSession(story.id, { status: "exited" });
+
+    updateSettings({ autonomous: true });
+    const bugB = createTask({ title: "缺陷乙", kind: "meegle", status: "understood", project: "r1app", source: { meegleType: "issue", meegleId: "R1-B2", linkedStoryId: "R1-S1", intake } });
+    calls = [];
+    launched = [];
+    expect(await autostartTick(Date.now() + AUTOSTART_SETTLE_MS + 60_000)).toBe(0);
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+    expect(launched).toEqual([]);
+    expect(listAudit({ taskId: bugB.id }).some((e) => e.action === "autostart")).toBe(false);
+    updateSettings({ autonomous: false });
+
+    expect(await resumeInSession(story.id)).toBe(true);
+    const storyScript = scriptOf(typed().at(-1)!);
+    expect(storyScript).toContain("--resume '\\''sess-story'\\''");
+    expect(settingsOf(storyScript).hooks.PreToolUse!.some((h) => h.matcher === "Bash")).toBe(false);
+    expect(getJob(storyJob)!.status).toBe("running");
+
+    finishJob(storyJob, 0);
+    updateTermSession(story.id, { status: "exited" });
+    expect(await resumeInSession(story.id, undefined, bugJob)).toBe(true);
+    const bugScript = scriptOf(typed().at(-1)!);
+    expect(bugScript).toContain("--resume '\\''sess-bug'\\''");
+    expect(settingsOf(bugScript).hooks.PreToolUse!.some((h) => h.matcher === "Bash" && h.hooks[0]!.command.includes(".guard.sh"))).toBe(true);
+    expect(getTermSession(story.id)).toMatchObject({ kind: "interactive", jobId: storyJob });
   });
 });

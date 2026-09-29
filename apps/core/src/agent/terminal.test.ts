@@ -74,6 +74,18 @@ describe("tmux 版终端", () => {
     expect(getJob(jobId)!.status).not.toBe("running");
   });
 
+  it("tmux 没了：在这个会话里跑的缺陷运行（不是会话自己的 job）也一起收", async () => {
+    const { t, jobId } = await running("需求会话没了");
+    const bug = createTask({ title: "缺陷", kind: "verbal", source: { rootId: t.id }, status: "processing", project: "app" });
+    createJob({ id: `bug-run-${t.id.slice(0, 6)}`, project: "app", dir: "/r/app", logPath: "/tmp/x.log", taskId: bug.id, sessionId: t.id });
+    alive.delete(getTermSession(t.id)!.tmuxName);
+    age(t.id);
+    const dead = await sweepClosedTerminals();
+    expect(dead).toContain(`bug-run-${t.id.slice(0, 6)}`);
+    expect(getJob(`bug-run-${t.id.slice(0, 6)}`)!.status).not.toBe("running");
+    expect(getJob(jobId)!.status).not.toBe("running");
+  });
+
   it("刚开的会话（tmux 里还没建出来）不被对账收掉，老的才收", async () => {
     const { t, jobId } = await running("新会话");
     alive.delete(getTermSession(t.id)!.tmuxName);

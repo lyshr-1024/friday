@@ -60,7 +60,7 @@ async function relayToTerminal(text: string, taskId?: string, scene?: string, ur
       return { kind: "said", message: "已转达给终端", taskId: task.id, jobId };
     }
     const sid = job?.sessionId;
-    if (!sid || !(await resumeInSession(sid))) return undefined;
+    if (!sid || !(await resumeInSession(sid, undefined, jobId))) return undefined;
     await say(jobId, said);
     return { kind: "opened", message: "终端没开，已重开并接回原会话", taskId: task.id, jobId };
   }

@@ -148,6 +148,6 @@ export const jobs = new Hono()
     const sid = getJob(id)?.sessionId;
     const cur = sid ? getTermSession(sid) : undefined;
     if (cur && cur.status !== "exited") return c.json({ error: "会话还在跑，不用接回" }, 409);
-    const ok = sid ? await resumeInSession(sid) : false;
+    const ok = sid ? await resumeInSession(sid, undefined, id) : false;
     return ok ? c.json({ status: "reopened", id }) : c.json({ error: "会话已不在，重新开工" }, 404);
   });

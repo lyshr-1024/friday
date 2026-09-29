@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import type { Task, TermSession, TermSessionKind } from "@friday/shared";
+import type { Job, Task, TermSession, TermSessionKind } from "@friday/shared";
 import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
@@ -92,17 +92,24 @@ export async function flushQueued(sessionId: string): Promise<void> {
   for (const text of list) await sayToSession(sessionId, text);
 }
 
-export async function resumeInSession(sessionId: string, prompt?: string): Promise<boolean> {
+function jobKind(job: Job, fallback: TermSessionKind): TermSessionKind {
+  const owner = job.taskId ? getTask(job.taskId) : undefined;
+  if (!owner) return fallback;
+  return owner.source.headless ? "query" : owner.source.autonomous ? "autonomous" : "interactive";
+}
+
+export async function resumeInSession(sessionId: string, prompt?: string, jobId?: string): Promise<boolean> {
   const s = getTermSession(sessionId);
-  const job = s?.jobId ? getJob(s.jobId) : undefined;
-  if (!s || !job || !(await hasSession(s.tmuxName))) return false;
+  const id = jobId ?? s?.jobId;
+  const job = id ? getJob(id) : undefined;
+  if (!s || !job || job.sessionId !== s.id || !(await hasSession(s.tmuxName))) return false;
   if (s.kind !== "query" && !s.worktree) return false;
   const win = await claudeWindowIndex(s.tmuxName);
   if (win === undefined) return false;
   const file = await writeResumeScript(
     { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}), ...(prompt ? { task: prompt } : {}) },
     s.worktree ?? s.repoDir,
-    s.kind,
+    jobKind(job, s.kind),
   );
   await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
   reviveJob(job.id);
@@ -128,7 +135,7 @@ export async function runInSession(sessionId: string, launch: SessionLaunch, own
     finishJob(launch.id, 1);
     throw e;
   }
-  updateTermSession(sessionId, { status: "running", jobId: launch.id, kind: launch.kind });
+  updateTermSession(sessionId, { status: "running", ...(ownerId === sessionId ? { jobId: launch.id } : {}) });
   markInput(sessionId);
   record({ taskId: ownerId, action: "terminal_run", why: "会话里的 Claude 已经退出，这次的活在同一个会话、同一个 worktree 里接着跑", how: `新起一次 ${launch.kind} 运行`, evidence: { jobId: launch.id, session: s.tmuxName }, risk: "reversible" });
   publish({ type: "tasks" });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const say = vi.fn<(jobId: string, text: string) => Promise<"sent" | "no-terminal">>();
-const resumeInSession = vi.fn<(sessionId: string, prompt?: string) => Promise<boolean>>();
+const resumeInSession = vi.fn<(sessionId: string, prompt?: string, jobId?: string) => Promise<boolean>>();
 const startInteractiveJob = vi.fn();
 
 vi.mock("../agent/terminal.js", async (orig) => ({ ...(await orig<object>()), say }));
@@ -62,7 +62,7 @@ describe("POST /summon/relay", () => {
 
     const body = await relay({ text: "接着改", taskId: task.id });
     expect(body).toContain('"kind":"opened"');
-    expect(resumeInSession).toHaveBeenCalledWith(task.id);
+    expect(resumeInSession).toHaveBeenCalledWith(task.id, undefined, jobId);
     expect(say).toHaveBeenCalledWith(jobId, "接着改");
   });
 

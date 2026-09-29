@@ -29,10 +29,7 @@ export async function sweepClosedTerminals(): Promise<string[]> {
     if (Date.now() - Date.parse(s.createdAt) < FRESH_SESSION_MS) continue;
     updateTermSession(s.id, { status: "closed" });
     detachSession(s.id);
-    if (s.jobId && getJob(s.jobId)?.status === "running") {
-      finishJob(s.jobId, -1);
-      dead.push(s.jobId);
-    }
+    for (const j of runningJobs()) if (j.sessionId === s.id) { finishJob(j.id, -1); dead.push(j.id); }
   }
   for (const j of runningJobs()) if (!j.sessionId) { finishJob(j.id, -1); dead.push(j.id); }
   const stuck = listTasks("processing", 1000)
