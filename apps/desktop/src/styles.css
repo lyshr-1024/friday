@@ -5196,6 +5196,8 @@ body:has(.hud)::-webkit-scrollbar {
 .ac__right .fx__conv-meta, .tdlg .fx__conv-meta { align-items: center; gap: 8px; color: var(--fg-3); }
 .ac__right .fx__conv-who, .tdlg .fx__conv-who { flex: none; color: var(--fg-1); font-weight: 400; }
 .fx__conv-basis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.fx__conv-meta:has(.fx__conv-basis--guess) { flex-wrap: wrap; }
+.fx__conv-basis--guess { order: 9; flex: 1 1 100%; overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 11.5px; line-height: 1.6; color: var(--fg-4); }
 .ac__right .fx__conv-drop, .tdlg .fx__conv-drop { color: var(--fg-4); font-size: 12px; }
 .ac__right .fx__conv-msg, .tdlg .fx__conv-msg { margin: 0; color: var(--fg-1); font-size: 12px; line-height: 1.6; }
 .fx__conv-name { color: var(--fg-3); }

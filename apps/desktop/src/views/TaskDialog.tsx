@@ -40,6 +40,9 @@ export function TaskDialog({ t, defects, stage, meegle, resources, slack, chat, 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (e.isComposing || e.keyCode === 229) return;
+        const el = e.target as HTMLElement;
+        if (box.current?.contains(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         if (menu) { setMenu(false); menuBtn.current?.focus(); } else onClose();

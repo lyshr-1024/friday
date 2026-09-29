@@ -4,6 +4,8 @@ import { createTask } from "../memory/tasks.js";
 import { getEvent, listAudit } from "../memory/audit.js";
 import { getTask, updateTask } from "../memory/tasks.js";
 import { initMemory } from "../memory/db.js";
+import { addInboxItems } from "../memory/inbox.js";
+import { linkUp } from "../memory/links.js";
 import { setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { execFileSync } from "node:child_process";
@@ -212,5 +214,18 @@ describe("Friday 推断的归属", () => {
     const res = await post(`/tasks/${bug.id}/root`, { adopt: true });
     expect(res.status).toBe(400);
     expect(getTask(bug.id)!.source.rootGuess).toBe(true);
+  });
+});
+
+describe("Slack 对话里每条消息带自己的发送人", () => {
+  it("两个人的 thread：各行是各自的显示名，不是头一条的", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "两人对话", kind: "verbal", source: {}, status: "understood" });
+    const mk = (ts: string, userName: string, text: string) => ({ id: `s-${ts}`, kind: "mention" as const, channelId: "C9", channelName: "#grp", userId: `U-${userName}`, userName, text, permalink: "https://s/x", ts, threadTs: "9.1" });
+    addInboxItems([mk("9.1", "佳成 (Zhou Jiacheng)", "这个字段呢"), mk("9.2", "拂晓 (Chen Xiaofu)", "我看下")]);
+    linkUp({ kind: "task", ref: t.id }, { kind: "slack", ref: "C9:9.1" }, "rule", "test");
+    const board = (await (await app.request("/tasks")).json()) as TaskBoard;
+    const conv = board.tasks.find((x) => x.id === t.id)!.conversations![0]!;
+    expect(conv.items.map((i) => i.userName)).toEqual(["佳成 (Zhou Jiacheng)", "拂晓 (Chen Xiaofu)"]);
   });
 });

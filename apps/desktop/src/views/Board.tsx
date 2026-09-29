@@ -1234,7 +1234,7 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
             {c.kind !== "dm" && c.channelName && <span className="fx__conv-where mono">{c.channelName}</span>}
             {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
             {c.source === "guess" && <span className="k k--guess">Friday 推断</span>}
-            {c.why && <span className="fx__conv-basis">· {c.why}</span>}
+            {c.why && <span className={`fx__conv-basis${c.source === "guess" ? " fx__conv-basis--guess" : ""}`} title={c.why}>{c.source === "guess" ? c.why : `· ${c.why}`}</span>}
             {/* 按需求建的群：频道名约等于需求名，整个挂过去，后面的消息不用再逐条判 */}
             {c.kind === "mention" && c.channelName && (
               c.channelLinked
@@ -1255,7 +1255,7 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
           )}
           {c.items.map((m) => (
             <div key={m.ts} className="fx__conv-msg">
-              <span className="fx__conv-name">{c.userName}：</span>
+              <span className="fx__conv-name">{m.userName}：</span>
               {m.text.trim()
                 ? <Linkified text={decodeSlack(m.text)} />
                 : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}

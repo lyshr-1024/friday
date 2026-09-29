@@ -648,7 +648,7 @@ export interface SlackConversation {
   /** 这个频道是不是已经整个挂到本条需求上了 */
   channelLinked: boolean;
   userName: string;
-  items: Array<{ ts: string; text: string; permalink: string; appLink?: string }>;
+  items: Array<{ ts: string; userName: string; text: string; permalink: string; appLink?: string }>;
   prior: string[];
   source: LinkSource;
   why: string;

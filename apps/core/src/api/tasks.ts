@@ -84,7 +84,7 @@ function slackOf(all: InboxItem[]) {
           kind: head.kind,
           channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
-          items: items.map((i) => ({ ts: i.ts, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
+          items: items.map((i) => ({ ts: i.ts, userName: i.userName, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
           prior: head.prior ?? [],
           source: n.source,
           why: n.why,
