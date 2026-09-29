@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
+import type { TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
 import { focusTerminalById, isAlive, openWindow } from "./ghostty.js";
 import { getJob, reviveJob, setGhosttyId } from "../memory/jobs.js";
@@ -16,6 +17,7 @@ import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
+import { newSession } from "./tmux.js";
 
 const execFileP = promisify(execFile);
 
@@ -77,7 +79,7 @@ export function autonomousPrompt(id: string, task: string, project: string, base
   ].join("\n");
 }
 
-const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+export const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 export async function findClaude(): Promise<string> {
   const { stdout } = await execFileP("/bin/zsh", ["-ilc", "whence -p claude"]).catch(() => ({ stdout: "" }));
@@ -343,4 +345,105 @@ export async function focusTerminal(terminal: TerminalApp, ghosttyId?: string): 
     return true;
   }
   return false;
+}
+
+export interface SessionLaunch {
+  id: string;
+  repoDir: string;
+  task?: string;
+  kind: TermSessionKind;
+  project?: string;
+  baseBranch?: string;
+  resumeSessionId?: string;
+}
+
+export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
+
+export function prepPrompt(id: string, repoDir: string, base?: string): string {
+  const repo = repoDir.replace(/\/+$/, "").split("/").pop() ?? "repo";
+  return [
+    `你在 ${repoDir} 这个仓库的主目录里，只做一件事：为接下来的任务准备好分支和 git worktree，然后退出。不要改任何业务代码，不要 push。`,
+    "1. 先查这个项目自己的规则：CLAUDE.md、项目 skill、CONTRIBUTING、git worktree list 和现有分支的惯例。项目有规则就照项目的来。",
+    `2. 项目没有规则时：分支名按「${BRANCH_RULE}」；worktree 建在主仓的兄弟目录 ../${repo}-<分支简称>（分支名里的 / 换成 -）。`,
+    base ? `3. 基线是分支 ${base}：先 git fetch，再从它检出新分支。` : "3. 基线是默认分支：先 git fetch，再从 origin 的默认分支检出新分支。",
+    "4. 按项目的方式把依赖装好，让新 worktree 能直接跑起来（前端仓库可以先用 cp -c 从主仓克隆 node_modules，再跑一次 install 补差）。",
+    "5. 分支名和 worktree 目录名里都不要出现 friday。",
+    `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。`,
+    "拿不准时选最保守的做法，不要提问——没人会回答。",
+  ].join("\n");
+}
+
+export function workCommand(req: SessionLaunch, claudePath: string, port: number, files: ClaudeFiles): string[] {
+  const isHeadless = req.kind !== "interactive";
+  const prompt = req.task ? ` ${shellQuote(req.task)}` : "";
+
+  let baseCmd = `${shellQuote(claudePath)}`;
+  if (isHeadless) baseCmd += " -p --model opus";
+  baseCmd += ` --dangerously-skip-permissions --settings ${shellQuote(files.settings)} --mcp-config ${shellQuote(files.mcp)} --append-system-prompt ${shellQuote(terminalBridgePrompt(isHeadless ? undefined : req.project))}`;
+
+  const claude = req.resumeSessionId
+    ? `${baseCmd} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${baseCmd}${prompt}`
+    : `${baseCmd}${prompt}`;
+
+  return [
+    `script -q ${req.resumeSessionId ? "-a " : ""}${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
+    "code=$?",
+    `curl -s -m 3 -X POST ${shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/exit`)} -H 'content-type: application/json' -d "{\\"code\\":$code}" >/dev/null 2>&1`,
+  ];
+}
+
+export function buildSessionScript(req: SessionLaunch, claudePath: string, port: number, files: ClaudeFiles, prepSettings?: string): string {
+  const api = (p: string) => shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/${p}`);
+  const wt = shellQuote(worktreeFile(req.id));
+  const prepare =
+    req.kind === "query"
+      ? []
+      : [
+          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch))}`,
+          `if [ ! -s ${wt} ]; then`,
+          `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
+          "  exec /bin/zsh -il",
+          "fi",
+          `cd "$(cat ${wt})" || exit 1`,
+          `curl -s -m 3 -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" >/dev/null 2>&1`,
+        ];
+  return [
+    "#!/bin/zsh",
+    `cd ${shellQuote(req.repoDir)} || exit 1`,
+    UNSET_CLAUDE_ENV,
+    ...prepare,
+    `printf '\\033]0;%s\\007' "$(basename "$PWD")"`,
+    ...workCommand(req, claudePath, port, files),
+    "exec /bin/zsh -il",
+    "",
+  ].join("\n");
+}
+
+export function writePrepSettings(id: string): string {
+  mkdirSync(runsDir(), { recursive: true });
+  const guard = join(runsDir(), `${id}.prep.guard.sh`);
+  writeFileSync(guard, buildGuardScript());
+  chmodSync(guard, 0o755);
+  const settings = join(runsDir(), `${id}.prep.settings.json`);
+  writeFileSync(settings, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: shellQuote(guard), timeout: 10 }] }] } }, null, 2));
+  return settings;
+}
+
+export async function launchInSession(req: SessionLaunch, tmuxName: string): Promise<void> {
+  const claudePath = await findClaude();
+  const files = writeHookFiles(req.id, req.kind === "autonomous", req.kind === "query");
+  const prep = req.kind === "query" ? undefined : writePrepSettings(req.id);
+  const script = join(runsDir(), `${req.id}.sh`);
+  writeFileSync(script, buildSessionScript(req, claudePath, config.port, files, prep));
+  chmodSync(script, 0o755);
+  await newSession(tmuxName, req.repoDir, script);
+}
+
+export async function writeResumeScript(req: SessionLaunch, cwd: string): Promise<string> {
+  const claudePath = await findClaude();
+  const files = writeHookFiles(req.id, false, false);
+  const script = join(runsDir(), `${req.id}.resume.sh`);
+  writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ""].join("\n"));
+  chmodSync(script, 0o755);
+  return script;
 }
