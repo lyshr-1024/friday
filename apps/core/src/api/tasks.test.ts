@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskBoard } from "@friday/shared";
 import { createTask } from "../memory/tasks.js";
 import { getEvent, listAudit } from "../memory/audit.js";
+import { getTask, updateTask } from "../memory/tasks.js";
+import { initMemory } from "../memory/db.js";
+import { setTmuxRunner } from "../agent/tmux.js";
+import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
 
@@ -137,5 +145,72 @@ describe("Slack 没接入要说出来", () => {
     const board = (await (await app.request("/tasks")).json()) as TaskBoard;
     expect(board.slackConfigured).toBe(false);
     expect(board).toHaveProperty("meegleSyncedAt");
+  });
+});
+
+let seq = 0;
+describe("Friday 推断的归属", () => {
+  let sent: string[] = [];
+  async function guessed() {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "# 项目\n\n## rootproj\n- 目录：/r/rootproj\n");
+    const alive = new Set<string>();
+    sent = [];
+    setTmuxRunner(async (args) => {
+      if (args[0] === "-V") return "tmux 3.5a";
+      const sub = args[4];
+      const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
+      if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
+      if (sub === "list-windows") return "0|claude|1\n";
+      if (sub === "rename-session") { alive.delete(target); alive.add(args.at(-1)!); }
+      if (sub === "send-keys" && args.includes("-l")) sent.push(args.at(-1)!);
+      return "";
+    });
+    setLauncher(async (_req, name) => { alive.add(name); });
+    const root = createTask({ title: "计费对接", kind: "meegle", source: { meegleId: "S9", meegleType: "story" }, status: "processing", project: "rootproj" });
+    const jobId = await openSession(root, root, { kind: "interactive", project: "rootproj", repoDir: "/r/rootproj", task: "x" });
+    const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
+    execFileSync("git", ["init", "-q", "-b", `feat-root-${process.pid}-${seq++}`, wt]);
+    await worktreeReady(jobId, wt);
+    const bug = createTask({ title: "导出按钮点两次重复下载", kind: "slack", source: { rootId: root.id, rootGuess: true }, status: "understood" });
+    return { root, bug };
+  }
+
+  it("是它：去掉推断标记，走 start 的实现进根的会话，记账", async () => {
+    const { root, bug } = await guessed();
+    const res = await post(`/tasks/${bug.id}/root`, { adopt: true });
+    expect(res.status).toBe(200);
+    const after = getTask(bug.id)!;
+    expect(after.source.rootGuess).toBeUndefined();
+    expect(after.source.rootId).toBe(root.id);
+    expect(after.status).toBe("processing");
+    expect(sent.at(-1)).toContain("导出按钮点两次重复下载");
+    expect(listAudit({ taskId: bug.id }).map((e) => e.action)).toContain("root_adopted");
+  });
+
+  it("不是这条：rootId 和推断标记都去掉，记账，不进会话", async () => {
+    const { bug } = await guessed();
+    const res = await post(`/tasks/${bug.id}/root`, { adopt: false });
+    expect(res.status).toBe(200);
+    const after = getTask(bug.id)!;
+    expect(after.source.rootId).toBeUndefined();
+    expect(after.source.rootGuess).toBeUndefined();
+    expect(after.status).toBe("understood");
+    expect(sent).toEqual([]);
+    expect(listAudit({ taskId: bug.id }).map((e) => e.action)).toContain("root_rejected");
+  });
+
+  it("没有待确认的归属就拒绝", async () => {
+    const t = createTask({ title: "普通", kind: "verbal", source: {}, status: "understood" });
+    expect((await post(`/tasks/${t.id}/root`, { adopt: true })).status).toBe(409);
+    expect((await post(`/tasks/${t.id}/root`, {})).status).toBe(400);
+  });
+
+  it("开工失败时推断标记留着，可以再点", async () => {
+    const { bug } = await guessed();
+    updateTask(bug.source.rootId!, { project: "nowhere" });
+    const res = await post(`/tasks/${bug.id}/root`, { adopt: true });
+    expect(res.status).toBe(400);
+    expect(getTask(bug.id)!.source.rootGuess).toBe(true);
   });
 });

@@ -27,6 +27,29 @@ import { parseWeek } from "../agent/weekly/week.js";
 import { remove as removeOkrReport } from "../connectors/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
 
+async function startTask(t: Task): Promise<{ task: Task } | { error: string; status: 400 | 409 }> {
+  const project = t.project ?? (t.source.rootId ? getTask(t.source.rootId)?.project : undefined);
+  if (!project) return { error: "任务没有关联项目，先选个项目", status: 400 };
+  const r = resolveProject(project);
+  if (r.kind !== "match") return { error: `找不到项目 ${project}`, status: 400 };
+  const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
+  if (running?.status === "running") return { error: "这条任务已经有终端在跑了", status: 409 };
+  const docs = Object.values(t.source.docs ?? {}).filter(Boolean);
+  const detail = [
+    `我要开始做这条需求：${t.title}`,
+    t.source.url ? `工单：${t.source.url}` : "",
+    docs.length ? `文档：${docs.join(" ")}` : "",
+    "",
+    "先把需求和相关代码读一遍，跟我说你打算怎么改，别急着动手。",
+  ].filter(Boolean).join("\n");
+  try {
+    return { task: await startInteractiveJob(t, r.project.name, r.project.dir, detail) };
+  } catch (e) {
+    if (e instanceof TmuxMissingError) return { error: e.message, status: 400 };
+    throw e;
+  }
+}
+
 const transitionInput = z.object({
   id: z.string().min(1),
   stateKey: z.string().min(1),
@@ -297,25 +320,29 @@ export const tasks = new Hono()
   .post("/tasks/:id/start", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
-    if (!t.project) return c.json({ error: "任务没有关联项目，先选个项目" }, 400);
-    const r = resolveProject(t.project);
-    if (r.kind !== "match") return c.json({ error: `找不到项目 ${t.project}` }, 400);
-    const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
-    if (running?.status === "running") return c.json({ error: "这条任务已经有终端在跑了" }, 409);
-    const docs = Object.values(t.source.docs ?? {}).filter(Boolean);
-    const detail = [
-      `我要开始做这条需求：${t.title}`,
-      t.source.url ? `工单：${t.source.url}` : "",
-      docs.length ? `文档：${docs.join(" ")}` : "",
-      "",
-      "先把需求和相关代码读一遍，跟我说你打算怎么改，别急着动手。",
-    ].filter(Boolean).join("\n");
-    try {
-      return c.json(await startInteractiveJob(t, r.project.name, r.project.dir, detail));
-    } catch (e) {
-      if (e instanceof TmuxMissingError) return c.json({ error: e.message }, 400);
-      throw e;
+    const r = await startTask(t);
+    return "error" in r ? c.json({ error: r.error }, r.status) : c.json(r.task);
+  })
+  .post("/tasks/:id/root", async (c) => {
+    const parsed = z.object({ adopt: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "adopt 必填（true / false）" }, 400);
+    const t = getTask(c.req.param("id"));
+    if (!t) return c.json({ error: "任务不存在" }, 404);
+    if (!t.source.rootId || !t.source.rootGuess) return c.json({ error: "这条任务没有待确认的归属" }, 409);
+    const rootId = t.source.rootId;
+    if (!parsed.data.adopt) {
+      const next = updateTask(t.id, { source: { rootId: undefined, rootGuess: undefined } });
+      record({ taskId: t.id, action: "root_rejected", why: "你说 Friday 推断的归属不对", how: "去掉挂靠的需求，回到独立任务", evidence: { rootId }, risk: "reversible" });
+      return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
     }
+    const cleared = updateTask(t.id, { source: { rootGuess: undefined } })!;
+    const r = await startTask(cleared);
+    if ("error" in r) {
+      updateTask(t.id, { source: { rootGuess: true } });
+      return c.json({ error: r.error }, r.status);
+    }
+    record({ taskId: t.id, action: "root_adopted", why: "你确认了 Friday 推断的归属", how: "去掉「推断」标记，进需求的会话", evidence: { rootId }, risk: "reversible" });
+    return c.json(r.task);
   })
   .post("/tasks/:id/retry", async (c) => {
     const t = getTask(c.req.param("id"));

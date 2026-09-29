@@ -561,6 +561,12 @@ export async function taskStart(id: string): Promise<Task> {
   return res.json();
 }
 
+export async function taskRoot(id: string, adopt: boolean): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/root`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ adopt }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
 export async function taskRetry(id: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);

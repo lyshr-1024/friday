@@ -1,13 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskSetDocs, taskMerge } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
+import { TaskDialog, type DialogAction } from "./TaskDialog";
 
 export type BoardView = "queue" | "all" | "ledger";
 
@@ -76,6 +77,19 @@ function dueLabel(iso: string): string {
 
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
+const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
+const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && !t.session?.name;
+
+function defectsOf(t: Task, all: Task[]): Task[] {
+  const ids = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
+  return all.filter((x) => x.id !== t.id && !isClosed(x) && (x.source.rootId === t.id || (x.source.linkedStoryId !== undefined && ids.has(x.source.linkedStoryId))));
+}
+
+function meegleLine(t: Task): string {
+  if (!t.source.meegleId) return "";
+  const due = t.source.feDue ?? t.source.beDue;
+  return [`Meegle：${t.source.meegleId}`, t.source.nodeName ? `节点 ${t.source.nodeName}` : "", t.priority === "high" ? "高优先级" : "", due ? `排期 ${due.slice(5)}` : ""].filter(Boolean).join(" · ");
+}
 // 交付报告和验收点是 Friday 自己跑完一轮后写的，只有它自己派出去的任务才有可验之物。
 // Meegle 同步来的需求状态在多方节点上流转，本机勾不出结论。
 const selfRun = (t: Task) => t.source.autonomous === true;
@@ -568,6 +582,18 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
   }
 
   const openLedger = (taskId: string) => { setLedgerFor(taskId); go?.("ledger"); };
+  const dialogTask = dialogFor ? board?.tasks.find((x) => x.id === dialogFor) : undefined;
+  function dialogActions(t: Task): DialogAction[] {
+    const close = () => setDialogFor(null);
+    const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
+    return [
+      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }, { label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
+      ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
+      ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : []),
+      { label: "归到项目…", run: () => { close(); setEditing(t); } },
+      { label: "操作记录", run: () => { close(); openLedger(t.id); } },
+    ];
+  }
 
   const tasks = board?.tasks ?? [];
   const active = (t: Task) => t.session?.state === "working" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
@@ -712,8 +738,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                 onPick={setSelectedId}
                 onStartPack={(items) => void startPack(items)}
                 packBusy={packBusy}
-                cardOpen={dialogFor === focus.id}
-                onDetail={() => setDialogFor((v) => (v === focus.id ? null : focus.id))}
+                onDetail={() => setDialogFor(focus.id)}
                 onLedger={() => openLedger(focus.id)}
                 onMenu={(x, y) => setMenu({ t: focus, x, y })}
               />
@@ -777,6 +802,21 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
         </div>
       )}
       {menu && <TaskMenu t={menu.t} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} onAct={act} onEdit={setEditing} onDelete={setDeleting} />}
+      {dialogTask && board && (
+        <TaskDialog
+          t={dialogTask}
+          defects={defectsOf(dialogTask, board.tasks)}
+          stage={<StageBar t={dialogTask} onAct={act} />}
+          meegle={meegleLine(dialogTask) ? <div className="ac__meegle">{meegleLine(dialogTask)}</div> : null}
+          resources={<Resources t={dialogTask} onAct={act} />}
+          slack={<SlackConvs t={dialogTask} onAct={act} />}
+          chat={null}
+          actions={dialogActions(dialogTask)}
+          onClose={() => setDialogFor(null)}
+          onAdopt={(d) => void act(d, () => taskRoot(d.id, true))}
+          onReject={(d) => void act(d, () => taskRoot(d.id, false))}
+        />
+      )}
       {editing && <TaskEditor t={editing} onClose={() => setEditing(null)} onSaved={(fn) => void act(editing, fn)} />}
       {deleting && (
         <DeleteConfirm
@@ -793,15 +833,13 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
  * 详情区。你在做的（有会话）主体就是终端；Friday 自主的主体是交付卡，右上「看终端」切到同一个会话；
  * 没开工的、挂在需求会话里的缺陷没有自己的终端，走卡片。
  */
-function Detail({ t, all, onAct, onPick, onStartPack, packBusy, cardOpen, onDetail, onLedger, onMenu }: {
+function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedger, onMenu }: {
   t: Task;
   all: Task[];
   onAct: (t: Task | null, fn: () => Promise<unknown>) => Promise<void>;
   onPick: (id: string) => void;
   onStartPack: (items: Task[]) => void;
   packBusy: string;
-  /** 详情弹窗之前的过渡：「详情」把终端换成这条任务的卡片 */
-  cardOpen: boolean;
   onDetail: () => void;
   onLedger: () => void;
   onMenu: (x: number, y: number) => void;
@@ -811,11 +849,11 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, cardOpen, onDeta
   const autonomous = Boolean(t.source.autonomous);
   const [showTerm, setShowTerm] = useState(false);
   const counts = {
-    defects: all.filter((x) => x.id !== t.id && x.status !== "done" && x.status !== "ignored" && (x.source.rootId === t.id || (t.source.meegleId && x.source.linkedStoryId === t.source.meegleId))).length,
+    defects: defectsOf(t, all).length,
     docs: Object.values(t.source.docs ?? {}).filter(Boolean).length,
     convs: (t.conversations ?? []).length,
   };
-  const termVisible = hasTerm && (autonomous ? showTerm : !cardOpen);
+  const termVisible = hasTerm && (!autonomous || showTerm);
   return (
     <section
       className="detail"
@@ -852,14 +890,14 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
 }) {
-  const closed = t.status === "done" || t.status === "ignored";
+  const closed = isClosed(t);
   const run = (fn: () => Promise<unknown>) => { onClose(); void onAct(t, fn); };
   return (
     <div className="ctx" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
       <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
-      {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
-      {!closed && t.project && !t.session?.name && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
+      {canStart(t) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
+      {canStart(t) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
       {!closed && (t.pending ?? []).filter((a) => a.type !== "slack_reply").map((a) => (
         <button key={a.id} role="menuitem" onClick={() => run(async () => { if (a.type === "okr_submit") await flushOkrDraft(t.id); await taskApprove(t.id, a.id); })}>通过并执行：{a.label}</button>
       ))}
@@ -1087,9 +1125,7 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
   useEffect(() => { void fetchAudit(t.id, 50).then(setEvents).catch(() => {}); }, [t.id, t.updatedAt]);
   const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
   useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
-  const [editDocs, setEditDocs] = useState(false);
-  const docs = DOC_LABELS.filter(([k]) => t.source.docs?.[k]);
-  const meegle = t.source.meegleId ? [`Meegle：${t.source.meegleId}`, t.source.nodeName ? `节点 ${t.source.nodeName}` : "", t.priority === "high" ? "高优先级" : ""].filter(Boolean).join(" · ") : "";
+  const meegle = meegleLine(t);
   return (
     <div className="ac">
       <div className="ac__left">
@@ -1162,17 +1198,25 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
         )}
       </div>
       <div className="ac__right">
-        <section className="ac__sec">
-          <div className="ac__k ac__k--row">资料<span className="th__sp" /><button className="ac__add" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>{editDocs ? "收起" : "＋ 贴一个链接"}</button></div>
-          {editDocs ? <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} /> : docs.length > 0 ? (
-            <div className="ac__docs">{docs.map(([k, label]) => <OpenLink key={k} href={t.source.docs![k]!}><span className="ac__src">{label}</span>{t.source.docs![k]!.replace(/^https?:\/\//, "").slice(0, 48)}</OpenLink>)}</div>
-          ) : <div className="ac__text ac__text--dim">还没有</div>}
-        </section>
+        <Resources t={t} onAct={onAct} />
         <SlackConvs t={t} onAct={onAct} />
         <span className="ac__sp" />
         <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
       </div>
     </div>
+  );
+}
+
+function Resources({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
+  const [editDocs, setEditDocs] = useState(false);
+  const docs = DOC_LABELS.filter(([k]) => t.source.docs?.[k]);
+  return (
+    <section className="ac__sec">
+      <div className="ac__k ac__k--row">资料<span className="th__sp" /><button className="ac__add" aria-expanded={editDocs} onClick={() => setEditDocs((v) => !v)}>{editDocs ? "收起" : "＋ 贴一个链接"}</button></div>
+      {editDocs ? <DocsEditor t={t} onAct={onAct} onDone={() => setEditDocs(false)} /> : docs.length > 0 ? (
+        <div className="ac__docs">{docs.map(([k, label]) => <OpenLink key={k} href={t.source.docs![k]!}><span className="ac__src">{label}</span>{t.source.docs![k]!.replace(/^https?:\/\//, "").slice(0, 48)}</OpenLink>)}</div>
+      ) : <div className="ac__text ac__text--dim">还没有</div>}
+    </section>
   );
 }
 
@@ -1186,19 +1230,19 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
       {convs.map((c) => (
         <div key={c.conv} className="fx__conv">
           <div className="fx__conv-meta">
-            <span className="fx__conv-who">{c.userName}</span>
-            <span className="fx__conv-where mono">{c.channelName || "私聊"}</span>
+            <span className="fx__conv-who">{c.kind === "dm" ? `与 ${c.userName} 的私聊` : c.userName}</span>
+            {c.kind !== "dm" && c.channelName && <span className="fx__conv-where mono">{c.channelName}</span>}
+            {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
+            {c.source === "guess" && <span className="k k--guess">Friday 推断</span>}
+            {c.why && <span className="fx__conv-basis">· {c.why}</span>}
             {/* 按需求建的群：频道名约等于需求名，整个挂过去，后面的消息不用再逐条判 */}
             {c.kind === "mention" && c.channelName && (
               c.channelLinked
                 ? <button className="fx__conv-chan is-on" title="点掉就不再把这个频道归到本条需求" onClick={() => void onAct(t, () => unlinkChannel(c.channelName, t.id))}>频道已对应本需求</button>
                 : <button className="fx__conv-chan" onClick={() => void onAct(t, () => linkChannel(c.channelName, t.id))}>把 #{c.channelName.replace(/^#/, "")} 都归到这条</button>
             )}
-            {/* 推断出来的要标明白，凭什么这么判也得写上，否则用户没法核对 */}
-            {c.source === "guess" && <span className="k k--guess" title={c.why}>Friday 推断</span>}
             <button className="fx__conv-drop" onClick={() => void onAct(t, () => detachConversation(c.conv, t.id))}>不是这条</button>
           </div>
-          {c.source === "guess" && c.why && <div className="fx__conv-why">{c.why}</div>}
           {/* 找你的那句常常是指代句，说的是什么全在前面这段里——Friday 依据的就是它 */}
           {c.prior.length > 0 && (
             <details className="fx__prior">
@@ -1211,6 +1255,7 @@ function SlackConvs({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<
           )}
           {c.items.map((m) => (
             <div key={m.ts} className="fx__conv-msg">
+              <span className="fx__conv-name">{c.userName}：</span>
               {m.text.trim()
                 ? <Linkified text={decodeSlack(m.text)} />
                 : <span className="fx__source-empty">这条没有文字，可能是图片或表情</span>}
