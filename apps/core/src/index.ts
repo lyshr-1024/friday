@@ -7,8 +7,10 @@ import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
 import { startScheduler } from "./scheduler/index.js";
 import { warmSlack } from "./connectors/slack.js";
+import { writeTmuxConf } from "./agent/tmux.js";
 
 initMemory();
+writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
 // 上次进程没了，库里还标着 running 的挨个问一句窗口在不在：外部 Ghostty 不跟着
 // sidecar 死，还开着的要留下，只收真没了的那些

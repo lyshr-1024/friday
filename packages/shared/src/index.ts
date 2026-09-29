@@ -7,6 +7,8 @@ export interface HealthResponse {
   ok: true;
   version: string;
   uptimeMs: number;
+  /** tmux -V 的输出；没装是 null，内嵌终端不可用 */
+  tmux: string | null;
 }
 
 export interface AskRequest {
