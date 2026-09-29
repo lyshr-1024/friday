@@ -39,4 +39,14 @@ describe("资料链接接口", () => {
     expect((await post(t.id, "javascript:alert(1)")).status).toBe(400);
     expect((await post(t.id, "not a url")).status).toBe(400);
   });
+
+  it("删掉的链接记墓碑，再贴一次就清掉", async () => {
+    vi.stubGlobal("fetch", async () => new Response("<title>x</title>"));
+    const t = createTask({ title: "墓碑", kind: "verbal", source: { docs: [{ url: "https://m.example/req", from: "meegle" }] } });
+    await app.request(`/tasks/${t.id}/docs?url=${encodeURIComponent("https://m.example/req/")}`, { method: "DELETE" });
+    expect(getTask(t.id)!.source.removedDocs).toEqual(["https://m.example/req"]);
+    await post(t.id, "https://m.example/req");
+    expect(getTask(t.id)!.source.removedDocs).toEqual([]);
+    expect(getTask(t.id)!.source.docs).toEqual([{ url: "https://m.example/req", from: "user" }]);
+  });
 });

@@ -257,7 +257,7 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     if (!p.success || !/^https?:\/\//i.test(p.data.url)) return c.json({ error: "链接得是完整的 URL（http/https）" }, 400);
     if (!t) return c.json({ error: "任务不存在" }, 404);
-    const next = updateTask(t.id, { source: { docs: mergeDocs(t.source.docs ?? [], [{ url: p.data.url, from: "user" }]) } })!;
+    const next = updateTask(t.id, { source: { docs: mergeDocs(t.source.docs ?? [], [{ url: p.data.url, from: "user" }]), removedDocs: (t.source.removedDocs ?? []).filter((u) => u !== normUrl(p.data.url)) } })!;
     record({ taskId: t.id, action: "doc_added", why: "你贴了一份资料", how: p.data.url, evidence: { url: p.data.url }, risk: "reversible" });
     fillDocTitles(t.id, p.data.url);
     return c.json(next);
@@ -266,7 +266,8 @@ export const tasks = new Hono()
     const url = c.req.query("url") ?? "";
     const t = getTask(c.req.param("id"));
     if (!t || !url) return c.json({ error: "url 必填" }, 400);
-    const next = updateTask(t.id, { source: { docs: (t.source.docs ?? []).filter((d) => normUrl(d.url) !== normUrl(url)) } })!;
+    const gone = normUrl(url);
+    const next = updateTask(t.id, { source: { docs: (t.source.docs ?? []).filter((d) => normUrl(d.url) !== gone), removedDocs: [...new Set([...(t.source.removedDocs ?? []), gone])] } })!;
     record({ taskId: t.id, action: "doc_removed", why: "你删了一份资料", how: url, evidence: { url }, risk: "reversible" });
     return c.json(next);
   })

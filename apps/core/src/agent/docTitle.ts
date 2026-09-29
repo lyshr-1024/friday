@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { TaskDoc } from "@friday/shared";
-import { getTask, updateTask } from "../memory/tasks.js";
+import { getTask, listTasks, updateTask } from "../memory/tasks.js";
 
 const execFileP = promisify(execFile);
 const TRACKING = /^(from|utm_[a-z]+|spm|share_token|sharer)$/i;
@@ -31,6 +31,11 @@ export function mergeDocs(a: TaskDoc[], b: TaskDoc[]): TaskDoc[] {
   return [...out.values()];
 }
 
+export function syncDocs(existing: TaskDoc[], incoming: TaskDoc[], removed: string[] | undefined): TaskDoc[] {
+  const gone = new Set(removed ?? []);
+  return mergeDocs(existing, incoming.filter((d) => !gone.has(normUrl(d.url))));
+}
+
 export function fallbackTitle(url: string): string {
   try {
     const u = new URL(url);
@@ -46,8 +51,9 @@ export function larkTitle(out: string): string | undefined {
   return raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || undefined;
 }
 
-async function pageTitle(url: string): Promise<string | undefined> {
+export async function pageTitle(url: string): Promise<string | undefined> {
   const res = await fetch(url, { signal: AbortSignal.timeout(8_000), redirect: "follow", credentials: "omit" });
+  if (!res.ok) return undefined;
   const reader = res.body?.getReader();
   if (!reader) return undefined;
   const dec = new TextDecoder();
@@ -87,4 +93,17 @@ export function fillDocTitles(taskId: string, only?: string): void {
       updateTask(taskId, { source: { docs: (cur.source.docs ?? []).map((x) => (normUrl(x.url) === normUrl(d.url) && !x.title ? { ...x, title } : x)) } });
     }).catch(() => {});
   }
+}
+
+export async function fillMissingTitles(fetcher: (url: string) => Promise<string | undefined> = docTitle, concurrency = 2): Promise<void> {
+  const queue = listTasks(["collected", "understood", "processing", "review", "blocked"], 500).flatMap((t) => (t.source.docs ?? []).filter((d) => !d.title).map((d) => ({ id: t.id, url: d.url })));
+  const worker = async () => {
+    for (let job = queue.shift(); job; job = queue.shift()) {
+      const title = await fetcher(job.url).catch(() => undefined);
+      const cur = getTask(job.id);
+      if (!title || !cur) continue;
+      updateTask(job.id, { source: { docs: (cur.source.docs ?? []).map((x) => (normUrl(x.url) === normUrl(job.url) && !x.title ? { ...x, title } : x)) } });
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, worker));
 }

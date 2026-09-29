@@ -116,8 +116,10 @@ describe("老库迁移", () => {
     migrate(d);
     migrate(d);
     const read = (id: string) => JSON.parse((d.prepare("SELECT source FROM tasks WHERE id = ?").get(id) as { source: string }).source);
-    expect(read("t1").docs).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }, { url: "https://a/mine", from: "user" }]);
+    expect(read("t1").docs.slice(0, 3)).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }, { url: "https://a/mine", from: "user" }]);
     expect(read("t1").merged[0].docs).toEqual([{ url: "https://a/ui", from: "meegle" }]);
+    expect(read("t1").docs).toContainEqual({ url: "https://a/ui", from: "meegle" });
+    expect(read("t1").docs).toHaveLength(4);
     expect(read("t1").merged[1]).toEqual({ meegleId: "3", title: "无资料" });
     expect(read("t2").docs).toEqual([{ url: "https://n/1", from: "user" }]);
   });

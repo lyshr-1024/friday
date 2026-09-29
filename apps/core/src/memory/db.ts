@@ -34,6 +34,11 @@ export function migrateDocs(raw: unknown): TaskDoc[] {
     .map(([k, v]) => ({ url: (v as string).trim(), from: k === "meegle" ? ("user" as const) : ("meegle" as const) }));
 }
 
+function foldDocs(a: TaskDoc[], b: TaskDoc[]): TaskDoc[] {
+  const seen = new Set(a.map((x) => x.url.replace(/\/$/, "")));
+  return [...a, ...b.filter((x) => !seen.has(x.url.replace(/\/$/, "")))];
+}
+
 function migrateTaskDocs(d: DatabaseSync): void {
   const rows = d.prepare(`SELECT id, source FROM tasks WHERE source LIKE '%"docs":{%'`).all() as Array<{ id: string; source: string }>;
   const upd = d.prepare("UPDATE tasks SET source = ? WHERE id = ?");
@@ -41,7 +46,11 @@ function migrateTaskDocs(d: DatabaseSync): void {
   for (const r of rows) {
     const src = JSON.parse(r.source) as { docs?: unknown; merged?: Array<{ docs?: unknown }> };
     if (src.docs !== undefined) src.docs = migrateDocs(src.docs);
-    for (const m of src.merged ?? []) if (m.docs !== undefined) m.docs = migrateDocs(m.docs);
+    for (const m of src.merged ?? []) {
+      if (m.docs === undefined) continue;
+      m.docs = migrateDocs(m.docs);
+      src.docs = foldDocs((src.docs ?? []) as TaskDoc[], m.docs as TaskDoc[]);
+    }
     upd.run(JSON.stringify(src), r.id);
   }
   d.exec("COMMIT");

@@ -1,6 +1,6 @@
 import type { StateTransition, Task, TaskStatus, Urgency } from "@friday/shared";
 import { onSignal } from "./stage.js";
-import { fillDocTitles, mergeDocs } from "./docTitle.js";
+import { fillDocTitles, syncDocs } from "./docTitle.js";
 import { MeegleConnector, type MeegleWorkItem } from "../connectors/meegle.js";
 import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
@@ -315,7 +315,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       const input = workItemToTask(item, projects);
       const existing = findTaskBySource((s) => s.meegleId === item.id || (s.mergedMeegleIds ?? []).includes(item.id), true);
       // 资料只增不删：你手贴的、已经取到的标题，同步都不能覆盖
-      const docs = mergeDocs(existing?.source.docs ?? [], input.source.docs ?? []);
+      const docs = syncDocs(existing?.source.docs ?? [], input.source.docs ?? [], existing?.source.removedDocs);
       input.source.docs = docs.length ? docs : undefined;
       if (!existing) {
         const t = createTask({ ...input, kind: "meegle", source: { meegleId: item.id, url: item.url, ...input.source } });

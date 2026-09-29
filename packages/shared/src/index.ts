@@ -443,6 +443,8 @@ export interface TaskSource {
   description?: string;
   /** 资料链接：Meegle 同步只增不删，手贴的随时可删 */
   docs?: TaskDoc[];
+  /** 你删掉的资料（归一化后的 URL）：Meegle 同步不会再把它们加回来 */
+  removedDocs?: string[];
   /** 当前节点的 node_key，节点流转要用 */
   nodeKey?: string;
   nodeName?: string;

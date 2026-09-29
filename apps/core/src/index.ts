@@ -7,6 +7,7 @@ import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
 import { startScheduler } from "./scheduler/index.js";
 import { warmSlack } from "./connectors/slack.js";
+import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
 
 initMemory();
@@ -27,6 +28,7 @@ serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => 
 });
 if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
   startScheduler();
+  void fillMissingTitles().catch(() => {});
   warmSlack().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
 }
 
