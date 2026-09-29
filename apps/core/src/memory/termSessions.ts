@@ -46,7 +46,7 @@ export function createTermSession(input: { id: string; project: string; repoDir:
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET project = excluded.project, repo_dir = excluded.repo_dir, tmux_name = excluded.tmux_name,
          kind = excluded.kind, status = excluded.status, job_id = excluded.job_id, worktree = NULL, branch = NULL,
-         last_input_at = excluded.last_input_at, last_stop_at = NULL, seen_at = NULL, updated_at = excluded.updated_at`,
+         last_input_at = excluded.last_input_at, last_stop_at = NULL, seen_at = NULL, created_at = excluded.created_at, updated_at = excluded.updated_at`,
     )
     .run(input.id, input.project, input.repoDir, input.tmuxName, input.kind, status, input.jobId, t, t, t);
   return getTermSession(input.id)!;

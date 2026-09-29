@@ -18,6 +18,13 @@ describe("两段式启动脚本", () => {
     expect(prepAt).toBeGreaterThan(rmAt);
     expect(cdAt).toBeGreaterThan(prepAt);
     expect(workAt).toBeGreaterThan(cdAt);
+    const guardAt = lines.findIndex((l) => l.startsWith(`if [ "$PWD" -ef '/r/app' ]; then`));
+    expect(guardAt).toBeGreaterThan(cdAt);
+    expect(workAt).toBeGreaterThan(guardAt);
+    expect(lines[guardAt + 1]).toContain(`'{"code":2,"phase":"prepare"}'`);
+    expect(lines[guardAt + 1]).toContain("/jobs/j/exit");
+    expect(lines[guardAt + 2]).toBe("  exec /bin/zsh -il");
+    expect(lines[guardAt + 3]).toBe("fi");
     expect(s).toContain('"code":2,"phase":"prepare"');
     expect(s).toContain("/jobs/j/worktree");
     expect(lines.at(-2)).toBe("exec /bin/zsh -il");
@@ -70,13 +77,14 @@ describe("两段式启动脚本", () => {
     expect(p).not.toContain("必须新建分支");
     expect(p).not.toContain("feat/base");
     expect(p).toContain(worktreeFile("j"));
-    expect(p).toContain("不许把主仓");
+    expect(p).toContain("不许写主仓本身或主仓工作区里的普通目录（不是 git worktree 的目录）");
+    expect(p).not.toContain("或它下面的目录");
     expect(p).toContain("分支正被主仓检出，无法另建 worktree");
     expect(p).toMatch(/不许在主仓[^\n]*git switch/);
     const fresh = prepPrompt("j", "/r/app", "feat/base", { title: "导出中心" });
     expect(fresh).toContain("必须新建分支");
     expect(fresh).not.toContain("git worktree add <路径>");
-    expect(fresh).toContain("不许把主仓");
+    expect(fresh).toContain("不许写主仓本身或主仓工作区里的普通目录（不是 git worktree 的目录）");
   });
 
   it("启动脚本把已有分支交给准备段", () => {

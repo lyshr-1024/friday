@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
-import { getTermSession } from "../memory/termSessions.js";
+import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { listAudit } from "../memory/audit.js";
 import { setTmuxRunner } from "./tmux.js";
 import { openSession, setLauncher, worktreeReady } from "./sessions.js";
@@ -84,6 +84,20 @@ describe("tmux 版终端", () => {
     expect(dead).toContain(`bug-run-${t.id.slice(0, 6)}`);
     expect(getJob(`bug-run-${t.id.slice(0, 6)}`)!.status).not.toBe("running");
     expect(getJob(jobId)!.status).not.toBe("running");
+  });
+
+  it("同一个根重新开会话：created_at 刷新，kill→new-session 间隙里的对账不收新行", async () => {
+    const { t } = await running("重开");
+    age(t.id);
+    updateTermSession(t.id, { status: "closed" });
+    const before = Date.now();
+    setLauncher(async () => {});
+    const jobId = await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "再来" });
+    expect(Date.parse(getTermSession(t.id)!.createdAt)).toBeGreaterThanOrEqual(before - 1000);
+    alive.clear();
+    expect(await sweepClosedTerminals()).not.toContain(jobId);
+    expect(getTermSession(t.id)!.status).toBe("preparing");
+    expect(getJob(jobId)!.status).toBe("running");
   });
 
   it("刚开的会话（tmux 里还没建出来）不被对账收掉，老的才收", async () => {

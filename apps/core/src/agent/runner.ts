@@ -263,7 +263,7 @@ export function prepPrompt(id: string, repoDir: string, base?: string, info?: { 
     ...branchSteps,
     "4. 按项目的方式把依赖装好，让新 worktree 能直接跑起来（前端仓库可以先用 cp -c 从主仓克隆 node_modules，再跑一次 install 补差）。",
     "5. 分支名和 worktree 目录名里都不要出现 friday。",
-    `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。不许把主仓（${repoDir}）或它下面的目录写进去——那样会在用户的主仓里直接干活，Friday 会拒收。`,
+    `6. 最后把 worktree 的绝对路径（只有路径，一行）写进 ${worktreeFile(id)}，然后结束。不许写主仓本身或主仓工作区里的普通目录（不是 git worktree 的目录）——主仓是 ${repoDir}，写进去就等于在用户的主仓里直接干活，Friday 会拒收。`,
     existingBranch ? "不要提问——没人会回答；拿不准就自己定，但不要另起分支。" : "不要提问——没人会回答；拿不准就自己定，但绝不复用已有的 worktree 或分支，宁可多建一个。",
   ].join("\n");
 }
@@ -295,6 +295,10 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
           "  exec /bin/zsh -il",
           "fi",
           `cd "$(cat ${wt})" || exit 1`,
+          `if [ "$PWD" -ef ${shellQuote(req.repoDir)} ]; then`,
+          `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
+          "  exec /bin/zsh -il",
+          "fi",
           `wcode=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -X POST ${api("worktree")} -H 'content-type: application/json' -d "{\\"path\\":\\"$PWD\\"}" 2>/dev/null)`,
           `[ "$wcode" = 409 ] && exec /bin/zsh -il`,
         ];
