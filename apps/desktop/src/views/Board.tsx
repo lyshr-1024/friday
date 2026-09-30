@@ -785,7 +785,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
         <TaskDialog
           t={dialogTask}
           slots={detailSlots(dialogTask)}
-          chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" />}
+          chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" onEscape={() => setDialogFor(null)} />}
           actions={dialogActions(dialogTask)}
           onClose={() => setDialogFor(null)}
         />
@@ -1222,7 +1222,7 @@ function FridayTop({ t }: { t: Task }) {
   );
 }
 
-function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
+function TaskChat({ t, placeholder, onEscape }: { t: Task; placeholder: string; onEscape?: () => void }) {
   return (
     <div className="taskchat">
       <div className="taskchat__k">和 Friday 聊这条任务</div>
@@ -1234,6 +1234,7 @@ function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
         compact
         mentionsFor={t.id}
         noJobCards
+        {...(onEscape ? { onEscape, escLeavesDraft: true } : {})}
         {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，重新打开后可以继续聊" } : {})}
       />
     </div>

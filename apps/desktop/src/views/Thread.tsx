@@ -37,6 +37,8 @@ interface Props {
   mentionsFor?: string;
   /** 有值时输入框不可用，框里就显示这句为什么 */
   disabledNote?: string;
+  /** 输入框里有没发出去的字时，Esc 先让光标离开输入框（内容留着），不直接交给 onEscape——详情弹窗里防误关丢字 */
+  escLeavesDraft?: boolean;
   /** 任务里的会话：不在消息下挂终端卡片——头部已经有耗时和成本，卡上那句是上面消息的缩略版 */
   noJobCards?: boolean;
 }
@@ -67,7 +69,7 @@ const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `l
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards, escLeavesDraft },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -334,10 +336,13 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       void send(input);
     }
     if (e.key === "Escape") {
+      // 输入法在组合时 Esc 是给输入法取消候选的
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       // 必须 preventDefault：不然事件冒到浏览器会退出全屏
       e.preventDefault();
       if (busy && convRef.current) void cancelAsk(convRef.current);
       else if (resolving) setResolving(false);
+      else if (escLeavesDraft && (input.trim() || pending.length)) inputRef.current?.blur();
       else onEscape?.();
     }
   }
