@@ -1222,6 +1222,7 @@ function TaskChat({ t, placeholder }: { t: Task; placeholder: string }) {
         placeholder={placeholder}
         compact
         mentionsFor={t.id}
+        noJobCards
         {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，重新打开后可以继续聊" } : {})}
       />
     </div>

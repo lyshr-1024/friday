@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeTaskTerminal } from "./terminal.js";
-import { currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
@@ -197,7 +197,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   // 读不到分支名（不是 git 仓库、或它没建分支）就不挂合并动作，免得挂个假的
   // 合并要在主仓做，不能在 worktree 里（分支正被它检出着，merge 不了）
   const repo = task.source.repoDir || job.dir;
-  if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
+  const ahead = branch ? (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) : 0;
+  if (report && branch && branch !== "main" && branch !== "master" && ahead > 0 && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
   if (report && !interactive) postDelivery(task, jobId, report);

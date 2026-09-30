@@ -37,6 +37,8 @@ interface Props {
   mentionsFor?: string;
   /** 有值时输入框不可用，框里就显示这句为什么 */
   disabledNote?: string;
+  /** 任务里的会话：不在消息下挂终端卡片——头部已经有耗时和成本，卡上那句是上面消息的缩略版 */
+  noJobCards?: boolean;
 }
 
 const MENTION_KIND: Record<MentionItem["kind"], string> = { file: "文件", doc: "资料", shot: "截图" };
@@ -65,7 +67,7 @@ const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `l
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -130,11 +132,12 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }, [messages, draft, busy]);
 
   useEffect(() => {
+    if (noJobCards) return;
     const pull = () => void fetchJobs().then(setJobList).catch(() => {});
     pull();
     const t = setInterval(pull, jobList.some((j) => j.status === "running") ? 5000 : 30000);
     return () => clearInterval(t);
-  }, [jobList.some((j) => j.status === "running")]);
+  }, [noJobCards, jobList.some((j) => j.status === "running")]);
 
   // 终端里的 Claude 交付 / 卡住会往这段会话里追加消息，空闲时每 8 秒对一次
   useEffect(() => {
@@ -384,7 +387,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
                   )}
                 </>
               ) : (
-                <AssistantBody m={m} jobs={jobList} />
+                <AssistantBody m={m} {...(noJobCards ? {} : { jobs: jobList })} />
               )}
             </div>
           </div>

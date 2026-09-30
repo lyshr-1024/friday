@@ -47,6 +47,14 @@ export function diffStatSync(dir: string, base?: string): { filesChanged: number
   return { filesChanged: files.length, insertions: sum("insertions"), deletions: sum("deletions"), diffFiles: files, diffBase: trunk };
 }
 
+/** 当前分支相对本地主干（main，没有就 master）多了几个提交；找不到主干返回 undefined */
+export function commitsAheadSync(dir: string): number | undefined {
+  const trunk = ["main", "master"].find((b) => gitSync(dir, ["rev-parse", "--verify", "-q", b]) !== undefined);
+  if (!trunk) return undefined;
+  const n = gitSync(dir, ["rev-list", "--count", `${trunk}..HEAD`]);
+  return n === undefined ? undefined : Number(n);
+}
+
 /** 这个提交是不是已经在主干里（本地 main / master，或上次 fetch 下来的 origin/*）。不 fetch：收工时不该等网络 */
 export function isMergedSync(dir: string, sha: string): boolean {
   return ["main", "master", "origin/main", "origin/master"].some((ref) => gitSync(dir, ["merge-base", "--is-ancestor", sha, ref]) !== undefined);

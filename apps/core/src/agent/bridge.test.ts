@@ -79,6 +79,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
     git("switch", "-q", "-c", "fix/login-token");
+    git("commit", "-q", "--allow-empty", "-m", "fix: 刷新 token");
     createJob({ id: "job-mcp-4", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：自主改", kind: "code", source: { jobId: "job-mcp-4", autonomous: true, repoDir: "/main/repo", worktree: repo }, project: "demo", status: "processing", plan: "改" });
     await rpc("job-mcp-4", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } });
@@ -88,6 +89,18 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(t.pending![0]!.payload).toMatchObject({ dir: "/main/repo", branch: "fix/login-token", worktree: repo });
     // 会话留到任务收工，供「看终端」翻 scrollback；claude -p 自己会退出
     expect(getJob("job-mcp-4")!.status).toBe("running");
+  });
+
+  it("分支上一个提交都没有（比如 Claude 发现改错仓库、没动代码）就不挂合并动作", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" } });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("switch", "-q", "-c", "fix/wrong-repo");
+    createJob({ id: "job-mcp-4e", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：空分支", kind: "code", source: { jobId: "job-mcp-4e", autonomous: true, repoDir: "/main/repo", worktree: repo }, project: "demo", status: "processing", plan: "改" });
+    await rpc("job-mcp-4e", "tools/call", { name: "friday_done", arguments: { summary: "没改代码：bug 在另一个仓库", testResult: "未测" } });
+    expect(getTask(task.id)!.pending ?? []).toEqual([]);
   });
 
   it("自主任务停在主干上（没建分支）就不挂合并动作，免得挂个假的", async () => {

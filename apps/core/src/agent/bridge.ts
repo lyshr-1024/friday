@@ -14,7 +14,7 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
-import { currentBranchSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync } from "./git.js";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
 
@@ -271,7 +271,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     }
     let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     closeRun(jobId, "report");
-    const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master";
+    // 空分支不挂合并：Claude 没改代码（比如发现改错仓库）时分支上一个提交都没有，合进去什么也没有
+    const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;
     // 合并待审原来只在 onJobExit 解析 report.md 时挂；走 friday_done 交付的 onJobExit 会提前返回，
     // 于是自主任务第一次跑通（2026-09-28）review 里就没有「合并」可点。合并要在主仓做，不能在 worktree 里。
     if (onFeatureBranch && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
