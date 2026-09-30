@@ -96,6 +96,12 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       // 只挡正在组合的按键。keyCode 229 不能一起挡：中文输入法开着时 WebKit 给退格、回车报的都是 229，
       // xterm 自己会比对输入框内容补发删除（CompositionHelper），挡了就删不掉刚打的字（2026-09-30 用户报）
       if (composing || e.isComposing) return false;
+      // xterm 把 Shift+Enter 发成 \r，跟回车一样，Claude Code 分不出来——想换行却直接发出去了（2026-09-30 用户报）。
+      // 改发 ESC + CR（Meta+Enter，Claude Code 当换行；VS Code 里 /terminal-setup 配的也是它）。keypress 也要拦，不然 xterm 在那儿再补一个 \r
+      if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.type === "keydown") { e.preventDefault(); pending += "\x1b\r"; flushInput(); }
+        return false;
+      }
       if (e.type !== "keydown" || !e.metaKey) return true;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") return false;
       const k = e.key.toLowerCase();
