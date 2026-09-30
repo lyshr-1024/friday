@@ -92,7 +92,14 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const flushInput = () => { if (pending && send({ i: pending })) pending = ""; };
     const onData = term.onData((d) => { pending += d; flushInput(); });
 
+    // xterm 在 keydown 里记一个「见过 keydown」，随后的 input 事件（输入法直接交的字符）在这个状态下一律丢掉，等 keyup 才清。
+    // WebKit 里输入法是先交字符、后发字符键的 keydown，于是先按下的 Shift 让第一个 ？@ 这类字符被丢，要多按几下才出来
+    // （2026-09-30 用户真机按键记录：Shift → input「？」→ keydown 229 → keyup）。单按修饰键不产生字符，不该算「见过」
+    const xtermCore = (term as unknown as { _core?: { _keyDownSeen?: boolean } })._core;
+    const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock"]);
+
     term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && MODIFIERS.has(e.key) && xtermCore && "_keyDownSeen" in xtermCore) xtermCore._keyDownSeen = false;
       // 只挡正在组合的按键。keyCode 229 不能一起挡：中文输入法开着时 WebKit 给退格、回车报的都是 229，
       // xterm 自己会比对输入框内容补发删除（CompositionHelper），挡了就删不掉刚打的字（2026-09-30 用户报）
       if (composing || e.isComposing) return false;
