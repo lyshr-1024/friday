@@ -10,7 +10,7 @@ import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
-import { newSession } from "./tmux.js";
+import { newSession, tmuxPath } from "./tmux.js";
 
 const execFileP = promisify(execFile);
 
@@ -276,9 +276,14 @@ export function workCommand(req: SessionLaunch, claudePath: string, port: number
   const claude = req.resumeSessionId
     ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
     : `${shellQuote(claudePath)} ${flags}${prompt}`;
+  // 不再用 script 录终端：macOS 的 script 不把窗口尺寸变化转给它开的 pty，Claude 一直按启动时的宽度画（2026-09-30 用户报：
+  // 窗口放大了内容还只有那么宽，实测窗格 184×43、script 里 Claude 的 pty 85×25）。改由 tmux pipe-pane 把窗格输出追加进同一个日志
+  const tmux = shellQuote(tmuxPath() ?? "tmux");
   return [
-    `script -q ${req.resumeSessionId ? "-a " : ""}${shellQuote(jobLog(req.id))} /bin/zsh -c ${shellQuote(claude)}`,
+    `${tmux} pipe-pane -t "$TMUX_PANE" ${shellQuote(`cat >> ${shellQuote(jobLog(req.id))}`)}`,
+    `/bin/zsh -c ${shellQuote(claude)}`,
     "code=$?",
+    `${tmux} pipe-pane -t "$TMUX_PANE"`,
     `curl -s -m 3 -X POST ${shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/exit`)} -H 'content-type: application/json' -d "{\\"code\\":$code}" >/dev/null 2>&1`,
   ];
 }

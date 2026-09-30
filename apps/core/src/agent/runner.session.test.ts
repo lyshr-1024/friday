@@ -13,7 +13,8 @@ describe("两段式启动脚本", () => {
     const rmAt = lines.findIndex((l) => l.startsWith(`rm -f '${worktreeFile("j")}'`));
     const prepAt = lines.findIndex((l) => l.includes("--model sonnet") && l.includes(prep));
     const cdAt = lines.findIndex((l) => l.startsWith(`cd "$(cat '${worktreeFile("j")}')"`));
-    const workAt = lines.findIndex((l) => l.startsWith("script -q"));
+    const pipeAt = lines.findIndex((l) => l.includes("pipe-pane") && l.includes("cat >>"));
+    const workAt = lines.findIndex((l) => l.startsWith("/bin/zsh -c"));
     expect(rmAt).toBeGreaterThan(0);
     expect(prepAt).toBeGreaterThan(rmAt);
     expect(cdAt).toBeGreaterThan(prepAt);
@@ -21,6 +22,12 @@ describe("两段式启动脚本", () => {
     const guardAt = lines.findIndex((l) => l.startsWith(`if [ "$PWD" -ef '/r/app' ]; then`));
     expect(guardAt).toBeGreaterThan(cdAt);
     expect(workAt).toBeGreaterThan(guardAt);
+    // Claude 直接跑在窗格里，不隔一层 script（macOS 的 script 不转窗口尺寸）；日志由 pipe-pane 开在它前面、关在它后面
+    expect(s).not.toMatch(/(^|\s)script\s/m);
+    expect(pipeAt).toBeGreaterThan(guardAt);
+    expect(pipeAt).toBeLessThan(workAt);
+    expect(lines[pipeAt]).toMatch(/runs\/j\.log/);
+    expect(lines.findIndex((l, i) => i > workAt && l.includes("pipe-pane") && !l.includes("cat"))).toBeGreaterThan(workAt);
     expect(lines[guardAt + 1]).toContain(`'{"code":2,"phase":"prepare"}'`);
     expect(lines[guardAt + 1]).toContain("/jobs/j/exit");
     expect(lines[guardAt + 2]).toBe("  exec /bin/zsh -il");
@@ -41,12 +48,12 @@ describe("两段式启动脚本", () => {
   it("自主任务：准备段之后干活段用 -p --model opus", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "修 bug", kind: "autonomous", project: "app" }, "/bin/claude", 7788, files, prep);
     expect(s).toContain("--model sonnet");
-    expect(s).toMatch(/script -q .*-p --model ['\\].*opus/);
+    expect(s).toMatch(/\/bin\/zsh -c .*-p --model ['\\].*opus/);
   });
 
   it("接回：带 --resume，接不上就新开；追加写日志；带上要说的话", () => {
-    const [cmd] = workCommand({ id: "j", repoDir: "/r/app", kind: "interactive", resumeSessionId: "sess-1", task: "顺带改一下" }, "/bin/claude", 7788, files);
-    expect(cmd).toContain("script -q -a");
+    const [pipe, cmd] = workCommand({ id: "j", repoDir: "/r/app", kind: "interactive", resumeSessionId: "sess-1", task: "顺带改一下" }, "/bin/claude", 7788, files);
+    expect(pipe).toContain("cat >>");
     expect(cmd).toContain("--resume");
     expect(cmd).toContain("sess-1");
     expect(cmd!.split("||").length).toBe(2);
