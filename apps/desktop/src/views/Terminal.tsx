@@ -224,9 +224,15 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     <div className="term">
       <div className="term__tabs" role="tablist" aria-label="终端窗口">
         {windows.map((w) => (
-          <button key={w.index} role="tab" className="term__tab" aria-current={w.active} onClick={() => void selectSessionWindow(sessionId, w.index).then(refreshWindows)}>
-            {w.index + 1} · {w.name}
-          </button>
+          <span key={w.index} className="term__tabwrap" aria-current={w.active}>
+            <button role="tab" className="term__tab" aria-selected={w.active} onClick={() => void selectSessionWindow(sessionId, w.index).then(refreshWindows)}>
+              {w.index + 1} · {w.name}
+            </button>
+            {/* 跑着 Claude 的那个窗口不给关：关了 Claude 跟着没，这条任务的会话就断了。最后一个窗口后端也不让关 */}
+            {windows.length > 1 && w.name !== "claude" && (
+              <button className="term__close" aria-label={`关闭窗口 ${w.index + 1} · ${w.name}`} title="关闭这个窗口" onClick={() => void closeSessionWindow(sessionId, w.index).then(refreshWindows)}>×</button>
+            )}
+          </span>
         ))}
         <button className="term__tab term__tab--add" aria-label="新窗口" onClick={() => void newSessionWindow(sessionId).then(refreshWindows)}>＋</button>
       </div>

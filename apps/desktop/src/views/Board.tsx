@@ -696,7 +696,6 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
                 packBusy={packBusy}
                 onDetail={() => setDialogFor(focus.id)}
                 onLedger={() => openLedger(focus.id)}
-                onMenu={(x, y) => setMenu({ t: focus, x, y })}
                 slots={detailSlots(focus)}
                 actions={dialogActions(focus)}
               />
@@ -807,7 +806,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
  * 详情区。你在做的（有会话）主体就是终端；Friday 自主的主体是交付卡，右上「看终端」切到同一个会话；
  * 没开工的、挂在需求会话里的缺陷没有自己的终端，走卡片。
  */
-function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedger, onMenu, slots, actions }: {
+function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedger, slots, actions }: {
   t: Task;
   slots: DetailSlots;
   actions: DialogAction[];
@@ -818,7 +817,6 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   packBusy: string;
   onDetail: () => void;
   onLedger: () => void;
-  onMenu: (x: number, y: number) => void;
 }) {
   const s = t.session;
   const hasTerm = Boolean(s?.name) && s!.state !== "none";
@@ -837,7 +835,6 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   return (
     <section
       className={`detail ${panel || (!termVisible && notStarted(t)) ? "detail--panel" : ""}`}
-      onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); onMenu(e.clientX, e.clientY); }}
     >
       <TaskHeader
         t={t}

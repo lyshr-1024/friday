@@ -4961,7 +4961,14 @@ body:has(.hud)::-webkit-scrollbar {
 .term { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .term__tabs { display: flex; align-items: center; gap: var(--s-1); font-size: 11.5px; }
 .term__tab { padding: 4px 10px; border-radius: 6px 6px 0 0; color: var(--fg-3); background: none; border: 1px solid transparent; border-bottom: none; font: inherit; cursor: default; }
-.term__tab[aria-current="true"] { background: rgba(56, 214, 255, 0.10); border-color: rgba(56, 214, 255, 0.16); color: var(--fg-1); }
+.term__tabwrap { display: inline-flex; align-items: center; border-radius: 6px 6px 0 0; border: 1px solid transparent; border-bottom: none; }
+.term__tabwrap[aria-current="true"] { background: rgba(56, 214, 255, 0.10); border-color: rgba(56, 214, 255, 0.16); }
+.term__tabwrap .term__tab { border: none; background: none; }
+.term__tabwrap[aria-current="true"] .term__tab { color: var(--fg-1); }
+.term__close { padding: 0 8px 0 0; border: none; background: none; color: var(--fg-4); font: inherit; font-size: 13px; line-height: 1; cursor: default; opacity: 0; transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease); }
+.term__tabwrap:hover .term__close, .term__tabwrap[aria-current="true"] .term__close, .term__close:focus-visible { opacity: 1; }
+.term__close:hover { color: var(--fg-1); }
+.term__close:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .term__tab--add { padding: 4px 8px; color: var(--fg-4); }
 .term__body { flex: 1; min-height: 0; border: 1px solid rgba(56, 214, 255, 0.16); border-radius: 0 var(--r-md) var(--r-md) var(--r-md); background: var(--term-bg); padding: 16px 18px; }
 .term__body .xterm { height: 100%; }
