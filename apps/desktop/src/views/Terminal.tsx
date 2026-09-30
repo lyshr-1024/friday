@@ -106,7 +106,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const onData = term.onData((d) => { pending += d; void drain(); });
 
     term.attachCustomKeyEventHandler((e) => {
-      if (composing || e.isComposing || e.keyCode === 229) return false;
+      // 只挡正在组合的按键。keyCode 229 不能一起挡：中文输入法开着时 WebKit 给退格、回车报的都是 229，
+      // xterm 自己会比对输入框内容补发删除（CompositionHelper），挡了就删不掉刚打的字（2026-09-30 用户报）
+      if (composing || e.isComposing) return false;
       if (e.type !== "keydown" || !e.metaKey) return true;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") return false;
       const k = e.key.toLowerCase();
