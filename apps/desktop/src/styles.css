@@ -5228,7 +5228,7 @@ body:has(.hud)::-webkit-scrollbar {
 .th__branch { min-width: 0; }
 
 /* 自主任务面板：交付内容在会话里，会话要占得住地方 */
-.detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 50%; }
+.detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 50%; margin-bottom: 8px; }
 .detail--panel .detail__chat { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
 .detail--panel .detail__chat .taskchat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .detail--panel .detail__chat .thread { flex: 1; min-height: 0; }
@@ -5242,3 +5242,13 @@ body:has(.hud)::-webkit-scrollbar {
 .tdlg__cols--single { flex-direction: column; gap: 16px; }
 .tdlg__cols--single .tdlg__right { width: auto; }
 .res__none { margin-left: 10px; letter-spacing: 0; color: var(--fg-3); }
+
+/* 会话是主体：上面只留要你拍板的一小块和一行收起的详情 */
+.detail__top { flex: none; margin: 0 20px; }
+.detail__top:empty { display: none; }
+.detail__top + .dfold { margin-top: 10px; }
+.dfold { flex: none; margin: 0 20px 8px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(5, 8, 12, 0.5); color: var(--fg-3); font: inherit; font-size: 12px; text-align: left; cursor: default; }
+.dfold:hover { border-color: rgba(56, 214, 255, 0.2); }
+.dfold:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.dfold__sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfold__act { flex: none; color: var(--fg-2); }

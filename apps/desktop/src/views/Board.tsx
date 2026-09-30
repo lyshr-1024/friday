@@ -825,6 +825,8 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   const hasTerm = Boolean(s?.name) && s!.state !== "none";
   const autonomous = isFridayRun(t.source);
   const [showTerm, setShowTerm] = useState(false);
+  // 会话是主体：详情默认收成一行，要核对时再展开
+  const [showDetails, setShowDetails] = useState(false);
   const counts = {
     defects: defectsOf(t, all).length,
     docs: (t.source.docs ?? []).length,
@@ -858,10 +860,18 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
       {panel && (
         <>
           {!termVisible && (
-            <div className="detail__card detail__card--auto fpanel">
-              <FridayTop t={t} />
-              <TaskDetails t={t} {...slots} single footer={<a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 →</a>} />
-            </div>
+            <>
+              <div className="detail__top"><FridayTop t={t} /></div>
+              <button className="dfold" aria-expanded={showDetails} onClick={() => setShowDetails((v) => !v)}>
+                <span className="dfold__sum">{foldSummary(t, slots.defects.length)}</span>
+                <span className="dfold__act">{showDetails ? "收起详情" : "展开详情"}</span>
+              </button>
+              {showDetails && (
+                <div className="detail__card detail__card--auto fpanel">
+                  <TaskDetails t={t} {...slots} single footer={<a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 →</a>} />
+                </div>
+              )}
+            </>
           )}
           <div className="detail__chat"><TaskChat t={t} placeholder={chatHint(t)} /></div>
         </>
@@ -1138,6 +1148,19 @@ function IdleState({ t, onDetail }: { t: Task; onDetail: () => void }) {
       </div>
     </div>
   );
+}
+
+/** 详情收起时那一行：阶段、项目、有几样东西，够判断要不要展开 */
+function foldSummary(t: Task, defects: number): string {
+  const docs = (t.source.docs ?? []).length;
+  const convs = (t.conversations ?? []).length;
+  return [
+    t.stage ? STAGE_LABEL[t.stage] : "",
+    t.project ?? t.source.intake?.project ?? "项目没定",
+    defects ? `${defects} 条缺陷` : "",
+    docs ? `${docs} 份资料` : "没有资料",
+    convs ? `${convs} 段 Slack 讨论` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 /** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
