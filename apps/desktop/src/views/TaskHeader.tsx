@@ -1,6 +1,7 @@
 import type { Task } from "@friday/shared";
 import { SESSION_STATE_LABEL, STAGE_LABEL } from "@friday/shared";
 import { Icon } from "./Icon";
+import { MoreMenu, type DialogAction } from "./TaskDialog";
 
 export const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
 export const hhmm = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
@@ -25,10 +26,12 @@ export function stateLabel(t: Task): string {
   return s.state === "deciding" && s.waitingSince ? `${label} · ${waitedFor(s.waitingSince)}` : label;
 }
 
-export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume }: {
+export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume, actions }: {
   t: Task;
   counts: { defects: number; docs: number; convs: number };
   onDetail: () => void;
+  /** Friday 自主的任务详情直接铺在面板上：不要「详情」按钮，操作收进「···」 */
+  actions?: DialogAction[];
   onToggleTerminal?: () => void;
   showingTerminal?: boolean;
   onPin: () => void;
@@ -45,7 +48,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   const d = s?.delivery;
   const branchLine = waiting && !s?.worktree && t.kind !== "okr_weekly" && t.kind !== "handbook"
     ? ["还没有 worktree · 开工时按项目规则建", t.autostart ? "模型 opus" : ""].filter(Boolean).join(" · ")
-    : [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : ""].filter(Boolean).join(" · ");
+    : [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : "", d?.files ? `${d.files} 个文件 +${d.insertions ?? 0} −${d.deletions ?? 0}` : ""].filter(Boolean).join(" · ");
   return (
     <div className="th">
       <div className="th__meta">
@@ -56,15 +59,29 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
       </div>
       <div className="th__title">
         <h2 title={t.title}>{t.title}</h2>
-        <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>
-        {hint && <span className="th__hint">{hint}</span>}
+        {actions ? (
+          <>
+            <span className="th__sp" />
+            {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? "看详情" : "看终端"}</button>}
+            <MoreMenu actions={actions} />
+          </>
+        ) : (
+          <>
+            <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>
+            {hint && <span className="th__hint">{hint}</span>}
+          </>
+        )}
       </div>
-      {(branchLine || onToggleTerminal || onResume) && (
+      {(branchLine || (!actions && (onToggleTerminal || onResume))) && (
         <div className="th__branch">
-          <span>{branchLine}</span>
-          <span className="th__sp" />
-          {onResume && <button className="th__btn" onClick={onResume}>接着聊</button>}
-          {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? (t.source.headless ? "看结果" : "看交付") : "看终端"}</button>}
+          <span className="th__bl">{branchLine}</span>
+          {!actions && (
+            <>
+              <span className="th__sp" />
+              {onResume && <button className="th__btn" onClick={onResume}>接着聊</button>}
+              {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? "看交付" : "看终端"}</button>}
+            </>
+          )}
         </div>
       )}
     </div>

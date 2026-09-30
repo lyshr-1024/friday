@@ -5073,13 +5073,13 @@ body:has(.hud)::-webkit-scrollbar {
 .ac__path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac__ins { color: #45d483; font-variant-numeric: tabular-nums; }
 .ac__del { color: #ff5d6c; font-variant-numeric: tabular-nums; }
-.ac .stage, .tdlg .stage { margin: 0; }
-.tdlg .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.tdlg .stage__by { margin: 0; font-size: 11.5px; color: var(--fg-4); }
-.tdlg .stage__hint, .tdlg .stage__back { flex-basis: 100%; }
-.ac .stage__row, .tdlg .stage__row { gap: 6px; }
-.ac .stage__step, .tdlg .stage__step { padding: 5px 12px; border-radius: 6px; border-color: rgba(255, 255, 255, 0.10); color: var(--fg-3); font-size: 12px; }
-.ac .stage__step.is-on, .tdlg .stage__step.is-on { border-color: rgba(56, 214, 255, 0.4); background: rgba(56, 214, 255, 0.10); color: var(--fg-1); font-weight: 400; }
+.ac .stage, :is(.tdlg, .fpanel) .stage { margin: 0; }
+:is(.tdlg, .fpanel) .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+:is(.tdlg, .fpanel) .stage__by { margin: 0; font-size: 11.5px; color: var(--fg-4); }
+:is(.tdlg, .fpanel) .stage__hint, :is(.tdlg, .fpanel) .stage__back { flex-basis: 100%; }
+.ac .stage__row, :is(.tdlg, .fpanel) .stage__row { gap: 6px; }
+.ac .stage__step, :is(.tdlg, .fpanel) .stage__step { padding: 5px 12px; border-radius: 6px; border-color: rgba(255, 255, 255, 0.10); color: var(--fg-3); font-size: 12px; }
+.ac .stage__step.is-on, :is(.tdlg, .fpanel) .stage__step.is-on { border-color: rgba(56, 214, 255, 0.4); background: rgba(56, 214, 255, 0.10); color: var(--fg-1); font-weight: 400; }
 .ac__meegle { font-size: 11.5px; color: var(--fg-4); }
 .ac__add { background: none; border: none; padding: 0; color: var(--fg-3); font: inherit; font-size: 11px; letter-spacing: 0; cursor: default; }
 .ac__docs { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
@@ -5103,7 +5103,7 @@ body:has(.hud)::-webkit-scrollbar {
 .tdlg__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--fg-1); }
 .tdlg__sub { flex: none; font-size: 11.5px; color: var(--fg-4); }
 .tdlg__icon { width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); background: transparent; color: var(--fg-3); font-size: 13px; cursor: default; }
-.tdlg__icon:focus-visible, .tdlg__link:focus-visible, .tdlg__menu button:focus-visible, .tdlg .stage__step:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.tdlg__icon:focus-visible, .tdlg__link:focus-visible, .tdlg__menu button:focus-visible, :is(.tdlg, .fpanel) .stage__step:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .tdlg__menuwrap { position: relative; }
 .tdlg__menu { position: absolute; right: 0; top: 30px; min-width: 160px; display: flex; flex-direction: column; padding: 4px; border-radius: 8px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(10, 16, 24, 0.98); box-shadow: var(--shadow-pop); z-index: 1; }
 .tdlg__menu button { text-align: left; padding: 7px 10px; border-radius: 6px; border: none; background: none; color: var(--fg-2); font: inherit; cursor: default; }
@@ -5127,17 +5127,17 @@ body:has(.hud)::-webkit-scrollbar {
 .tdlg__link--dim { color: var(--fg-4); }
 .tdlg__chat:empty { display: none; }
 
-.ac__right .fx__slack, .tdlg .fx__slack { margin: 0; padding: 0; border: 0; background: none; display: flex; flex-direction: column; gap: 8px; }
-.ac__right .fx__slack-head, .tdlg .fx__slack-head { margin: 0; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; text-transform: none; color: var(--fg-4); }
-.ac__right .fx__conv, .tdlg .fx__conv { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px; }
-.ac__right .fx__conv + .fx__conv, .tdlg .fx__conv + .fx__conv { margin-top: 0; padding-top: 10px; }
-.ac__right .fx__conv-meta, .tdlg .fx__conv-meta { align-items: center; gap: 8px; color: var(--fg-3); }
-.ac__right .fx__conv-who, .tdlg .fx__conv-who { flex: none; color: var(--fg-1); font-weight: 400; }
+.ac__right .fx__slack, :is(.tdlg, .fpanel) .fx__slack { margin: 0; padding: 0; border: 0; background: none; display: flex; flex-direction: column; gap: 8px; }
+.ac__right .fx__slack-head, :is(.tdlg, .fpanel) .fx__slack-head { margin: 0; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; text-transform: none; color: var(--fg-4); }
+.ac__right .fx__conv, :is(.tdlg, .fpanel) .fx__conv { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px; }
+.ac__right .fx__conv + .fx__conv, :is(.tdlg, .fpanel) .fx__conv + .fx__conv { margin-top: 0; padding-top: 10px; }
+.ac__right .fx__conv-meta, :is(.tdlg, .fpanel) .fx__conv-meta { align-items: center; gap: 8px; color: var(--fg-3); }
+.ac__right .fx__conv-who, :is(.tdlg, .fpanel) .fx__conv-who { flex: none; color: var(--fg-1); font-weight: 400; }
 .fx__conv-basis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
 .fx__conv-meta:has(.fx__conv-basis--guess) { flex-wrap: wrap; }
 .fx__conv-basis--guess { order: 9; flex: 1 1 100%; overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 11.5px; line-height: 1.6; color: var(--fg-4); }
-.ac__right .fx__conv-drop, .tdlg .fx__conv-drop { color: var(--fg-4); font-size: 12px; }
-.ac__right .fx__conv-msg, .tdlg .fx__conv-msg { margin: 0; color: var(--fg-1); font-size: 12px; line-height: 1.6; }
+.ac__right .fx__conv-drop, :is(.tdlg, .fpanel) .fx__conv-drop { color: var(--fg-4); font-size: 12px; }
+.ac__right .fx__conv-msg, :is(.tdlg, .fpanel) .fx__conv-msg { margin: 0; color: var(--fg-1); font-size: 12px; line-height: 1.6; }
 .fx__conv-name { color: var(--fg-3); }
 
 /* 会话组件：弹窗底部、自主卡底部、「问 Friday」同一套消息两列与输入框 */
@@ -5210,7 +5210,31 @@ body:has(.hud)::-webkit-scrollbar {
 
 .tdlg__belong .fx__story > div { display: flex; align-items: center; gap: 12px; }
 .tdlg__belong .k { margin: 0; width: 56px; flex: none; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; color: var(--fg-4); }
-.tdlg .fx__desc { font-size: 12.5px; }
+:is(.tdlg, .fpanel) .fx__desc { font-size: 12.5px; }
 .qc__was { margin-right: 10px; color: var(--fg-4); }
 .tdlg__belong .fx__story > .fx__chips { display: none; }
 .tdlg__belong .fx__story > div { align-items: flex-start; } .tdlg__belong .k { padding-top: 6px; }
+
+/* Friday 自主任务面板：详情直接铺开，最上面是要你拍板的事 */
+.fpanel { display: flex; flex-direction: column; gap: 18px; font-size: 12.5px; }
+.ftop { display: flex; flex-direction: column; gap: 10px; }
+.ftop__row { display: flex; gap: 10px; align-items: baseline; }
+.ftop__row .ac__k { flex: none; }
+.ftop__queued { display: flex; flex-direction: column; gap: 10px; }
+.fpanel .ac__ledger { margin-top: auto; }
+.detail__resume { flex: none; margin: 0 20px 8px; font-size: 12px; color: var(--fg-3); }
+.th__btn { flex: none; white-space: nowrap; }
+.th__bl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th__branch { min-width: 0; }
+
+/* 自主任务面板：交付内容在会话里，会话要占得住地方 */
+.detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 42%; }
+.detail--panel .detail__chat { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
+.detail--panel .detail__chat .taskchat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.detail--panel .detail__chat .thread { flex: 1; min-height: 0; }
+.detail--panel .detail__chat .thread--compact .chat__body { max-height: none; }
+.answer--pre { white-space: pre-wrap; }
+.detail--panel .thread--compact .thread__scroll { flex: 1; min-height: 0; }
+.detail--panel .thread--compact .chat__body { flex: 1; min-height: 0; }
+.detail--panel .composer { flex: none; }
+.detail--panel .composer { margin-top: auto; }

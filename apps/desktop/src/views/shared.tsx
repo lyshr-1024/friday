@@ -9,9 +9,11 @@ export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   if (m.kind === "run" && m.payload && (m.payload as { jobId?: string }).jobId) {
     const jobId = (m.payload as { jobId: string }).jobId;
     const job = jobs?.find((j) => j.id === jobId);
+    const shots = (m.payload as { attachments?: Attachment[] }).attachments;
     return (
       <>
-        <div className="answer">{m.content}</div>
+        <div className="answer answer--pre">{m.content}</div>
+        {shots?.length ? <AttachmentStrip items={shots} /> : null}
         {job && <JobCard job={job} />}
       </>
     );

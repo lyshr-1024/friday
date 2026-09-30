@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { DeliveryReport } from "@friday/shared";
+import type { Attachment, DeliveryReport } from "@friday/shared";
 import { saveAttachment } from "../memory/attachments.js";
 import { reportPath, shotsDir } from "./runner.js";
 
@@ -30,15 +30,23 @@ export function queryReplyDraft(report: DeliveryReport): string | undefined {
   return draft ? draft.slice(0, 300) : undefined;
 }
 
-export function collectReport(jobId: string): DeliveryReport | undefined {
-  const p = reportPath(jobId);
-  if (!existsSync(p)) return undefined;
+function readShots(jobId: string): Array<{ name: string; data: Buffer }> {
   const dir = shotsDir(jobId);
-  const shots = existsSync(dir)
+  return existsSync(dir)
     ? readdirSync(dir)
         .filter((f) => /\.png$/i.test(f))
         .sort()
         .map((f) => ({ name: f, data: readFileSync(join(dir, f)) }))
     : [];
-  return parseReport(readFileSync(p, "utf8"), shots);
+}
+
+export function collectReport(jobId: string): DeliveryReport | undefined {
+  const p = reportPath(jobId);
+  if (!existsSync(p)) return undefined;
+  return parseReport(readFileSync(p, "utf8"), readShots(jobId));
+}
+
+/** friday_done 交付的报告里没有截图：退出时再把截图目录收成附件 */
+export function collectShots(jobId: string): Attachment[] {
+  return readShots(jobId).map((s) => saveAttachment(s.name, "image/png", s.data));
 }

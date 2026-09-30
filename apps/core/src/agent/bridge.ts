@@ -21,6 +21,7 @@ import { replyLanguageLine } from "./lang.js";
 /** 贴在工具返回末尾：工具调用之后那段汇报最容易换成英文 */
 const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, recordRound } from "./runLog.js";
+import { postDelivery } from "./delivery.js";
 
 const execFileP = promisify(execFile);
 
@@ -92,10 +93,10 @@ function taskFor(job: Job): Task {
   return t;
 }
 
-function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress"): void {
+function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress", message = true): void {
   state.notices.push({ title: `${title} · ${job.project}`, body: body.slice(0, 200), taskId: task.id });
   const conv = task.source.conversationId ?? job.conversationId;
-  if (conv && conversationExists(conv)) {
+  if (message && conv && conversationExists(conv)) {
     addMessage(conv, { role: "assistant", kind: "run", content: `${title}：${body}`, payload: { status, jobId: job.id } });
   }
 }
@@ -262,7 +263,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       // 交付了说明确实在写代码，但「交付一轮」不等于提测，最多推到「进行中」
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
-      notify(t, job, "这轮做完了，等你看", report.summary, "finished");
+      // 后台查询的交付消息等退出时解析完报告再写（带依据和回复草稿），这里只发通知
+      notify(t, job, "这轮做完了，等你看", report.summary, "finished", !task.source.headless);
       // 窗口不关：一个任务常要来回好几轮，用户看完多半就在这个窗口里接着追问。
       // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
       return { text: `已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。${lang()}` };
@@ -281,7 +283,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       })!;
     }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
-    notify(t, job, "做完了，等你验收", report.summary, "finished");
+    notify(t, job, "做完了，等你验收", report.summary, "finished", false);
+    postDelivery(t, jobId, report);
     return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}交付完就结束，会话留着给用户看终端。` };
   }
 

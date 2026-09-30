@@ -14,7 +14,8 @@ import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
 import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, runInSession } from "./sessions.js";
 import { getTermSession } from "../memory/termSessions.js";
-import { collectReport, queryReplyDraft } from "./report.js";
+import { collectReport, collectShots, queryReplyDraft } from "./report.js";
+import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -123,6 +124,13 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (!job) return undefined;
   if (job.task.report && job.task.status === "review") {
     fillRunCost(jobId);
+    if (!job.task.report.screenshots.length) {
+      const shots = collectShots(jobId);
+      if (shots.length) {
+        const t = updateTask(job.task.id, { report: { ...job.task.report, screenshots: shots } })!;
+        postShots(t, jobId, shots);
+      }
+    }
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return job.task;
   }
@@ -158,6 +166,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
         },
       })!;
     }
+    if (report) postDelivery(t, jobId, report);
     record({ taskId: t.id, action: "slack_query_done", why: "查询任务结束", how: report ? "已生成答案与草稿" : `退出码 ${exitCode}，没有报告`, evidence: { jobId, exitCode }, risk: "read", status: report ? "done" : "failed" });
     return t;
   }
@@ -191,6 +200,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (report && branch && branch !== "main" && branch !== "master" && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
+  if (report && !interactive) postDelivery(task, jobId, report);
   if (task.status === "review" || task.status === "done") reportBackToOrigin(task);
   return task;
 }

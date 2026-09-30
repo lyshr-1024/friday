@@ -10,7 +10,7 @@ import { OkrWeekly } from "./OkrWeekly";
 import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
-import { TaskDialog, type DialogAction } from "./TaskDialog";
+import { TaskDetails, TaskDialog, type DetailSlots, type DialogAction } from "./TaskDialog";
 
 export type BoardView = "queue" | "all" | "ledger";
 
@@ -48,7 +48,7 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
   if (a.type === "git_merge") {
-    return "把这个分支合进主干（不 push）。合完撤不回，要退得自己 revert。";
+    return "合完撤不回，要退得自己 revert。";
   }
   if (a.type === "okr_submit") {
     return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
@@ -142,7 +142,7 @@ function IssueBody({ t }: { t: Task }) {
     <>
       {desc && (
         <div>
-          <span className="k">DEFECT</span>
+          <span className="k">工单描述</span>
           <div className={`fx__desc ${full ? "" : "fx__desc--clip"}`}><Rich text={desc} /></div>
           <button className="b b--text" onClick={() => setFull((v) => !v)}>{full ? "收起" : "展开全文"}</button>
         </div>
@@ -188,7 +188,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
           />
           {reproject ? (
             <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在会话里说「撤掉」执行</span>
-          ) : !t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
+          ) : !t.project && <span className="fx__meta-dim">{t.autostart && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -531,6 +531,21 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
 
   const openLedger = (taskId: string) => { setLedgerFor(taskId); go?.("ledger"); };
   const dialogTask = dialogFor ? board?.tasks.find((x) => x.id === dialogFor) : undefined;
+  function detailSlots(t: Task): DetailSlots {
+    const all = board?.tasks ?? [];
+    return {
+      defects: defectsOf(t, all),
+      stage: <StageBar t={t} onAct={act} />,
+      meegle: meegleLine(t) ? <div className="ac__meegle">{meegleLine(t)}</div> : null,
+      belong: t.kind === "okr_weekly" || t.kind === "handbook" ? null : <TaskBody t={t} all={all} onAct={act} />,
+      description: isIssue(t) ? <IssueBody t={t} /> : null,
+      resources: <Resources t={t} onAct={act} />,
+      slack: <SlackConvs t={t} onAct={act} />,
+      onAdopt: (d) => void act(d, () => taskRoot(d.id, true)),
+      onReject: (d) => void act(d, () => taskRoot(d.id, false)),
+    };
+  }
+
   function dialogActions(t: Task): DialogAction[] {
     const close = () => setDialogFor(null);
     const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
@@ -690,6 +705,8 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                 onDetail={() => setDialogFor(focus.id)}
                 onLedger={() => openLedger(focus.id)}
                 onMenu={(x, y) => setMenu({ t: focus, x, y })}
+                slots={detailSlots(focus)}
+                actions={dialogActions(focus)}
               />
             ) : (
               <div className="empty">
@@ -769,18 +786,10 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
       {dialogTask && board && (
         <TaskDialog
           t={dialogTask}
-          defects={defectsOf(dialogTask, board.tasks)}
-          stage={<StageBar t={dialogTask} onAct={act} />}
-          meegle={meegleLine(dialogTask) ? <div className="ac__meegle">{meegleLine(dialogTask)}</div> : null}
-          belong={dialogTask.kind === "okr_weekly" || dialogTask.kind === "handbook" ? null : <TaskBody t={dialogTask} all={board.tasks} onAct={act} />}
-          description={isIssue(dialogTask) ? <IssueBody t={dialogTask} /> : null}
-          resources={<Resources t={dialogTask} onAct={act} />}
-          slack={<SlackConvs t={dialogTask} onAct={act} />}
+          slots={detailSlots(dialogTask)}
           chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" />}
           actions={dialogActions(dialogTask)}
           onClose={() => setDialogFor(null)}
-          onAdopt={(d) => void act(d, () => taskRoot(d.id, true))}
-          onReject={(d) => void act(d, () => taskRoot(d.id, false))}
         />
       )}
       {editing && <TaskEditor t={editing} onClose={() => setEditing(null)} onSaved={(fn) => void act(editing, fn)} />}
@@ -799,8 +808,10 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
  * 详情区。你在做的（有会话）主体就是终端；Friday 自主的主体是交付卡，右上「看终端」切到同一个会话；
  * 没开工的、挂在需求会话里的缺陷没有自己的终端，走卡片。
  */
-function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedger, onMenu }: {
+function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedger, onMenu, slots, actions }: {
   t: Task;
+  slots: DetailSlots;
+  actions: DialogAction[];
   all: Task[];
   onAct: (t: Task | null, fn: () => Promise<unknown>) => Promise<void>;
   onPick: (id: string) => void;
@@ -819,10 +830,12 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
     docs: (t.source.docs ?? []).length,
     convs: (t.conversations ?? []).length,
   };
-  const termVisible = hasTerm && (!autonomous || showTerm);
+  // Friday 自主的（含排队要自己开工的）：详情直接铺在面板上，交付看会话
+  const panel = autonomous || Boolean(t.autostart);
+  const termVisible = hasTerm && (!panel || showTerm);
   return (
     <section
-      className="detail"
+      className={`detail ${panel ? "detail--panel" : ""}`}
       onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); onMenu(e.clientX, e.clientY); }}
     >
       <TaskHeader
@@ -830,26 +843,30 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         counts={counts}
         onDetail={onDetail}
         onPin={() => void onAct(t, () => taskPin(t.id, !t.pinned))}
-        {...(autonomous && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
-        {...(canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
+        {...(panel && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
+        {...(!panel && canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
+        {...(panel ? { actions } : {})}
       />
       {termVisible ? (
-        <div className="detail__term"><Terminal key={t.source.jobId ?? ""} sessionId={t.id} /></div>
-      ) : autonomous ? (
         <>
-          <div className="detail__card detail__card--auto">
-            <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
-          </div>
-          <div className="detail__chat"><TaskChat t={t} placeholder={reprojectOf(t) ? `撤掉 / 算了，还是 ${t.project ?? "原来的"}` : t.source.headless ? "发吧 / 草稿改成… / 不用回了" : "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行"} /></div>
+          {panel && canResume(t) && (
+            <div className="detail__resume">Claude 已退出<span className="th__sep">·</span><button className="idle__link" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>接着聊</button></div>
+          )}
+          <div className="detail__term"><Terminal key={t.source.jobId ?? ""} sessionId={t.id} /></div>
         </>
-      ) : t.autostart ? (
+      ) : null}
+      {panel && (
         <>
-          <div className="detail__card detail__card--auto">
-            <QueuedCard t={t} onAct={onAct} onLedger={onLedger} />
-          </div>
-          <div className="detail__chat"><TaskChat t={t} placeholder={`先别做 / 这条我来 / 项目不对，是 …`} /></div>
+          {!termVisible && (
+            <div className="detail__card detail__card--auto fpanel">
+              <FridayTop t={t} />
+              <TaskDetails t={t} {...slots} footer={<a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 →</a>} />
+            </div>
+          )}
+          <div className="detail__chat"><TaskChat t={t} placeholder={chatHint(t)} /></div>
         </>
-      ) : notStarted(t) ? (
+      )}
+      {termVisible || panel ? null : notStarted(t) ? (
         <IdleState t={t} onDetail={onDetail} />
       ) : (
         <div className="detail__card">
@@ -1123,164 +1140,50 @@ function IdleState({ t, onDetail }: { t: Task; onDetail: () => void }) {
   );
 }
 
-/** Friday 判成能自己做、还在排队的：跟自主任务同一种卡，写清什么时候开、凭什么判的 */
-function QueuedCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onLedger: () => void }) {
-  const v = t.source.intake;
-  const a = t.autostart!;
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  useEffect(() => { void fetchAudit(t.id, 50).then(setEvents).catch(() => {}); }, [t.id, t.updatedAt]);
-  const meegle = meegleLine(t);
-  const at = hhmm(a.at);
-  const soon = Date.parse(a.at) > Date.now();
-  const when = [
-    soon ? `描述刚进来时常被改，等 15 分钟稳定后 ${at} 开工。` : "已经过了稳定期，轮到就开。",
-    a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条，跑完就轮到它。` : "到点时前面有自主任务在跑，就排到它后面，一次只跑一条。",
-  ].join("");
-  const project = t.project ?? v?.project;
-  return (
-    <div className="ac">
-      <div className="ac__left">
-        <section className="ac__sec">
-          <div className="ac__k">什么时候开</div>
-          <div className="ac__text">{when}</div>
-        </section>
-        {v && (
-          <section className="ac__sec">
-            <div className="ac__k">Friday 的判断 {v.confidence !== undefined && <span className="ac__kv">把握 {v.confidence}</span>}</div>
-            <div className="qc__rows">
-              <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} /></span></div>
-              {project && (
-                <div className="qc__row">
-                  <span className="qc__k">项目</span>
-                  <span className="qc__v">{project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span>
-                </div>
-              )}
-              {v.detail && <div className="qc__row"><span className="qc__k">打算</span><span className="qc__v"><Linkified text={v.detail} /></span></div>}
-            </div>
-          </section>
-        )}
-        <span className="ac__sp" />
-        {(t.stage || meegle) && (
-          <section className="ac__sec">
-            <StageBar t={t} onAct={onAct} />
-            {meegle && <div className="ac__meegle">{meegle}</div>}
-          </section>
-        )}
-      </div>
-      <div className="ac__right">
-        <Resources t={t} onAct={onAct} />
-        <SlackConvs t={t} onAct={onAct} />
-        <span className="ac__sp" />
-        <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
-      </div>
-    </div>
-  );
+/** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", okr_submit: "提交", start_job: "开工", handbook_apply: "通过" };
+
+function chatHint(t: Task): string {
+  if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
+  if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
+  if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
+  return "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行";
 }
 
-/** Friday 自主任务的交付卡：按审核顺序排——交付了什么 → 等你点头的 → 改了哪些 → 走到哪一步 */
-function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onLedger: () => void }) {
-  const r = t.report;
-  const d = t.session?.delivery;
+/**
+ * Friday 自主任务面板最上面那块：要你拍板的事（待审动作）、或者排队中「什么时候开、凭什么判的」。
+ * 交付内容不在这儿——在会话里 Friday 的那条交付消息。
+ */
+function FridayTop({ t }: { t: Task }) {
   const pending = t.pending ?? [];
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  useEffect(() => { void fetchAudit(t.id, 50).then(setEvents).catch(() => {}); }, [t.id, t.updatedAt]);
-  const [checked, setChecked] = useState<boolean[]>(() => r?.checked ?? []);
-  useEffect(() => { setChecked(r?.checked ?? []); }, [t.id, r?.checked?.join(",")]);
-  const meegle = meegleLine(t);
-  const query = Boolean(t.source.headless);
+  const v = t.source.intake;
+  const a = t.autostart;
+  if (!pending.length && !a) return null;
   return (
-    <div className="ac">
-      <div className="ac__left">
-        {r ? (
-          <section className="ac__sec">
-            <div className="ac__k">{query ? "查询结果" : "交付报告"} {r.at && <span className="ac__kv">{hhmm(r.at)}</span>}</div>
-            {r.summary && <div className="ac__text"><Linkified text={r.summary} /></div>}
-            {r.testResult?.trim() && <div className="ac__text ac__text--dim">{r.testResult}</div>}
-            {r.screenshots.length > 0 && <AttachmentStrip items={r.screenshots} />}
-          </section>
-        ) : (
-          <section className="ac__sec">
-            <div className="ac__k">{query ? "查询结果" : "交付报告"}</div>
-            <div className="ac__text ac__text--dim">{query ? "还在查。查完会把答案、依据（文件:行号）和回复草稿写在这里；想看它在做什么点右上「看终端」。" : "还没交。跑完会把改了什么、怎么测的、截图写在这里；想看它在做什么点右上「看终端」。"}</div>
-          </section>
-        )}
-        {query && r?.reply && (
-          <section className="ac__sec">
-            <div className="ac__k">回复草稿</div>
-            <div className="ac__text"><Linkified text={r.reply} /></div>
-          </section>
-        )}
-        {(pending.length > 0 || (r?.verify.length ?? 0) > 0) && (
-          <section className="ac__sec">
-            {pending.length > 0 && (
-              <>
-                <div className="ac__k">等你点头的动作</div>
-                {pending.map((a) => (
-                  <div key={a.id} className="ac__pend">
-                    <div className="ac__pend-t">{a.label}</div>
-                    <div className="ac__pend-d">{actionNote(a, t.conversations?.[0])}</div>
-                  </div>
-                ))}
-              </>
-            )}
-            {r && r.verify.length > 0 && (
-              <>
-                <div className={`ac__k ${pending.length ? "ac__k--gap" : ""}`}>通过前请确认 <span className="ac__kv">{checked.filter(Boolean).length} / {r.verify.length}</span></div>
-                <div className="ac__checks">
-                  {r.verify.map((c, i) => (
-                    <label key={i}>
-                      <input
-                        type="checkbox"
-                        checked={checked[i] ?? false}
-                        onChange={(e) => { const v = e.target.checked; setChecked((x) => { const n = [...x]; n[i] = v; return n; }); void taskVerify(t.id, i, v).catch(() => {}); }}
-                      />
-                      {c}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </section>
-        )}
-        {reprojectOf(t) && (
-          <section className="ac__sec">
+    <div className="ftop">
+      {pending.map((p) => (
+        <div key={p.id} className="ac__pend">
+          <div className="ftop__row"><span className="ac__k">等你点头</span><span className="ac__pend-t">{p.label}</span></div>
+          <div className="ac__pend-d">{actionNote(p, t.conversations?.[0])}{SAY[p.type] ? `${actionNote(p, t.conversations?.[0]).includes("\n") ? "\n" : ""}在会话里说「${SAY[p.type]}」执行。` : ""}</div>
+        </div>
+      ))}
+      {a && (
+        <div className="ftop__queued">
+          <div className="ftop__row"><span className="ac__k">什么时候开</span>
+            <span className="ac__text">
+              {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
+              {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+            </span>
+          </div>
+          {v && (
             <div className="qc__rows">
-              <div className="qc__row">
-                <span className="qc__k">项目</span>
-                <span className="qc__v"><s className="qc__was">{String(reprojectOf(t)!.payload.from)}</s>{String(reprojectOf(t)!.payload.to)}<span className="qc__dim">你改的，说「撤掉」后生效</span></span>
-              </div>
+              <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} />{v.confidence !== undefined && <span className="qc__dim">把握 {v.confidence}</span>}</span></div>
+              {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span></div>}
+              {v.detail && <div className="qc__row"><span className="qc__k">打算</span><span className="qc__v"><Linkified text={v.detail} /></span></div>}
             </div>
-          </section>
-        )}
-        {(d?.files !== undefined || (r?.changes.length ?? 0) > 0) && (
-          <section className="ac__sec">
-            <div className="ac__k">{query ? "依据" : "改动"} {d?.files !== undefined && <span className="ac__kv">{d.files} 个文件 · +{d.insertions ?? 0} −{d.deletions ?? 0} · 相对 {d.base ?? "主干"}</span>}</div>
-            {d?.perFile ? (
-              <div className="ac__files">
-                {d.perFile.map((f) => (
-                  <div key={f.path} className="ac__file">
-                    <span className="ac__path">{f.path}</span>
-                    <span className="ac__ins">+{f.insertions}</span>
-                    <span className="ac__del">−{f.deletions}</span>
-                  </div>
-                ))}
-              </div>
-            ) : r && r.changes.length > 0 && <div className="ac__files">{r.changes.map((c, i) => <div key={i} className="ac__file">{c}</div>)}</div>}
-          </section>
-        )}
-        {(t.stage || meegle) && (
-          <section className="ac__sec">
-            <StageBar t={t} onAct={onAct} />
-            {meegle && <div className="ac__meegle">{meegle}</div>}
-          </section>
-        )}
-      </div>
-      <div className="ac__right">
-        <Resources t={t} onAct={onAct} />
-        <SlackConvs t={t} onAct={onAct} />
-        <span className="ac__sp" />
-        <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
