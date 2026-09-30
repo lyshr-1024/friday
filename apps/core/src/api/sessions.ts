@@ -3,10 +3,8 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { AttachError, attach, resizeAttach, subscribe, viewerSession, writeAttach } from "../agent/attach.js";
-import { clearHistory, hasSession, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
+import { clearHistory, killWindow, listWindows, newWindow, searchBack, selectWindow, splitWindow } from "../agent/tmux.js";
 import { getTermSession, markSeen } from "../memory/termSessions.js";
 import { publish } from "../bus.js";
 
@@ -34,46 +32,6 @@ export function setClipboardWriter(fn: (text: string) => Promise<void>): void {
 
 export const sessions = new Hono()
   .use("/sessions/:id/*", async (c, next) => (getTermSession(c.req.param("id")) ? next() : c.json({ error: "没有这个会话", gone: true }, 404)))
-  .post("/sessions/:id/attach", async (c) => {
-    const p = await body(c, z.object({ cols: z.number(), rows: z.number() }));
-    if (!p.success) return c.json({ error: "cols / rows 必填" }, 400);
-    const s = getTermSession(c.req.param("id"))!;
-    // 会话不在还拉 pty：tmux 打一行错误就退，前端把那行当成连上了，会无限重连、每次占一个 ptmx
-    if (s.status === "closed") return c.json({ error: "会话已不在", gone: true }, 404);
-    // 行没 closed 就只是暂时找不到（开始做会先 kill 同名会话、约一秒后才重建），真没了由对账标 closed
-    if (!(await hasSession(s.tmuxName))) return c.json({ error: "会话还没起来", retry: true }, 503);
-    try {
-      return c.json({ attachId: attach(s.id, s.tmuxName, p.data.cols, p.data.rows) });
-    } catch (e) {
-      if (!(e instanceof AttachError)) throw e;
-      return c.json({ error: e.message, fatal: true }, 503);
-    }
-  })
-  .get("/sessions/:id/stream", (c) => {
-    const attachId = c.req.query("attach") ?? "";
-    if (viewerSession(attachId) !== c.req.param("id")) return c.json({ error: "没有这个 attach" }, 404);
-    return streamSSE(c, async (stream) => {
-      await new Promise<void>((resolve) => {
-        let ping: NodeJS.Timeout | undefined;
-        const end = () => { clearInterval(ping); resolve(); };
-        const off = subscribe(attachId, (d) => void stream.writeSSE({ data: JSON.stringify({ d }) }).catch(() => {}), end);
-        if (!off) return resolve();
-        ping = setInterval(() => void stream.writeSSE({ data: JSON.stringify({ ping: 1 }) }).catch(() => {}), 15_000);
-        stream.onAbort(() => { off(); end(); });
-      });
-    });
-  })
-  .post("/sessions/:id/input", async (c) => {
-    const p = await body(c, z.object({ attach: z.string(), data: z.string().max(65536) }));
-    if (!p.success) return c.json({ error: "attach / data 必填" }, 400);
-    if (viewerSession(p.data.attach) !== c.req.param("id") || !writeAttach(p.data.attach, p.data.data)) return c.json({ error: "没有这个 attach" }, 404);
-    return c.json({ ok: true });
-  })
-  .post("/sessions/:id/resize", async (c) => {
-    const p = await body(c, z.object({ attach: z.string(), cols: z.number(), rows: z.number() }));
-    if (!p.success) return c.json({ error: "attach / cols / rows 必填" }, 400);
-    return resizeAttach(p.data.attach, p.data.cols, p.data.rows) ? c.json({ ok: true }) : c.json({ error: "没有这个 attach" }, 404);
-  })
   .post("/sessions/:id/seen", (c) => {
     markSeen(c.req.param("id"));
     publish({ type: "tasks" });

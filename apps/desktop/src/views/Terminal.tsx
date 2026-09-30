@@ -8,7 +8,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { coreBaseUrl } from "../lib/core";
-import { AttachFatal, AttachGone, attachSession, clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, sessionExists, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
+import { clearSession, closeSessionWindow, copyText, markSessionSeen, newSessionWindow, searchSession, selectSessionWindow, sessionWindows, splitSession, terminalPrefs, type TmuxWindow } from "../lib/sessions";
 
 function termTheme(): Record<string, string> {
   const s = getComputedStyle(document.documentElement);
@@ -82,28 +82,15 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     ta?.addEventListener("compositionend", onEnd);
 
     let base = "";
-    let attachId = "";
-    const ctrl = new AbortController();
-    const post = (path: string, body: unknown) => fetch(`${base}/sessions/${encodeURIComponent(sessionId)}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => undefined);
-    let inflight = false;
+    let ws: WebSocket | null = null;
     let pending = "";
-    const drain = async () => {
-      if (inflight || !pending || !attachId) return;
-      inflight = true;
-      while (pending && attachId) {
-        const data = pending;
-        const id = attachId;
-        pending = "";
-        const res = await post("input", { attach: id, data });
-        if (!res?.ok) {
-          pending = data + pending;
-          if (res?.status === 404 && attachId === id) attachId = "";
-          break;
-        }
-      }
-      inflight = false;
+    const send = (m: unknown): boolean => {
+      if (ws?.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify(m));
+      return true;
     };
-    const onData = term.onData((d) => { pending += d; void drain(); });
+    const flushInput = () => { if (pending && send({ i: pending })) pending = ""; };
+    const onData = term.onData((d) => { pending += d; flushInput(); });
 
     term.attachCustomKeyEventHandler((e) => {
       // 只挡正在组合的按键。keyCode 229 不能一起挡：中文输入法开着时 WebKit 给退格、回车报的都是 229，
@@ -128,64 +115,67 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     });
 
     let stopped = false;
-    let raf = 0;
-    let out = "";
     let sleepTimer = 0;
-    const flush = () => { raf = 0; if (out && !stopped) { term.write(out); out = ""; } };
+    let watchdog = 0;
+    type End = "gone" | "retry" | "closed" | { fatal: string };
 
-    const pump = async (id: string, onData: () => void) => {
-      const res = await fetch(`${base}/sessions/${encodeURIComponent(sessionId)}/stream?attach=${encodeURIComponent(id)}`, { signal: ctrl.signal });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        let i: number;
-        while ((i = buf.indexOf("\n\n")) >= 0) {
-          const data = buf.slice(0, i).split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
-          buf = buf.slice(i + 2);
+    /**
+     * 连一次，连接结束时给出原因。输出和按键都走这一条 WebSocket（原来是 SSE + 每个按键一次 POST，
+     * WebKit 里中断的流式 fetch 不一定马上释放连接，同一地址 6 条的上限被占满后画面卡住、打字没反应）。
+     * 输出收到就写，不等动画帧：WebKit 在窗口被遮挡时会停掉动画帧回调。
+     */
+    const once = () =>
+      new Promise<{ end: End; got: boolean }>((resolve) => {
+        fit.fit();
+        const sock = new WebSocket(`${base.replace(/^http/, "ws")}/sessions/${encodeURIComponent(sessionId)}/ws?cols=${term.cols}&rows=${term.rows}`);
+        ws = sock;
+        let end: End = "closed";
+        let got = false;
+        let last = Date.now();
+        sock.onopen = () => {
+          setReconnecting(false);
+          term.reset();
+          send({ r: [term.cols, term.rows] });
+          flushInput();
+        };
+        sock.onmessage = (e) => {
+          last = Date.now();
+          let m: { d?: string; gone?: boolean; retry?: boolean; fatal?: boolean; error?: string };
           try {
-            const msg = JSON.parse(data) as { d?: string };
-            if (msg.d) { onData(); out += msg.d; if (!raf) raf = requestAnimationFrame(flush); }
-          } catch {}
-        }
-      }
-      flush();
-    };
+            m = JSON.parse(String(e.data)) as typeof m;
+          } catch {
+            return;
+          }
+          if (m.d) { got = true; term.write(m.d); }
+          else if (m.gone) end = "gone";
+          else if (m.retry) end = "retry";
+          else if (m.fatal) end = { fatal: m.error ?? "未知原因" };
+        };
+        // 服务端 15 秒一次心跳；40 秒什么都没收到就当连接卡死，主动断开重连
+        watchdog = window.setInterval(() => { if (Date.now() - last > 40_000) sock.close(); }, 5000);
+        sock.onclose = () => {
+          window.clearInterval(watchdog);
+          if (ws === sock) ws = null;
+          resolve({ end, got });
+        };
+      });
 
     void (async () => {
       let delay = 500;
       let misses = 0;
       while (!stopped) {
-        let got = false;
-        try {
-          if (!base) base = await coreBaseUrl();
-          await new Promise((r) => requestAnimationFrame(r));
-          if (stopped) return;
-          fit.fit();
-          const id = (await attachSession(sessionId, term.cols, term.rows)).attachId;
-          if (stopped) return;
-          attachId = id;
-          setReconnecting(false);
-          term.reset();
-          void post("resize", { attach: id, cols: term.cols, rows: term.rows });
-          void drain();
-          await pump(id, () => { delay = 500; got = true; });
-        } catch (e) {
-          if (e instanceof AttachFatal) { if (!stopped) { setFailed(e.message); setReconnecting(false); } return; }
-          if (e instanceof AttachGone) { if (!stopped) { setDead(true); setReconnecting(false); } return; }
-        }
-        attachId = "";
+        if (!base) base = await coreBaseUrl().catch(() => "");
+        // 等地址的时候组件可能已经卸了（切任务、开发模式下 React 挂两次）：这时再连就是一条没人关的连接，tmux 上多挂一个客户端
         if (stopped) return;
-        misses = got ? 0 : misses + 1;
+        const r = base ? await once() : { end: "closed" as End, got: false };
+        if (stopped) return;
+        if (r.end === "gone") { setDead(true); setReconnecting(false); return; }
+        if (typeof r.end === "object") { setFailed(r.end.fatal); setReconnecting(false); return; }
+        misses = r.got ? 0 : misses + 1;
+        if (r.got) delay = 500;
         if (misses >= MAX_MISSES) { setFailed("连续多次连不上"); setReconnecting(false); return; }
-        const gone = await sessionExists(sessionId).then((x) => !x).catch(() => false);
-        if (stopped) return;
-        if (gone) { setDead(true); setReconnecting(false); return; }
         setReconnecting(true);
-        await new Promise((r) => { sleepTimer = window.setTimeout(r, delay); });
+        await new Promise((res) => { sleepTimer = window.setTimeout(res, delay); });
         delay = Math.min(delay * 2, 5000);
       }
     })();
@@ -199,7 +189,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     let sizeTimer = 0;
     const onResize = term.onResize(({ cols, rows }) => {
       window.clearTimeout(sizeTimer);
-      sizeTimer = window.setTimeout(() => { if (attachId) void post("resize", { attach: attachId, cols, rows }); }, 120);
+      sizeTimer = window.setTimeout(() => void send({ r: [cols, rows] }), 120);
     });
     return () => {
       ta?.removeEventListener("compositionstart", onStart);
@@ -210,9 +200,9 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       window.clearTimeout(resizeTimer);
       window.clearTimeout(sizeTimer);
       window.clearTimeout(sleepTimer);
-      cancelAnimationFrame(raf);
+      window.clearInterval(watchdog);
       ro.disconnect();
-      ctrl.abort();
+      ws?.close();
       term.dispose();
     };
   }, [sessionId, attempt]);

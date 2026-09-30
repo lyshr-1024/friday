@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { isLocalOrigin } from "./origin.js";
 import { activity } from "./activity.js";
 import { ask } from "./ask.js";
 import { attachments } from "./attachments.js";
@@ -29,7 +30,7 @@ import { worktrees } from "./worktrees.js";
 
 // 只放行 Tauri WebView 自己的源；API 虽只监听回环，但浏览器里的任意网页也能打 127.0.0.1，不能用 *。
 // core 只监听回环，任何本机页面（vite 任意端口、截图验收）都可以访问
-const isLocalOrigin = (origin: string) => /^(tauri:\/\/localhost|http:\/\/tauri\.localhost|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/.test(origin) ? origin : "";
+
 
 export const app = new Hono()
   .use(cors({ origin: isLocalOrigin, allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowHeaders: ["content-type", "accept"] }))

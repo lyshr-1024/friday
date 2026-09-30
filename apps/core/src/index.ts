@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { handleUpgrade, terminalSockets } from "./api/terminalSocket.js";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
@@ -23,9 +24,12 @@ if (moved) console.log(`把 ${moved} 条本地待办补成了任务`);
 const rules = migrateHandbooksToRules();
 if (rules.migrated) console.log(`把手册里的 ${rules.migrated} 条规则迁进了 rules 表`);
 
-serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
+const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);
 });
+// 内嵌终端走 WebSocket：同一个端口，upgrade 时验来源
+const wss = terminalSockets();
+server.on("upgrade", (req, socket, head) => handleUpgrade(wss, req, socket, head));
 if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
   startScheduler();
   void fillMissingTitles().catch(() => {});

@@ -6,7 +6,8 @@ import { config } from "../config.js";
 
 const execFileP = promisify(execFile);
 
-export const TMUX_SOCKET = "friday";
+// 开发验收可以换一个 socket，和你正在用的会话完全隔开
+export const TMUX_SOCKET = process.env.FRIDAY_TMUX_SOCKET || "friday";
 
 export const TMUX_CONF = [
   "set -g prefix None",

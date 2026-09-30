@@ -6,6 +6,7 @@ import { setTmuxPath, setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
 import { resetAttachBreaker, setPtySpawner } from "../agent/attach.js";
 import { setClipboardWriter } from "./sessions.js";
+import { onTerminal, type SocketLike } from "./terminalSocket.js";
 import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
 const R = mainRepo("app");
@@ -34,6 +35,23 @@ beforeEach(() => {
   setLauncher(async () => {});
   setPtySpawner(() => ({ onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: (d) => void written.push(d), resize: () => {}, kill: () => {} }));
 });
+function fakeSocket() {
+  const sent: unknown[] = [];
+  let closed: number | undefined;
+  const handlers: Record<string, Array<(v?: unknown) => void>> = {};
+  const ws: SocketLike = {
+    readyState: 1,
+    send: (d) => void sent.push(JSON.parse(d)),
+    close: (code) => {
+      if (closed !== undefined) return;
+      closed = code;
+      ws.readyState = 3;
+      (handlers.close ?? []).forEach((f) => f());
+    },
+    on: (e: string, fn: (v?: unknown) => void) => void (handlers[e] ??= []).push(fn),
+  };
+  return { ws, sent, closed: () => closed, emit: (e: string, v: unknown) => (handlers[e] ?? []).forEach((f) => f(v)) };
+}
 const post = (path: string, body: unknown = {}) => app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 async function session() {
@@ -45,24 +63,44 @@ async function session() {
 }
 
 describe("/sessions", () => {
-  it("attach 后输入写进 pty；回车不再记输入时间（输入由 UserPromptSubmit hook 记）", async () => {
+  it("连上后按键写进 pty、尺寸跟着调；回车不再记输入时间（输入由 UserPromptSubmit hook 记）", async () => {
     const id = await session();
-    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
+    const sizes: number[][] = [];
+    setPtySpawner(() => ({ onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write: (d) => void written.push(d), resize: (c, r) => void sizes.push([c, r]), kill: () => {} }));
+    const f = fakeSocket();
+    await onTerminal(f.ws, id, 120, 40);
     const before = getTermSession(id)!.lastInputAt!;
     await new Promise((r) => setTimeout(r, 5));
-    await post(`/sessions/${id}/input`, { attach: attachId, data: "ls" });
-    await post(`/sessions/${id}/input`, { attach: attachId, data: "\r" });
+    f.emit("message", JSON.stringify({ i: "ls" }));
+    f.emit("message", JSON.stringify({ i: "\r" }));
+    f.emit("message", JSON.stringify({ r: [100, 30] }));
+    f.emit("message", "不是 JSON");
     expect(written).toEqual(["ls", "\r"]);
+    expect(sizes).toEqual([[100, 30]]);
     expect(getTermSession(id)!.lastInputAt).toBe(before);
+    expect(f.closed()).toBeUndefined();
   });
 
-  it("拉起 tmux 失败：503 fatal，不留观众；输入 404", async () => {
+  it("pty 的输出原样推下去；连接一断就收掉 tmux 客户端", async () => {
+    const id = await session();
+    let out = (_d: string) => {};
+    let killed = 0;
+    setPtySpawner(() => ({ onData: (fn) => { out = fn; return { dispose() {} }; }, onExit: () => ({ dispose() {} }), write: () => {}, resize: () => {}, kill: () => void killed++ }));
+    const f = fakeSocket();
+    await onTerminal(f.ws, id, 120, 40);
+    out("\u001b[2J你好");
+    expect(f.sent).toContainEqual({ d: "\u001b[2J你好" });
+    f.ws.close(1000);
+    expect(killed).toBe(1);
+  });
+
+  it("拉起 tmux 失败：发 fatal 后关连接，不留观众", async () => {
     const id = await session();
     setPtySpawner(() => { throw new Error("posix_spawnp failed"); });
-    const r = await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 });
-    expect(r.status).toBe(503);
-    expect(await r.json()).toMatchObject({ fatal: true, error: expect.stringContaining("posix_spawnp") });
-    expect((await post(`/sessions/${id}/input`, { attach: "x", data: "a" })).status).toBe(404);
+    const f = fakeSocket();
+    await onTerminal(f.ws, id, 120, 40);
+    expect(f.sent).toEqual([{ fatal: true, error: expect.stringContaining("posix_spawnp") }]);
+    expect(f.closed()).toBe(4500);
   });
 
   const noTmux = () => {
@@ -75,53 +113,53 @@ describe("/sessions", () => {
     return () => spawned;
   };
 
-  it("会话行还在 preparing、tmux 里暂时没有（kill 再重建的间隙）：503 retry，不拉 pty、不算 gone", async () => {
+  it("会话行还在 preparing、tmux 里暂时没有（kill 再重建的间隙）：retry，不拉 pty、不算 gone", async () => {
     const t = createTask({ title: "重建中", kind: "verbal", source: {}, status: "processing", project: "app" });
     await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     expect(getTermSession(t.id)!.status).toBe("preparing");
     const spawned = noTmux();
-    const r = await post(`/sessions/${t.id}/attach`, { cols: 120, rows: 40 });
-    expect(r.status).toBe(503);
-    const body = await r.json();
-    expect(body).toMatchObject({ retry: true });
-    expect(body).not.toHaveProperty("gone");
-    expect(body).not.toHaveProperty("fatal");
+    const f = fakeSocket();
+    await onTerminal(f.ws, t.id, 120, 40);
+    expect(f.sent).toEqual([{ retry: true, error: "会话还没起来" }]);
+    expect(f.closed()).toBe(4503);
     expect(spawned()).toBe(0);
   });
 
-  it("会话行 running / exited 而 tmux 里找不到：同样 503 retry（交给对账去判 closed）", async () => {
+  it("会话行 running / exited 而 tmux 里找不到：同样 retry（交给对账去判 closed）", async () => {
     const id = await session();
     const spawned = noTmux();
-    expect((await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).status).toBe(503);
+    const a = fakeSocket();
+    await onTerminal(a.ws, id, 120, 40);
+    expect(a.closed()).toBe(4503);
     updateTermSession(id, { status: "exited" });
-    expect((await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).status).toBe(503);
+    const b = fakeSocket();
+    await onTerminal(b.ws, id, 120, 40);
+    expect(b.closed()).toBe(4503);
     expect(spawned()).toBe(0);
   });
 
-  it("会话行 closed：404 gone，不拉 pty；没有这一行也是 404 gone", async () => {
+  it("会话行 closed：gone，不拉 pty；没有这一行也是 gone", async () => {
     const id = await session();
     updateTermSession(id, { status: "closed" });
     const spawned = noTmux();
-    const r = await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 });
-    expect(r.status).toBe(404);
-    expect(await r.json()).toMatchObject({ gone: true });
-    const none = await post(`/sessions/nope/attach`, { cols: 120, rows: 40 });
-    expect(none.status).toBe(404);
-    expect(await none.json()).toMatchObject({ gone: true });
+    const a = fakeSocket();
+    await onTerminal(a.ws, id, 120, 40);
+    expect(a.sent).toEqual([{ gone: true, error: "会话已不在" }]);
+    expect(a.closed()).toBe(4404);
+    const b = fakeSocket();
+    await onTerminal(b.ws, "nope", 120, 40);
+    expect(b.closed()).toBe(4404);
     expect(spawned()).toBe(0);
   });
 
-  it("tmux 客户端退出（pty exit）：stream 结束，前端据此重连", async () => {
+  it("tmux 客户端退出（pty exit）：关连接，前端据此重连", async () => {
     const id = await session();
     let exit = () => {};
     setPtySpawner(() => ({ onData: () => ({ dispose() {} }), onExit: (fn) => { exit = fn; return { dispose() {} }; }, write: () => {}, resize: () => {}, kill: () => {} }));
-    const { attachId } = (await (await post(`/sessions/${id}/attach`, { cols: 120, rows: 40 })).json()) as { attachId: string };
-    const res = await app.request(`/sessions/${id}/stream?attach=${attachId}`);
-    const reader = res.body!.getReader();
-    const drained = (async () => { for (;;) if ((await reader.read()).done) return "ended"; })();
-    setTimeout(() => exit(), 20);
-    expect(await Promise.race([drained, new Promise((r) => setTimeout(() => r("hung"), 1000))])).toBe("ended");
-    expect((await post(`/sessions/${id}/input`, { attach: attachId, data: "a" })).status).toBe(404);
+    const f = fakeSocket();
+    await onTerminal(f.ws, id, 120, 40);
+    exit();
+    expect(f.closed()).toBe(4000);
   });
 
   it("准备段回报已被占用的 worktree：409", async () => {
@@ -131,11 +169,6 @@ describe("/sessions", () => {
     const r = await post(`/jobs/${jobId}/worktree`, { path: wt });
     expect(r.status).toBe(409);
     expect(getTermSession(t.id)!.status).toBe("exited");
-  });
-
-  it("没有 attach 的输入 404", async () => {
-    const id = await session();
-    expect((await post(`/sessions/${id}/input`, { attach: "nope", data: "x" })).status).toBe(404);
   });
 
   it("seen 记看过时间", async () => {
