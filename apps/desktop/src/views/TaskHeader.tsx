@@ -26,12 +26,14 @@ export function stateLabel(t: Task): string {
   return s.state === "deciding" && s.waitingSince ? `${label} · ${waitedFor(s.waitingSince)}` : label;
 }
 
-export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume, actions }: {
+export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume, actions, keepDetail }: {
   t: Task;
   counts: { defects: number; docs: number; convs: number };
   onDetail: () => void;
   /** Friday 自主的任务详情直接铺在面板上：不要「详情」按钮，操作收进「···」 */
   actions?: DialogAction[];
+  /** 没开工的任务：「···」和「详情」都要（详情里有资料、Slack 讨论这些统筹信息） */
+  keepDetail?: boolean;
   onToggleTerminal?: () => void;
   showingTerminal?: boolean;
   onPin: () => void;
@@ -61,6 +63,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
         <h2 title={t.title}>{t.title}</h2>
         {actions ? (
           <>
+            {keepDetail && <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>}
             <span className="th__sp" />
             {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? "看详情" : "看终端"}</button>}
             <MoreMenu actions={actions} />

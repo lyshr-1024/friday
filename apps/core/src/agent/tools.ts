@@ -394,6 +394,19 @@ export const fridayToolList = (conversationId?: string) => [
       },
     ),
     tool(
+      "task_start",
+      "用户在这条任务的会话里说「开始做 / 开工」时 mode=interactive：在任务详情里开一个交互式终端，他自己驱动；说「交给 Friday 改 / 你来改」时 mode=autonomous：Friday 自主在 worktree 里改完交给他审。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。只对这条会话绑定的任务有效。",
+      { mode: z.enum(["interactive", "autonomous"]) },
+      async ({ mode }) => {
+        const t = boundTask(conversationId);
+        if (!t) return text("这条会话没有绑定任务。");
+        const { startTask, handToFriday } = await import("./taskStart.js");
+        const r = mode === "interactive" ? await startTask(t) : await handToFriday(t);
+        if ("error" in r) return text(`没开成：${r.error}`);
+        return text(mode === "interactive" ? `终端开好了（在 ${r.task.project} 上），用户在任务详情里就能看到。` : `交给 Friday 了：在 ${r.task.project} 上自主开工，改完交报告给用户审。`);
+      },
+    ),
+    tool(
       "task_approve",
       "用户在会话里明确说「合并吧 / 就这么发 / 通过」时，执行这条任务上等他点头的动作。有多个待审动作时用 actionId 指定（先用 task_get 看）；是 Slack 回复时必须先把要发的原文完整贴给用户、他说「发」之后才调，text 填最终原文。没得到明确同意不要调。",
       { actionId: z.string().max(80).optional(), text: z.string().max(4000).optional() },

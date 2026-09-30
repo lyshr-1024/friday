@@ -5252,3 +5252,11 @@ body:has(.hud)::-webkit-scrollbar {
 .dfold:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .dfold__sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dfold__act { flex: none; color: var(--fg-2); }
+
+/* 没开工：空态收成一块写清还差什么，下面是和 Friday 的会话，说一句就开工 */
+.detail--panel .idle { flex: 0 0 auto; margin-bottom: 12px; padding: 20px 24px; justify-content: flex-start; }
+.detail--panel .idle__box { width: min(600px, 100%); }
+.idle__k { color: var(--fg-3); }
+.idle__step--top { align-items: flex-start; line-height: 1.6; }
+.idle__step--top .idle__k { flex: none; }
+.idle__dot { width: 10px; height: 10px; flex: none; margin-top: 5px; border-radius: 50%; background: rgba(125, 139, 153, 0.35); }

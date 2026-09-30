@@ -837,7 +837,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   const termVisible = hasTerm && (!panel || showTerm);
   return (
     <section
-      className={`detail ${panel ? "detail--panel" : ""}`}
+      className={`detail ${panel || (!termVisible && notStarted(t)) ? "detail--panel" : ""}`}
       onContextMenu={(e) => { if ((e.target as HTMLElement).closest("a[href], input, textarea, .xterm")) return; e.preventDefault(); onMenu(e.clientX, e.clientY); }}
     >
       <TaskHeader
@@ -847,7 +847,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         onPin={() => void onAct(t, () => taskPin(t.id, !t.pinned))}
         {...(panel && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
         {...(!panel && canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
-        {...(panel ? { actions } : {})}
+        {...(panel ? { actions } : notStarted(t) ? { actions, keepDetail: true } : {})}
       />
       {termVisible ? (
         <>
@@ -877,7 +877,10 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         </>
       )}
       {termVisible || panel ? null : notStarted(t) ? (
-        <IdleState t={t} onDetail={onDetail} />
+        <>
+          <IdleState t={t} />
+          <div className="detail__chat"><TaskChat t={t} placeholder="开始做 / 交给 Friday 改 / 这条不用管了" /></div>
+        </>
       ) : (
         <div className="detail__card">
           <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
@@ -1119,31 +1122,43 @@ function actionNote(a: PendingAction, conv?: SlackConversation): string {
   return [detail, consequence(a, conv) ?? ""].join(detail.includes("\n") ? "\n" : "");
 }
 
-/** 没开工的任务：原来放终端的地方写清还差什么、怎么开工。开工一律在会话里说，这里不放按钮 */
-function IdleState({ t, onDetail }: { t: Task; onDetail: () => void }) {
+/** 没开工的任务：写清还差什么、Friday 为什么没自己动手。开工在下面跟 Friday 说，右上「···」里也有 */
+function IdleState({ t }: { t: Task }) {
   const asked = t.attention === "intake" && t.progress ? t.progress : "";
   const pending = t.pending?.[0];
-  const ready = Boolean(t.project) && !asked;
+  // 缺陷在需求的会话里改：项目跟需求走
+  const inRoot = Boolean(t.source.rootId);
+  const ready = Boolean(t.project || inRoot) && !asked;
+  // 为什么 Friday 没自己动手：intake 的原话。判成能改但把握不够的，说清差在哪
+  const v = t.source.intake;
+  const judged = !v ? "" : v.kind === "start"
+    ? `能改，但把握只有 ${v.confidence ?? "?"}，没到自动开工的门槛：${v.why}`
+    : v.kind === "ask" ? `得先问清楚：${v.why}` : `得你来：${v.why}`;
+  const guess = !t.project && !inRoot ? v?.project : undefined;
   return (
     <div className="idle">
       <div className="idle__box">
-        <div className="idle__head"><Icon name="terminal" /><span>{ready ? "可以开工了" : "还没开工，差一步"}</span></div>
+        <div className="idle__head"><Icon name="terminal" /><span>{ready ? "可以开工了" : t.project || inRoot ? "开工前还有一件事" : "还差一步：定项目"}</span></div>
         <div className="idle__steps">
-          {t.project ? (
-            <div className="idle__step"><span className="idle__ok">✓</span><span>项目 {t.project}</span></div>
+          {inRoot ? (
+            <div className="idle__step"><span className="idle__ok">✓</span><span>在所属需求的会话里改</span></div>
+          ) : t.project ? (
+            <div className="idle__step"><span className="idle__ok">✓</span><span className="idle__k">项目</span><span>{t.project}</span></div>
           ) : (
-            <div className="idle__step"><span className="idle__todo" /><span>项目没定</span><button className="idle__link" onClick={onDetail}>选项目…</button></div>
+            <div className="idle__step"><span className="idle__todo" /><span className="idle__k">项目</span><span>没定</span>{guess && <span className="idle__dim">Friday 判的是 {guess}</span>}</div>
           )}
-          {asked && <div className="idle__step"><span className="idle__todo" /><span>Friday 要问你：{asked}</span><button className="idle__link" onClick={onDetail}>去回答…</button></div>}
-          {pending && <div className="idle__step"><span className="idle__todo" /><span>等你点头：{pending.label}</span><button className="idle__link" onClick={onDetail}>去看…</button></div>}
+          {judged && <div className="idle__step idle__step--top"><span className="idle__dot" /><span className="idle__k">Friday 的判断</span><span>{judged}</span></div>}
+          {asked && <div className="idle__step"><span className="idle__todo" /><span>Friday 要问你：{asked}</span></div>}
+          {pending && <div className="idle__step"><span className="idle__todo" /><span>等你点头：{pending.label}</span></div>}
           {t.source.description && <div className="idle__step"><span className="idle__ok">✓</span><span>工单描述已拉到</span><span className="idle__dim">{["Meegle", t.priority === "high" ? "高优先级" : ""].filter(Boolean).join(" · ")}</span></div>}
         </div>
         <div className="idle__hint">
-          {!t.project
-            ? "Friday 不猜项目。选好以后，在详情的会话里说「开始做」或「交给 Friday 改」。"
-            : t.source.rootId
-              ? "在详情的会话里说「开始做」，会进所属需求的会话里改，不另开终端。"
-              : "在详情的会话里说「开始做」，就在这里开终端。说「交给 Friday 改」，它自己修完交给你审。"}
+          {!t.project && !inRoot
+            ? `在下面告诉 Friday 改哪个项目${guess ? `（它判的是 ${guess}）` : ""}，再说「开始做」自己改，或「交给 Friday 改」让它改完交给你审。`
+            : asked
+              ? "先在下面回答 Friday 的问题，它记下就能开工。"
+              : "在下面跟 Friday 说「开始做」，就在这里开终端你自己改；说「交给 Friday 改」，它改完交给你审。"}
+          <br />也可以从右上「···」开工或定项目。
         </div>
       </div>
     </div>
