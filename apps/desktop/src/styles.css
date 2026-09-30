@@ -5177,3 +5177,40 @@ body:has(.hud)::-webkit-scrollbar {
 .mention-pop__kind { flex: none; width: 40px; color: var(--fg-4); }
 .mention-pop__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mention-pop__empty { padding: 6px 8px; color: var(--fg-4); }
+
+/* 没开工：原来放终端的地方 */
+.idle { flex: 1; min-height: 0; margin: 0 20px 16px; border: 1px dashed rgba(125, 139, 153, 0.28); border-radius: 8px; background: rgba(5, 8, 12, 0.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.idle__box { width: min(440px, 100%); display: flex; flex-direction: column; gap: 16px; }
+.idle__head { display: flex; align-items: center; gap: 10px; color: var(--fg-3); }
+.idle__head .icon { width: 18px; height: 18px; }
+.idle__head span { font-size: 15px; color: var(--fg-1); }
+.idle__steps { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; padding-left: 28px; color: var(--fg-2); }
+.idle__step { display: flex; gap: 10px; align-items: center; }
+.idle__ok { color: #45d483; }
+.idle__todo { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 1.5px solid #f2b144; box-sizing: border-box; }
+.idle__dim { color: var(--fg-4); }
+.idle__link { background: none; border: none; padding: 0; color: #38d6ff; font: inherit; cursor: default; }
+.idle__link:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.idle__hint { padding-left: 28px; font-size: 12px; line-height: 1.7; color: var(--fg-3); }
+
+/* 排队中：Friday 会自己开工 */
+.sdot--queued { border: 1.5px dashed var(--fg-2); box-sizing: border-box; }
+.th__state--queued { color: var(--fg-2); }
+.an--queued .an__sub { color: var(--fg-2); }
+.th__m--warn { color: #f2b144; }
+.qc__rows { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.qc__row { display: flex; gap: 12px; }
+.qc__k { width: 48px; flex: none; color: var(--fg-4); }
+.qc__v { color: var(--fg-2); line-height: 1.7; }
+.qc__dim { margin-left: 10px; color: var(--fg-4); }
+.ac__pend-d { white-space: pre-line; line-height: 1.6; }
+
+/* 弹窗里的项目 / 并入：一行一项 */
+.tdlg__belong .fx__story { margin: 0; gap: 8px; }
+
+.tdlg__belong .fx__story > div { display: flex; align-items: center; gap: 12px; }
+.tdlg__belong .k { margin: 0; width: 56px; flex: none; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; color: var(--fg-4); }
+.tdlg .fx__desc { font-size: 12.5px; }
+.qc__was { margin-right: 10px; color: var(--fg-4); }
+.tdlg__belong .fx__story > .fx__chips { display: none; }
+.tdlg__belong .fx__story > div { align-items: flex-start; } .tdlg__belong .k { padding-top: 6px; }

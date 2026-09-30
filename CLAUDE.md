@@ -59,6 +59,7 @@ apps/core/src/
 到这天为止自主任务（`claude -p` 在 worktree 里改完交审）**从没跑完过一次**：历史上只有 09-22 回车 bug 误触发的 3 条，25 秒内窗口就没了；平时唯一入口是任务卡上手点「交给 Friday 改」/「重新开工」（`POST /tasks/:id/retry`）。`intake` 判成 start 也只是排队。手册只内联进自主任务的提示词，而活都在交互式终端里干，等于学了两周没人用。
 
 - **门禁看「这次交付被直接收下的概率」，不看时间**（`agent/autostart.ts`）：worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。条件同时满足才开：Meegle **缺陷**（需求一律不接，要先对方案）、`source.intake.kind === "start"` 且 `confidence ≥ 80`（intake 的 prompt 要求「只能从标题推断给 50」，这个阈值正好挡住标题党）、`task.project` 已定且和 intake 判的一致（归属来自所属需求的容器，不是猜的）、卡上没挂着问题、阶段还是「未开始」（2026-09-29 补：同步会把流到测试的缺陷推到「测试中」，不挡的话门槛一调低就会去改已经在测的缺陷）、进来满 15 分钟（缺陷刚建时描述常被反复改）。并发 1（2026-09-29 用户要求去掉「每天 3 条」上限：并发 1 本身就控制节奏，成本看用量面板）。`intakeWorkItem` 现在把判断结果落在 `source.intake`，门禁和卡片都看它。
+- **判成能开工就自己做，项目判错能整体回退（2026-09-30，用户定）**：卡上没项目时门禁用 intake 判的项目（须在 `projects.md` 注册表里），开工时写到卡上并标 `source.projectBy: "friday"`；你定过的项目（`projectBy: "user"`）门禁不再拿 intake 去比。这类任务在 `GET /tasks` 里带 `autostart: { at, behind }`，详情是排队卡、不走「还没开工，差一步」的空态；会话里说「先别做 / 这条我来」写 `source.autostartOff`。**改项目按谁干的活决定，不按项目是谁选的**（`agent/reproject.ts` 的 `requestProjectChange`，任务卡选择器和会话 `task_update.project` 都走它）：还没开工直接改；你自己终端里干的关终端、worktree 留着；Friday 自主干的（`autonomous` 且不是后台查询、会话是它自己的）挂一条 `reproject` 待审动作列清单，说「撤掉」才执行 `rollbackAndRestart`——关会话、`worktree remove --force` + `branch -D`（只删它这次建的、先核对是这个仓库登记过的 worktree 且不是主仓）、runs 记 `rejected`（「项目判错：A → B」，进学手册的结果证据）、撤下交付与待审合并、阶段退回未开始，然后在新项目上重开；改回原项目 = 撤清单；已合进主干的拒绝。远端数据不在自动回退范围。
 - **autostart 不碰你的交互式会话（2026-09-30）**：缺陷的根会话是 `interactive` 且没 closed 就跳过（打一行日志、不记 `autostart` 账），不往你正在用的会话里敲字。
 - **每轮 Meegle 同步后跑 `autostartTick`**，总开关 `settings.autonomous`（**默认关**，设置页「让 Friday 自己开工」），开工记账 `autostart` 并发通知。前两周看合并时「没被你改过 / 被改过 / 被打回」三档，收下率过半再放宽。
 - **手册进交互式终端**：`terminalBridgePrompt(project)` 内联该项目手册 + `_global`，`SessionLaunch.project` 从 `openSession`（`startInteractiveJob` / `/run` / `run_claude`）传进来，`resumeInSession` 接回时同样带上；自主任务（headless）不重复带，`autonomousPrompt` 里已经有。
@@ -135,7 +136,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - **旧入口全部并到会话上**：`run_claude`、`POST /run`、「跑 <项目>」、HUD relay 一律 `startInteractiveJob`（没有任务就先建一条 `kind: code` 的再开）；`/jobs/:id/reopen` = `resumeInSession(job.sessionId, _, :id)`，会话已不在回 404「会话已不在，重新开工」；`/jobs/:id/focus` 已删。
 - **Ghostty 时代的两个坑已随它消失**：`command` 属性按 shell 规则拆词（路径里的「Application Support」被拆成两段）、`ghostty_id` 得等 `createJob` 之后才能写，都不再适用；`cleanEnv` 仍在 `agent/env.ts`，脚本里的 `UNSET_CLAUDE_ENV` 照旧。
 - **验证时的进程安全（2026-09-29 事故后）**：禁止 `pkill` / `killall` / 按模式匹配杀进程，只 `kill` 自己用 `$!` 记下的 PID；不结束用户的 App 和别的工作树的 dev server；真机验证前后各看一次 `lsof -nP 2>/dev/null | grep -c /dev/ptmx`，涨到几十立即停。
-- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务详情是交付卡 + 会话框、「看终端」可切；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
+- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务详情是交付卡 + 会话框、「看终端」可切；还没开工的是空态（写清还差什么，项目和并入在详情弹窗里选），Friday 排队要自己开工的是排队卡（2026-09-30，设计稿 Idle / Queued / Rollback）；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
 
 
 ## 安全护栏

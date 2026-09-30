@@ -7,7 +7,7 @@ import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 import { Resources } from "./Resources";
 import { OkrWeekly } from "./OkrWeekly";
-import { KIND, TaskHeader, hhmm, stateLabel, waitedFor } from "./TaskHeader";
+import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
 import { TaskDialog, type DialogAction } from "./TaskDialog";
@@ -53,6 +53,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   if (a.type === "okr_submit") {
     return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
   }
+  if (a.type === "reproject") {
+    return `删掉的 worktree、分支和里面的改动撤不回。在会话里说「撤掉」执行；说「算了，还是 ${String(a.payload.from ?? "原来的")}」就不改。`;
+  }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
     const conf = typeof a.payload.confidence === "number" ? `Friday 对这次判断的把握是 ${a.payload.confidence} 分。` : "";
@@ -81,6 +84,11 @@ const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
 const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+/** 还没开工、也不归 Friday 自己做：主区是空态，统筹信息在「详情」弹窗里。周报和手册卡有自己的编辑面，照旧 */
+const notStarted = (t: Task) => (t.status === "collected" || t.status === "understood") && !t.session?.name && t.kind !== "okr_weekly" && t.kind !== "handbook";
+/** Friday 自主干过活的：改项目要整体回退，不走「关终端、改动留着」那套 */
+const reprojectOf = (t: Task) => t.pending?.find((a) => a.type === "reproject");
+const fridayWork = (t: Task) => t.source.autonomous === true && !t.source.headless && Boolean(t.source.jobId);
 const canResume = (t: Task) => !isClosed(t) && Boolean(t.source.jobId) && t.session?.status === "exited" && Boolean(t.session.worktree || t.session.kind === "query");
 
 function defectsOf(t: Task, all: Task[]): Task[] {
@@ -154,6 +162,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
   // to 用 null 表示「改成没定」，所以开合得另拿一个字段，不能靠 null 兼职
   const [switching, setSwitching] = useState<{ to: string | null } | null>(null);
   const hasTerm = Boolean(t.session?.name);
+  const reproject = reprojectOf(t);
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能并进来的：别的任务，不看项目也不看状态。Slack 线程除外——那是一段对话，
   // 并进来没有意义。项目多数还没定，要合的那条也可能已经收工了，都不拦。
@@ -170,12 +179,16 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
             value={t.project ?? ""}
             options={[{ value: "", label: "没定" }, ...projects.map((p) => ({ value: p.name, label: p.name, hint: p.dir.replace(/^\/Users\/[^/]+/, "~") }))]}
             onPick={(v) => {
-              // 终端还开着就先问一句：关掉它意味着里面没提交的改动要自己去收
-              if (hasTerm && (v || null) !== (t.project ?? null)) setSwitching({ to: v || null });
+              // Friday 自主干过活的不弹框：后端挂一条回退清单，在会话里说「撤掉」才执行
+              if (fridayWork(t)) void onAct(t, () => taskSetProject(t.id, v || null));
+              // 你自己的终端还开着就先问一句：关掉它意味着里面没提交的改动要自己去收
+              else if (hasTerm && (v || null) !== (t.project ?? null)) setSwitching({ to: v || null });
               else void onAct(t, () => taskSetProject(t.id, v || null));
             }}
           />
-          {!t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
+          {reproject ? (
+            <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在会话里说「撤掉」执行</span>
+          ) : !t.project && <span className="fx__meta-dim">Friday 不猜项目——选了才能开工</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -301,6 +314,7 @@ function dueBits(t: Task): string[] {
 function anchorLine(t: Task, kids = 0): string {
   const s = t.session;
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
+  if (t.autostart) return ["Friday 会自己开工", hhmm(t.autostart.at), t.autostart.behind ? `前面 ${t.autostart.behind} 条在跑` : ""].filter(Boolean).join(" · ");
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
@@ -703,7 +717,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                   <Fragment key={g.label}>
                     <div className="anchors__g">{g.label}</div>
                     {g.items.map(({ t, child }) => {
-                      const st = t.session?.state ?? "none";
+                      const st = shownState(t);
                       const guess = Boolean(t.source.rootGuess);
                       const kids = child ? 0 : (board?.tasks ?? []).filter((x) => x.source.rootId === t.id && !x.source.rootGuess && !closed(x)).length;
                       return (
@@ -758,6 +772,8 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
           defects={defectsOf(dialogTask, board.tasks)}
           stage={<StageBar t={dialogTask} onAct={act} />}
           meegle={meegleLine(dialogTask) ? <div className="ac__meegle">{meegleLine(dialogTask)}</div> : null}
+          belong={dialogTask.kind === "okr_weekly" || dialogTask.kind === "handbook" ? null : <TaskBody t={dialogTask} all={board.tasks} onAct={act} />}
+          description={isIssue(dialogTask) ? <IssueBody t={dialogTask} /> : null}
           resources={<Resources t={dialogTask} onAct={act} />}
           slack={<SlackConvs t={dialogTask} onAct={act} />}
           chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" />}
@@ -824,8 +840,17 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
           <div className="detail__card detail__card--auto">
             <AutoCard t={t} onAct={onAct} onLedger={onLedger} />
           </div>
-          <div className="detail__chat"><TaskChat t={t} placeholder={t.source.headless ? "发吧 / 草稿改成… / 不用回了" : "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行"} /></div>
+          <div className="detail__chat"><TaskChat t={t} placeholder={reprojectOf(t) ? `撤掉 / 算了，还是 ${t.project ?? "原来的"}` : t.source.headless ? "发吧 / 草稿改成… / 不用回了" : "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行"} /></div>
         </>
+      ) : t.autostart ? (
+        <>
+          <div className="detail__card detail__card--auto">
+            <QueuedCard t={t} onAct={onAct} onLedger={onLedger} />
+          </div>
+          <div className="detail__chat"><TaskChat t={t} placeholder={`先别做 / 这条我来 / 项目不对，是 …`} /></div>
+        </>
+      ) : notStarted(t) ? (
+        <IdleState t={t} onDetail={onDetail} />
       ) : (
         <div className="detail__card">
           <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
@@ -1064,7 +1089,92 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
 
 function actionNote(a: PendingAction, conv?: SlackConversation): string {
   const detail = a.detail.trim() ? a.detail.trim().replace(/[。.]?$/, "。") : "";
-  return [detail, consequence(a, conv) ?? ""].join("");
+  return [detail, consequence(a, conv) ?? ""].join(detail.includes("\n") ? "\n" : "");
+}
+
+/** 没开工的任务：原来放终端的地方写清还差什么、怎么开工。开工一律在会话里说，这里不放按钮 */
+function IdleState({ t, onDetail }: { t: Task; onDetail: () => void }) {
+  const asked = t.attention === "intake" && t.progress ? t.progress : "";
+  const pending = t.pending?.[0];
+  const ready = Boolean(t.project) && !asked;
+  return (
+    <div className="idle">
+      <div className="idle__box">
+        <div className="idle__head"><Icon name="terminal" /><span>{ready ? "可以开工了" : "还没开工，差一步"}</span></div>
+        <div className="idle__steps">
+          {t.project ? (
+            <div className="idle__step"><span className="idle__ok">✓</span><span>项目 {t.project}</span></div>
+          ) : (
+            <div className="idle__step"><span className="idle__todo" /><span>项目没定</span><button className="idle__link" onClick={onDetail}>选项目…</button></div>
+          )}
+          {asked && <div className="idle__step"><span className="idle__todo" /><span>Friday 要问你：{asked}</span><button className="idle__link" onClick={onDetail}>去回答…</button></div>}
+          {pending && <div className="idle__step"><span className="idle__todo" /><span>等你点头：{pending.label}</span><button className="idle__link" onClick={onDetail}>去看…</button></div>}
+          {t.source.description && <div className="idle__step"><span className="idle__ok">✓</span><span>工单描述已拉到</span><span className="idle__dim">{["Meegle", t.priority === "high" ? "高优先级" : ""].filter(Boolean).join(" · ")}</span></div>}
+        </div>
+        <div className="idle__hint">
+          {!t.project
+            ? "Friday 不猜项目。选好以后，在详情的会话里说「开始做」或「交给 Friday 改」。"
+            : t.source.rootId
+              ? "在详情的会话里说「开始做」，会进所属需求的会话里改，不另开终端。"
+              : "在详情的会话里说「开始做」，就在这里开终端。说「交给 Friday 改」，它自己修完交给你审。"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Friday 判成能自己做、还在排队的：跟自主任务同一种卡，写清什么时候开、凭什么判的 */
+function QueuedCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void>; onLedger: () => void }) {
+  const v = t.source.intake;
+  const a = t.autostart!;
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  useEffect(() => { void fetchAudit(t.id, 50).then(setEvents).catch(() => {}); }, [t.id, t.updatedAt]);
+  const meegle = meegleLine(t);
+  const at = hhmm(a.at);
+  const soon = Date.parse(a.at) > Date.now();
+  const when = [
+    soon ? `描述刚进来时常被改，等 15 分钟稳定后 ${at} 开工。` : "已经过了稳定期，轮到就开。",
+    a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条，跑完就轮到它。` : "到点时前面有自主任务在跑，就排到它后面，一次只跑一条。",
+  ].join("");
+  const project = t.project ?? v?.project;
+  return (
+    <div className="ac">
+      <div className="ac__left">
+        <section className="ac__sec">
+          <div className="ac__k">什么时候开</div>
+          <div className="ac__text">{when}</div>
+        </section>
+        {v && (
+          <section className="ac__sec">
+            <div className="ac__k">Friday 的判断 {v.confidence !== undefined && <span className="ac__kv">把握 {v.confidence}</span>}</div>
+            <div className="qc__rows">
+              <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} /></span></div>
+              {project && (
+                <div className="qc__row">
+                  <span className="qc__k">项目</span>
+                  <span className="qc__v">{project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span>
+                </div>
+              )}
+              {v.detail && <div className="qc__row"><span className="qc__k">打算</span><span className="qc__v"><Linkified text={v.detail} /></span></div>}
+            </div>
+          </section>
+        )}
+        <span className="ac__sp" />
+        {(t.stage || meegle) && (
+          <section className="ac__sec">
+            <StageBar t={t} onAct={onAct} />
+            {meegle && <div className="ac__meegle">{meegle}</div>}
+          </section>
+        )}
+      </div>
+      <div className="ac__right">
+        <Resources t={t} onAct={onAct} />
+        <SlackConvs t={t} onAct={onAct} />
+        <span className="ac__sp" />
+        <a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 · 这条任务 {events.length} 条 →</a>
+      </div>
+    </div>
+  );
 }
 
 /** Friday 自主任务的交付卡：按审核顺序排——交付了什么 → 等你点头的 → 改了哪些 → 走到哪一步 */
@@ -1130,6 +1240,16 @@ function AutoCard({ t, onAct, onLedger }: { t: Task; onAct: (t: Task, fn: () => 
                 </div>
               </>
             )}
+          </section>
+        )}
+        {reprojectOf(t) && (
+          <section className="ac__sec">
+            <div className="qc__rows">
+              <div className="qc__row">
+                <span className="qc__k">项目</span>
+                <span className="qc__v"><s className="qc__was">{String(reprojectOf(t)!.payload.from)}</s>{String(reprojectOf(t)!.payload.to)}<span className="qc__dim">你改的，说「撤掉」后生效</span></span>
+              </div>
+            </div>
           </section>
         )}
         {(d?.files !== undefined || (r?.changes.length ?? 0) > 0) && (

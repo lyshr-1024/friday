@@ -1,20 +1,116 @@
 {
   "v": 3,
   "attachments": {},
-  "createdOnFiles": { "v": 1, "at": "2026-09-29T21:30:00+08:00" },
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-09-29T21:30:00+08:00"
+  },
   "title": "Friday 任务页设计图",
-  "launch": { "view": "canvas" },
+  "launch": {
+    "view": "canvas"
+  },
   "pages": [],
   "boards": {
-    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 900, "title": "任务页 · 你在做的任务（详情就是终端）" },
-    "Drawer.dc.html": { "x": 1520, "y": 0, "w": 1440, "h": 900, "title": "任务页 · 点 ⓘ 弹出详情" },
-    "Card.dc.html": { "x": 3040, "y": 0, "w": 1440, "h": 900, "title": "任务页 · Friday 自主任务（卡片直接展示 + 交互框）" },
-    "States.dc.html": { "x": 0, "y": 1320, "w": 1440, "h": 460, "title": "状态位与列表行" }
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · 你在做的任务（详情就是终端）"
+    },
+    "Drawer.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · 点 ⓘ 弹出详情"
+    },
+    "Card.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · Friday 自主任务（卡片直接展示 + 交互框）"
+    },
+    "States.dc.html": {
+      "x": 0,
+      "y": 1320,
+      "w": 1440,
+      "h": 460,
+      "title": "状态位与列表行"
+    },
+    "Idle.dc.html": {
+      "x": 1520,
+      "y": 1320,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · 未开工（项目没定）"
+    },
+    "IdleReady.dc.html": {
+      "x": 3040,
+      "y": 1320,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · 未开工（项目已定）"
+    },
+    "Queued.dc.html": {
+      "x": 1520,
+      "y": 2480,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · Friday 判成能自己做（排队中，不走「差一步」）"
+    },
+    "Rollback.dc.html": {
+      "x": 3040,
+      "y": 2480,
+      "w": 1440,
+      "h": 900,
+      "title": "任务页 · 项目判错：改项目 = 挂成待审动作，同意后整体回退再重开"
+    }
   },
-  "order": ["Main.dc.html", "Drawer.dc.html", "Card.dc.html", "States.dc.html"],
+  "order": [
+    "Main.dc.html",
+    "Drawer.dc.html",
+    "Card.dc.html",
+    "States.dc.html",
+    "Idle.dc.html",
+    "IdleReady.dc.html",
+    "Queued.dc.html",
+    "Rollback.dc.html"
+  ],
   "notes": {
-    "t1": { "x": 0, "y": -300, "w": 240, "text": "任务页：列表 + 详情，详情主体是终端", "kind": "title1", "maxW": 4480 },
-    "t2": { "x": 0, "y": 1060, "w": 240, "text": "状态位只取终端里的现实", "kind": "title1", "maxW": 1440 }
+    "t1": {
+      "x": 0,
+      "y": -300,
+      "w": 240,
+      "text": "任务页：列表 + 详情，详情主体是终端",
+      "kind": "title1",
+      "maxW": 4480
+    },
+    "t2": {
+      "x": 0,
+      "y": 1060,
+      "w": 240,
+      "text": "状态位只取终端里的现实",
+      "kind": "title1",
+      "maxW": 1440
+    },
+    "t3": {
+      "x": 1520,
+      "y": 1060,
+      "w": 240,
+      "text": "还没开工：主区是空态，不铺旧卡",
+      "kind": "title1",
+      "maxW": 2960
+    },
+    "t4": {
+      "x": 1520,
+      "y": 2240,
+      "w": 240,
+      "text": "Friday 判成能自己做：不走「差一步」，排队到点自己开工",
+      "kind": "title1",
+      "maxW": 2960
+    }
   },
   "designSystems": []
 }

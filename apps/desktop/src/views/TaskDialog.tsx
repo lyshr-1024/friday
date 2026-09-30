@@ -12,11 +12,15 @@ function defectMeta(d: Task): string {
   return [`#${d.source.meegleId ?? d.id.slice(0, 6)}`, d.stage ? STAGE_LABEL[d.stage] : "", tail].filter(Boolean).join(" · ");
 }
 
-export function TaskDialog({ t, defects, stage, meegle, resources, slack, chat, actions, onClose, onAdopt, onReject }: {
+export function TaskDialog({ t, defects, stage, meegle, belong, description, resources, slack, chat, actions, onClose, onAdopt, onReject }: {
   t: Task;
   defects: Task[];
   stage: ReactNode;
   meegle: ReactNode;
+  /** 项目与并入：没开工的任务只能在这儿选项目 */
+  belong: ReactNode;
+  /** 缺陷的工单描述 */
+  description: ReactNode;
   resources: ReactNode;
   slack: ReactNode;
   chat: ReactNode;
@@ -97,6 +101,7 @@ export function TaskDialog({ t, defects, stage, meegle, resources, slack, chat, 
               {stage}
               {meegle}
             </div>
+            {belong && <div className="tdlg__sec tdlg__belong">{belong}</div>}
             {defects.length > 0 && (
               <section className="tdlg__sec">
                 <div className="tdlg__k">名下的缺陷</div>
@@ -127,6 +132,7 @@ export function TaskDialog({ t, defects, stage, meegle, resources, slack, chat, 
                 <div className="tdlg__text">{t.understanding}</div>
               </section>
             )}
+            {description && <section className="tdlg__sec">{description}</section>}
           </div>
           <div className="tdlg__right">
             {resources}

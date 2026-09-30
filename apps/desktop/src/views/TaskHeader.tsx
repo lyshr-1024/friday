@@ -11,8 +11,15 @@ export function waitedFor(iso: string): string {
   return m < 60 ? `等了 ${m} 分钟` : m < 1440 ? `等了 ${Math.round(m / 60)} 小时` : `等了 ${Math.round(m / 1440)} 天`;
 }
 
+/** 列表点和头部状态共用：Friday 排着队要自己开工的，没有会话时显示成「排队中」 */
+export function shownState(t: Task): string {
+  const st = t.session?.state ?? "none";
+  return t.autostart && st === "none" ? "queued" : st;
+}
+
 export function stateLabel(t: Task): string {
   const s = t.session;
+  if (t.autostart && (s?.state ?? "none") === "none") return `排队中 · ${hhmm(t.autostart.at)} 开工`;
   if (!s) return "";
   const label = SESSION_STATE_LABEL[s.state];
   return s.state === "deciding" && s.waitingSince ? `${label} · ${waitedFor(s.waitingSince)}` : label;
@@ -28,17 +35,22 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   onResume?: () => void;
 }) {
   const s = t.session;
-  const state = s?.state ?? "none";
+  const state = shownState(t);
   const label = stateLabel(t);
-  const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, t.project, t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
+  const waiting = !s?.name && (t.status === "collected" || t.status === "understood");
+  const project = t.project ?? (t.autostart ? t.source.intake?.project : undefined);
+  const noProject = waiting && !project && t.kind !== "okr_weekly" && t.kind !== "handbook";
+  const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, project ?? (noProject ? "项目没定" : ""), t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
   const hint = [counts.defects ? `${counts.defects} 条缺陷` : "", counts.docs ? `${counts.docs} 份资料` : "", counts.convs ? `${counts.convs} 段 Slack 讨论` : ""].filter(Boolean).join(" · ");
   const d = s?.delivery;
-  const branchLine = [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : ""].filter(Boolean).join(" · ");
+  const branchLine = waiting && !s?.worktree && t.kind !== "okr_weekly" && t.kind !== "handbook"
+    ? ["还没有 worktree · 开工时按项目规则建", t.autostart ? "模型 opus" : ""].filter(Boolean).join(" · ")
+    : [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : ""].filter(Boolean).join(" · ");
   return (
     <div className="th">
       <div className="th__meta">
         {label && <span className={`th__state th__state--${state}`}><span className={`sdot sdot--${state}`} />{label}</span>}
-        {meta.map((m, i) => <span key={i} className="th__m">{(label || i > 0) && <span className="th__sep">·</span>}{m}</span>)}
+        {meta.map((m, i) => <span key={i} className={`th__m ${noProject && m === "项目没定" ? "th__m--warn" : ""}`}>{(label || i > 0) && <span className="th__sep">·</span>}{m}</span>)}
         <span className="th__sp" />
         <button className={`th__pin ${t.pinned ? "is-on" : ""}`} onClick={onPin}>{t.pinned ? "★ 已关注" : "☆ 关注"}</button>
       </div>
