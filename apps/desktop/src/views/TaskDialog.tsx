@@ -13,7 +13,7 @@ function defectMeta(d: Task): string {
 }
 
 /** 「···」菜单：弹窗标题栏和 Friday 自主任务的头部共用 */
-export function MoreMenu({ actions, onOpenChange }: { actions: DialogAction[]; onOpenChange?: (open: boolean) => void }) {
+export function MoreMenu({ actions, onOpenChange, label = "更多操作" }: { actions: DialogAction[]; onOpenChange?: (open: boolean) => void; label?: string }) {
   const [open, setOpenState] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -47,7 +47,7 @@ export function MoreMenu({ actions, onOpenChange }: { actions: DialogAction[]; o
 
   return (
     <div className="tdlg__menuwrap">
-      <button ref={btn} className="tdlg__icon" aria-label="更多操作" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>···</button>
+      <button ref={btn} className="tdlg__icon" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>···</button>
       {open && (
         <div className="tdlg__menu" role="menu" ref={menuRef} onKeyDown={onMenuKey}>
           {actions.map((a) => <button key={a.label} role="menuitem" onClick={() => { setOpen(false); a.run(); }}>{a.label}</button>)}

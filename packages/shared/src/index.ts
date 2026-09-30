@@ -54,21 +54,6 @@ export interface TodosSyncResponse {
   sourceErrors: Partial<Record<TodoSource, string>>;
 }
 
-export type HotSource = "hn" | "hf" | "openai" | "simonw" | "qbitai";
-
-export interface HotItem {
-  title: string;
-  summary: string;
-  url: string;
-  source: HotSource;
-  publishedAt: string;
-}
-
-export interface HotResponse {
-  generatedAt: string;
-  items: HotItem[];
-  sourceErrors: Partial<Record<HotSource, string>>;
-}
 
 export interface Settings {
   corePort: number;

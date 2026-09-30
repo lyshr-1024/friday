@@ -2,15 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, HotResponse, ModelId } from "@friday/shared";
+import type { ConversationSummary, ModelId } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, coreBaseUrl, hot, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
+import { cancelAsk, conversations, coreBaseUrl, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
-import { HotList, LinkMenuHost, fmtTime } from "./shared";
+import { LinkMenuHost, fmtTime } from "./shared";
+import { MoreMenu } from "./TaskDialog";
 import { Board } from "./Board";
 import { Search } from "./Search";
-import type { BoardView } from "./Board";
+import type { BoardRequest, BoardView } from "./Board";
 import { UsageStrip } from "./Usage";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
@@ -25,18 +26,13 @@ interface OpenPayload {
   taskId?: string | null;
 }
 
-type View = BoardView | "hot" | "history" | "ask";
+type View = BoardView | "history" | "ask";
 
+/* 顶栏只留两个区域：会话、任务。会话历史、操作记录、设置、同步、新建都收进右上「···」 */
 const NAV: Array<{ key: View; label: string; kbd?: string }> = [
-  { key: "ask", label: "问 Friday", kbd: "⌘N" },
-  // 任务按五个开发阶段分组。要不要你拍板不再单独列——终端在问什么自己开终端看
+  { key: "ask", label: "会话", kbd: "⌘N" },
   { key: "queue", label: "任务" },
-  { key: "history", label: "会话历史" },
-  { key: "all", label: "全部任务" },
-  { key: "ledger", label: "操作记录" },
-  { key: "hot", label: "AI 热点" },
 ];
-
 
 /** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
 type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: string };
@@ -45,13 +41,12 @@ export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [view, setView] = useState<View>("queue");
   // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
-  const [hotData, setHotData] = useState<HotResponse | null>(null);
-  const [hotBusy, setHotBusy] = useState(false);
   const [model, setModel] = useState<ModelId | null>(null);
   const [skills, setSkills] = useState<boolean | null>(null);
   // 「问 Friday」视图：当前会话、路由提示
   const [askConv, setAskConv] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const [boardReq, setBoardReq] = useState<BoardRequest | null>(null);
   const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const threadRef = useRef<ThreadHandle>(null);
   const pendingOpen = useRef<PendingOpen | null>(null);
@@ -189,9 +184,9 @@ export function Chat() {
     openAsk({ kind: "load", id, ...(p.initialPrompt ? { prompt: p.initialPrompt } : {}) });
   }
 
-  /** 任务可能在任何分组里，统一去「全部任务」再让 Board 选中它 */
+  /** 切到任务区再让 Board 选中它（收工了的 Board 会把「已完成」展开） */
   function openTask(id: string) {
-    setView("all");
+    setView("queue");
     setOpeningTask({ id });
   }
 
@@ -227,15 +222,6 @@ export function Chat() {
     void t.send(hint.prompt, conv.id);
   }
 
-  async function loadHot(refresh = false) {
-    setHotBusy(true);
-    try {
-      setHotData(await hot(new AbortController().signal, refresh));
-    } finally {
-      setHotBusy(false);
-    }
-  }
-
   function go(v: View) {
     if (v === "ask") {
       openAsk(askConv ? { kind: "load", id: askConv } : { kind: "reset" });
@@ -243,7 +229,6 @@ export function Chat() {
     }
     setView(v);
     if (v === "history") void refreshList();
-    if (v === "hot" && !hotData) void loadHot();
   }
 
   useEffect(() => {
@@ -275,9 +260,29 @@ export function Chat() {
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
   const askTitle = askConv ? (list.find((c) => c.id === askConv)?.title ?? "当前对话") : "新话题 · 发出后判断";
 
-  /* 左栏没了，终端计数和用量跟着「问 Friday」一起挂在顶栏右侧 */
-  const tools = (
-    <>
+  /** 顶栏「···」：不常用的都在这儿。任务区里的动作由 Board 监听事件去做（它握着同步状态和新建弹层） */
+  const toBoard = (kind: BoardRequest["kind"]) => () => { setView("queue"); setBoardReq((r) => ({ kind, n: (r?.n ?? 0) + 1 })); };
+  const menu = [
+    { label: "新建任务", run: toBoard("new") },
+    { label: "同步 Slack", run: toBoard("slack") },
+    { label: "同步 Meegle", run: toBoard("meegle") },
+    { label: "会话历史", run: () => go("history") },
+    { label: "操作记录", run: () => go("ledger") },
+    { label: "设置", run: () => void invoke("open_settings") },
+  ];
+
+  /* 顶栏一行：FRIDAY · [会话 | 任务] …… 终端数 · 用量 · 模型 · ··· */
+  const nav = (
+    <nav className="topnav" aria-label="视图" data-tauri-drag-region>
+      <span className="topnav__brand" data-tauri-drag-region>FRIDAY</span>
+      <span className="topnav__seg">
+        {NAV.map((n) => (
+          <button key={n.key} className={`topnav__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)} title={n.kbd ? `${n.label} ${n.kbd}` : n.label}>
+            {n.label}
+          </button>
+        ))}
+      </span>
+      <span className="topnav__sp" data-tauri-drag-region />
       {runningJobs > 0 &&
         (closingJobs ? (
           <span className="topbar__confirm">
@@ -292,33 +297,20 @@ export function Chat() {
           </button>
         ))}
       <UsageStrip />
-      <span className="topbar__model mono" title="/ask 用的模型，设置里可改">{modelLabel || "跟随 Claude Code"}</span>
-      <button className="b b--ghost" onClick={openFree}>问 Friday<kbd>⌘N</kbd></button>
-    </>
-  );
-
-  /* 左栏删掉之后，导航挪到顶栏：一行视图切换 + 右边工具。
-     计数不在这儿说——读数条已经把「几件在等你」讲清楚了。 */
-  const nav = (
-    <nav className="topnav" aria-label="视图">
-      <span className="topnav__brand" data-tauri-drag-region>FRIDAY</span>
-      {NAV.map((n) => (
-        <button key={n.key} className={`topnav__item ${view === n.key ? "on" : ""}`} onClick={() => go(n.key)} title={n.kbd ? `${n.label} ${n.kbd}` : n.label}>
-          {n.label}
-        </button>
-      ))}
+      <span className="topbar__model mono" title="会话用的模型，设置里可改">{modelLabel || "跟随 Claude Code"}</span>
+      <MoreMenu actions={menu} label="Friday 菜单" />
     </nav>
   );
 
-  const head = (title: string, count: React.ReactNode, right: React.ReactNode) => (
-    <header className="q__head" data-tauri-drag-region>
+  const head = (title: string, count: React.ReactNode, right?: React.ReactNode) => (
+    <header className="q__head q__head--wide" data-tauri-drag-region>
       {nav}
-      <div className="q__row" data-tauri-drag-region>
+      <div className="q__row q__row--sub" data-tauri-drag-region>
         <div className="q__title" data-tauri-drag-region>
-          <h1 data-tauri-drag-region>{title}</h1>
+          <h2 data-tauri-drag-region>{title}</h2>
           {count}
         </div>
-        <div className="q__tools">{right}</div>
+        {right && <div className="q__tools">{right}</div>}
       </div>
     </header>
   );
@@ -331,7 +323,7 @@ export function Chat() {
         {view === "ask" ? (
           <>
             {head(
-              "问 Friday",
+              "会话",
               <span className="q__count q__count--ellipsis" title={askTitle}>{askTitle}</span>,
               <>
                 <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话<kbd>⌘⇧N</kbd></button>
@@ -371,7 +363,7 @@ export function Chat() {
           </>
         ) : view === "history" ? (
           <>
-            {head("会话历史", <span className="q__count">{list.length} 段</span>, tools)}
+            {head("会话历史", <span className="q__count">{list.length} 段</span>)}
             <div className="wb__scroll">
               <div className="wb__page">
                 {list.length === 0 ? (
@@ -392,21 +384,8 @@ export function Chat() {
               </div>
             </div>
           </>
-        ) : view === "hot" ? (
-          <>
-            {head(
-              "AI 热点",
-              hotData && <span className="q__count">更新于 {fmtTime(hotData.generatedAt)}</span>,
-              <button className="b b--ghost" disabled={hotBusy} onClick={() => void loadHot(true)}>{hotBusy ? "拉取中…" : "重新拉取"}</button>,
-            )}
-            <div className="wb__scroll">
-              <div className="wb__page hot__page">
-                {hotData ? <HotList items={hotData.items} /> : <div className="empty">{hotBusy ? "正在汇总 HN、HF Papers、OpenAI、Simon Willison、量子位…" : "点「重新拉取」获取。"}</div>}
-              </div>
-            </div>
-          </>
         ) : (
-          <Board view={view} nav={nav} tools={tools} go={go} runningConvs={runningConvs} />
+          <Board view={view} nav={nav} go={go} runningConvs={runningConvs} request={boardReq} />
         )}
       </div>
       {searching && (

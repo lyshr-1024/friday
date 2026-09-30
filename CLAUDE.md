@@ -26,7 +26,7 @@ apps/core/src/
 
 ## 范围
 
-第一版（已完成）：热键呼出浮窗、`POST /ask`、`POST /note`、待办同步 `GET /todos?sync=1`、记忆库初始化、开机自启。原「今日简报」`GET /today`（Claude 总结待办）已按用户要求移除，换成 `GET /hot`（AI 热点）。
+第一版（已完成）：热键呼出浮窗、`POST /ask`、`POST /note`、待办同步 `GET /todos?sync=1`、记忆库初始化、开机自启。原「今日简报」`GET /today`（Claude 总结待办）已按用户要求移除，换成 `GET /hot`（AI 热点）；AI 热点整条链路（`GET /hot`、`connectors/news.ts`、热点视图）2026-09-30 也已删除。
 第二版（已完成）：`POST /run` 在 Friday 里开项目终端跑交互式 Claude Code（tmux 会话，见「终端：tmux 持有进程、详情就是终端」）；独立打包（`.app` 内嵌 core 产物与依赖，不依赖仓库目录，node 仍用系统的）。
 第三版（已完成，2026-09-21 重做）：Slack 关联源——见下文「Slack：关联源」一节。原「Slack 收件」那套（triage 分类 → 按人聚合线程 → 情境卡 → 起草回复 → 置信度闸门 → 经验闭环）已整体删除，约 1667 行。
 未做：项目智能匹配、自动更新、内嵌 node、Slack 发送。结构预留位置即可，不要提前实现。
@@ -136,7 +136,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - **旧入口全部并到会话上**：`run_claude`、`POST /run`、「跑 <项目>」、HUD relay 一律 `startInteractiveJob`（没有任务就先建一条 `kind: code` 的再开）；`/jobs/:id/reopen` = `resumeInSession(job.sessionId, _, :id)`，会话已不在回 404「会话已不在，重新开工」；`/jobs/:id/focus` 已删。
 - **Ghostty 时代的两个坑已随它消失**：`command` 属性按 shell 规则拆词（路径里的「Application Support」被拆成两段）、`ghostty_id` 得等 `createJob` 之后才能写，都不再适用；`cleanEnv` 仍在 `agent/env.ts`，脚本里的 `UNSET_CLAUDE_ENV` 照旧。
 - **验证时的进程安全（2026-09-29 事故后）**：禁止 `pkill` / `killall` / 按模式匹配杀进程，只 `kill` 自己用 `$!` 记下的 PID；不结束用户的 App 和别的工作树的 dev server；真机验证前后各看一次 `lsof -nP 2>/dev/null | grep -c /dev/ptmx`，涨到几十立即停。
-- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务（含排队要自己开工的）面板以会话为主体：顶上是要你拍板的待审动作或「什么时候开」，下面一行收起的详情（点开是单列、最多半屏，弹窗里仍是两列），其余全给会话，没有交付报告卡——交付看会话里 Friday 那条消息（概要 / 测试结果 / 请你验证 + 截图，`agent/delivery.ts`），头部只有「看终端」和「···」（2026-09-30 用户定）；还没开工的是空态 + 会话（空态写清还差什么和 Friday 为什么没自己动手；开工在会话里说，会话工具 `task_start` 与「···」菜单的开始做 / 交给 Friday 改共用 `agent/taskStart.ts`），Friday 排队要自己开工的是排队卡（2026-09-30，设计稿 Idle / Queued / Rollback）；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
+- **工作台现状（同一批改动）**：顶栏一行 `FRIDAY · [会话 | 任务]`，右侧终端数 · 用量 · 模型 · 「···」（新建任务 / 同步 Slack / 同步 Meegle / 会话历史 / 操作记录 / 设置；「全部任务」页和页头那行「任务 N 件 · Slack · Meegle · ＋新建」已删，2026-09-30）；任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务（含排队要自己开工的）面板以会话为主体：顶上是要你拍板的待审动作或「什么时候开」，下面一行收起的详情（点开是单列、最多半屏，弹窗里仍是两列），其余全给会话，没有交付报告卡——交付看会话里 Friday 那条消息（概要 / 测试结果 / 请你验证 + 截图，`agent/delivery.ts`），头部只有「看终端」和「···」（2026-09-30 用户定）；还没开工的是空态 + 会话（空态写清还差什么和 Friday 为什么没自己动手；开工在会话里说，会话工具 `task_start` 与「···」菜单的开始做 / 交给 Friday 改共用 `agent/taskStart.ts`），Friday 排队要自己开工的是排队卡（2026-09-30，设计稿 Idle / Queued / Rollback）；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
 
 
 ## 安全护栏
@@ -297,7 +297,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 
 - 直接输入 → `POST /ask`（SSE 流式）。
 - `记 …` 或 `/note …` → `POST /note`。
-- `/hot`、`热点` → `GET /hot`：并行拉 Hacker News（AI 关键词过滤 top 60）、Hugging Face Daily Papers、OpenAI 博客 RSS、Simon Willison Atom、量子位 RSS，只留 48 小时内的，去重后交给 Claude 挑最多 10 条并写中文标题/摘要（输出 JSON，链接按序号回填，Claude 不碰 URL），内存缓存 1 小时，`?refresh=1` 强刷。Anthropic 官网无 RSS，机器之心 RSS 已失效，不要再加回来。源定义在 `connectors/news.ts`。
+- ~~`/hot`、`热点` → `GET /hot`~~：2026-09-30 已删除（顶栏收拾时一并去掉）。
 - `/todos`、`待办` → `GET /todos?sync=1`：同步 Meegle 后返回未完成待办，不经 Claude。
 - `跑 <项目> [任务]` 或 `/run <项目> [任务]` → `POST /run`：按 `projects.md` 解析项目，没有任务就先建一条 `kind: code` 的，再走 `startInteractiveJob` 在 tmux 会话里起交互式 Claude Code（准备段先建 worktree）。干活段用 `whence -p claude` 拿到的绝对路径并显式加 `--dangerously-skip-permissions`（Friday 只是透传用户指令，权限策略与用户平时用 claude 一致）；Claude 退出后会话里留一个交互 shell。
 - `Esc` 关闭（生成中则中断），`⌘,` 打开设置。

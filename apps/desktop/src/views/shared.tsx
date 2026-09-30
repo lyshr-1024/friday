@@ -1,7 +1,7 @@
 import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
-import type { Attachment, HotItem, Job, Message, RunResponse } from "@friday/shared";
+import type { Attachment, Job, Message, RunResponse } from "@friday/shared";
 import { attachmentUrl } from "../lib/core";
 
 export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
@@ -140,26 +140,6 @@ export function fmtTime(iso: string): string {
   return sameDay
     ? d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
     : d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}
-
-const SOURCE_LABEL: Record<HotItem["source"], string> = { hn: "HN", hf: "Papers", openai: "OpenAI", simonw: "Simon W", qbitai: "量子位" };
-
-export function HotList({ items }: { items: HotItem[] }) {
-  return (
-    <ol className="hot">
-      {items.map((it) => (
-        <li key={it.url} className="hot__item">
-          <a href={it.url} className="hot__title" onClick={(e) => { e.preventDefault(); void openUrl(it.url); }}>
-            {it.title}
-          </a>
-          <div className="hot__summary">{it.summary}</div>
-          <div className="hot__meta mono">
-            {SOURCE_LABEL[it.source]} · {fmtTime(it.publishedAt)}
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 export function elapsed(job: Job, now = Date.now()): string {

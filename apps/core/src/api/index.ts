@@ -14,7 +14,6 @@ import { events } from "./events.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
-import { hot } from "./hot.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
 import { links } from "./links.js";
@@ -37,7 +36,6 @@ export const app = new Hono()
   .route("/", health)
   .route("/", ask)
   .route("/", note)
-  .route("/", hot)
   .route("/", run)
   .route("/", worktrees)
   .route("/", settings)

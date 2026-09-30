@@ -327,7 +327,7 @@ export function Settings() {
             onKeyDown={(e) => { if (e.key === "Enter") { if (ime.isImeEnter(e)) return; (e.target as HTMLInputElement).blur(); } }}
           />
         </Row>
-        <Row label="模型" hint="对话与热点摘要都用它，切换即生效">
+        <Row label="模型" hint="会话里用它，切换即生效">
           <ModelSelect value={prefs?.model ?? null} onChange={(model) => void updateSettings({ model }).then(setPrefs)} />
         </Row>
         <Row label="Skill 模式" hint="会话里可直接调用 ~/.claude 的 skill，放行 Bash/Read，不开 Edit/Write。开着时每轮都要读 skill 文档、最多跑 30 轮，比关掉贵不少；不常用 skill 就关掉">

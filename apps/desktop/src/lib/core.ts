@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, HotResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -128,19 +128,6 @@ export async function syncTodos(signal: AbortSignal): Promise<TodosSyncResponse>
   const res = await fetch(`${await coreBaseUrl()}/todos?sync=1`, { signal });
   if (!res.ok) throw new Error(`同步待办失败：core 返回 ${res.status}`);
   return res.json();
-}
-
-export async function hot(signal: AbortSignal, refresh = false): Promise<HotResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/hot${refresh ? "?refresh=1" : ""}`, { signal });
-  if (!res.ok) throw new Error(`热点获取失败：core 返回 ${res.status}`);
-  return res.json();
-}
-
-export function commandOf(input: string): "hot" | "todos" | "inbox" | null {
-  if (/^(\/hot|热点)$/.test(input)) return "hot";
-  if (/^(\/todos|待办)$/.test(input)) return "todos";
-  if (/^(\/inbox|\/slack|slack|收件|消息)$/i.test(input)) return "inbox";
-  return null;
 }
 
 export async function run(body: RunRequest): Promise<RunResponse> {

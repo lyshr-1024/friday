@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type TaskStatus, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -12,11 +12,11 @@ import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
 import { TaskDetails, TaskDialog, type DetailSlots, type DialogAction } from "./TaskDialog";
 
-export type BoardView = "queue" | "all" | "ledger";
+export type BoardView = "queue" | "ledger";
+/** 顶栏「···」里要任务区去做的事；n 每次加一，同一件事连点两次也能触发 */
+export interface BoardRequest { kind: "new" | "slack" | "meegle"; n: number }
 
 const RISK: Record<string, string> = { read: "只读", reversible: "可撤销", irreversible: "不可逆" };
-const STATUS: Record<TaskStatus, string> = { review: "等你决定", blocked: "卡住了", processing: "进行中", understood: "待办", collected: "刚收到", done: "已完成", ignored: "已忽略" };
-const ALL_ORDER: TaskStatus[] = ["review", "blocked", "processing", "understood", "collected", "done", "ignored"];
 const PRIORITY: Record<string, number> = { high: 0, normal: 1, low: 2 };
 
 /** 自学任务的完整研究笔记：展开才拉，社区做法和链接都在里面 */
@@ -332,11 +332,11 @@ function byActivity(active: (t: Task) => boolean) {
   return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
 }
 
-export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runningConvs }: {
+export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConvs, request }: {
   view: BoardView;
-  /** 顶栏那一行视图切换，由 Chat 给——它知道当前是哪个视图 */
+  /** 顶栏那一行，由 Chat 给——它知道当前是哪个视图 */
   nav?: React.ReactNode;
-  tools: React.ReactNode;
+  request?: BoardRequest | null;
   /** 切到别的视图（卡片上的「操作记录 →」要用） */
   go?: (v: BoardView) => void;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
@@ -346,6 +346,8 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
   onFocusChange?: (t: Task | null) => void;
 }) {
   const [board, setBoard] = useState<TaskBoard | null>(null);
+  const boardRef = useRef(board);
+  boardRef.current = board;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [dialogFor, setDialogFor] = useState<string | null>(null);
@@ -354,7 +356,12 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
   const qRef = useRef<HTMLInputElement | null>(null);
   // ⌘F 搜索结果里点了一条任务：选中它（视图已由 Chat 切到「全部任务」）
   useEffect(() => {
-    const onOpen = (e: Event) => setSelectedId((e as CustomEvent<string>).detail);
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const t = boardRef.current?.tasks.find((x) => x.id === id);
+      if (t && (t.status === "done" || t.status === "ignored")) setShowDone(true);
+      setSelectedId(id);
+    };
     window.addEventListener("friday:open-task", onOpen);
     return () => window.removeEventListener("friday:open-task", onOpen);
   }, []);
@@ -460,6 +467,13 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
       window.setTimeout(() => setSyncNote(null), 4000);
     }
   }
+
+  useEffect(() => {
+    if (!request) return;
+    if (request.kind === "new") setCreating(true);
+    else if (request.kind === "slack") void doSlackSync();
+    else void doSync();
+  }, [request?.n]);
 
   /**
    * 一包缺陷一起开工：逐条执行各自的开工动作。有一条失败就停下来把错误摆出来，
@@ -599,17 +613,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
   const anchorGroups = useMemo(() => {
     const withKids = (items: Task[]) => items.flatMap((t) => [{ t, child: false }, ...childrenOf(t).map((c) => ({ t: c, child: true }))]);
     const raw: Array<{ label: string; items: Array<{ t: Task; child: boolean }> }> =
-      view === "all"
-        ? ALL_ORDER.flatMap((st) => {
-            const items = tasks.filter((t) => t.status === st).map((t) => ({ t, child: false }));
-            if (st !== "processing") return [{ label: STATUS[st], items }];
-            // 「Friday 在做」只放它全权在跑的；你自己开终端驱动的另起一组
-            return [
-              { label: "Friday 在做", items: items.filter((x) => isFridayRun(x.t.source)) },
-              { label: "你在做", items: items.filter((x) => !isFridayRun(x.t.source)) },
-            ];
-          })
-        : [
+      [
             { label: "关注", items: withKids(pinned) },
             ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: withKids(byStage(st)) })),
             { label: "没有阶段", items: withKids(noStage) },
@@ -649,31 +653,19 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [ids, focus?.id]);
-  const title = view === "ledger" ? "操作记录" : view === "all" ? "全部任务" : "任务";
-  const count = view === "ledger" ? ledger.length : view === "all" ? tasks.length : onBoard.length;
 
   return (
     <>
       <header className="q__head q__head--wide" data-tauri-drag-region>
         {nav}
-        <div className="q__row" data-tauri-drag-region>
-          <div className="q__title" data-tauri-drag-region>
-            <h1 data-tauri-drag-region>{title}</h1>
-            {board ? <span className="q__count">{count} {view === "ledger" ? "条" : "件"}</span> : !err && <span className="q__count">正在连接 Friday…</span>}
-            {view !== "ledger" && (
-              <span className="q__acts">
-                <button className="find__act" title="立刻拉一次 Slack（白天每 3 分钟自动）" disabled={slackSyncing} onClick={() => void doSlackSync()}>
-                  {slackSyncing ? <span className="side__spin" /> : <Icon name="refresh" />} {slackNote ?? "Slack"}
-                </button>
-                <button className="find__act" title="立刻同步一次 Meegle 工单（平时每 15 分钟自动）" disabled={syncing} onClick={() => void doSync()}>
-                  {syncing ? <span className="side__spin" /> : <Icon name="refresh" />} {syncNote ?? "Meegle"}
-                </button>
-                <button className="find__act" title="自己记一件事，落到待办里" onClick={() => setCreating(true)}>＋ 新建</button>
-              </span>
-            )}
+        {view === "ledger" && (
+          <div className="q__row q__row--sub" data-tauri-drag-region>
+            <div className="q__title" data-tauri-drag-region>
+              <h2 data-tauri-drag-region>操作记录</h2>
+              {board && <span className="q__count">{ledger.length} 条</span>}
+            </div>
           </div>
-          <div className="q__tools">{tools}</div>
-        </div>
+        )}
       </header>
       {view === "ledger" ? (
         <div className="wb__scroll">
@@ -728,6 +720,13 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                 spellCheck={false}
               />
             </label>
+            {(slackSyncing || syncing || slackNote || syncNote) && (
+              <div className="side__sync">
+                {slackSyncing ? <><span className="side__spin" /> 正在拉 Slack…</> : slackNote && `Slack：${slackNote}`}
+                {(slackSyncing || slackNote) && (syncing || syncNote) ? " · " : ""}
+                {syncing ? <><span className="side__spin" /> 正在同步 Meegle…</> : syncNote && `Meegle：${syncNote}`}
+              </div>
+            )}
             <nav className="anchors" aria-label="全部任务">
               <div className="anchors__scroll">
                 {anchorGroups.map((g) => (
@@ -773,7 +772,7 @@ export function Board({ view, nav, tools, go, onQueueCounts, onFocusChange, runn
                   </Fragment>
                 ))}
               </div>
-              {view !== "all" && doneTasks.length > 0 && (
+              {doneTasks.length > 0 && (
                 <button className="anchors__done" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)}>
                   {showDone ? `收起已完成 ‹` : `已完成 ${doneTasks.length} ›`}
                 </button>

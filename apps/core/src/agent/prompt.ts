@@ -1,4 +1,3 @@
-import type { RawItem } from "../connectors/news.js";
 import type { MemoryContext } from "../memory/context.js";
 import { handbookBlock } from "../memory/rules.js";
 import { replyLanguageLine } from "./lang.js";
@@ -96,15 +95,3 @@ export function terminalBridgePrompt(project?: string): string {
   ].join("\n");
 }
 
-export function hotBrief(items: RawItem[]): { system: string; prompt: string } {
-  const lines = items.map((it, i) => `${i + 1}. [${it.source}] ${it.title}${it.snippet ? `\n   ${it.snippet}` : ""}`);
-  return {
-    system: [
-      "你是 Friday，负责从一批 AI / 技术资讯里挑出今天最值得用户看的内容。用户是前端工程师，关注 AI 编程工具、大模型进展、开源模型和 Agent 生态。",
-      "从给定列表里挑最多 10 条，去掉重复主题和纯营销。每条给一个不超过 30 字的中文标题和一句不超过 60 字的中文摘要，说清楚它为什么值得看。",
-      '只输出 JSON 数组，不要任何其他文字：[{"index": 原列表序号, "title": "中文标题", "summary": "中文摘要"}]',
-      `现在是 ${now()}。`,
-    ].join("\n"),
-    prompt: lines.length ? lines.join("\n") : "（列表为空）",
-  };
-}
