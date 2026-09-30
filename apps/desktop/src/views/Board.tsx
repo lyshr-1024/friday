@@ -860,7 +860,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
           {!termVisible && (
             <div className="detail__card detail__card--auto fpanel">
               <FridayTop t={t} />
-              <TaskDetails t={t} {...slots} footer={<a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 →</a>} />
+              <TaskDetails t={t} {...slots} single footer={<a className="ac__ledger" href="#" onClick={(e) => { e.preventDefault(); onLedger(); }}>操作记录 →</a>} />
             </div>
           )}
           <div className="detail__chat"><TaskChat t={t} placeholder={chatHint(t)} /></div>

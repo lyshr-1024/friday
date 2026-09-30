@@ -71,10 +71,10 @@ export interface DetailSlots {
   onReject: (d: Task) => void;
 }
 
-/** 详情的两列：弹窗里是它，Friday 自主任务的面板上直接铺开的也是它 */
-export function TaskDetails({ t, defects, stage, meegle, belong, description, resources, slack, onAdopt, onReject, footer }: DetailSlots & { t: Task; footer?: ReactNode }) {
+/** 详情：弹窗里是两列；Friday 自主任务的面板上单列铺开（右列常常是空的，两列会把左边挤窄） */
+export function TaskDetails({ t, defects, stage, meegle, belong, description, resources, slack, onAdopt, onReject, footer, single }: DetailSlots & { t: Task; footer?: ReactNode; single?: boolean }) {
   return (
-    <div className="tdlg__cols">
+    <div className={`tdlg__cols ${single ? "tdlg__cols--single" : ""}`}>
       <div className="tdlg__left">
         <div className="tdlg__sec">
           {stage}

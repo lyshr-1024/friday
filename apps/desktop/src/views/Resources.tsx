@@ -32,7 +32,7 @@ export function Resources({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Pr
   };
   return (
     <section className="ac__sec">
-      <div className="ac__k ac__k--row">资料<span className="th__sp" /><button className="ac__add" aria-expanded={adding} onClick={() => { setAdding((v) => !v); setErr(""); }}>{adding ? "收起" : "＋ 贴一个链接"}</button></div>
+      <div className="ac__k ac__k--row">资料{docs.length === 0 && !adding && <span className="res__none">还没有</span>}<span className="th__sp" /><button className="ac__add" aria-expanded={adding} onClick={() => { setAdding((v) => !v); setErr(""); }}>{adding ? "收起" : "＋ 贴一个链接"}</button></div>
       {adding && (
         <>
           <input
@@ -61,7 +61,7 @@ export function Resources({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Pr
             </div>
           ))}
         </div>
-      ) : !adding && <div className="ac__text ac__text--dim">还没有</div>}
+      ) : null}
     </section>
   );
 }

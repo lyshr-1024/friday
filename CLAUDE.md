@@ -136,7 +136,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 - **旧入口全部并到会话上**：`run_claude`、`POST /run`、「跑 <项目>」、HUD relay 一律 `startInteractiveJob`（没有任务就先建一条 `kind: code` 的再开）；`/jobs/:id/reopen` = `resumeInSession(job.sessionId, _, :id)`，会话已不在回 404「会话已不在，重新开工」；`/jobs/:id/focus` 已删。
 - **Ghostty 时代的两个坑已随它消失**：`command` 属性按 shell 规则拆词（路径里的「Application Support」被拆成两段）、`ghostty_id` 得等 `createJob` 之后才能写，都不再适用；`cleanEnv` 仍在 `agent/env.ts`，脚本里的 `UNSET_CLAUDE_ENV` 照旧。
 - **验证时的进程安全（2026-09-29 事故后）**：禁止 `pkill` / `killall` / 按模式匹配杀进程，只 `kill` 自己用 `$!` 记下的 PID；不结束用户的 App 和别的工作树的 dev server；真机验证前后各看一次 `lsof -nP 2>/dev/null | grep -c /dev/ptmx`，涨到几十立即停。
-- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务（含排队要自己开工的）面板上直接铺开详情两列，顶上是要你拍板的待审动作或「什么时候开」，没有交付报告卡——交付看会话里 Friday 那条消息（概要 / 测试结果 / 请你验证 + 截图，`agent/delivery.ts`），头部只有「看终端」和「···」（2026-09-30 用户定）；还没开工的是空态（写清还差什么，项目和并入在详情弹窗里选），Friday 排队要自己开工的是排队卡（2026-09-30，设计稿 Idle / Queued / Rollback）；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
+- **工作台现状（同一批改动）**：任务列表在右、详情一次一条，页头没有统计卡；搜索 `⌘P`、`⌘↑` / `⌘↓` 切任务；你在做的任务详情就是终端，统筹信息在「详情」弹窗（按钮收进「···」），Friday 自主的任务（含排队要自己开工的）面板上直接铺开详情（单列，弹窗里仍是两列），顶上是要你拍板的待审动作或「什么时候开」，没有交付报告卡——交付看会话里 Friday 那条消息（概要 / 测试结果 / 请你验证 + 截图，`agent/delivery.ts`），头部只有「看终端」和「···」（2026-09-30 用户定）；还没开工的是空态（写清还差什么，项目和并入在详情弹窗里选），Friday 排队要自己开工的是排队卡（2026-09-30，设计稿 Idle / Queued / Rollback）；每条任务建立时就有且只有一段 Friday 会话（`createTask` 同时建会话并写 `source.conversationId`，`/tasks/:id/conversation` 已删），弹窗底部、自主卡底部、顶栏「会话」视图是同一个组件。
 
 
 ## 安全护栏

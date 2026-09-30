@@ -5228,7 +5228,7 @@ body:has(.hud)::-webkit-scrollbar {
 .th__branch { min-width: 0; }
 
 /* 自主任务面板：交付内容在会话里，会话要占得住地方 */
-.detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 42%; }
+.detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 50%; }
 .detail--panel .detail__chat { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
 .detail--panel .detail__chat .taskchat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .detail--panel .detail__chat .thread { flex: 1; min-height: 0; }
@@ -5238,3 +5238,7 @@ body:has(.hud)::-webkit-scrollbar {
 .detail--panel .thread--compact .chat__body { flex: 1; min-height: 0; }
 .detail--panel .composer { flex: none; }
 .detail--panel .composer { margin-top: auto; }
+
+.tdlg__cols--single { flex-direction: column; gap: 16px; }
+.tdlg__cols--single .tdlg__right { width: auto; }
+.res__none { margin-left: 10px; letter-spacing: 0; color: var(--fg-3); }
