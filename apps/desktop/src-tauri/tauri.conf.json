@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://127.0.0.1:*",
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://127.0.0.1:*",
       "devCsp": "default-src 'self' 'unsafe-inline' http://localhost:1420 ws://localhost:1420 http://127.0.0.1:*; img-src 'self' data: http://127.0.0.1:*"
     }
   },
