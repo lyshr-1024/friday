@@ -6,6 +6,7 @@ import { loadProjects } from "../memory/projects.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
+import { requestProjectChange } from "./reproject.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -25,6 +26,8 @@ export interface TaskPatch {
   stage?: Stage;
   /** 往回拨时说清是 Friday 推错了还是真被打回了：只有前者进学习 */
   stageReason?: RollbackReason;
+  /** 用户说「先别做 / 这条我来」= false：Friday 不再自己开工；「你来做吧」= true 恢复 */
+  autostart?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "进行中", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -45,30 +48,43 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
   }
   if (Object.keys(fields).length) task = updateTask(taskId, fields)!;
 
+  if (patch.autostart !== undefined && patch.autostart === Boolean(task.source.autostartOff)) {
+    task = updateTask(taskId, { source: { autostartOff: !patch.autostart } })!;
+    changed.push(patch.autostart ? "恢复让 Friday 自己开工" : "Friday 不再自己开工");
+  }
+
   const project = patch.project?.trim();
-  if (project && project !== task.project) {
-    const known = loadProjects().find((p) => p.name === project);
-    if (known) {
-      // 用户答了归属就把 Friday 的提问清掉——问题已经解决，不该还挂在「待我决定」里。
-      // 终端在问的（question）是另一回事，它还在等答案，不能顺手清。
-      task = updateTask(taskId, { project: known.name, ...(task.attention === "intake" ? { attention: undefined } : {}) })!;
-      changed.push(`项目 → ${known.name}`);
-      // 顺带记住线索：标题里的【BO】这类标记、工单页面的地址前缀，下次同类自动归
-      const links = [task.source.url, ...(task.understanding ?? "").match(/https?:\/\/[^\s)）」】]+/g) ?? []].filter((u): u is string => Boolean(u));
-      const hints = hintsFrom(task.title, links);
-      const r = addProjectHints(known.name, hints);
-      if (r.changed) changed.push(`记住线索（${[...r.added.aliases, ...r.added.urls].join("、")}）`);
-      // 同一个需求下的其他几条归属是同一个答案，一起定了，别再逐条问
-      const story = task.source.linkedStoryId;
-      if (story) {
-        const siblings = listTasks().filter(
-          (t) => t.id !== taskId && t.source.linkedStoryId === story && !t.project && t.status !== "done" && t.status !== "ignored",
-        );
-        for (const s of siblings) {
-          updateTask(s.id, { project: known.name, ...(s.attention === "intake" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known.name}` } : {}) });
-        }
-        if (siblings.length) changed.push(`同需求另外 ${siblings.length} 条一起归到 ${known.name}`);
+  const known = project ? loadProjects().find((p) => p.name === project) : undefined;
+  const change = known ? requestProjectChange(taskId, known.name) : undefined;
+  if (change?.kind === "pending") {
+    task = change.task;
+    changed.push(`挂了回退清单：Friday 在 ${task.project} 上做的要全部撤掉才能改到 ${known!.name}，用户说「撤掉」再用 task_approve 执行`);
+  } else if (change?.kind === "cancelled") {
+    task = change.task;
+    changed.push("撤掉了回退清单，项目不改");
+  } else if (change?.kind === "refused") {
+    changed.push(`项目没改：${change.why}`);
+  } else if (change?.kind === "set") {
+    task = change.task;
+    // 用户答了归属就把 Friday 的提问清掉——问题已经解决，不该还挂在「待我决定」里。
+    // 终端在问的（question）是另一回事，它还在等答案，不能顺手清。
+    if (task.attention === "intake") task = updateTask(taskId, { attention: undefined })!;
+    changed.push(`项目 → ${known!.name}`);
+    // 顺带记住线索：标题里的【BO】这类标记、工单页面的地址前缀，下次同类自动归
+    const links = [task.source.url, ...(task.understanding ?? "").match(/https?:\/\/[^\s)）」】]+/g) ?? []].filter((u): u is string => Boolean(u));
+    const hints = hintsFrom(task.title, links);
+    const r = addProjectHints(known!.name, hints);
+    if (r.changed) changed.push(`记住线索（${[...r.added.aliases, ...r.added.urls].join("、")}）`);
+    // 同一个需求下的其他几条归属是同一个答案，一起定了，别再逐条问
+    const story = task.source.linkedStoryId;
+    if (story) {
+      const siblings = listTasks().filter(
+        (t) => t.id !== taskId && t.source.linkedStoryId === story && !t.project && t.status !== "done" && t.status !== "ignored",
+      );
+      for (const s of siblings) {
+        updateTask(s.id, { project: known!.name, ...(s.attention === "intake" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known!.name}` } : {}) });
       }
+      if (siblings.length) changed.push(`同需求另外 ${siblings.length} 条一起归到 ${known!.name}`);
     }
   }
 

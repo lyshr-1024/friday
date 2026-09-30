@@ -2,7 +2,7 @@ import { STAGE_LABEL, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { listTasks } from "../memory/tasks.js";
+import { listTasks, updateTask } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { getTermSession } from "../memory/termSessions.js";
@@ -24,6 +24,8 @@ export interface AutostartEnv {
   running: number;
   /** 设置页「把握门槛」，intake 的 confidence 不低于它才开 */
   minConfidence: number;
+  /** intake 判的项目在不在注册表里；缺省查 projects.md */
+  knownProject?: (name: string) => boolean;
 }
 
 export function eligible(t: Task, env: AutostartEnv): string | undefined {
@@ -37,10 +39,25 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
   if (!v) return "还没判断过";
   if (v.kind !== "start") return `判成 ${v.kind}：${v.why}`;
   if ((v.confidence ?? 0) < env.minConfidence) return `把握 ${v.confidence ?? 0}，门槛 ${env.minConfidence}`;
-  if (!t.project) return "没有项目归属";
-  if (v.project !== t.project) return `intake 判的是 ${v.project}，卡上归 ${t.project}`;
+  if (t.source.autostartOff) return "你说了先别做";
+  // 卡上没项目时用 intake 判的：判错了代价只是在错的仓库白跑一次，worktree 隔离着，改项目会整体回退
+  if (!t.project) {
+    if (!v.project) return "没有项目归属";
+    if (!(env.knownProject ?? ((n) => resolveProject(n).kind === "match"))(v.project)) return `intake 判的 ${v.project} 不在项目注册表里`;
+  } else if (t.source.projectBy !== "user" && v.project !== t.project) return `intake 判的是 ${v.project}，卡上归 ${t.project}`;
   if (env.now - Date.parse(t.createdAt) < AUTOSTART_SETTLE_MS) return "刚进来，等描述稳定";
   return undefined;
+}
+
+/**
+ * 卡片上那句「Friday 会自己开工 · HH:mm」：开关开着、除了「等描述稳定」和并发都满足才有。
+ * at 是稳定期结束的时刻（已过就是现在），behind 是前面还在跑的自主任务数。
+ */
+export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }): { at: string; behind: number } | undefined {
+  if (!env.enabled) return undefined;
+  if (eligible(t, { ...env, now: Number.MAX_SAFE_INTEGER })) return undefined;
+  const at = Math.max(env.now, Date.parse(t.createdAt) + AUTOSTART_SETTLE_MS);
+  return { at: new Date(at).toISOString(), behind: env.running };
 }
 
 /** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发约束。 */
@@ -54,7 +71,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
     .slice(0, slots);
 }
 
-function runningAutonomous(): number {
+export function runningAutonomous(): number {
   return listTasks("processing").filter((t) => t.source.autonomous && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }
 
@@ -77,15 +94,20 @@ export async function autostartTick(now = Date.now()): Promise<number> {
   let started = 0;
   for (const t of pickAutostart(listTasks("understood"), env)) {
     const v = t.source.intake!;
-    const r = resolveProject(t.project!);
+    const r = resolveProject(t.project ?? v.project!);
     if (r.kind !== "match") continue;
     const s = getTermSession(resolveRoot(t).id);
     if (s?.kind === "interactive" && s.status !== "closed") {
       console.log(`[autostart] ${t.title.slice(0, 40)}：它的需求开着你的交互式会话，不往里敲字，跳过`);
       continue;
     }
+    let task = t;
+    if (!t.project) {
+      task = updateTask(t.id, { project: r.project.name, source: { projectBy: "friday" } })!;
+      record({ taskId: t.id, action: "project_guessed", why: `卡上没定项目，用 intake 判的（把握 ${v.confidence}）`, how: `归到 ${r.project.name}，不对就在会话里说，Friday 在它上面做的会整体撤掉`, evidence: { project: r.project.name, confidence: v.confidence ?? null }, risk: "reversible" });
+    }
     try {
-      await startAutonomousJob(t, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
+      await startAutonomousJob(task, r.project.name, r.project.dir, `${v.detail}\n\n背景：${t.understanding ?? ""}`, "autostart");
     } catch (e) {
       if (e instanceof TmuxMissingError) {
         console.warn(`[autostart] ${e.message}，本轮不再尝试`);

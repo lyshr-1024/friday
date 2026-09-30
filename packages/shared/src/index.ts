@@ -491,6 +491,10 @@ export interface TaskSource {
   okrWeek?: string;
   /** 工单进来时 Friday 对「能不能自己动手」的判断，自主开工的门禁和卡片上的依据都看它 */
   intake?: IntakeVerdict;
+  /** 卡上的项目是谁定的：friday = 自主开工时按 intake 判的写上去的；user = 你选的，门禁不再拿 intake 去比 */
+  projectBy?: "friday" | "user";
+  /** 你说了「先别做 / 这条我来」：Friday 不再自己开工 */
+  autostartOff?: boolean;
 }
 
 export interface IntakeVerdict {
@@ -649,6 +653,8 @@ export interface Task {
   pinned?: boolean;
   /** 只在 GET /tasks 里有：这条任务牵着的 Slack 对话 */
   conversations?: SlackConversation[];
+  /** 只在 GET /tasks 里有：Friday 判成能自己做、会自己开工。at 是预计开工时刻，behind 是前面还有几条自主任务在跑 */
+  autostart?: { at: string; behind: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -667,7 +673,7 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "custom";
 
 export interface PendingAction {
   id: string;

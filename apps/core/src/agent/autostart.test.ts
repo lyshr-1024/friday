@@ -11,7 +11,7 @@ import { setTmuxRunner } from "./tmux.js";
 import { AUTOSTART_CONFIDENCE, type Task } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, autostartTick, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
 const env: AutostartEnv = { now: NOW, running: 0, minConfidence: AUTOSTART_MIN_CONFIDENCE };
@@ -58,9 +58,19 @@ describe("eligible：只放够具体、归属确定、没人碰过的缺陷", ()
     expect(eligible(defect({}, { intake: { kind: "queue", why: "描述太模糊", at: settled } }), env)).toBe("判成 queue：描述太模糊");
   });
 
-  it("项目归属和 intake 判的不一致 → 不接，开错仓库最贵", () => {
+  it("卡上项目和 intake 判的不一致 → 不接；但项目是你定的就信你的", () => {
     expect(eligible(defect({ project: "fe-wealth-admin" }), env)).toMatch(/intake 判的是 whale-console/);
-    expect(eligible(defect({ project: undefined }), env)).toBe("没有项目归属");
+    expect(eligible(defect({ project: "fe-wealth-admin" }, { projectBy: "user" }), env)).toBeUndefined();
+  });
+
+  it("卡上没项目：intake 判的在注册表里就用它，不在就不接", () => {
+    expect(eligible(defect({ project: undefined }), { ...env, knownProject: () => true })).toBeUndefined();
+    expect(eligible(defect({ project: undefined }), { ...env, knownProject: () => false })).toBe("intake 判的 whale-console 不在项目注册表里");
+    expect(eligible(defect({ project: undefined }, { intake: { kind: "start", confidence: 90, detail: "x", why: "", at: settled } }), env)).toBe("没有项目归属");
+  });
+
+  it("你说了先别做就不接", () => {
+    expect(eligible(defect({}, { autostartOff: true }), env)).toBe("你说了先别做");
   });
 
   it("已经有终端、或卡上挂着问题的不接", () => {
@@ -99,6 +109,43 @@ describe("pickAutostart：并发和每日上限", () => {
     const q = [defect({ id: "a" }), defect({ id: "b" })];
     expect(pickAutostart(q, env).map((t) => t.id)).toEqual(["a"]);
     expect(pickAutostart(q.slice(1), env).map((t) => t.id)).toEqual(["b"]);
+  });
+});
+
+describe("autostartPlan：卡片上「Friday 会自己开工 · HH:mm」", () => {
+  const plan = { ...env, enabled: true };
+  it("刚进来的：预计在稳定期结束时开", () => {
+    const created = new Date(NOW - 60_000).toISOString();
+    expect(autostartPlan(defect({ createdAt: created }), plan)).toEqual({ at: new Date(Date.parse(created) + AUTOSTART_SETTLE_MS).toISOString(), behind: 0 });
+  });
+  it("已过稳定期：现在就开，前面有一条在跑就写出来", () => {
+    expect(autostartPlan(defect(), { ...plan, running: 1 })).toEqual({ at: new Date(NOW).toISOString(), behind: 1 });
+  });
+  it("开关关着、或门禁不过的没有预告", () => {
+    expect(autostartPlan(defect(), { ...plan, enabled: false })).toBeUndefined();
+    expect(autostartPlan(defect({}, { meegleType: "story" }), plan)).toBeUndefined();
+  });
+});
+
+describe("autostartTick：卡上没项目", () => {
+  it("用 intake 判的项目开工，写到卡上并标成 Friday 判的", async () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const dir = mkdtempSync(join(tmpdir(), "friday-as-"));
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## guessapp\n- 目录：${dir}\n`);
+    updateSettings({ autonomous: true });
+    setTmuxRunner(async () => {
+      throw Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" });
+    });
+    const t = createTask({
+      title: "没定项目的缺陷",
+      kind: "meegle",
+      status: "understood",
+      source: { meegleType: "issue", meegleId: "G1", intake: { kind: "start", confidence: 95, project: "guessapp", detail: "改一下", why: "具体", at: new Date().toISOString() } },
+    });
+    await autostartTick(Date.now() + AUTOSTART_SETTLE_MS + 60_000);
+    expect(getTask(t.id)).toMatchObject({ project: "guessapp", source: { projectBy: "friday" } });
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "project_guessed")).toBe(true);
   });
 });
 

@@ -16,6 +16,9 @@ import { TmuxMissingError } from "../agent/tmux.js";
 import { approvePending, finishTask, rejectTask, startAutonomousJob, startInteractiveJob } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
+import { requestProjectChange } from "../agent/reproject.js";
+import { autostartPlan, runningAutonomous } from "../agent/autostart.js";
+import { userSettings } from "../settings.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
@@ -142,7 +145,11 @@ export const tasks = new Hono()
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
-    const withSession = (t: Task): Task => ({ ...t, session: taskSession(t) });
+    const plan = { now: Date.now(), running: runningAutonomous(), minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
+    const withSession = (t: Task): Task => {
+      const autostart = autostartPlan(t, plan);
+      return { ...t, session: taskSession(t), ...(autostart ? { autostart } : {}) };
+    };
     const withSlack = slackOf(listInbox(true, CONV_SCAN_LIMIT));
     return c.json({
       ...board,
@@ -240,16 +247,17 @@ export const tasks = new Hono()
     if (!parsed.success) return c.json({ error: "project 必填（传 null 解除）" }, 400);
     const name = parsed.data.project;
     if (name && resolveProject(name).kind !== "match") return c.json({ error: `项目注册表里没有 ${name}` }, 400);
-    const before = getTask(c.req.param("id"));
-    if (!before) return c.json({ error: "任务不存在" }, 404);
-    const changed = (before.project ?? null) !== name;
-    const t = updateTask(c.req.param("id"), { project: name ?? undefined })!;
-    record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name, from: before.project ?? null }, risk: "reversible" });
-    // 改项目意味着之前那个终端开错地方了：它 cd 在旧项目目录里，留着只会继续
-    // 在错的仓库上改代码。断掉，任务回到待办，等你点「开始做」在新项目上重开。
+    const r = requestProjectChange(c.req.param("id"), name);
+    if (!r) return c.json({ error: "任务不存在" }, 404);
+    if (r.kind === "refused") return c.json({ error: r.why }, 409);
+    if (r.kind !== "set") return c.json(r.task);
+    const t = r.task;
+    record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name, from: r.before ?? null }, risk: "reversible" });
+    // 你自己的终端开在旧项目目录里，留着只会继续在错的仓库上改。断掉，任务回到待办；
+    // worktree 里是你的改动，留着进遗留列表，删不删你定
     const job = t.source.jobId ? getJob(t.source.jobId) : undefined;
-    if (changed && before.project && job?.status === "running") {
-      await closeJobTerminal(job.id, `项目从 ${before.project} 改成 ${name ?? "未定"}，旧终端开在错的目录里`, t.id);
+    if (r.before && job?.status === "running") {
+      await closeJobTerminal(job.id, `项目从 ${r.before} 改成 ${name ?? "未定"}，旧终端开在错的目录里`, t.id);
       return c.json(updateTask(t.id, { status: "understood", source: { jobId: undefined } })!);
     }
     return c.json(t);

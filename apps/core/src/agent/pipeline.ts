@@ -320,6 +320,10 @@ export async function executePending(
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
+    } else if (action.type === "reproject") {
+      const { rollbackAndRestart } = await import("./reproject.js");
+      // 回退完直接在新项目上重开：任务回到「Friday 在做」，不走下面的收尾
+      return await rollbackAndRestart(taskId, String((action.payload as { to: string }).to));
     } else if (action.type === "okr_submit") {
       const { submitRows, SubmitPartialError, OKR_SUBMIT_LABEL, submittable } = await import("./weekly/submit.js");
       try {
