@@ -9,6 +9,9 @@ import {
   applyHandbookDraft,
   distillPrompt,
   draftSummary,
+  draftView,
+  pickDraft,
+  pickedCount,
   historyDue,
   outcomeCandidates,
   parseOps,
@@ -266,5 +269,47 @@ describe("draftSummary：审核卡按增删改展示", () => {
     expect(md).toContain("因引证无效丢弃 2");
     expect(md).toContain("决策 1 条：决策一");
     expect(md).not.toContain("## 通用习惯");
+  });
+});
+
+describe("逐条勾选：视图给每条一个 key，通过时按 key 剔掉勾掉的", () => {
+  it("勾掉一条新增和一条决策，只落剩下的", () => {
+    const old = addRule({ project: "p-pick", section: "约定", text: "要退役的规则", origin: "history", evidence: [ev("旧")] });
+    const group: GroupDraft = {
+      project: "p-pick",
+      candidates: cands(2),
+      ops: [
+        { op: "add", section: "约定", text: "要的规则", evidence: [1], why: "x" },
+        { op: "add", section: "约定", text: "不要的规则", evidence: [2], why: "x" },
+        { op: "retire", id: old.id, why: "过时了" },
+      ],
+      conflicts: [{ text: "建 draft MR", with: "守卫拦 push" }],
+      stale: [],
+      dropped: 0,
+      decisions: [{ text: "决策甲" }],
+      people: [],
+      aliases: ["pk"],
+      sources: 2,
+    };
+    const view = draftView({ groups: [group] });
+    expect(view.groups[0]!.items.map((i) => [i.kind, i.text])).toEqual([
+      ["add", "要的规则（约定）"],
+      ["add", "不要的规则（约定）"],
+      ["retire", "要退役的规则"],
+      ["decision", "决策甲"],
+      ["alias", "pk"],
+    ]);
+    expect(view.groups[0]!.items[0]!.quotes).toEqual(["[1] 原话 1"]);
+    expect(view.groups[0]!.notes.map((n) => n.kind)).toEqual(["conflict"]);
+
+    const skip = [view.groups[0]!.items[1]!.key, view.groups[0]!.items[3]!.key];
+    const picked = pickDraft({ groups: [group] }, skip);
+    expect(pickedCount({ groups: [group] })).toBe(5);
+    expect(pickedCount(picked)).toBe(3);
+    applyHandbookDraft(picked);
+    const texts = activeRules("p-pick").map((r) => r.text);
+    expect(texts).toContain("要的规则");
+    expect(texts).not.toContain("不要的规则");
+    expect(getRule(old.id)!.status).toBe("retired");
   });
 });

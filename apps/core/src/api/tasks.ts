@@ -36,6 +36,7 @@ import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
 import { remove as removeOkrReport } from "../connectors/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
+import type { HandbookDraft } from "../agent/handbook.js";
 
 const MENTION_MAX_BYTES = 1024 * 1024;
 const IMAGE_MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
@@ -136,6 +137,23 @@ export const tasks = new Hono()
       meegleSyncedAt: meegleState.lastSyncAt,
       slackConfigured: await slackConfigured(),
     });
+  })
+  .get("/tasks/:id/handbook-draft", async (c) => {
+    const action = getTask(c.req.param("id"))?.pending?.find((p) => p.type === "handbook_apply");
+    if (!action) return c.json({ error: "这批手册改动已经处理过了" }, 404);
+    const { draftView } = await import("../agent/handbook.js");
+    const p = action.payload as { draft: HandbookDraft; skip?: string[] };
+    return c.json(draftView(p.draft, p.skip ?? []));
+  })
+  // 勾掉的条目只记下来，通过时才剔掉；卡上点通过和会话里说「通过」都按这份走
+  .put("/tasks/:id/handbook-skip", async (c) => {
+    const id = c.req.param("id");
+    const action = getTask(id)?.pending?.find((p) => p.type === "handbook_apply");
+    if (!action) return c.json({ error: "这批手册改动已经处理过了" }, 404);
+    const { skip } = (await c.req.json().catch(() => ({}))) as { skip?: unknown };
+    if (!Array.isArray(skip) || !skip.every((k) => typeof k === "string")) return c.json({ error: "skip 应该是字符串数组" }, 400);
+    updatePending(id, action.id, { payload: { ...action.payload, skip } });
+    return c.json({ skip });
   })
   .get("/routines", (c) => c.json({ weekly: listTasksByKind("okr_weekly"), learn: listTasksByKind("handbook") }))
   .get("/tasks/:id", (c) => {

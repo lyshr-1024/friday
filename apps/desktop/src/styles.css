@@ -5273,14 +5273,19 @@ body:has(.hud)::-webkit-scrollbar {
 .q__row--sub h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg-1); }
 .side__sync { margin: 6px 4px 0; font-size: 11.5px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
 
-/* ---------- 手册改动待过目（设置页） ---------- */
+/* ---------- 手册改动待过目（学习弹窗），逐条勾选 ---------- */
 .hbr__intro { margin: 0 0 var(--s-4); color: var(--fg-3); font-size: var(--t-sm); line-height: 1.6; }
 .hbr__head { margin: var(--s-6) 0 var(--s-2); padding-bottom: var(--s-2); border-bottom: 1px solid var(--line-2); font-size: var(--t-body); font-weight: 600; color: var(--fg-1); }
-.hbr__head:first-of-type { margin-top: 0; }
+.hbr section:first-of-type .hbr__head { margin-top: 0; }
 .hbr__label { margin: var(--s-4) 0 var(--s-1); }
 .hbr__meta { margin-top: var(--s-2); color: var(--fg-3); font-size: var(--t-sm); line-height: 1.6; }
 .hbr__item { display: flex; gap: var(--s-2); padding: var(--s-2) 0; border-bottom: 1px solid var(--line-1); font-size: var(--t-body); color: var(--fg-1); line-height: 1.55; }
 .hbr__mark { flex: none; width: 1.2em; text-align: center; color: var(--fg-4); }
+label.hbr__item { cursor: default; }
+.hbr__item > input[type="checkbox"] { flex: none; align-self: flex-start; margin: 0.3em 0 0; }
+.hbr__item.is-off .hbr__body, .hbr__item.is-off .hbr__mark { opacity: 0.4; }
+.hbr__item--note { padding-left: calc(13px + var(--s-2)); }
+.hbr__conseq--err { color: var(--bad); }
 .hbr__item--add .hbr__mark { color: var(--ok); }
 .hbr__item--retire .hbr__mark, .hbr__item--conflict .hbr__mark { color: var(--bad); }
 .hbr__item--revise .hbr__mark, .hbr__item--stale .hbr__mark { color: var(--amber); }
@@ -5313,4 +5318,5 @@ body:has(.hud)::-webkit-scrollbar {
 .rtn__empty { color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
 .rtn .editor { height: auto; background: transparent; }
 .rtn .editor__head { padding-left: 0; }
-.rtn .editor .hbr__foot { padding-left: 0; padding-right: 0; }
+/* 弹窗里过目页的底栏也钉在底部，跟周报一样不用滚到底才看见按钮 */
+.rtn .editor .hbr__foot { position: sticky; bottom: -20px; margin: 0 -26px -20px; padding: var(--s-3) 26px; background: rgba(10, 16, 24, 0.98); border-radius: 0 0 12px 12px; }
