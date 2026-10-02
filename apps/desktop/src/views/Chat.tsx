@@ -9,6 +9,7 @@ import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { LinkMenuHost, fmtTime } from "./shared";
 import { MoreMenu } from "./TaskDialog";
+import { Projects } from "./Projects";
 import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardRequest, BoardView } from "./Board";
@@ -26,12 +27,13 @@ interface OpenPayload {
   taskId?: string | null;
 }
 
-type View = BoardView | "history" | "ask";
+type View = BoardView | "history" | "ask" | "projects";
 
-/* 顶栏只留两个区域：会话、任务。会话历史、操作记录、设置、同步、新建都收进右上「···」 */
+/* 顶栏三个区域：会话、任务、项目。会话历史、操作记录、设置、同步、新建都收进右上「···」 */
 const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "ask", label: "会话", kbd: "⌘N" },
   { key: "queue", label: "任务" },
+  { key: "projects", label: "项目" },
 ];
 
 /** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
@@ -271,7 +273,7 @@ export function Chat() {
     { label: "设置", run: () => void invoke("open_settings") },
   ];
 
-  /* 顶栏一行：FRIDAY · [会话 | 任务] …… 终端数 · 用量 · 模型 · ··· */
+  /* 顶栏一行：FRIDAY · [会话 | 任务 | 项目] …… 终端数 · 用量 · 模型 · ··· */
   const nav = (
     <nav className="topnav" aria-label="视图" data-tauri-drag-region>
       <span className="topnav__brand" data-tauri-drag-region>FRIDAY</span>
@@ -384,6 +386,8 @@ export function Chat() {
               </div>
             </div>
           </>
+        ) : view === "projects" ? (
+          <Projects nav={nav} />
         ) : (
           <Board view={view} nav={nav} go={go} runningConvs={runningConvs} request={boardReq} />
         )}

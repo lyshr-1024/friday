@@ -183,7 +183,8 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
 }
 
 export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured"> {
-  const tasks = listTasks(undefined, 500);
+  // 项目终端的锚点不是任务，在「项目」页里
+  const tasks = listTasks(undefined, 500).filter((t) => t.kind !== "project");
   const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TaskStatus, number>;
   for (const t of tasks) counts[t.status]++;
   return { tasks: tasks.filter((t) => t.status !== "ignored"), counts };

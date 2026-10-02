@@ -58,7 +58,7 @@ export function search(query: string): SearchResult {
     .prepare(
       `SELECT id, title, kind, source, project, status, understanding, plan, updated_at
          FROM tasks
-        WHERE status != 'ignored' AND kind != 'handbook'
+        WHERE status != 'ignored' AND kind NOT IN ('handbook', 'project')
           AND (title LIKE ? ESCAPE '\\' OR understanding LIKE ? ESCAPE '\\' OR plan LIKE ? ESCAPE '\\'
                OR progress LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')
         ORDER BY updated_at DESC

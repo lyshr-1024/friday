@@ -5290,3 +5290,8 @@ body:has(.hud)::-webkit-scrollbar {
 .hbr__foot { flex: none; display: flex; align-items: center; gap: var(--s-2); padding: var(--s-3) var(--s-6); border-top: 1px solid var(--separator); }
 .hbr__conseq { flex: 1; min-width: 0; color: var(--fg-4); font-size: var(--t-xs); }
 .hbr .rules__evidence { list-style: none; }
+
+/* ---------- 项目页：没开终端时的空态 ---------- */
+.pt__empty { margin: 0 20px 16px; padding: 28px 24px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
+.pt__empty p { margin: 0 0 var(--s-4); max-width: 62ch; }
+.pt__empty code { font-family: var(--mono); color: var(--fg-2); }

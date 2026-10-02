@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -500,6 +500,18 @@ export async function taskCreate(input: { title: string; note?: string; url?: st
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+export async function projectTerminals(): Promise<ProjectTerminal[]> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/terminals`);
+  if (!res.ok) throw new Error(`projects ${res.status}`);
+  return res.json();
+}
+
+export async function openProjectTerminal(name: string): Promise<ProjectTerminal> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/terminal`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `打不开终端（${res.status}）`);
   return res.json();
 }
 
