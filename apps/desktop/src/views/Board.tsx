@@ -637,7 +637,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
     onFocusChange?.(focus ?? null);
     document.querySelector('.an[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
   }, [focus?.id]);
-  // ⌘P 搜索、⌘↑↓ 任何时候切任务；不带 ⌘ 的 ↑↓ 只在焦点不在输入框和终端里时切
+  // ⌘P 搜索、⌘↑↓ 任何时候切任务；不带 ⌘ 的 ↑↓ 只在焦点不在输入框里、详情也不是终端时切（终端在眼前时 Terminal 先截走）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
