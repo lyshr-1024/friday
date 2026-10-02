@@ -1,12 +1,13 @@
 import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
+import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse, type Task } from "@friday/shared";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { RulesEditor } from "./RulesEditor";
-import { autostartPreview, coreBaseUrl, health, learnHistory, leftoverWorktrees, listHandbooks, okrWeeklyNow, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
+import { HandbookReview } from "./HandbookReview";
+import { autostartPreview, coreBaseUrl, health, learnHistory, leftoverWorktrees, listHandbooks, okrWeeklyNow, removeWorktree, settings, taskBoard, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 import { AUTOSTART_CONFIDENCE } from "@friday/shared";
@@ -22,6 +23,8 @@ export function Settings() {
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [notified, setNotified] = useState(false);
   const [handbooks, setHandbooks] = useState<string[]>([]);
+  const [reviews, setReviews] = useState<Task[]>([]);
+  const [reviewing, setReviewing] = useState<Task | null>(null);
   const [learning, setLearning] = useState(false);
   const [learnNote, setLearnNote] = useState("");
   const [drafting, setDrafting] = useState(false);
@@ -67,6 +70,17 @@ export function Settings() {
     void invoke<PermissionStatus>("permission_status").then(setPerms);
   }
 
+  // 手册改动不进任务列表，在这里过目；设置窗常开着，切回来时再拉一次
+  const refreshReviews = () =>
+    void taskBoard()
+      .then((b) => setReviews(b.tasks.filter((t) => t.kind === "handbook" && t.status === "review" && (t.pending ?? []).some((p) => p.type === "handbook_apply"))))
+      .catch(() => {});
+  useEffect(() => {
+    refreshReviews();
+    window.addEventListener("focus", refreshReviews);
+    return () => window.removeEventListener("focus", refreshReviews);
+  }, []);
+
   useEffect(() => {
     void isEnabled().then(setAutostart);
     void listHandbooks().then(setHandbooks).catch(() => {});
@@ -104,8 +118,9 @@ export function Settings() {
     setLearnNote("");
     try {
       const r = await learnHistory();
-      setLearnNote(r.skipped ? "没学到新的" : `提炼了 ${r.groups} 份，去「待我决定」过目`);
+      setLearnNote(r.skipped ? "没学到新的" : `提炼了 ${r.groups} 份，在上面过目`);
       await listHandbooks().then(setHandbooks);
+      refreshReviews();
     } catch {
       setLearnNote("出错了");
     } finally {
@@ -133,6 +148,10 @@ export function Settings() {
     if (autostart) await disable();
     else await enable();
     setAutostart(await isEnabled());
+  }
+
+  if (reviewing) {
+    return <HandbookReview task={reviewing} onBack={() => { setReviewing(null); refreshReviews(); void listHandbooks().then(setHandbooks).catch(() => {}); }} />;
   }
 
   if (editing?.kind === "handbook") {
@@ -208,6 +227,11 @@ export function Settings() {
       <section>
         <h2>项目手册</h2>
         <div className="group">
+          {reviews.map((t) => (
+            <Row key={t.id} label="待你过目" hint={t.title}>
+              <button className="btn" onClick={() => setReviewing(t)}>过目…</button>
+            </Row>
+          ))}
           {handbooks.length === 0 ? (
             <Row label="还没有手册" hint="从 Claude Code 历史学一轮，会按项目提炼出「在这里怎么干活」，每条带你的原话出处">
               <button className="btn" disabled={learning} onClick={() => void runLearn()}>{learning ? "提炼中…" : learnNote || "现在学一轮"}</button>

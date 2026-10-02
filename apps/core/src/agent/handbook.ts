@@ -1,4 +1,5 @@
 import { RULE_SECTIONS, type Rule, type RuleEvidence, type RuleSection } from "@friday/shared";
+import { state } from "../scheduler/index.js";
 import { askStream } from "./claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "./fence.js";
 import { groupByProject, scanHistory } from "./history.js";
@@ -346,6 +347,7 @@ export async function learnHistoryOnce(manual = false): Promise<HistoryResult> {
       detail: `按上面的增删改更新 ${names} 的规则表并重新生成 handbooks/，附带的决策、人物、别名一并落盘。可在操作记录里整体撤销。`,
       payload: { draft: { groups: drafts } as unknown as Record<string, unknown>, cursor: latest },
     });
+    state.notices.push({ title: `学了 ${drafts.length} 份手册的改动`, body: "去设置页「项目手册」过目，点头才写进来" });
     setCursor(CURSOR_KEY, latest);
     historyState.lastRunAt = new Date().toISOString();
     setCursor(RAN_KEY, historyState.lastRunAt);

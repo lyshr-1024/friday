@@ -576,7 +576,8 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
     ];
   }
 
-  const tasks = board?.tasks ?? [];
+  // 手册改动不是工作任务，在设置页「项目手册」里过目
+  const tasks = (board?.tasks ?? []).filter((t) => t.kind !== "handbook");
   const active = (t: Task) => t.session?.state === "working" || t.session?.state === "preparing" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
   const closed = (t: Task) => t.status === "done" || t.status === "ignored";
   // 星标的单独一组放最顶上，其余分组里不再出现
