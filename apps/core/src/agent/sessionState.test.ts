@@ -14,7 +14,7 @@ describe("状态位只取终端里的现实", () => {
   });
   it("输入晚于 Stop = 干活中；准备段也算干活中", () => {
     expect(sessionState(task() as never, S({ lastInputAt: T(5), lastStopAt: T(1) }))).toBe("working");
-    expect(sessionState(task() as never, S({ status: "preparing", lastInputAt: T(0) }))).toBe("working");
+    expect(sessionState(task() as never, S({ status: "preparing", lastInputAt: T(0) }))).toBe("preparing");
   });
   it("Stop 晚于看过 = 等你输入；看过之后变空闲", () => {
     expect(sessionState(task() as never, S({ lastInputAt: T(1), lastStopAt: T(5), seenAt: T(2) }))).toBe("awaiting");

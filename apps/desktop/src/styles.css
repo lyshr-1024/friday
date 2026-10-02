@@ -5023,7 +5023,7 @@ body:has(.hud)::-webkit-scrollbar {
 .th__meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--fg-3); }
 .th__state { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
 .th__state--asking, .th__state--blocked { color: #ff5d6c; }
-.th__state--working { color: #38d6ff; }
+.th__state--working, .th__state--preparing { color: #38d6ff; }
 .th__state--awaiting, .th__state--deciding { color: #f2b144; }
 .th__state--exited { color: var(--fg-3); }
 .th__sep { margin-right: 10px; color: var(--fg-4); }
@@ -5040,7 +5040,7 @@ body:has(.hud)::-webkit-scrollbar {
 .th__btn { padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); background: transparent; color: var(--fg-2); font-size: 11.5px; font-family: inherit; cursor: default; }
 .sdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .sdot--asking, .sdot--blocked { background: #ff5d6c; }
-.sdot--working { background: #38d6ff; box-shadow: 0 0 8px #38d6ff; }
+.sdot--working, .sdot--preparing { background: #38d6ff; box-shadow: 0 0 8px #38d6ff; }
 .sdot--awaiting, .sdot--deciding { background: #f2b144; }
 .sdot--exited { border: 1.5px solid var(--fg-3); box-sizing: border-box; }
 .sdot--idle, .sdot--none { background: rgba(125, 139, 153, 0.35); }

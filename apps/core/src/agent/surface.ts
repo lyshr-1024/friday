@@ -39,7 +39,7 @@ export function surfaceContext(url: string): SurfaceContext {
       title: t.title,
       status: t.status,
       ...(t.source.branch ? { branch: t.source.branch } : {}),
-      ...(job && job.status === "running" ? { jobId: job.id, terminal: sessionState(t, termSessionByJob(job.id)) === "working" ? "busy" : "idle" } : {}),
+      ...(job && job.status === "running" ? { jobId: job.id, terminal: ["working", "preparing"].includes(sessionState(t, termSessionByJob(job.id))) ? "busy" : "idle" } : {}),
     }));
   // 只有一个终端在跑才敢替你决定转给谁；多个的话让你点，点过的会记进 links
   const live = rows.filter((r) => r.jobId);

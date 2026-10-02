@@ -279,7 +279,7 @@ export interface Job {
   finishedAt?: string;
 }
 
-export type SessionState = "asking" | "working" | "awaiting" | "deciding" | "blocked" | "exited" | "idle" | "none";
+export type SessionState = "asking" | "preparing" | "working" | "awaiting" | "deciding" | "blocked" | "exited" | "idle" | "none";
 
 export interface TaskSession {
   state: SessionState;
@@ -295,6 +295,7 @@ export interface TaskSession {
 
 export const SESSION_STATE_LABEL: Record<SessionState, string> = {
   asking: "在问你",
+  preparing: "准备中",
   working: "干活中",
   awaiting: "等你输入",
   deciding: "待你决定",

@@ -8,7 +8,8 @@ import { liveRootId } from "./sessions.js";
 export function sessionState(t: Pick<Task, "attention" | "pending" | "status">, s?: TermSession): SessionState {
   const alive = s?.status === "running" || s?.status === "preparing";
   if (alive && t.attention === "question") return "asking";
-  if (alive && (s!.status === "preparing" || (s!.lastInputAt && (!s!.lastStopAt || s!.lastInputAt > s!.lastStopAt)))) return "working";
+  if (s?.status === "preparing") return "preparing";
+  if (alive && s!.lastInputAt && (!s!.lastStopAt || s!.lastInputAt > s!.lastStopAt)) return "working";
   if (alive && s!.lastStopAt && (!s!.seenAt || s!.lastStopAt > s!.seenAt)) return "awaiting";
   if (t.pending?.length) return "deciding";
   if (t.status === "blocked") return "blocked";
