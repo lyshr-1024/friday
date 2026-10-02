@@ -534,6 +534,12 @@ export async function openProjectTerminal(name: string, fresh = false): Promise<
   return res.json();
 }
 
+export async function closeProjectTerminal(name: string): Promise<ProjectTerminal> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/terminal`, { method: "DELETE" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `关不掉 Claude（${res.status}）`);
+  return res.json();
+}
+
 export async function projectShell(name: string, open: boolean): Promise<ProjectTerminal> {
   const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/shell`, { method: open ? "POST" : "DELETE" });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${open ? "打不开" : "关不掉"}终端（${res.status}）`);
