@@ -62,7 +62,7 @@ export function collectTasks(week: Week): Material[] {
   const from = week.start.toISOString();
   const to = week.end.toISOString();
   return listTasks(["collected", "understood", "processing", "review", "blocked", "done"], 1000)
-    .filter((t) => t.updatedAt >= from && t.updatedAt < to && t.kind !== "okr_weekly" && t.kind !== "handbook" && !untouched(t))
+    .filter((t) => t.updatedAt >= from && t.updatedAt < to && t.kind !== "okr_weekly" && t.kind !== "handbook" && t.kind !== "project" && !untouched(t))
     .map((t, i) => ({
       id: `t${i + 1}`,
       text: [t.title, t.source.meegleId ? `m-${t.source.meegleId}` : "", t.project ? `项目 ${t.project}` : "", t.stage ? `阶段 ${t.stage}` : "", `状态 ${t.status}`, t.report?.summary ? `交付：${t.report.summary.slice(0, 200)}` : ""].filter(Boolean).join(" · "),

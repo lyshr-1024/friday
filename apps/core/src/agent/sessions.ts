@@ -44,7 +44,7 @@ export function baseBranchOf(t: Task): { baseBranch?: string } {
 export async function openSession(
   root: Task,
   owner: Task,
-  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string; conversationId?: string },
+  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string; conversationId?: string; inRepo?: boolean },
 ): Promise<string> {
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();
@@ -58,7 +58,9 @@ export async function openSession(
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
-    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}) }, name);
+    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}) }, name);
+    // 没有准备段，没有谁来报 worktree：直接算开好了
+    if (o.inRepo) updateTermSession(root.id, { status: "running" });
   } catch (e) {
     finishJob(jobId, 1);
     updateTermSession(root.id, { status: "closed" });
@@ -93,6 +95,9 @@ export async function flushQueued(sessionId: string): Promise<void> {
   for (const text of list) await sayToSession(sessionId, text);
 }
 
+/** 不建 worktree、直接在主仓里跑的会话：后台只读查询、项目终端 */
+const inRepo = (s: TermSession): boolean => s.kind === "query" || getTask(s.id)?.kind === "project";
+
 function jobKind(job: Job, fallback: TermSessionKind): TermSessionKind {
   const owner = job.taskId ? getTask(job.taskId) : undefined;
   if (!owner) return fallback;
@@ -104,7 +109,7 @@ export async function resumeInSession(sessionId: string, prompt?: string, jobId?
   const id = jobId ?? s?.jobId;
   const job = id ? getJob(id) : undefined;
   if (!s || !job || job.sessionId !== s.id || !(await hasSession(s.tmuxName))) return false;
-  if (s.kind !== "query" && !s.worktree) return false;
+  if (!inRepo(s) && !s.worktree) return false;
   const win = await claudeWindowIndex(s.tmuxName);
   if (win === undefined) return false;
   const file = await writeResumeScript(
@@ -130,7 +135,7 @@ export async function reviveSession(sessionId: string, jobId?: string): Promise<
   const id = jobId ?? s?.jobId;
   const job = id ? getJob(id) : undefined;
   if (!s || !job || job.sessionId !== s.id || (await hasSession(s.tmuxName))) return false;
-  const cwd = s.worktree ?? (s.kind === "query" ? s.repoDir : undefined);
+  const cwd = s.worktree ?? (inRepo(s) ? s.repoDir : undefined);
   if (!cwd || !existsSync(cwd)) return false;
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();

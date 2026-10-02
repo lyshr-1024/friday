@@ -308,6 +308,16 @@ export const SESSION_STATE_LABEL: Record<SessionState, string> = {
 export type TermSessionKind = "interactive" | "autonomous" | "query";
 export type TermSessionStatus = "preparing" | "running" | "exited" | "closed";
 
+/** 顶栏「项目」页的一行：注册表里的项目 + 它的项目终端开没开 */
+export interface ProjectTerminal {
+  name: string;
+  dir: string;
+  taskId?: string;
+  jobId?: string;
+  status?: TermSessionStatus;
+  state?: SessionState;
+}
+
 /** 一个根任务的 tmux 会话：根 = worktree = 会话 = 分支 */
 export interface TermSession {
   id: string;
@@ -329,7 +339,7 @@ export interface TermSession {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "other";
+export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export type Risk = "read" | "reversible" | "irreversible";
 
@@ -420,6 +430,8 @@ export interface TaskSource {
   linkedStoryName?: string;
   /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
   storyContainer?: boolean;
+  /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
+  projectTerminal?: string;
   /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
   autoClosed?: boolean;
   /** Meegle 空间 key，流转状态要用 */

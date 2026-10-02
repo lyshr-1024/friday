@@ -123,6 +123,7 @@ export const fridayToolList = (conversationId?: string) => [
         const kw = keyword?.trim().toLowerCase();
         const hits = listTasks(undefined, 2000).filter(
           (t) =>
+            t.kind !== "project" &&
             (scope === "all" || (scope === "done" ? closed(t) : !closed(t))) &&
             (!r || t.project === r.name) &&
             (!stage || t.stage === stage) &&

@@ -249,6 +249,8 @@ export interface SessionLaunch {
   title?: string;
   description?: string;
   existingBranch?: string;
+  /** 直接在主仓里开（项目终端）：不跑准备段、不建 worktree */
+  inRepo?: boolean;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
@@ -302,7 +304,7 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
   const api = (p: string) => shellQuote(`http://127.0.0.1:${port}/jobs/${req.id}/${p}`);
   const wt = shellQuote(worktreeFile(req.id));
   const prepare =
-    req.kind === "query"
+    req.kind === "query" || req.inRepo
       ? []
       : [
           `rm -f ${wt}`,
