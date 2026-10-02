@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, type ProjectOverview, type ProjectTaskLine, type ProjectTerminal, type Stage } from "@friday/shared";
-import { openProjectTerminal, projectOverview, projectShell, projectTerminals } from "../lib/core";
+import { closeProjectTerminal, openProjectTerminal, projectOverview, projectShell, projectTerminals } from "../lib/core";
 import { Terminal } from "./Terminal";
 
 const PICK_KEY = "friday:project";
@@ -165,7 +165,7 @@ export function Projects({ nav, onOpenTask }: { nav: ReactNode; onOpenTask: (id:
                     <span className="th__sp" />
                     <button className="idle__link" disabled={!!busy} title="关掉这段 Claude，全新开一段（上下文太大时用）" onClick={() => void run("fresh", () => openProjectTerminal(cur.name, true))}>{busy === "fresh" ? "新开中…" : "新开一段"}</button>
                   </div>
-                  <div className="pj__termbox"><Terminal key={cur.jobId ?? ""} sessionId={cur.taskId!} /></div>
+                  <div className="pj__termbox"><Terminal key={cur.jobId ?? ""} sessionId={cur.taskId!} onCloseSession={() => void run("closeClaude", () => closeProjectTerminal(cur.name))} /></div>
                 </div>
               )}
               {shellOn && (
@@ -173,10 +173,8 @@ export function Projects({ nav, onOpenTask }: { nav: ReactNode; onOpenTask: (id:
                   <div className="pj__bar">
                     <span className="sdot sdot--idle" />
                     <span>终端</span>
-                    <span className="th__sp" />
-                    <button className="idle__link" disabled={!!busy} onClick={() => void run("close", () => projectShell(cur.name, false))}>关掉</button>
                   </div>
-                  <div className="pj__termbox"><Terminal key={cur.shell!.taskId} sessionId={cur.shell!.taskId} /></div>
+                  <div className="pj__termbox"><Terminal key={cur.shell!.taskId} sessionId={cur.shell!.taskId} onCloseSession={() => void run("close", () => projectShell(cur.name, false))} /></div>
                 </div>
               )}
             </section>

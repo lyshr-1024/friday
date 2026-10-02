@@ -20,7 +20,8 @@ function termTheme(): Record<string, string> {
 
 const MAX_MISSES = 30;
 
-export function Terminal({ sessionId, preparing = false }: { sessionId: string; preparing?: boolean }) {
+/** onCloseSession：项目页的会话可以从标签上整个关掉（任务的会话只在收工时关，不传） */
+export function Terminal({ sessionId, preparing = false, onCloseSession }: { sessionId: string; preparing?: boolean; onCloseSession?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const preparingRef = useRef(preparing);
   preparingRef.current = preparing;
@@ -250,10 +251,21 @@ export function Terminal({ sessionId, preparing = false }: { sessionId: string; 
             <button role="tab" className="term__tab" aria-selected={w.active} onClick={() => void selectSessionWindow(sessionId, w.index).then(refreshWindows)}>
               {w.index + 1} · {w.name}
             </button>
-            {/* 跑着 Claude 的那个窗口不给关：关了 Claude 跟着没，这条任务的会话就断了。最后一个窗口后端也不让关 */}
-            {windows.length > 1 && w.name !== "claude" && (
-              <button className="term__close" aria-label={`关闭窗口 ${w.index + 1} · ${w.name}`} title="关闭这个窗口" onClick={() => void closeSessionWindow(sessionId, w.index).then(refreshWindows)}>×</button>
-            )}
+            {/* 任务的会话里跑着 Claude 的那个窗口不给关：关了 Claude 跟着没，这条任务的会话就断了。最后一个窗口后端也不让关。
+                项目页的会话没这个顾虑：Claude 窗口或最后一个窗口的 × 就是把整个会话关掉 */}
+            {(onCloseSession || (windows.length > 1 && w.name !== "claude")) && (() => {
+              const whole = Boolean(onCloseSession) && (windows.length === 1 || w.name === "claude");
+              return (
+                <button
+                  className="term__close"
+                  aria-label={whole ? "关掉这个会话" : `关闭窗口 ${w.index + 1} · ${w.name}`}
+                  title={whole ? (w.name === "claude" ? "关掉这段 Claude（整个会话）" : "关掉这个终端") : "关闭这个窗口"}
+                  onClick={() => (whole ? onCloseSession!() : void closeSessionWindow(sessionId, w.index).then(refreshWindows))}
+                >
+                  ×
+                </button>
+              );
+            })()}
           </span>
         ))}
         <button className="term__tab term__tab--add" aria-label="新窗口" onClick={() => void newSessionWindow(sessionId).then(refreshWindows)}>＋</button>

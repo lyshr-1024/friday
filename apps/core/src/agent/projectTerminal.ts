@@ -94,10 +94,10 @@ export async function openProjectShell(name: string): Promise<ProjectTerminal | 
   return projectTerminals().find((x) => x.name === name)!;
 }
 
-export async function closeProjectShell(name: string): Promise<ProjectTerminal | { error: string }> {
-  const t = anchorOf(name, "shell");
-  if (!t) return { error: `「${name}」没开过终端` };
-  await closeAnchor(t, "你在「项目」页关了终端");
+export async function closeProjectAnchor(name: string, which: Which): Promise<ProjectTerminal | { error: string }> {
+  const t = anchorOf(name, which);
+  if (!t) return { error: `「${name}」没开过${which === "claude" ? " Claude" : "终端"}` };
+  await closeAnchor(t, `你在「项目」页关了${which === "claude" ? " Claude" : "终端"}`);
   return projectTerminals().find((x) => x.name === name)!;
 }
 

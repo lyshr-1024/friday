@@ -85,6 +85,9 @@ describe("项目终端", () => {
     const closed = (await (await app.request("/projects/pt-demo/shell", { method: "DELETE" })).json()) as ProjectTerminal;
     expect(closed.shell?.status).toBeUndefined();
     expect(closed.status).toBe("running");
+    const noClaude = (await (await app.request("/projects/pt-demo/terminal", { method: "DELETE" })).json()) as ProjectTerminal;
+    expect(noClaude.status).toBeUndefined();
+    expect(getJob(c.jobId)!.status).not.toBe("running");
   });
 
   it("概览：注册表简介 + 这个项目没收工的任务，锚点不算", async () => {
