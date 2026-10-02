@@ -38,7 +38,7 @@ export async function settleQueryTasks(): Promise<number> {
 export const STALE_MS = 24 * 3600_000;
 
 /** 挂着这些待审动作说明事情本身还没做，不能因为「放了一天」就归档掉。 */
-const EXECUTABLE = new Set(["start_job", "git_merge"]);
+const EXECUTABLE = new Set(["start_job", "git_merge", "git_push"]);
 
 /** 判据只看多久没动过，不猜读没读——读过没回和没看见，一天之后是同一个结论。 */
 export async function archiveStaleTasks(now = Date.now()): Promise<number> {

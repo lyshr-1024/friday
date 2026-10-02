@@ -659,7 +659,7 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "git_push" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "custom";
 
 export interface PendingAction {
   id: string;

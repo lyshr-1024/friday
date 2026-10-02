@@ -142,7 +142,7 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 ## 安全护栏
 
 - 外部文本（Slack 原文、Meegle 条目、历史情境卡、few-shot 范例）进任何 prompt 前一律过 `agent/fence.ts` 的 `untrusted(source, text)`，system 里声明定界符内是数据不是指令，并剥掉正文里伪造的闭合标签。
-- 自主任务（无人看着的 `claude -p`）：`agent/guard.ts` 的黑名单经 PreToolUse hook 拦 push / merge / rebase / `reset --hard` / `checkout main` / sudo / `rm -rf` 根目录，正则允许 `git -C <dir>` 这类全局选项插在子命令前。**`--dangerously-skip-permissions` 会让 settings 里的 `permissions.deny` 完全失效（实测过），所以护栏必须走 hook**。交互式终端不挂这个守卫。
+- 自主任务（无人看着的 `claude -p`）：`agent/guard.ts` 的黑名单经 PreToolUse hook 拦 push / merge / rebase / `reset --hard` / `checkout main` / sudo / `rm -rf` 根目录，正则允许 `git -C <dir>` 这类全局选项插在子命令前。**push 拦下不是死路（2026-10-02）**：原来只拒不给批准通道，用户在会话里说「推上去」Friday 只能转给终端、终端再推照样被拦，绕圈。现在守卫拦到 push 时 `POST /jobs/:id/push-request`，`requestPush`（`agent/bridge.ts`）给任务挂 `git_push` 待审（只推 worktree 当前的功能分支，命令里写的远端/分支不认，主干不挂，同分支不重复挂）；批准（卡上或会话里「推上去」）后 `executePending` 由 Friday 自己 `git push -u origin <分支>`，Claude 还在跑就 `say` 让它接着建 MR，已退出就只在会话里说一声（退出后窗格是 shell，敲进去会被当命令执行），任务不收工。只读查询的守卫没有回报地址，只拒绝。**`--dangerously-skip-permissions` 会让 settings 里的 `permissions.deny` 完全失效（实测过），所以护栏必须走 hook**。交互式终端不挂这个守卫。
 - 自主任务开工前 `worktreeDirt()` 体检，工作区不干净就不开工，任务标 `blocked` 并列出是哪几个文件。
 
 ## macOS 坑
