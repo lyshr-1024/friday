@@ -28,7 +28,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "规则：",
     "1. 你已经在为这次任务准备好的 git worktree 里、在新分支上，直接开工；不要再建分支，不要回主仓操作。",
     "   开工先调 friday_progress 把当前分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
-    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 也会被拦，但会挂到任务卡上等用户批准、由 Friday 代推，见第 7 条。",
+    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 只放行当前功能分支，强推、推主干 / 受保护分支 / tag 都会被拦。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -160,21 +160,27 @@ export function buildGuardScript(nodePath = process.execPath, pushUrl?: string):
     `${shellQuote(nodePath)} -e ${shellQuote(`
 const rules = ${JSON.stringify(FORBIDDEN)};
 const pushUrl = ${JSON.stringify(pushUrl ?? "")};
+const PUSH_WHY = ${JSON.stringify(PUSH_WHY)};
 let input = "";
 let done = false;
-const decide = () => {
+const out = (why) => process.stdout.write(why ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } }) : "{}");
+const decide = async () => {
   if (done) return;
   done = true;
   let cmd = "";
   let cwd = "";
   try { const j = JSON.parse(input); cmd = String((j.tool_input || {}).command || ""); cwd = String(j.cwd || ""); } catch {}
-  const hit = rules.find(([p]) => new RegExp(p).test(cmd));
-  const asked = Boolean(hit && pushUrl && hit[1] === ${JSON.stringify(PUSH_WHY)});
-  if (asked) fetch(pushUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: cmd.slice(0, 1000), cwd }), signal: AbortSignal.timeout(3000) }).catch(() => {});
-  const reason = asked
-    ? "推送已挂到 Friday 任务卡上等用户批准，批准后由 Friday 代推（只推当前分支到 origin）。不要重试推送，也不要让用户自己去推。终端还开着的话，批准后你会收到「已推送」再接着做（比如建 MR）；无人值守的运行就在交付报告里写明「推送待批准」，照常收尾。"
-    : "Friday 自主任务禁止这条命令（" + (hit ? hit[1] : "") + "）。换个做法，或在交付报告里写明卡在这里。";
-  process.stdout.write(hit ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }) : "{}");
+  const hits = rules.filter(([p]) => new RegExp(p).test(cmd));
+  if (!hits.length) return out("");
+  const other = hits.find(([, why]) => why !== PUSH_WHY);
+  if (other || !pushUrl) return out("Friday 自主任务禁止这条命令（" + (other || hits[0])[1] + "）。换个做法，或在交付报告里写明卡在这里。");
+  try {
+    const r = await fetch(pushUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: cmd, cwd }), signal: AbortSignal.timeout(5000) });
+    const v = await r.json();
+    out(v.allow ? "" : "Friday 拦下了这次推送：" + v.why + "。只推当前功能分支（git push -u origin 分支名），不要强推。确实推不了就在交付报告里写明。");
+  } catch {
+    out("连不上 Friday，推送先拦下。稍后再试，或在交付报告里写明「推送没做」。");
+  }
 };
 process.stdin.on("data", (d) => (input += d)).on("end", decide);
 setTimeout(decide, 2000).unref();`)}`,
@@ -200,8 +206,8 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false)
   let guard: string | undefined;
   if (autonomous || readOnly) {
     guard = join(runsDir(), `${id}.guard.sh`);
-    // 只读查询不该推送，拦下就完了；自主任务拦下后挂一条推送待审
-    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-request`));
+    // 只读查询不该推送，拦下就完了；自主任务的 push 问 core 放不放
+    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-check`));
     chmodSync(guard, 0o755);
   }
   const settings = join(runsDir(), `${id}.settings.json`);

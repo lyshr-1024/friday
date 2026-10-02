@@ -466,7 +466,6 @@ const squash = (s: string) => s.replace(/\s+/g, "");
 const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   slack_reply: ["发", "发吧", "发出去", "就这么发", "可以发", "发送"],
   git_merge: ["合并", "合并吧", "可以合并", "合吧", "通过"],
-  git_push: ["推", "推吧", "推上去", "推上去吧", "推送", "可以推", "允许推送", "通过"],
   okr_submit: ["提交", "提交吧", "可以提交", "通过"],
   start_job: ["开工", "开工吧", "开始做", "开始做吧", "通过"],
   handbook_apply: ["通过", "应用", "应用吧"],

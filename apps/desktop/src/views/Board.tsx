@@ -50,9 +50,6 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   if (a.type === "git_merge") {
     return "合完撤不回，要退得自己 revert。";
   }
-  if (a.type === "git_push") {
-    return `以你的身份把 ${String(a.payload.branch ?? "这个分支")} 推到 origin，不强推。推上去别人就能看到，要撤得自己删远端分支。推完 Friday 会让终端接着建 MR。`;
-  }
   if (a.type === "okr_submit") {
     return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
   }
@@ -1180,13 +1177,12 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", git_push: "推上去", okr_submit: "提交", start_job: "开工", handbook_apply: "通过" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", okr_submit: "提交", start_job: "开工", handbook_apply: "通过" };
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
-  if (t.pending?.some((p) => p.type === "git_push")) return "推上去 / 打回，… / 完成，不执行";
   return "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行";
 }
 

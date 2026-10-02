@@ -28,6 +28,8 @@ export const gitTopSync = (dir: string): string | undefined => gitSync(dir, ["re
 export const gitCommonDirSync = (dir: string): string | undefined => gitSync(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
 
 export const headShaSync = (dir: string): string => gitSync(dir, ["rev-parse", "HEAD"]) ?? "";
+/** origin/HEAD 指向的分支（仓库的默认分支，foxden 是 release）；没设过 origin/HEAD 就不知道 */
+export const defaultBranchSync = (dir: string): string | undefined => gitSync(dir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") || undefined;
 
 /** `git diff --numstat` 的输出：二进制文件增删是 `-`，按 0 算、路径留着 */
 export function parseNumstat(out: string): DiffFile[] {
