@@ -98,7 +98,6 @@ export function migrate(d: DatabaseSync): void {
             AND pending LIKE '%"start_job"%'
             AND pending NOT LIKE '%"slack_reply"%'
             AND pending NOT LIKE '%"git_merge"%'
-            AND pending NOT LIKE '%"git_push"%'
             AND pending NOT LIKE '%"handbook_apply"%'`);
 
   // 存量任务补 stage：status 七态里 understood/processing/review 的语义被 stage 接管了。

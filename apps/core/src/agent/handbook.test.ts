@@ -188,7 +188,7 @@ describe("distillPrompt：带上规则 id、手改标记、久未确认、Friday
     expect(prompt).toContain("⚠ 久未确认");
     expect(prompt).toMatch(/\[1\] 2026-09-20 原话 1/);
     expect(system).toContain("Friday 的硬约束");
-    expect(system).toContain("推送要你审核");
+    expect(system).toContain("只能推当前功能分支");
   });
 });
 

@@ -5,7 +5,7 @@ import { onJobExit } from "../agent/pipeline.js";
 import { closeJobTerminal, sweepClosedTerminals } from "../agent/terminal.js";
 import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
-import { describeQuestion, requestPush, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
+import { checkPush, describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource, getTask } from "../memory/tasks.js";
 import { getTermSession, markInput, markStop } from "../memory/termSessions.js";
@@ -123,11 +123,11 @@ export const jobs = new Hono()
     if (!job?.sessionId || !getTermSession(job.sessionId)) return c.json({ error: "没有这个会话" }, 404);
     return c.json({ error: (job.taskId && getTask(job.taskId)?.progress) || "准备段回报的 worktree 被拒收，这条没开工" }, 409);
   })
-  /** 自主任务的守卫拦下了 git push：挂推送待审 */
-  .post("/jobs/:id/push-request", async (c) => {
-    const parsed = z.object({ command: z.string().max(1000).optional(), cwd: z.string().max(1000).optional() }).safeParse(await c.req.json().catch(() => ({})));
-    const r = requestPush(c.req.param("id"), parsed.success ? parsed.data.cwd || undefined : undefined, parsed.success ? parsed.data.command ?? "" : "");
-    return "error" in r ? c.json(r, 409) : c.json({ taskId: r.task.id, branch: r.branch });
+  /** 自主任务的守卫遇到 git push 来问放不放 */
+  .post("/jobs/:id/push-check", async (c) => {
+    const parsed = z.object({ command: z.string().min(1).max(2000), cwd: z.string().max(1000).optional() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ allow: false, why: "看不懂这条 push" });
+    return c.json(checkPush(c.req.param("id"), parsed.data.command, parsed.data.cwd || undefined));
   })
   .post("/jobs/:id/exit", async (c) => {
     const parsed = z.object({ code: z.number().int(), phase: z.literal("prepare").optional() }).safeParse(await c.req.json().catch(() => null));
