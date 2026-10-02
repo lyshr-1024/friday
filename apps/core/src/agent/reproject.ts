@@ -6,7 +6,7 @@ import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { runByJob, setRunOutcome } from "../memory/runs.js";
 import { getTermSession } from "../memory/termSessions.js";
-import { addPending, getTask, removePending, updateTask } from "../memory/tasks.js";
+import { addPending, getTask, listTasks, removePending, updateTask } from "../memory/tasks.js";
 import { isMergedSync } from "./git.js";
 import { liveRootId } from "./sessions.js";
 import { closeJobTerminal } from "./terminal.js";
@@ -85,6 +85,23 @@ function checklist(f: Footprint, to: string): string {
   ].join("\n");
 }
 
+/**
+ * 需求定了项目，名下的缺陷跟着走：原来只在 Meegle 同步建缺陷时继承一次，需求后定项目的，缺陷要等下一轮同步，
+ * 期间缺陷卡还让你再选一次。只带给没项目的、和原来跟着需求旧项目走的；你单独给缺陷指定过的、
+ * Friday 已经在上面自主干过活的（那得走回退清单）都不动。
+ */
+function inheritToDefects(story: Task, before?: string): void {
+  const ids = new Set([...(story.source.meegleId ? [story.source.meegleId] : []), ...(story.source.mergedMeegleIds ?? [])]);
+  if (!ids.size) return;
+  for (const d of listTasks(["collected", "understood", "processing", "review", "blocked"], 2000)) {
+    if (d.id === story.id || !d.source.linkedStoryId || !ids.has(d.source.linkedStoryId)) continue;
+    const inherited = !d.project || (d.project === before && d.source.projectBy !== "user");
+    if (!inherited || d.project === story.project || isFridayWork(d)) continue;
+    updateTask(d.id, { project: story.project });
+    record({ taskId: d.id, action: "project_inherited", why: `所属需求「${story.title}」定了项目`, how: `项目${d.project ? `从 ${d.project} ` : ""}改成 ${story.project}`, evidence: { storyId: story.id, from: d.project ?? null, to: story.project ?? null }, risk: "reversible" });
+  }
+}
+
 export type ProjectChange =
   | { kind: "same"; task: Task }
   | { kind: "set"; task: Task; before?: string }
@@ -108,6 +125,7 @@ export function requestProjectChange(taskId: string, to: string | null): Project
   }
   if (!isFridayWork(t)) {
     const task = updateTask(taskId, { project: to ?? undefined, source: { projectBy: "user" } })!;
+    if (to) inheritToDefects(task, t.project);
     return { kind: "set", task, ...(t.project ? { before: t.project } : {}) };
   }
   if (!to) return { kind: "refused", task: t, why: "Friday 已经在这个项目上干过活，要改就改成另一个项目，它会把做过的撤掉再重开" };

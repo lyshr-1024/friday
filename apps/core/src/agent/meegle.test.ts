@@ -530,3 +530,18 @@ describe("关掉「拉 Meegle 缺陷」", () => {
     expect(readTask(t.id)!.title).toBe("缺陷 on1");
   });
 });
+
+describe("同步时缺陷跟着需求的项目走", () => {
+  const bug = (id: string, storyId: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Open", statusKey: "OPEN", projectName: "demo", projectKey: "p1", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z", linkedStory: { id: storyId, name: "需求" } });
+  const conn = (items: unknown[]) =>
+    ({ fetchWorkItems: async () => items, getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing", roles: [] }), feReleased: async () => false }) as never;
+
+  it("没项目的补上；你单独给缺陷指定过的不覆盖", async () => {
+    mkTask({ title: "需求 ps1", kind: "meegle", project: "app-a", source: { meegleId: "ps1", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "understood" });
+    const empty = mkTask({ title: "缺陷 pb1", kind: "meegle", source: { meegleId: "pb1", meegleProject: "p1", meegleType: "issue", linkedStoryId: "ps1" }, status: "understood" });
+    const mine = mkTask({ title: "缺陷 pb2", kind: "meegle", project: "app-b", source: { meegleId: "pb2", meegleProject: "p1", meegleType: "issue", linkedStoryId: "ps1", projectBy: "user" }, status: "understood" });
+    await syncOnce(conn([bug("pb1", "ps1"), bug("pb2", "ps1")]));
+    expect(readTask(empty.id)!.project).toBe("app-a");
+    expect(readTask(mine.id)!.project).toBe("app-b");
+  });
+});

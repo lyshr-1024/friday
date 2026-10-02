@@ -11,6 +11,7 @@ import { syncSourceTodos } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 import { runsForTask, setRunOutcome } from "../memory/runs.js";
+import { isFridayWork } from "./reproject.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
@@ -328,7 +329,9 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         fillDocTitles(t.id);
         fresh.push({ task: t, item });
       } else if (OPEN.includes(existing.status)) {
-        const { status: _s, ...patch } = input;
+        const { status: _s, project: inherited, ...rest } = input;
+        // 跟着需求的项目走，但你单独给缺陷指定过的、Friday 已经在上面自主干过活的不覆盖（改那种得走回退清单）
+        const patch = inherited && existing.source.projectBy !== "user" && !isFridayWork(existing) ? { ...rest, project: inherited } : rest;
         const isSelf = existing.source.meegleId === item.id;
         if (isSelf) {
           // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
