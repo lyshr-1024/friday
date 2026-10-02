@@ -5156,6 +5156,10 @@ body:has(.hud)::-webkit-scrollbar {
 .tm__body .attach { margin: 6px 0 0; }
 .detail__chat .thread--compact .chat__body { max-height: 180px; }
 .tm__body.thinking { flex: none; height: 20px; padding: 0; }
+/* 你发的靠右、带底，一眼分得出谁说的；底要够实，背景图上也看得清 */
+.tm--user { justify-content: flex-end; }
+.tm--user .tm__body { flex: 0 1 auto; max-width: 75%; padding: 6px 12px; border-radius: 10px 10px 2px 10px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(16, 40, 52, 0.88); color: var(--fg-1); }
+.tm--user .attach { justify-content: flex-end; }
 .thread .composer { position: relative; }
 .thread .composer__box { align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(56, 214, 255, 0.18); background: rgba(5, 8, 12, 0.7); box-shadow: none; }
 .thread .composer__box:focus-within { border-color: rgba(56, 214, 255, 0.4); box-shadow: none; }

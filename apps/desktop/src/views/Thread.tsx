@@ -381,8 +381,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         )}
         {resolving && <div className="thread__resolving"><span className="side__spin" />{resolvingText ?? "正在准备…"}</div>}
         {messages.map((m) => (
-          <div key={m.id} className="tm">
-            <span className={`tm__who${m.role === "user" ? "" : " is-friday"}`}>{m.role === "user" ? "你" : "Friday"}</span>
+          <div key={m.id} className={`tm${m.role === "user" ? " tm--user" : ""}`}>
+            {m.role !== "user" && <span className="tm__who is-friday">Friday</span>}
             <div className="tm__body">
               {m.role === "user" ? (
                 <>
