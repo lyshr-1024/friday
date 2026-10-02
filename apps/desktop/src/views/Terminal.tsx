@@ -56,7 +56,8 @@ export function Terminal({ sessionId, preparing = false }: { sessionId: string; 
     setDead(false);
     setReconnecting(false);
     setFailed(undefined);
-    const term = new XTerm({ fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace', fontSize: 13, lineHeight: 1.2, cursorBlink: true, allowProposedApi: true, macOptionClickForcesSelection: true, macOptionIsMeta: false, theme: termTheme() });
+    // 不开 cursorBlink：Claude Code 空闲时状态栏也在刷新，每帧都隐藏 / 显示光标、挪来挪去，闪烁节拍被不断重置，看着是高频乱闪（2026-10-02 用户报）
+    const term = new XTerm({ fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace', fontSize: 13, lineHeight: 1.2, allowProposedApi: true, macOptionClickForcesSelection: true, macOptionIsMeta: false, theme: termTheme() });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_e, uri) => void openUrl(uri)));
