@@ -350,11 +350,11 @@ export async function launchInSession(req: SessionLaunch, tmuxName: string): Pro
   await newSession(tmuxName, req.repoDir, script);
 }
 
-export async function writeResumeScript(req: SessionLaunch, cwd: string, hooks: TermSessionKind = req.kind): Promise<string> {
+export async function writeResumeScript(req: SessionLaunch, cwd: string, hooks: TermSessionKind = req.kind, keepShell = false): Promise<string> {
   const claudePath = await claudeFinder();
   const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query");
   const script = join(runsDir(), `${req.id}.resume.sh`);
-  writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ""].join("\n"));
+  writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ...(keepShell ? ["exec /bin/zsh -il"] : []), ""].join("\n"));
   chmodSync(script, 0o755);
   return script;
 }

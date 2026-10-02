@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { Job, Task, TermSession, TermSessionKind } from "@friday/shared";
 import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, updateTermSession } from "../memory/termSessions.js";
+import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
 import { currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
-import { claudeWindowIndex, hasSession, killSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
+import { claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
 let launch: typeof launchInSession = launchInSession;
 export function setLauncher(fn: typeof launchInSession): void {
@@ -117,6 +117,35 @@ export async function resumeInSession(sessionId: string, prompt?: string, jobId?
   updateTermSession(sessionId, { status: "running" });
   markInput(sessionId);
   record({ taskId: job.taskId, action: "terminal_reopened", why: "Claude 退出了但任务还没做完", how: job.claudeSessionId ? "在同一个会话里 --resume 接回" : "在同一个会话里开新 Claude", evidence: { jobId: job.id, session: s.tmuxName }, risk: "reversible" });
+  publish({ type: "tasks" });
+  return true;
+}
+
+/**
+ * 会话被收工流程关掉了（tmux 会话没了），worktree 还在：在原 worktree 里重建 tmux 会话，--resume 接回原来那段对话。
+ * 收工只关会话不删 worktree，所以「重新打开」一条任务时，原来的活和对话都还接得上。
+ */
+export async function reviveSession(sessionId: string, jobId?: string): Promise<boolean> {
+  const s = getTermSession(sessionId);
+  const id = jobId ?? s?.jobId;
+  const job = id ? getJob(id) : undefined;
+  if (!s || !job || job.sessionId !== s.id || (await hasSession(s.tmuxName))) return false;
+  const cwd = s.worktree ?? (s.kind === "query" ? s.repoDir : undefined);
+  if (!cwd || !existsSync(cwd)) return false;
+  if (!(await tmuxVersion())) throw new TmuxMissingError();
+  writeTmuxConf();
+  const file = await writeResumeScript(
+    { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}) },
+    cwd,
+    jobKind(job, s.kind),
+    true,
+  );
+  refreshCreatedAt(sessionId);
+  await newSession(s.tmuxName, cwd, file);
+  reviveJob(job.id);
+  updateTermSession(sessionId, { status: "running" });
+  markInput(sessionId);
+  record({ taskId: job.taskId, action: "terminal_revived", why: "你重新打开了这条任务", how: job.claudeSessionId ? "在原 worktree 里重建会话，--resume 接回原来的对话" : "在原 worktree 里重建会话，开新 Claude", evidence: { jobId: job.id, session: s.tmuxName, worktree: cwd }, risk: "reversible" });
   publish({ type: "tasks" });
   return true;
 }
