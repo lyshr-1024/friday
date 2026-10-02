@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,8 @@ import { listMessages } from "../memory/conversations.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { buildGuardScript } from "./runner.js";
+import { pushDir } from "./bridge.js";
+import { homedir } from "node:os";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" };
 
@@ -37,7 +39,7 @@ function autonomousTask(jobId: string, repo: string) {
   return createTask({ title: `demo：${jobId}`, kind: "code", source: { jobId, autonomous: true, repoDir: repo, worktree: repo }, project: "demo", status: "processing", plan: "改" });
 }
 
-const pushRequest = (jobId: string) => app.request(`/jobs/${jobId}/push-request`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "git push -u origin HEAD" }) });
+const pushRequest = (jobId: string, command = "git push -u origin HEAD") => app.request(`/jobs/${jobId}/push-request`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command }) });
 
 function runGuard(script: string, command: string): Promise<string> {
   const path = join(mkdtempSync(join(tmpdir(), "friday-guard-")), "guard.sh");
@@ -105,5 +107,26 @@ describe("推送待审", () => {
     const t = autonomousTask("push-2", repo);
     expect((await pushRequest("push-2")).status).toBe(409);
     expect(getTask(t.id)!.pending ?? []).toHaveLength(0);
+  });
+
+  it("认 push 命令里实际的目录：Claude 跑到另一个仓库里改的，推那个仓库", async () => {
+    const { repo } = repoWithOrigin("fix/push-c");
+    const other = repoWithOrigin("fix/elsewhere");
+    const t = autonomousTask("push-3", repo);
+    await pushRequest("push-3", `cd ${other.repo} && git push -u origin fix/elsewhere`);
+    const p = getTask(t.id)!.pending!.find((x) => x.type === "git_push")!;
+    expect(p.payload).toMatchObject({ dir: realpathSync(other.repo), branch: "fix/elsewhere" });
+    expect(p.label).toBe("推送 fix/elsewhere（repo）");
+  });
+});
+
+describe("pushDir", () => {
+  it("git -C、cd &&、~ 和引号都认；没写目录就不猜", () => {
+    expect(pushDir("git -C /a/b push -u origin x")).toBe("/a/b");
+    expect(pushDir("cd ~/workspace/fe && git push -u origin x")).toBe(`${homedir()}/workspace/fe`);
+    expect(pushDir("cd '/a b/c' && git status && git push")).toBe("/a b/c");
+    expect(pushDir("cd sub && git push", "/repo")).toBe("/repo/sub");
+    expect(pushDir("git push -u origin x")).toBeUndefined();
+    expect(pushDir("ls")).toBeUndefined();
   });
 });
