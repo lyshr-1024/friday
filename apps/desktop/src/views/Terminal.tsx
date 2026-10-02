@@ -98,6 +98,20 @@ export function Terminal({ sessionId, preparing = false }: { sessionId: string; 
     };
     const onData = term.onData((d) => { pending += d; flushInput(); });
 
+    // 终端在眼前时 ↑↓ 归它：焦点不在终端里（刚点过任务列表、刚切回窗口）时，原来被任务列表拿去切任务，
+    // 终端里 Claude 弹的选择题一按就跳走了（2026-10-02 用户报）。捕获阶段先于 Board 的监听；切任务用 ⌘↑↓
+    const onArrow = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.isComposing || !el.offsetParent) return;
+      const a = document.activeElement as HTMLElement | null;
+      if (a && (a.closest('.xterm, [role="menu"], [role="dialog"]') || a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      term.focus();
+      term.input(e.key === "ArrowUp" ? "\x1b[A" : "\x1b[B");
+    };
+    window.addEventListener("keydown", onArrow, true);
+
     // xterm 在 keydown 里记一个「见过 keydown」，随后的 input 事件（输入法直接交的字符）在这个状态下一律丢掉，等 keyup 才清。
     // WebKit 里输入法是先交字符、后发字符键的 keydown，于是先按下的 Shift 让第一个 ？@ 这类字符被丢，要多按几下才出来
     // （2026-09-30 用户真机按键记录：Shift → input「？」→ keydown 229 → keyup）。单按修饰键不产生字符，不该算「见过」
@@ -214,6 +228,7 @@ export function Terminal({ sessionId, preparing = false }: { sessionId: string; 
       ta?.removeEventListener("compositionstart", onStart);
       ta?.removeEventListener("compositionend", onEnd);
       stopped = true;
+      window.removeEventListener("keydown", onArrow, true);
       onData.dispose();
       onResize.dispose();
       window.clearTimeout(resizeTimer);
