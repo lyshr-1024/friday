@@ -14,7 +14,9 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
-import { commitsAheadSync, currentBranchSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync, gitTopSync } from "./git.js";
+import { homedir } from "node:os";
+import { basename, isAbsolute, resolve } from "node:path";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
 
@@ -221,20 +223,41 @@ export function terminalAsking(jobId: string, question: string, weak = false): v
  * 自主任务的守卫拦下了一次 git push：挂一条推送待审，用户批准后 Friday 代推（executePending 的 git_push）。
  * 只推 worktree 当前所在的功能分支，命令里写的远端 / 分支一律不认——守卫拦的就是让终端自己决定推什么。
  */
-export function requestPush(jobId: string, cwd?: string): { task: Task; branch: string } | { error: string } {
+/**
+ * push 命令实际在哪个目录跑：`git -C <路径> push`、`cd <路径> && git push`。
+ * Claude 可能发现任务登记的仓库不对、跑到另一个仓库里改了（2026-10-02 真事：任务挂 whale-console，改的是 fe-wealth-admin），
+ * 只认登记的 worktree 会推错仓库。认出来的路径只用来定「推哪个仓库的哪个分支」，卡上写明，你批准时核对。
+ */
+export function pushDir(command: string, cwd?: string): string | undefined {
+  const unquote = (s: string) => s.replace(/^(['"])(.*)\1$/, "$2");
+  const abs = (p: string) => {
+    const q = unquote(p).replace(/^~(?=\/|$)/, homedir());
+    return isAbsolute(q) ? q : cwd ? resolve(cwd, q) : undefined;
+  };
+  const at = command.search(/\bgit\b[^;&|]*\bpush\b/);
+  if (at < 0) return undefined;
+  const c = /\bgit\s+-C\s+('[^']+'|"[^"]+"|\S+)[^;&|]*\bpush\b/.exec(command.slice(at));
+  if (c) return abs(c[1]!);
+  const cds = [...command.slice(0, at).matchAll(/(?:^|&&|;)\s*cd\s+('[^']+'|"[^"]+"|[^\s;&|]+)/g)];
+  return cds.length ? abs(cds.at(-1)![1]!) : undefined;
+}
+
+export function requestPush(jobId: string, cwd?: string, command = ""): { task: Task; branch: string } | { error: string } {
   const job = getJob(jobId);
   const task = job && ((job.taskId && getTask(job.taskId)) || findTaskBySource((s) => s.jobId === jobId));
   if (!job || !task || task.status === "done" || task.status === "ignored") return { error: "没有这条任务" };
-  const dir = task.source.worktree || cwd || job.dir;
+  const named = pushDir(command, cwd);
+  const dir = (named && gitTopSync(named)) || task.source.worktree || cwd || job.dir;
   const branch = currentBranchSync(dir);
   if (!branch || branch === "main" || branch === "master") return { error: "不在功能分支上，不推" };
-  const same = (task.pending ?? []).find((p) => p.type === "git_push" && p.payload.branch === branch);
+  const same = (task.pending ?? []).find((p) => p.type === "git_push" && p.payload.branch === branch && p.payload.dir === dir);
   if (same) return { task, branch };
-  const t = addPending(task.id, { type: "git_push", label: `推送 ${branch}`, detail: `把 ${branch} 推到 origin（git push -u，不强推）`, payload: { dir, branch, jobId } }, { keepStatus: true })!;
+  const repo = basename(dir);
+  const t = addPending(task.id, { type: "git_push", label: `推送 ${branch}（${repo}）`, detail: `在 ${dir} 把 ${branch} 推到 origin（git push -u，不强推）`, payload: { dir, branch, jobId } }, { keepStatus: true })!;
   record({ taskId: t.id, action: "push_requested", why: "终端里的 Claude Code 要推送，被守卫拦下，挂给你审核", how: `推送 ${branch}`, evidence: { jobId, dir, branch }, risk: "read" });
   const conv = t.source.conversationId ?? job.conversationId;
   if (conv && conversationExists(conv)) {
-    addMessage(conv, { role: "assistant", kind: "run", content: `终端要把 ${branch} 推到 origin，被我拦下了。说「推上去」我来推，推完告诉终端接着建 MR。`, payload: { status: "question", jobId } });
+    addMessage(conv, { role: "assistant", kind: "run", content: `终端要把 ${repo} 的 ${branch} 推到 origin，被我拦下了。说「推上去」我来推，推完告诉终端接着建 MR。`, payload: { status: "question", jobId } });
   }
   state.notices.push({ title: `终端要推送 · ${job.project}`, body: branch, taskId: t.id });
   return { task: t, branch };

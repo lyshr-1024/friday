@@ -126,7 +126,7 @@ export const jobs = new Hono()
   /** 自主任务的守卫拦下了 git push：挂推送待审 */
   .post("/jobs/:id/push-request", async (c) => {
     const parsed = z.object({ command: z.string().max(1000).optional(), cwd: z.string().max(1000).optional() }).safeParse(await c.req.json().catch(() => ({})));
-    const r = requestPush(c.req.param("id"), parsed.success ? parsed.data.cwd || undefined : undefined);
+    const r = requestPush(c.req.param("id"), parsed.success ? parsed.data.cwd || undefined : undefined, parsed.success ? parsed.data.command ?? "" : "");
     return "error" in r ? c.json(r, 409) : c.json({ taskId: r.task.id, branch: r.branch });
   })
   .post("/jobs/:id/exit", async (c) => {

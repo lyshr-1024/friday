@@ -421,7 +421,10 @@ export const fridayToolList = (conversationId?: string) => [
         const forms = APPROVAL[action.type];
         if (!forms) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
         const said = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
-        if (!consents(said, forms)) return text(`用户还没明确同意「${action.label}」，不执行。请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`);
+        if (!consents(said, forms))
+          return text(
+            `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
+          );
         if (action.type === "slack_reply") {
           const body = override?.trim() || String(action.payload.text ?? action.detail);
           const shown = listMessages(conversationId!).filter((m) => m.role === "assistant" && m.kind === "ask").at(-1);
