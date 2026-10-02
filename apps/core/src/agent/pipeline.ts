@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeTaskTerminal } from "./terminal.js";
+import { closeTaskTerminal, say } from "./terminal.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -9,6 +9,7 @@ import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } 
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, updatePending, updateTask } from "../memory/tasks.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
@@ -368,6 +369,20 @@ export async function executePending(
         status: "approved",
         undo: { kind: "restore_memory", snapshot },
       });
+    } else if (action.type === "git_push") {
+      const p = action.payload as { dir: string; branch: string; jobId?: string };
+      await execFileP("git", ["-C", p.dir, "push", "-u", "origin", p.branch]);
+      record({ taskId, action: "git_push", why: "你审核通过", how: `git push -u origin ${p.branch}`, evidence: p, risk: "irreversible", status: "approved" });
+      // Claude 还在终端里才敲进去：退出后窗格里是 shell，敲进去的字会被当命令执行
+      const job = p.jobId ? getJob(p.jobId) : undefined;
+      const live = job?.status === "running" && job.sessionId && getTermSession(job.sessionId)?.status === "running";
+      const told = live && (await say(job.id, `已推送 ${p.branch} 到 origin（用户审核通过，Friday 代推的）。接着做推送之后的事，比如按项目规范建 MR；之后再要推送照样 git push，会再挂一次审核。`)) !== "no-terminal";
+      const conv = getTask(taskId)?.source.conversationId;
+      if (conv && conversationExists(conv)) {
+        addMessage(conv, { role: "assistant", kind: "run", content: told ? `已推送 ${p.branch}，告诉终端接着建 MR 了。` : `已推送 ${p.branch}。终端里的 Claude 已经退出，MR 还没建：点「接着聊」让它建。`, payload: { status: "finished", ...(p.jobId ? { jobId: p.jobId } : {}) } });
+      }
+      // 推送不是收尾：任务还在做（接着要建 MR），不能跟着下面的逻辑标完成、关终端
+      return getTask(taskId)!;
     } else if (action.type === "git_merge") {
       const p = action.payload as { dir: string; branch: string; worktree?: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";

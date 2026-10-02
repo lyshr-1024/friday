@@ -5,8 +5,10 @@ const gitCmd = (sub: string) => `\\bgit\\s+(?:${GIT_OPT}\\s+)*${sub}`;
 
 // 自主任务无人看着，这些命令一律拦下：要么不可逆，要么该由用户审核后 Friday 自己执行。
 // --dangerously-skip-permissions 会让 settings 里的 permissions.deny 失效，所以走 PreToolUse hook。
+export const PUSH_WHY = "推送要你审核";
+
 export const FORBIDDEN: Array<[pattern: string, why: string]> = [
-  [`${gitCmd("push")}\\b`, "推送要你审核"],
+  [`${gitCmd("push")}\\b`, PUSH_WHY],
   [`${gitCmd("merge")}\\b`, "合并由 Friday 在你审核通过后执行"],
   [`${gitCmd("rebase")}\\b`, "变基会改写历史"],
   [`${gitCmd("reset")}\\s+--hard\\b`, "会丢掉未提交的改动"],

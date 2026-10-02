@@ -217,6 +217,29 @@ export function terminalAsking(jobId: string, question: string, weak = false): v
   state.notices.push({ title: `终端在等你回答 · ${job.project}`, body: question.slice(0, 200), taskId: t.id });
 }
 
+/**
+ * 自主任务的守卫拦下了一次 git push：挂一条推送待审，用户批准后 Friday 代推（executePending 的 git_push）。
+ * 只推 worktree 当前所在的功能分支，命令里写的远端 / 分支一律不认——守卫拦的就是让终端自己决定推什么。
+ */
+export function requestPush(jobId: string, cwd?: string): { task: Task; branch: string } | { error: string } {
+  const job = getJob(jobId);
+  const task = job && ((job.taskId && getTask(job.taskId)) || findTaskBySource((s) => s.jobId === jobId));
+  if (!job || !task || task.status === "done" || task.status === "ignored") return { error: "没有这条任务" };
+  const dir = task.source.worktree || cwd || job.dir;
+  const branch = currentBranchSync(dir);
+  if (!branch || branch === "main" || branch === "master") return { error: "不在功能分支上，不推" };
+  const same = (task.pending ?? []).find((p) => p.type === "git_push" && p.payload.branch === branch);
+  if (same) return { task, branch };
+  const t = addPending(task.id, { type: "git_push", label: `推送 ${branch}`, detail: `把 ${branch} 推到 origin（git push -u，不强推）`, payload: { dir, branch, jobId } }, { keepStatus: true })!;
+  record({ taskId: t.id, action: "push_requested", why: "终端里的 Claude Code 要推送，被守卫拦下，挂给你审核", how: `推送 ${branch}`, evidence: { jobId, dir, branch }, risk: "read" });
+  const conv = t.source.conversationId ?? job.conversationId;
+  if (conv && conversationExists(conv)) {
+    addMessage(conv, { role: "assistant", kind: "run", content: `终端要把 ${branch} 推到 origin，被我拦下了。说「推上去」我来推，推完告诉终端接着建 MR。`, payload: { status: "question", jobId } });
+  }
+  state.notices.push({ title: `终端要推送 · ${job.project}`, body: branch, taskId: t.id });
+  return { task: t, branch };
+}
+
 /** 问题答了（PostToolUse），或终端继续干活了：解除阻塞 */
 export function terminalAnswered(jobId: string): void {
   const task = findTaskBySource((s) => s.jobId === jobId);

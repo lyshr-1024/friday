@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
-import { FORBIDDEN, WRITE_TOOLS } from "./guard.js";
+import { FORBIDDEN, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
 
@@ -28,7 +28,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "规则：",
     "1. 你已经在为这次任务准备好的 git worktree 里、在新分支上，直接开工；不要再建分支，不要回主仓操作。",
     "   开工先调 friday_progress 把当前分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
-    "   push、merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。",
+    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 也会被拦，但会挂到任务卡上等用户批准、由 Friday 代推，见第 7 条。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -46,7 +46,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "- 文件名 — 说明（没有就写 无）",
     "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
     "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
-    "7. 提交后按项目规范建一个 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），把 MR 链接写进交付报告的「概要」里。不要 merge，也不要 push 到主分支。建不出来就在报告里说明原因。",
+    "7. 提交后要建 MR 就先 git push 当前分支：守卫会拦下并挂一条推送待审，你不用等，在交付报告的「概要」里写明「推送待批准，批准后再建 MR」照常收尾。分支已经在远端的，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge，不要推主分支。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
@@ -154,24 +154,27 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * 自主任务的 PreToolUse 守卫：每条 Bash 命令过一遍 guard.ts 的黑名单，命中就 deny。
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
-export function buildGuardScript(nodePath = process.execPath): string {
+export function buildGuardScript(nodePath = process.execPath, pushUrl?: string): string {
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`
 const rules = ${JSON.stringify(FORBIDDEN)};
+const pushUrl = ${JSON.stringify(pushUrl ?? "")};
 let input = "";
 let done = false;
 const decide = () => {
   if (done) return;
   done = true;
   let cmd = "";
-  try { cmd = String((JSON.parse(input).tool_input || {}).command || ""); } catch {}
+  let cwd = "";
+  try { const j = JSON.parse(input); cmd = String((j.tool_input || {}).command || ""); cwd = String(j.cwd || ""); } catch {}
   const hit = rules.find(([p]) => new RegExp(p).test(cmd));
-  process.stdout.write(
-    hit
-      ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Friday 自主任务禁止这条命令（" + hit[1] + "）。换个做法，或在交付报告里写明卡在这里。" } })
-      : "{}",
-  );
+  const asked = Boolean(hit && pushUrl && hit[1] === ${JSON.stringify(PUSH_WHY)});
+  if (asked) fetch(pushUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: cmd.slice(0, 1000), cwd }), signal: AbortSignal.timeout(3000) }).catch(() => {});
+  const reason = asked
+    ? "推送已挂到 Friday 任务卡上等用户批准，批准后由 Friday 代推（只推当前分支到 origin）。不要重试推送，也不要让用户自己去推。终端还开着的话，批准后你会收到「已推送」再接着做（比如建 MR）；无人值守的运行就在交付报告里写明「推送待批准」，照常收尾。"
+    : "Friday 自主任务禁止这条命令（" + (hit ? hit[1] : "") + "）。换个做法，或在交付报告里写明卡在这里。";
+  process.stdout.write(hit ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }) : "{}");
 };
 process.stdin.on("data", (d) => (input += d)).on("end", decide);
 setTimeout(decide, 2000).unref();`)}`,
@@ -197,7 +200,8 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false)
   let guard: string | undefined;
   if (autonomous || readOnly) {
     guard = join(runsDir(), `${id}.guard.sh`);
-    writeFileSync(guard, buildGuardScript());
+    // 只读查询不该推送，拦下就完了；自主任务拦下后挂一条推送待审
+    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-request`));
     chmodSync(guard, 0o755);
   }
   const settings = join(runsDir(), `${id}.settings.json`);
