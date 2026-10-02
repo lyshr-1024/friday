@@ -281,7 +281,7 @@ export function draftSummary(draft: HandbookDraft): string {
       if (rets.length) lines.push(`退役 ${rets.length}`, ...rets.map((o) => `- ${textOf(o.id)}（${o.why}）`));
       if (cfs.length) lines.push(`确认 ${cfs.length}：${cfs.map((o) => textOf(o.id)).join("；")}`);
       if (g.conflicts.length) lines.push(`冲突 ${g.conflicts.length}`, ...g.conflicts.map((c) => `! ${c.text} ⟂ ${c.with}`));
-      if (g.stale.length) lines.push(`久未确认 ${g.stale.length}（${STALE_WEEKS} 周没再说过，还算吗？不算就去设置页退役）`, ...g.stale.map((r) => `? ${r.text}（最近 ${r.lastConfirmedAt.slice(0, 10)}）`));
+      if (g.stale.length) lines.push(`久未确认 ${g.stale.length}（${STALE_WEEKS} 周没再说过，还算吗？不算就去「学习」里退役）`, ...g.stale.map((r) => `? ${r.text}（最近 ${r.lastConfirmedAt.slice(0, 10)}）`));
       if (g.dropped) lines.push(`因引证无效丢弃 ${g.dropped} 条`);
       if (g.decisions.length) lines.push(`决策 ${g.decisions.length} 条：${g.decisions.map((d) => d.text).join("；")}`);
       if (g.people.length) lines.push(`人物 ${g.people.length} 条：${g.people.map((p) => p.name).join("、")}`);
@@ -347,7 +347,7 @@ export async function learnHistoryOnce(manual = false): Promise<HistoryResult> {
       detail: `按上面的增删改更新 ${names} 的规则表并重新生成 handbooks/，附带的决策、人物、别名一并落盘。可在操作记录里整体撤销。`,
       payload: { draft: { groups: drafts } as unknown as Record<string, unknown>, cursor: latest },
     });
-    state.notices.push({ title: `学了 ${drafts.length} 份手册的改动`, body: "去设置页「项目手册」过目，点头才写进来" });
+    state.notices.push({ title: `学了 ${drafts.length} 份手册的改动`, body: "右上「···」→ 学习 里过目，点头才写进来" });
     setCursor(CURSOR_KEY, latest);
     historyState.lastRunAt = new Date().toISOString();
     setCursor(RAN_KEY, historyState.lastRunAt);

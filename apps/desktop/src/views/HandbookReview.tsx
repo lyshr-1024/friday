@@ -42,7 +42,7 @@ function RetireLine({ text }: { text: string }) {
   return m ? <div><span className="hbr__from">{m[1]}</span><span className="hbr__why"> · {m[2]}</span></div> : <div className="hbr__from">{text}</div>;
 }
 
-/** 从 Claude Code 历史学到的手册改动：不是工作任务，不进任务列表，在设置页里过目 */
+/** 从 Claude Code 历史学到的手册改动：不是工作任务，不进任务列表，在「学习」弹窗里过目 */
 export function HandbookReview({ task, onBack }: { task: Task; onBack: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -64,7 +64,7 @@ export function HandbookReview({ task, onBack }: { task: Task; onBack: () => voi
   return (
     <div className="editor">
       <header className="editor__head">
-        <button className="editor__back" onClick={onBack}><Icon name="chevronRight" className="icon--flip" />设置</button>
+        <button className="editor__back" onClick={onBack}><Icon name="chevronRight" className="icon--flip" />学习</button>
         <span className="editor__title">手册改动待过目</span>
         <span className="editor__status mono">{err || task.createdAt.slice(0, 10)}</span>
       </header>

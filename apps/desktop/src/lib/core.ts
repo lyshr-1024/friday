@@ -365,6 +365,13 @@ export async function taskBoard(): Promise<TaskBoard> {
   return res.json();
 }
 
+/** 周报卡和手册改动：不进任务板，按类型全列（连已忽略的） */
+export async function routines(): Promise<{ weekly: Task[]; learn: Task[] }> {
+  const res = await fetch(`${await coreBaseUrl()}/routines`);
+  if (!res.ok) throw new Error(`routines ${res.status}`);
+  return res.json();
+}
+
 export async function taskNode(id: string): Promise<{ canConfirm: boolean; missing: string[] }> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/node`);
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `node ${res.status}`);

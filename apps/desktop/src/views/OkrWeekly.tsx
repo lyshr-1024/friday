@@ -48,7 +48,7 @@ function queueEdit(taskId: string, e: Edit) {
 
 const STATE_NOTE: Partial<Record<OkrRow["state"], string>> = { existing: "平台上这周已经有了，不会覆盖", submitted: "已提交", failed: "提交失败" };
 
-export function OkrWeekly({ t }: { t: Task }) {
+export function OkrWeekly({ t, onRows }: { t: Task; onRows?: (rows: OkrRow[]) => void }) {
   const action = t.pending?.find((p) => p.type === "okr_submit");
   const server = action?.payload as unknown as OkrWeeklyDraft | undefined;
   const [rows, setRows] = useState<OkrRow[]>(server?.rows ?? []);
@@ -56,6 +56,7 @@ export function OkrWeekly({ t }: { t: Task }) {
   // 进度框清空的那一下不能存成 0：先只改显示，等输入成数字再排进保存队列
   const [pctText, setPctText] = useState<Record<number, string>>({});
   const lastServer = useRef(server);
+  useEffect(() => onRows?.(rows), [rows]);
   useEffect(() => {
     if (server && server !== lastServer.current && !queued.has(t.id)) setRows(server.rows);
     lastServer.current = server;

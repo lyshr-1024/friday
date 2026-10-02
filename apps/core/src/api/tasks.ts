@@ -30,7 +30,7 @@ import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../
 import { getJob } from "../memory/jobs.js";
 import { openProjectTerminal, projectTerminals } from "../agent/projectTerminal.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
-import { createTask, deleteTask, getTask, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
+import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
 import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
@@ -137,6 +137,7 @@ export const tasks = new Hono()
       slackConfigured: await slackConfigured(),
     });
   })
+  .get("/routines", (c) => c.json({ weekly: listTasksByKind("okr_weekly"), learn: listTasksByKind("handbook") }))
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);

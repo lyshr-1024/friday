@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, ModelId } from "@friday/shared";
+import type { ConversationSummary, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, coreBaseUrl, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, settings, updateSettings, closeAllJobs } from "../lib/core";
+import { cancelAsk, conversations, coreBaseUrl, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, routines, settings, updateSettings, closeAllJobs } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { LinkMenuHost, fmtTime } from "./shared";
 import { MoreMenu } from "./TaskDialog";
 import { Projects } from "./Projects";
+import { LearnDialog, WeeklyDialog, openReviews, openWeekly, type Routine } from "./Routines";
 import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardRequest, BoardView } from "./Board";
@@ -54,6 +55,17 @@ export function Chat() {
   const pendingOpen = useRef<PendingOpen | null>(null);
   // 要选中的任务：等切到任务视图、Board 挂上并开始监听之后再发（子组件的 effect 先于这里执行）
   const [openingTask, setOpeningTask] = useState<{ id: string } | null>(null);
+  // 周报和学习不进任务列表，在「···」里各开一个弹窗；菜单上带着有没有要你处理的
+  const [routine, setRoutine] = useState<Routine | null>(null);
+  const [routineTasks, setRoutineTasks] = useState<{ weekly: Task[]; learn: Task[] }>({ weekly: [], learn: [] });
+  const pullRoutines = () => routines().then((r) => { setRoutineTasks(r); return r; });
+  useEffect(() => {
+    void pullRoutines().catch(() => {});
+    let timer = 0;
+    const onChange = () => { window.clearTimeout(timer); timer = window.setTimeout(() => void pullRoutines().catch(() => {}), 300); };
+    window.addEventListener("friday:tasks-changed", onChange);
+    return () => { window.clearTimeout(timer); window.removeEventListener("friday:tasks-changed", onChange); };
+  }, []);
   useEffect(() => {
     if (openingTask) window.dispatchEvent(new CustomEvent("friday:open-task", { detail: openingTask.id }));
   }, [openingTask]);
@@ -186,8 +198,11 @@ export function Chat() {
     openAsk({ kind: "load", id, ...(p.initialPrompt ? { prompt: p.initialPrompt } : {}) });
   }
 
-  /** 切到任务区再让 Board 选中它（收工了的 Board 会把「已完成」展开） */
-  function openTask(id: string) {
+  /** 切到任务区再让 Board 选中它（收工了的 Board 会把「已完成」展开）；点的是周报 / 手册的通知就开对应弹窗 */
+  async function openTask(id: string) {
+    const r = await pullRoutines().catch(() => routineTasks);
+    if (r.weekly.some((t) => t.id === id)) return setRoutine("weekly");
+    if (r.learn.some((t) => t.id === id)) return setRoutine("learn");
     setView("queue");
     setOpeningTask({ id });
   }
@@ -264,10 +279,14 @@ export function Chat() {
 
   /** 顶栏「···」：不常用的都在这儿。任务区里的动作由 Board 监听事件去做（它握着同步状态和新建弹层） */
   const toBoard = (kind: BoardRequest["kind"]) => () => { setView("queue"); setBoardReq((r) => ({ kind, n: (r?.n ?? 0) + 1 })); };
+  const weeklyPending = openWeekly(routineTasks.weekly)?.pending?.some((p) => p.type === "okr_submit");
+  const reviewsPending = openReviews(routineTasks.learn).length;
   const menu = [
     { label: "新建任务", run: toBoard("new") },
     { label: "同步 Slack", run: toBoard("slack") },
     { label: "同步 Meegle", run: toBoard("meegle") },
+    { label: weeklyPending ? "周报 · 待提交" : "周报", run: () => setRoutine("weekly") },
+    { label: reviewsPending ? `学习 · ${reviewsPending} 批待过目` : "学习", run: () => setRoutine("learn") },
     { label: "会话历史", run: () => go("history") },
     { label: "操作记录", run: () => go("ledger") },
     { label: "设置", run: () => void invoke("open_settings") },
@@ -392,6 +411,8 @@ export function Chat() {
           <Board view={view} nav={nav} go={go} runningConvs={runningConvs} request={boardReq} />
         )}
       </div>
+      {routine === "weekly" && <WeeklyDialog tasks={routineTasks.weekly} onClose={() => setRoutine(null)} />}
+      {routine === "learn" && <LearnDialog tasks={routineTasks.learn} onClose={() => setRoutine(null)} />}
       {searching && (
         <Search
           onClose={() => setSearching(false)}

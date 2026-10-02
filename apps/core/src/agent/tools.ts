@@ -339,7 +339,7 @@ export const fridayToolList = (conversationId?: string) => [
       {},
       async () => {
         const r = await learnHistoryOnce(true);
-        return text("skipped" in r ? `这次没学：${r.skipped}` : `提炼完了：${r.groups} 份手册，依据 ${r.candidates} 条你说过的原话，已挂成待审任务（${r.taskId.slice(0, 8)}）。在「待我决定」里过一眼，点「通过并执行」才会写进记忆库。`);
+        return text("skipped" in r ? `这次没学：${r.skipped}` : `提炼完了：${r.groups} 份手册，依据 ${r.candidates} 条你说过的原话，已挂成待审（${r.taskId.slice(0, 8)}）。在右上「···」→ 学习 里过目，点「通过，写进手册」才会写进记忆库。`);
       },
     ),
     tool(
@@ -350,7 +350,7 @@ export const fridayToolList = (conversationId?: string) => [
         const w = week ? parseWeek(week) : undefined;
         if (week && !w) return text("week 格式不对，应为 2026W0921-0927 这种、从周一开始。");
         const r = await draftWeeklyOnce({ week: w, manual: true });
-        return text("skipped" in r ? `没起草：${r.skipped}` : `起草好了：${r.drafted} 条有草稿，${r.empty} 条没找到相关工作。已挂成审核卡（${r.taskId.slice(0, 8)}），在任务里改完点「提交」才会写到 OKR 平台。`);
+        return text("skipped" in r ? `没起草：${r.skipped}` : `起草好了：${r.drafted} 条有草稿，${r.empty} 条没找到相关工作。已挂成审核卡（${r.taskId.slice(0, 8)}），在右上「···」→ 周报 里改完点「提交」才会写到 OKR 平台。`);
       },
     ),
     tool(
