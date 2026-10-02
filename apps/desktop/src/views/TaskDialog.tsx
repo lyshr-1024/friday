@@ -122,12 +122,15 @@ export function TaskDetails({ t, defects, stage, meegle, belong, description, re
   );
 }
 
-export function TaskDialog({ t, slots, chat, actions, onClose }: {
-  t: Task;
-  slots: DetailSlots;
-  chat: ReactNode;
-  actions: DialogAction[];
+/** 弹窗外壳：遮罩、Esc 关、Tab 不跑出去、关掉后焦点回到打开它的地方 */
+export function Modal({ label, title, sub, actions, onClose, className = "", children }: {
+  label: string;
+  title: ReactNode;
+  sub?: ReactNode;
+  actions?: DialogAction[];
   onClose: () => void;
+  className?: string;
+  children: ReactNode;
 }) {
   const menu = useRef(false);
   const box = useRef<HTMLDivElement>(null);
@@ -144,7 +147,8 @@ export function TaskDialog({ t, slots, chat, actions, onClose }: {
       if (e.key === "Escape") {
         if (e.isComposing || e.keyCode === 229 || menu.current) return;
         const el = e.target as HTMLElement;
-        if (box.current?.contains(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+        const typing = el.tagName === "TEXTAREA" || (el instanceof HTMLInputElement && el.type !== "checkbox" && el.type !== "radio");
+        if (box.current?.contains(el) && typing) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         onClose();
@@ -166,18 +170,32 @@ export function TaskDialog({ t, slots, chat, actions, onClose }: {
 
   return createPortal(
     <div className="tdlg__veil" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="tdlg" role="dialog" aria-modal="true" aria-label="任务详情" tabIndex={-1} ref={box}>
+      <div className={`tdlg ${className}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} ref={box}>
         <div className="tdlg__head">
-          <span className="tdlg__title">{t.title}</span>
-          <span className="tdlg__sub">详情</span>
+          <span className="tdlg__title">{title}</span>
+          {sub && <span className="tdlg__sub">{sub}</span>}
           <span className="th__sp" />
-          <MoreMenu actions={actions} onOpenChange={(v) => { menu.current = v; }} />
+          {actions && <MoreMenu actions={actions} onOpenChange={(v) => { menu.current = v; }} />}
           <button className="tdlg__icon" aria-label="关闭" onClick={onClose}>×</button>
         </div>
-        <TaskDetails t={t} {...slots} />
-        <div className="tdlg__chat">{chat}</div>
+        {children}
       </div>
     </div>,
     document.body,
+  );
+}
+
+export function TaskDialog({ t, slots, chat, actions, onClose }: {
+  t: Task;
+  slots: DetailSlots;
+  chat: ReactNode;
+  actions: DialogAction[];
+  onClose: () => void;
+}) {
+  return (
+    <Modal label="任务详情" title={t.title} sub="详情" actions={actions} onClose={onClose}>
+      <TaskDetails t={t} {...slots} />
+      <div className="tdlg__chat">{chat}</div>
+    </Modal>
   );
 }

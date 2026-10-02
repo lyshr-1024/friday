@@ -53,12 +53,12 @@ export function search(query: string): SearchResult {
   if (!q) return { tasks: [], messages: [] };
   const like = likePattern(q);
 
-  // 已忽略的、手册改动（在设置页过目，不是工作任务）不出现在搜索里；source 里塞着缺陷描述和所属需求名，一并搜
+  // 已忽略的、手册改动、周报（各在「···」里的弹窗，不是工作任务）不出现在搜索里；source 里塞着缺陷描述和所属需求名，一并搜
   const taskRows = db()
     .prepare(
       `SELECT id, title, kind, source, project, status, understanding, plan, updated_at
          FROM tasks
-        WHERE status != 'ignored' AND kind NOT IN ('handbook', 'project')
+        WHERE status != 'ignored' AND kind NOT IN ('handbook', 'okr_weekly', 'project')
           AND (title LIKE ? ESCAPE '\\' OR understanding LIKE ? ESCAPE '\\' OR plan LIKE ? ESCAPE '\\'
                OR progress LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')
         ORDER BY updated_at DESC

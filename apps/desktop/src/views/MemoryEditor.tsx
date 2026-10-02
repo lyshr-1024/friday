@@ -10,9 +10,9 @@ export const MEMORY_FILES: Array<{ name: MemoryFile; label: string; hint: string
 ];
 
 /** 编辑记忆库的三个 md；项目手册改成逐条编辑，见 RulesEditor */
-export type EditTarget = { kind: "memory"; name: MemoryFile } | { kind: "handbook"; slug: string };
+export type EditTarget = { kind: "memory"; name: MemoryFile };
 
-export function MemoryEditor({ target, onBack }: { target: Extract<EditTarget, { kind: "memory" }>; onBack: () => void }) {
+export function MemoryEditor({ target, onBack }: { target: EditTarget; onBack: () => void }) {
   const meta = MEMORY_FILES.find((f) => f.name === target.name)!;
   const key = target.name;
   const [content, setContent] = useState<string | null>(null);

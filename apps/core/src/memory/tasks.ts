@@ -182,9 +182,16 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
   return rows.map(toTask);
 }
 
+const ROUTINE_KINDS = new Set<TaskKind>(["project", "okr_weekly", "handbook"]);
+
+/** 周报、手册这类例行卡不进任务板，在各自的弹窗里看，连已忽略的一起列（那也是记录） */
+export function listTasksByKind(kind: TaskKind, limit = 100): Task[] {
+  return (db().prepare("SELECT * FROM tasks WHERE kind = ? ORDER BY created_at DESC LIMIT ?").all(kind, limit) as unknown as Row[]).map(toTask);
+}
+
 export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured"> {
-  // 项目终端的锚点不是任务，在「项目」页里
-  const tasks = listTasks(undefined, 500).filter((t) => t.kind !== "project");
+  // 项目终端的锚点在「项目」页里，周报和手册改动在右上「···」各自的弹窗里，都不是任务
+  const tasks = listTasks(undefined, 500).filter((t) => !ROUTINE_KINDS.has(t.kind));
   const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TaskStatus, number>;
   for (const t of tasks) counts[t.status]++;
   return { tasks: tasks.filter((t) => t.status !== "ignored"), counts };

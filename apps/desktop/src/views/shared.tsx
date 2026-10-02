@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import type { Attachment, Job, Message, RunResponse } from "@friday/shared";
 import { attachmentUrl } from "../lib/core";
 
@@ -231,6 +231,27 @@ export function Picker({ value, options, placeholder, onPick, label, resetAfterP
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** 设置式的一行：左边标签和说明，右边控件；控件自动关联标签，读屏能读出它是干什么的 */
+export function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  return (
+    <div className="row">
+      <div className="row__text">
+        <div className="row__label" id={`${id}-label`}>{label}</div>
+        {hint && <div className="row__hint" id={`${id}-hint`}>{hint}</div>}
+      </div>
+      <div className="row__ctl">
+        {isValidElement(children)
+          ? cloneElement(children as ReactElement<{ "aria-labelledby"?: string; "aria-describedby"?: string }>, {
+              "aria-labelledby": `${id}-label`,
+              ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
+            })
+          : children}
+      </div>
     </div>
   );
 }

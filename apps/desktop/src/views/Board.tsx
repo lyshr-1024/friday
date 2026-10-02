@@ -1,12 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
 import { Resources } from "./Resources";
-import { OkrWeekly } from "./OkrWeekly";
 import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
@@ -33,11 +32,6 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 }
 
 
-function okrSubmittable(a: PendingAction): number {
-  const rows = (a.payload as unknown as OkrWeeklyDraft).rows ?? [];
-  return rows.filter((r) => r.checked && r.state !== "existing" && r.state !== "submitted" && r.content.trim()).length;
-}
-
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
 function consequence(a: PendingAction, conv?: SlackConversation): string | null {
   if (a.type === "slack_reply") {
@@ -49,9 +43,6 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   }
   if (a.type === "git_merge") {
     return "合完撤不回，要退得自己 revert。";
-  }
-  if (a.type === "okr_submit") {
-    return `以你的身份提交到 OKR 平台 ${String(a.payload.week ?? "")}，共 ${okrSubmittable(a)} 条；可以在操作记录里撤销（会删掉这几条）。`;
   }
   if (a.type === "reproject") {
     return `删掉的 worktree、分支和里面的改动撤不回。在会话里说「撤掉」执行；说「算了，还是 ${String(a.payload.from ?? "原来的")}」就不改。`;
@@ -85,7 +76,7 @@ const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
 const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
 /** 还没开工、也不归 Friday 自己做：主区是空态，统筹信息在「详情」弹窗里。周报和手册卡有自己的编辑面，照旧 */
-const notStarted = (t: Task) => (t.status === "collected" || t.status === "understood") && !t.session?.name && t.kind !== "okr_weekly" && t.kind !== "handbook";
+const notStarted = (t: Task) => (t.status === "collected" || t.status === "understood") && !t.session?.name;
 /** Friday 自主干过活的：改项目要整体回退，不走「关终端、改动留着」那套 */
 const reprojectOf = (t: Task) => t.pending?.find((a) => a.type === "reproject");
 const fridayWork = (t: Task) => t.source.autonomous === true && !t.source.headless && Boolean(t.source.jobId);
@@ -551,7 +542,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
       defects: defectsOf(t, all),
       stage: <StageBar t={t} onAct={act} />,
       meegle: meegleLine(t) ? <div className="ac__meegle">{meegleLine(t)}</div> : null,
-      belong: t.kind === "okr_weekly" || t.kind === "handbook" ? null : <TaskBody t={t} all={all} onAct={act} />,
+      belong: <TaskBody t={t} all={all} onAct={act} />,
       description: isIssue(t) ? <IssueBody t={t} /> : null,
       resources: <Resources t={t} onAct={act} />,
       slack: <SlackConvs t={t} onAct={act} />,
@@ -573,8 +564,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
     ];
   }
 
-  // 手册改动不是工作任务，在设置页「项目手册」里过目
-  const tasks = (board?.tasks ?? []).filter((t) => t.kind !== "handbook");
+  const tasks = board?.tasks ?? [];
   const active = (t: Task) => t.session?.state === "working" || t.session?.state === "preparing" || Boolean(runningConvs?.has(t.source.conversationId ?? ""));
   const closed = (t: Task) => t.status === "done" || t.status === "ignored";
   // 星标的单独一组放最顶上，其余分组里不再出现
@@ -1177,7 +1167,7 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", okr_submit: "提交", start_job: "开工", handbook_apply: "通过" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工" };
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
@@ -1351,7 +1341,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
   return (
     <>
     <article className="fx">
-      {t.kind !== "okr_weekly" && t.kind !== "handbook" && <StageBar t={t} onAct={onAct} />}
+      <StageBar t={t} onAct={onAct} />
       {/* Meegle 那边的状态只作参考：它依赖别人及时更新，不参与 Friday 的阶段判断 */}
       {t.source.statusKey && (
         <div className="fx__meegle-state">
@@ -1433,9 +1423,8 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
       {isIssue(t) && <IssueBody t={t} />}
       <SlackConvs t={t} onAct={onAct} />
 
-      {t.kind !== "okr_weekly" && <TaskBody t={t} all={all} onAct={onAct} />}
+      <TaskBody t={t} all={all} onAct={onAct} />
 
-      {t.kind === "okr_weekly" ? <OkrWeekly t={t} /> : (
       <div className={`fx__grid ${rightHas ? "" : "fx__grid--single"}`}>
         <div className="fx__col">
           {situation && (
@@ -1497,7 +1486,6 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
           )}
         </div>
       </div>
-      )}
 
       {t.source.researchFile && <ResearchNote id={t.id} file={t.source.researchFile} />}
       {r && (r.changes.length > 0 || r.testSteps.length > 0 || r.screenshots.length > 0) && (

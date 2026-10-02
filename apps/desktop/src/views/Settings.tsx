@@ -1,13 +1,12 @@
-import { useEffect, useState, cloneElement, isValidElement, useId, type ReactElement } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse, type Task } from "@friday/shared";
+import { DEFAULT_SKILL_LIST, THEME_OPTIONS, type PermissionStatus, type SettingsResponse } from "@friday/shared";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
-import { RulesEditor } from "./RulesEditor";
-import { HandbookReview } from "./HandbookReview";
-import { autostartPreview, coreBaseUrl, health, learnHistory, leftoverWorktrees, listHandbooks, okrWeeklyNow, removeWorktree, settings, taskBoard, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
+import { Row } from "./shared";
+import { autostartPreview, coreBaseUrl, health, leftoverWorktrees, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 import { AUTOSTART_CONFIDENCE } from "@friday/shared";
@@ -22,13 +21,6 @@ export function Settings() {
   const [prefs, setPrefs] = useState<SettingsResponse | null>(null);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [notified, setNotified] = useState(false);
-  const [handbooks, setHandbooks] = useState<string[]>([]);
-  const [reviews, setReviews] = useState<Task[]>([]);
-  const [reviewing, setReviewing] = useState<Task | null>(null);
-  const [learning, setLearning] = useState(false);
-  const [learnNote, setLearnNote] = useState("");
-  const [drafting, setDrafting] = useState(false);
-  const [draftNote, setDraftNote] = useState("");
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
   const [bgNote, setBgNote] = useState("");
   const [coreUrl, setCoreUrl] = useState("");
@@ -70,20 +62,8 @@ export function Settings() {
     void invoke<PermissionStatus>("permission_status").then(setPerms);
   }
 
-  // 手册改动不进任务列表，在这里过目；设置窗常开着，切回来时再拉一次
-  const refreshReviews = () =>
-    void taskBoard()
-      .then((b) => setReviews(b.tasks.filter((t) => t.kind === "handbook" && t.status === "review" && (t.pending ?? []).some((p) => p.type === "handbook_apply"))))
-      .catch(() => {});
-  useEffect(() => {
-    refreshReviews();
-    window.addEventListener("focus", refreshReviews);
-    return () => window.removeEventListener("focus", refreshReviews);
-  }, []);
-
   useEffect(() => {
     void isEnabled().then(setAutostart);
-    void listHandbooks().then(setHandbooks).catch(() => {});
     void invoke<string>("current_hotkey").then(setHotkey);
     void settings().then(async (p) => { setPrefs(p); applyTheme(p.theme); applyBackground(p, await coreBaseUrl()); }).catch(() => setPrefs(null));
     refreshPerms();
@@ -113,49 +93,11 @@ export function Settings() {
     setLeftover(await leftoverWorktrees().catch(() => []));
   }
 
-  async function runLearn() {
-    setLearning(true);
-    setLearnNote("");
-    try {
-      const r = await learnHistory();
-      setLearnNote(r.skipped ? "没学到新的" : `提炼了 ${r.groups} 份，在上面过目`);
-      await listHandbooks().then(setHandbooks);
-      refreshReviews();
-    } catch {
-      setLearnNote("出错了");
-    } finally {
-      setLearning(false);
-      setTimeout(() => setLearnNote(""), 6000);
-    }
-  }
-
-  async function runOkrDraft() {
-    setDrafting(true);
-    setDraftNote("");
-    try {
-      const r = await okrWeeklyNow();
-      setDraftNote(r.skipped ? r.skipped : `起草好了：${r.drafted} 条，去任务里审`);
-    } catch {
-      setDraftNote("出错了");
-    } finally {
-      setDrafting(false);
-      setTimeout(() => setDraftNote(""), 6000);
-    }
-  }
-
   async function toggleAutostart() {
     if (autostart === null) return;
     if (autostart) await disable();
     else await enable();
     setAutostart(await isEnabled());
-  }
-
-  if (reviewing) {
-    return <HandbookReview task={reviewing} onBack={() => { setReviewing(null); refreshReviews(); void listHandbooks().then(setHandbooks).catch(() => {}); }} />;
-  }
-
-  if (editing?.kind === "handbook") {
-    return <RulesEditor project={editing.slug} onBack={() => setEditing(null)} />;
   }
 
   if (editing) {
@@ -165,7 +107,6 @@ export function Settings() {
         onBack={() => {
           setEditing(null);
           void settings().then(setPrefs).catch(() => {});
-          void listHandbooks().then(setHandbooks).catch(() => {});
         }}
       />
     );
@@ -221,51 +162,6 @@ export function Settings() {
               <button className="btn" onClick={() => setEditing({ kind: "memory", name: f.name })}>编辑…</button>
             </Row>
           ))}
-        </div>
-      </section>
-
-      <section>
-        <h2>项目手册</h2>
-        <div className="group">
-          {reviews.map((t) => (
-            <Row key={t.id} label="待你过目" hint={t.title}>
-              <button className="btn" onClick={() => setReviewing(t)}>过目…</button>
-            </Row>
-          ))}
-          {handbooks.length === 0 ? (
-            <Row label="还没有手册" hint="从 Claude Code 历史学一轮，会按项目提炼出「在这里怎么干活」，每条带你的原话出处">
-              <button className="btn" disabled={learning} onClick={() => void runLearn()}>{learning ? "提炼中…" : learnNote || "现在学一轮"}</button>
-            </Row>
-          ) : (
-            <>
-              {handbooks.map((slug) => (
-                <Row key={slug} label={slug === "_global" ? "通用习惯" : slug} hint="派去终端干活的 Claude 会先读这份；学错了点「退役」写一句为什么，你改过的 Friday 不会再动">
-                  <button className="btn" onClick={() => setEditing({ kind: "handbook", slug })}>规则…</button>
-                </Row>
-              ))}
-              <Row label="再学一轮" hint="扫上次之后的 Claude Code 会话，提炼结果会挂成待审任务，点头才写进来">
-                <button className="btn" disabled={learning} onClick={() => void runLearn()}>{learning ? "提炼中…" : learnNote || "现在学一轮"}</button>
-              </Row>
-            </>
-          )}
-        </div>
-      </section>
-
-      <section>
-        <h2>OKR 周报</h2>
-        <div className="group">
-          <Row label="每周自动起草" hint="每周五 16:00 后用本周 git 提交和任务起草，挂成审核卡，你点了才提交">
-            <button
-              className={`switch ${prefs?.okrWeekly ? "switch--on" : ""}`}
-              role="switch"
-              aria-checked={!!prefs?.okrWeekly}
-              disabled={!prefs}
-              onClick={() => prefs && void updateSettings({ okrWeekly: !prefs.okrWeekly }).then(setPrefs)}
-            />
-          </Row>
-          <Row label="现在起草一份" hint="不等到周五，立刻按本周内容起草一份待审">
-            <button className="btn" disabled={drafting} onClick={() => void runOkrDraft()}>{drafting ? "起草中…" : draftNote || "现在起草一份"}</button>
-          </Row>
         </div>
       </section>
 
@@ -375,15 +271,6 @@ export function Settings() {
             </select>
           </Row>
         )}
-        <Row label="从 Claude Code 学" hint="每周扫一次你在 Claude Code 里说过的话，提炼成项目手册挂成待审；一轮约 $0.2，冷启动那次约 $1">
-          <button
-            className={`switch ${prefs?.learnHistory ? "switch--on" : ""}`}
-            role="switch"
-            aria-checked={!!prefs?.learnHistory}
-            disabled={!prefs}
-            onClick={() => prefs && void updateSettings({ learnHistory: !prefs.learnHistory }).then(setPrefs)}
-          />
-        </Row>
         <Row label="拉 Meegle 缺陷" hint="分派给你的缺陷进「待办 › 缺陷」分组；关掉后只拉需求，已经在列表里的缺陷留着不动">
           <button
             className={`switch ${prefs?.meegleDefects ? "switch--on" : ""}`}
@@ -501,26 +388,6 @@ function PermissionRow({ granted, onGrant }: { granted: boolean | undefined; onG
 
 /** 设置项一行。label 与控件用 aria-labelledby 程序关联——视觉靠近不等于
     可访问性关联，屏幕阅读器读空按钮只会说「switch, checked」。 */
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  const id = useId();
-  return (
-    <div className="row">
-      <div className="row__text">
-        <div className="row__label" id={`${id}-label`}>{label}</div>
-        {hint && <div className="row__hint" id={`${id}-hint`}>{hint}</div>}
-      </div>
-      <div className="row__ctl">
-        {isValidElement(children)
-          ? cloneElement(children as ReactElement<{ "aria-labelledby"?: string; "aria-describedby"?: string }>, {
-              "aria-labelledby": `${id}-label`,
-              ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
-            })
-          : children}
-      </div>
-    </div>
-  );
-}
-
 function formatHotkey(k: string): string {
   return k
     .replace(/CmdOrCtrl|Super|Command/g, "⌘")

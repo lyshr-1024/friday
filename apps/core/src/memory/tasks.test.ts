@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addPending, createTask, findTaskBySource, listTasks, takePending, taskBoard, updateTask } from "./tasks.js";
+import { addPending, createTask, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, updateTask } from "./tasks.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
@@ -20,6 +20,17 @@ describe("任务中枢", () => {
     expect(findTaskBySource((s) => s.threadId === "th-1")).toBeUndefined();
     expect(listTasks("done").map((x) => x.id)).toContain(t.id);
     expect(taskBoard().counts.done).toBe(1);
+  });
+
+  it("周报和手册改动不上任务板，按类型能列全（连已忽略的）", () => {
+    const w = createTask({ title: "OKR 周报 · 2026W0928-1004", kind: "okr_weekly", source: { okrWeek: "2026W0928-1004" }, status: "review" });
+    const h = createTask({ title: "手册改动", kind: "handbook", source: {}, status: "review" });
+    updateTask(h.id, { status: "ignored" });
+    const ids = taskBoard().tasks.map((t) => t.id);
+    expect(ids).not.toContain(w.id);
+    expect(ids).not.toContain(h.id);
+    expect(listTasksByKind("okr_weekly").map((t) => t.id)).toEqual([w.id]);
+    expect(listTasksByKind("handbook").map((t) => t.id)).toEqual([h.id]);
   });
 });
 

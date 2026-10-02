@@ -56,7 +56,7 @@ export function RulesEditor({ project, onBack }: { project: string; onBack: () =
   return (
     <div className="editor">
       <header className="editor__head">
-        <button className="editor__back" onClick={onBack}><Icon name="chevronRight" className="icon--flip" />设置</button>
+        <button className="editor__back" onClick={onBack}><Icon name="chevronRight" className="icon--flip" />学习</button>
         <span className="editor__title">{project === "_global" ? "通用习惯" : project}</span>
         <span className="editor__status mono">{err || (rules ? `${rules.length} 条在用` : "读取中…")}</span>
       </header>

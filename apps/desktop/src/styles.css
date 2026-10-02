@@ -5295,3 +5295,22 @@ body:has(.hud)::-webkit-scrollbar {
 .pt__empty { margin: 0 20px 16px; padding: 28px 24px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
 .pt__empty p { margin: 0 0 var(--s-4); max-width: 62ch; }
 .pt__empty code { font-family: var(--mono); color: var(--fg-2); }
+
+/* ---------- 周报 / 学习弹窗：例行事，不进任务列表，从顶栏「···」打开 ---------- */
+.tdlg.rtn { width: min(780px, calc(100vw - 64px)); }
+/* .tdlg 限高且是 flex 列，.group 带 overflow: hidden，不禁收缩会被压成一条线 */
+.rtn > * { flex-shrink: 0; }
+.rtn__sec { display: flex; flex-direction: column; gap: var(--s-2); }
+.rtn__foot { position: sticky; bottom: -20px; margin: 0 -26px -20px; padding: var(--s-3) 26px; background: rgba(10, 16, 24, 0.98); border-radius: 0 0 12px 12px; }
+.rtn__list { display: flex; flex-direction: column; }
+.rtn__item { display: flex; align-items: baseline; gap: var(--s-3); padding: var(--s-2) 0; border-top: 1px solid var(--line-1); font-size: var(--t-sm); }
+.rtn__item:first-child { border-top: none; }
+.rtn__name { flex: none; min-width: 9em; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.rtn__state { flex: none; color: var(--fg-3); }
+.rtn__state--done { color: var(--ok); }
+.rtn__state--blocked { color: var(--bad); }
+.rtn__note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-4); font-size: var(--t-xs); }
+.rtn__empty { color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
+.rtn .editor { height: auto; background: transparent; }
+.rtn .editor__head { padding-left: 0; }
+.rtn .editor .hbr__foot { padding-left: 0; padding-right: 0; }

@@ -169,7 +169,7 @@ export function restoreRules(s: RulesSnapshot): string[] {
 export function renderHandbook(project: string): string {
   const rules = activeRules(project);
   const title = project === GLOBAL ? "通用习惯" : project;
-  const parts = [`# ${title}\n`, "<!-- Friday 生成，改这个文件会被覆盖；要改规则去设置页「项目手册」逐条改 -->\n"];
+  const parts = [`# ${title}\n`, "<!-- Friday 生成，改这个文件会被覆盖；要改规则去右上「···」→ 学习 逐条改 -->\n"];
   for (const section of RULE_SECTIONS) {
     const list = rules.filter((r) => r.section === section);
     if (!list.length) continue;
