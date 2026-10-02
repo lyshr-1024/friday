@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AttachError, attach, detachSession, resetAttachBreaker, setPtySpawner, subscribe, viewerSession } from "./attach.js";
+import { AttachError, attach, detachSession, frameBuffer, resetAttachBreaker, setPtySpawner, subscribe, viewerSession } from "./attach.js";
 import { setTmuxPath } from "./tmux.js";
 
 let killed: string[] = [];
@@ -109,5 +109,56 @@ describe("attach 拉起失败", () => {
     expect(viewerSession(attach("s1", "t", 80, 24))).toBe("s1");
     detachSession("s1");
     expect(viewerSession(id)).toBeUndefined();
+  });
+});
+
+describe("同步输出整帧发", () => {
+  const ON = "\x1b[?2026h";
+  const OFF = "\x1b[?2026l";
+
+  it("同步块没收口先攒着，收口后一次发出", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push(`${ON}\x1b[?25l第一段`);
+    f.push("第二段");
+    expect(out).toEqual([]);
+    f.push(`\x1b[?25h${OFF}`);
+    expect(out).toEqual([`${ON}\x1b[?25l第一段第二段\x1b[?25h${OFF}`]);
+  });
+
+  it("收口序列被切在两段之间也认得", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push(`${ON}x\x1b[?20`);
+    f.push("26l");
+    expect(out).toEqual([`${ON}x${OFF}`]);
+  });
+
+  it("不在同步块里的输出立刻发，打字回显不加延迟", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push("a");
+    f.push("b");
+    expect(out).toEqual(["a", "b"]);
+  });
+
+  it("一直不收口最多等 50ms", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push(`${ON}半帧`);
+    vi.advanceTimersByTime(49);
+    expect(out).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(out).toEqual([`${ON}半帧`]);
+  });
+
+  it("经 attach 订阅收到的是整帧", () => {
+    const id = attach("s9", "t", 80, 24);
+    const got: string[] = [];
+    subscribe(id, (d) => got.push(d));
+    emit(`${ON}一`);
+    emit(`二${OFF}`);
+    expect(got).toEqual([`${ON}一二${OFF}`]);
+    detachSession("s9");
   });
 });

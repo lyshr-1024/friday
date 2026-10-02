@@ -26,6 +26,33 @@ export function setPtySpawner(fn: PtySpawner): void {
 }
 
 interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) => void>; enders: Set<() => void>; backlog: string; idleTimer?: NodeJS.Timeout }
+
+// 窗格里的程序一用同步输出（Claude Code 每次刷状态栏都包一层 ?2026h…l），tmux 在同步结束时把整屏重画一遍（3–6KB），
+// node-pty 按 1KB 切成好几段。一段一发，xterm 就可能在「光标已藏、整屏还没画完」时出一帧——光标和输入框边框跟着闪（2026-10-02 用户报）。
+// 所以同步块没收口就先攒着，收口了再整帧发；收不了口最多等 SYNC_HOLD_MS
+const SYNC_ON = "\x1b[?2026h";
+const SYNC_OFF = "\x1b[?2026l";
+const SYNC_HOLD_MS = 50;
+export function frameBuffer(emit: (d: string) => void): { push(d: string): void; flush(): void } {
+  let buf = "";
+  let timer: NodeJS.Timeout | undefined;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    if (!buf) return;
+    const d = buf;
+    buf = "";
+    emit(d);
+  };
+  return {
+    push(d) {
+      buf += d;
+      if (buf.lastIndexOf(SYNC_ON) <= buf.lastIndexOf(SYNC_OFF)) return flush();
+      timer ??= setTimeout(flush, SYNC_HOLD_MS);
+    },
+    flush,
+  };
+}
 const UNSUBSCRIBED_TTL_MS = 15_000;
 const viewers = new Map<string, Viewer>();
 
@@ -56,8 +83,10 @@ export function attach(sessionId: string, tmuxName: string, cols: number, rows: 
   spawnFails = 0;
   const v: Viewer = { sessionId, pty, listeners: new Set(), enders: new Set(), backlog: "" };
   // tmux 一接上就整屏重绘，那时 /stream 还没来订阅；丢了这一帧，之后的增量画面全是错位的
-  pty.onData((d) => { if (v.listeners.size) v.listeners.forEach((l) => l(d)); else v.backlog += d; });
+  const frames = frameBuffer((d) => { if (v.listeners.size) v.listeners.forEach((l) => l(d)); else v.backlog += d; });
+  pty.onData((d) => frames.push(d));
   pty.onExit(() => {
+    frames.flush();
     clearTimeout(v.idleTimer);
     v.listeners.forEach((l) => l("\r\n"));
     viewers.delete(id);
