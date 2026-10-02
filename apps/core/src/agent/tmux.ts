@@ -111,8 +111,8 @@ export async function listSessionNames(): Promise<string[] | undefined> {
   }
 }
 
-export async function newSession(name: string, cwd: string, script: string): Promise<void> {
-  await run("new-session", "-d", "-s", name, "-n", "claude", "-c", cwd, "-x", "200", "-y", "50", "/bin/zsh", script);
+export async function newSession(name: string, cwd: string, script: string, window = "claude"): Promise<void> {
+  await run("new-session", "-d", "-s", name, "-n", window, "-c", cwd, "-x", "200", "-y", "50", "/bin/zsh", script);
 }
 
 export async function renameSession(from: string, to: string): Promise<boolean> {

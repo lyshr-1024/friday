@@ -44,7 +44,7 @@ export function baseBranchOf(t: Task): { baseBranch?: string } {
 export async function openSession(
   root: Task,
   owner: Task,
-  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string; conversationId?: string; inRepo?: boolean },
+  o: { kind: TermSessionKind; project: string; repoDir: string; task: string; baseBranch?: string; jobId?: string; conversationId?: string; inRepo?: boolean; shell?: boolean },
 ): Promise<string> {
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();
@@ -58,7 +58,7 @@ export async function openSession(
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
-    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}) }, name);
+    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}), ...(o.shell ? { shell: true } : {}) }, name);
     // 没有准备段，没有谁来报 worktree：直接算开好了
     if (o.inRepo) updateTermSession(root.id, { status: "running" });
   } catch (e) {

@@ -251,6 +251,8 @@ export interface SessionLaunch {
   existingBranch?: string;
   /** 直接在主仓里开（项目终端）：不跑准备段、不建 worktree */
   inRepo?: boolean;
+  /** 项目页的普通 shell：只开 zsh，不起 Claude */
+  shell?: boolean;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
@@ -348,7 +350,16 @@ export function setClaudeFinder(fn: () => Promise<string>): void {
   claudeFinder = fn;
 }
 
+export const shellScript = (dir: string) => ["#!/bin/zsh", `cd ${shellQuote(dir)} || exit 1`, UNSET_CLAUDE_ENV, "exec /bin/zsh -il", ""].join("\n");
+
 export async function launchInSession(req: SessionLaunch, tmuxName: string): Promise<void> {
+  if (req.shell) {
+    const script = join(runsDir(), `${req.id}.sh`);
+    writeFileSync(script, shellScript(req.repoDir));
+    chmodSync(script, 0o755);
+    await newSession(tmuxName, req.repoDir, script, "zsh");
+    return;
+  }
   const claudePath = await claudeFinder();
   const files = writeHookFiles(req.id, req.kind === "autonomous", req.kind === "query");
   const prep = req.kind === "query" ? undefined : writePrepSettings(req.id);

@@ -5324,3 +5324,31 @@ label.hbr__item { cursor: default; }
 .rtn .editor__head { padding-left: 0; }
 /* 弹窗里过目页的底栏也钉在底部，跟周报一样不用滚到底才看见按钮 */
 .rtn .editor .hbr__foot { position: sticky; bottom: -20px; margin: 0 -26px -20px; padding: var(--s-3) 26px; background: rgba(10, 16, 24, 0.98); border-radius: 0 0 12px 12px; }
+
+/* ---------- 项目页：概览 + Claude / 终端同屏，不切换 ---------- */
+.pj .th__title .b { flex: none; }
+.pj__ov { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--s-3); margin: 0 20px 12px; overflow-y: auto; }
+.pj__ov > * { flex-shrink: 0; }
+.pj__ov--compact { max-height: 28vh; }
+.pj__note { color: var(--fg-2); font-size: var(--t-sm); line-height: 1.7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: default; }
+.pj__note.is-open { display: block; }
+.pj__ov--compact .pj__note:not(.is-open) { -webkit-line-clamp: 1; }
+.pj__facts { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); font-size: var(--t-xs); color: var(--fg-3); }
+.pj__dim { color: var(--fg-4); font-size: var(--t-xs); }
+.pj__dirty { color: var(--amber); }
+.pj__tasks { display: flex; flex-direction: column; gap: var(--s-1); }
+.pj__grp { display: flex; flex-direction: column; }
+.pj__grp-k { margin: var(--s-2) 0 2px; font-size: var(--t-micro); color: var(--fg-4); }
+.pj__task { display: flex; align-items: center; gap: var(--s-2); width: 100%; padding: 5px 8px; border: none; border-radius: 6px; background: none; color: var(--fg-2); font: inherit; font-size: var(--t-sm); text-align: left; cursor: default; }
+.pj__task:hover, .pj__task:focus-visible { background: rgba(56, 214, 255, 0.07); color: var(--fg-1); }
+.pj__task-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj__task-m { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-4); font-size: var(--t-xs); }
+.pj__recent > summary { margin-top: var(--s-2); font-size: var(--t-micro); color: var(--fg-4); cursor: default; }
+.pj__hint { margin: 0 20px 16px; padding: 14px 16px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
+.pj__hint code { font-family: var(--mono); color: var(--fg-2); }
+.pj__term { min-height: 160px; display: flex; flex-direction: column; margin: 0 20px 12px; }
+.pj__term--claude { flex: 2 1 0; }
+.pj__term--shell { flex: 1 1 0; }
+.pj__term:last-child { margin-bottom: 16px; }
+.pj__bar { flex: none; display: flex; align-items: center; gap: var(--s-2); padding: 0 2px 6px; font-size: var(--t-xs); color: var(--fg-2); }
+.pj__termbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }

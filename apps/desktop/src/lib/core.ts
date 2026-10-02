@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -527,9 +527,22 @@ export async function projectTerminals(): Promise<ProjectTerminal[]> {
   return res.json();
 }
 
-export async function openProjectTerminal(name: string): Promise<ProjectTerminal> {
-  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/terminal`, { method: "POST" });
-  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `打不开终端（${res.status}）`);
+/** fresh：关掉现在这段 Claude、全新开一段 */
+export async function openProjectTerminal(name: string, fresh = false): Promise<ProjectTerminal> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/terminal`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fresh }) });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `打不开 Claude（${res.status}）`);
+  return res.json();
+}
+
+export async function projectShell(name: string, open: boolean): Promise<ProjectTerminal> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/shell`, { method: open ? "POST" : "DELETE" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${open ? "打不开" : "关不掉"}终端（${res.status}）`);
+  return res.json();
+}
+
+export async function projectOverview(name: string): Promise<ProjectOverview> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/overview`);
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `读不到项目概览（${res.status}）`);
   return res.json();
 }
 
