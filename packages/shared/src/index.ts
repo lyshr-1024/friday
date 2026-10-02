@@ -700,6 +700,22 @@ export interface OkrRow {
   error?: string;
 }
 
+/** 手册改动的审核视图：每条一个 key，勾掉的 key 存在待审动作的 payload.skip，通过时跳过 */
+export interface HandbookDraftItem {
+  key: string;
+  kind: "add" | "revise" | "retire" | "confirm" | "decision" | "person" | "alias";
+  text: string;
+  /** 改写前的原文 */
+  from?: string;
+  why?: string;
+  quotes: string[];
+}
+
+export interface HandbookDraftView {
+  groups: Array<{ name: string; sources: number; items: HandbookDraftItem[]; notes: Array<{ kind: "conflict" | "stale" | "dropped"; text: string }> }>;
+  skip: string[];
+}
+
 export interface OkrWeeklyDraft {
   week: string;
   quarter: string;

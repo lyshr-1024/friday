@@ -371,15 +371,18 @@ export async function executePending(
         throw e;
       }
     } else if (action.type === "handbook_apply") {
-      const { applyHandbookDraft } = await import("./handbook.js");
-      const p = action.payload as { draft: HandbookDraft; cursor?: string };
-      const { snapshot, wrote } = applyHandbookDraft(p.draft);
+      const { applyHandbookDraft, pickDraft, pickedCount } = await import("./handbook.js");
+      const p = action.payload as { draft: HandbookDraft; cursor?: string; skip?: string[] };
+      const picked = pickDraft(p.draft, p.skip ?? []);
+      if (!pickedCount(picked)) throw new Error("一条都没勾：要写进手册的勾上，整批都不要就点「这批不要」");
+      const { snapshot, wrote } = applyHandbookDraft(picked);
+      const skipped = pickedCount(p.draft) - pickedCount(picked);
       record({
         taskId,
         action: "handbook_applied",
         why: "你审核通过",
-        how: `写了 ${wrote.join("、")}`,
-        evidence: { wrote, groups: p.draft.groups.map((g) => g.project) },
+        how: `写了 ${wrote.join("、")}${skipped ? `；你勾掉了 ${skipped} 条` : ""}`,
+        evidence: { wrote, groups: p.draft.groups.map((g) => g.project), skipped },
         risk: "reversible",
         status: "approved",
         undo: { kind: "restore_memory", snapshot },

@@ -1,4 +1,4 @@
-import { RULE_SECTIONS, type Rule, type RuleEvidence, type RuleSection } from "@friday/shared";
+import { RULE_SECTIONS, type HandbookDraftItem, type HandbookDraftView, type Rule, type RuleEvidence, type RuleSection } from "@friday/shared";
 import { state } from "../scheduler/index.js";
 import { askStream } from "./claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "./fence.js";
@@ -291,7 +291,59 @@ export function draftSummary(draft: HandbookDraft): string {
     .join("\n\n---\n\n");
 }
 
-export type HistoryResult = { skipped: string } | { taskId: string; groups: number; candidates: number };
+const opKey = (gi: number, i: number) => `${gi}.op.${i}`;
+const listKey = (gi: number, list: "decision" | "person" | "alias", i: number) => `${gi}.${list}.${i}`;
+
+/** 审核弹窗逐条渲染、逐条勾选用；key 是组号 + 第几条，通过时按 key 剔掉你勾掉的 */
+export function draftView(draft: HandbookDraft, skip: string[] = []): HandbookDraftView {
+  return {
+    skip,
+    groups: draft.groups.map((g, gi) => {
+      const quotes = (ns: number[]) => ns.map((n) => g.candidates[n - 1]).filter(Boolean).map((c) => `[${c!.n}] ${clip(c!.text, 120)}`);
+      const textOf = (id: string) => getRule(id)?.text ?? id;
+      const items: HandbookDraftItem[] = g.ops.map((o, i): HandbookDraftItem => {
+        const key = opKey(gi, i);
+        if (o.op === "add") return { key, kind: "add", text: `${o.text}（${o.section}）`, quotes: quotes(o.evidence) };
+        if (o.op === "revise") return { key, kind: "revise", text: o.text, from: textOf(o.id), why: o.why, quotes: quotes(o.evidence) };
+        if (o.op === "retire") return { key, kind: "retire", text: textOf(o.id), why: o.why, quotes: [] };
+        return { key, kind: "confirm", text: textOf(o.id), quotes: quotes(o.evidence) };
+      });
+      items.push(
+        ...g.decisions.map((d, i): HandbookDraftItem => ({ key: listKey(gi, "decision", i), kind: "decision", text: d.text, ...(d.why ? { why: d.why } : {}), quotes: [] })),
+        ...g.people.map((p, i): HandbookDraftItem => ({ key: listKey(gi, "person", i), kind: "person", text: `${p.name}：${p.note}`, quotes: [] })),
+        ...(g.project === GLOBAL ? [] : g.aliases.map((a, i): HandbookDraftItem => ({ key: listKey(gi, "alias", i), kind: "alias", text: a, quotes: [] }))),
+      );
+      return {
+        name: nameOf(g.project),
+        sources: g.sources,
+        items,
+        notes: [
+          ...g.conflicts.map((c) => ({ kind: "conflict" as const, text: `${c.text} ⟂ ${c.with}` })),
+          ...g.stale.map((r) => ({ kind: "stale" as const, text: `${r.text}（最近 ${r.lastConfirmedAt.slice(0, 10)}，${STALE_WEEKS} 周没再说过，还算吗？不算就去规则里退役）` })),
+          ...(g.dropped ? [{ kind: "dropped" as const, text: `因引证无效丢弃 ${g.dropped} 条` }] : []),
+        ],
+      };
+    }),
+  };
+}
+
+/** 剔掉你勾掉的条目；冲突、久未确认只是提示，不落盘，原样留着 */
+export function pickDraft(draft: HandbookDraft, skip: string[]): HandbookDraft {
+  const off = new Set(skip);
+  return {
+    groups: draft.groups.map((g, gi) => ({
+      ...g,
+      ops: g.ops.filter((_, i) => !off.has(opKey(gi, i))),
+      decisions: g.decisions.filter((_, i) => !off.has(listKey(gi, "decision", i))),
+      people: g.people.filter((_, i) => !off.has(listKey(gi, "person", i))),
+      aliases: g.aliases.filter((_, i) => !off.has(listKey(gi, "alias", i))),
+    })),
+  };
+}
+
+export const pickedCount = (draft: HandbookDraft) => draft.groups.reduce((n, g) => n + g.ops.length + g.decisions.length + g.people.length + (g.project === GLOBAL ? 0 : g.aliases.length), 0);
+
+export type HistoryResult ={ skipped: string } | { taskId: string; groups: number; candidates: number };
 
 /**
  * 扫一遍 Claude Code 历史，把用户说过的约定提炼成项目手册。
