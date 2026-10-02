@@ -406,7 +406,7 @@ export function Chat() {
             </div>
           </>
         ) : view === "projects" ? (
-          <Projects nav={nav} />
+          <Projects nav={nav} onOpenTask={(id) => void openTask(id)} />
         ) : (
           <Board view={view} nav={nav} go={go} runningConvs={runningConvs} request={boardReq} />
         )}

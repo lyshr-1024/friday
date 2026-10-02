@@ -316,6 +316,38 @@ export interface ProjectTerminal {
   jobId?: string;
   status?: TermSessionStatus;
   state?: SessionState;
+  /** 同一个项目的普通 shell：另一个 tmux 会话，跟 Claude 同屏 */
+  shell?: { taskId: string; status?: TermSessionStatus };
+  /** 这个项目没收工的任务数 */
+  openTasks: number;
+}
+
+export interface ProjectTaskLine {
+  id: string;
+  title: string;
+  kind: TaskKind;
+  status: TaskStatus;
+  stage?: Stage;
+  state?: SessionState;
+  branch?: string;
+  updatedAt: string;
+}
+
+/** 项目页的概览：注册表里的简介 + 主仓现在的样子 + 这个项目的任务 */
+export interface ProjectOverview {
+  name: string;
+  dir: string;
+  note?: string;
+  status?: string;
+  aliases: string[];
+  channels: string[];
+  envs: Array<{ name: string; url: string }>;
+  /** 主仓当前分支；目录不是 git 仓库时没有 */
+  branch?: string;
+  dirty: boolean;
+  open: ProjectTaskLine[];
+  recent: ProjectTaskLine[];
+  leftover: number;
 }
 
 /** 一个根任务的 tmux 会话：根 = worktree = 会话 = 分支 */
@@ -432,6 +464,8 @@ export interface TaskSource {
   storyContainer?: boolean;
   /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
   projectTerminal?: string;
+  /** 项目 shell 的锚点：跟 projectTerminal 一样不进任务列表 */
+  projectShell?: string;
   /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
   autoClosed?: boolean;
   /** Meegle 空间 key，流转状态要用 */

@@ -28,7 +28,7 @@ import { answerHint, setStage } from "../agent/stage.js";
 import { priorContext, priorText } from "../memory/roster.js";
 import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
-import { openProjectTerminal, projectTerminals } from "../agent/projectTerminal.js";
+import { closeProjectShell, openProjectShell, openProjectTerminal, projectOverview, projectTerminals } from "../agent/projectTerminal.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
@@ -240,13 +240,31 @@ export const tasks = new Hono()
   /** 项目注册表里的项目名，任务卡上手动归属用 */
   .get("/projects", (c) => c.json(loadProjects().map((p) => ({ name: p.name, dir: p.dir }))))
   .get("/projects/terminals", (c) => c.json(projectTerminals()))
+  .get("/projects/:name/overview", (c) => {
+    const o = projectOverview(decodeURIComponent(c.req.param("name")));
+    return o ? c.json(o) : c.json({ error: "注册表里没有这个项目" }, 404);
+  })
+  // fresh：关掉现在这段 Claude、全新开一段（上下文太大时用），不接回旧对话
   .post("/projects/:name/terminal", async (c) => {
+    const { fresh } = (await c.req.json().catch(() => ({}))) as { fresh?: boolean };
     try {
-      const r = await openProjectTerminal(decodeURIComponent(c.req.param("name")));
+      const r = await openProjectTerminal(decodeURIComponent(c.req.param("name")), fresh === true);
       return "error" in r ? c.json(r, 404) : c.json(r);
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
+  })
+  .post("/projects/:name/shell", async (c) => {
+    try {
+      const r = await openProjectShell(decodeURIComponent(c.req.param("name")));
+      return "error" in r ? c.json(r, 404) : c.json(r);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  })
+  .delete("/projects/:name/shell", async (c) => {
+    const r = await closeProjectShell(decodeURIComponent(c.req.param("name")));
+    return "error" in r ? c.json(r, 404) : c.json(r);
   })
   /** 手动把任务归到某个项目：不再按标题猜，猜错了开工就改错仓库 */
   .post("/tasks/:id/project", async (c) => {
