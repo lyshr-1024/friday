@@ -850,7 +850,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
           {panel && canResume(t) && (
             <div className="detail__resume">Claude 已退出<span className="th__sep">·</span><button className="idle__link" onClick={() => void onAct(t, () => jobReopen(t.source.jobId!))}>接着聊</button></div>
           )}
-          <div className="detail__term"><Terminal key={t.source.jobId ?? ""} sessionId={t.id} /></div>
+          <div className="detail__term"><Terminal key={t.source.jobId ?? ""} sessionId={t.id} preparing={s?.status === "preparing"} /></div>
         </>
       ) : null}
       {panel && (

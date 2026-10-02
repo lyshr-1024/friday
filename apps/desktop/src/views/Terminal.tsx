@@ -20,8 +20,10 @@ function termTheme(): Record<string, string> {
 
 const MAX_MISSES = 30;
 
-export function Terminal({ sessionId }: { sessionId: string }) {
+export function Terminal({ sessionId, preparing = false }: { sessionId: string; preparing?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
+  const preparingRef = useRef(preparing);
+  preparingRef.current = preparing;
   const [windows, setWindows] = useState<TmuxWindow[]>([]);
   const [finding, setFinding] = useState(false);
   const [q, setQ] = useState("");
@@ -89,7 +91,11 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ws.send(JSON.stringify(m));
       return true;
     };
-    const flushInput = () => { if (pending && send({ i: pending })) pending = ""; };
+    const flushInput = () => {
+      // 准备段期间窗格里是 claude -p，tty 会缓存按键，等干活的 Claude 起来后被它当输入读走
+      if (preparingRef.current) { pending = ""; return; }
+      if (pending && send({ i: pending })) pending = "";
+    };
     const onData = term.onData((d) => { pending += d; flushInput(); });
 
     // xterm 在 keydown 里记一个「见过 keydown」，随后的 input 事件（输入法直接交的字符）在这个状态下一律丢掉，等 keyup 才清。
@@ -242,6 +248,13 @@ export function Terminal({ sessionId }: { sessionId: string }) {
           <form className="term__find" onSubmit={(e) => { e.preventDefault(); if (q.trim()) void searchSession(sessionId, q.trim()); setFinding(false); }}>
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setFinding(false); }} placeholder="在历史里往上找" aria-label="搜索终端历史" />
           </form>
+        )}
+        {preparing && !dead && !failed && (
+          <div className="term__prep" role="status">
+            <span className="side__spin" aria-hidden />
+            <div className="term__prep-t">正在准备工作区</div>
+            <div className="term__prep-d">按项目规则建分支和 worktree、装依赖，好了 Claude 会在这里启动</div>
+          </div>
         )}
         {dead ? <div className="term__dead">会话已不在</div> : failed ? (
           <div className="term__dead">终端起不来：{failed} <button className="term__tab" onClick={() => setAttempt((n) => n + 1)}>重试</button></div>
