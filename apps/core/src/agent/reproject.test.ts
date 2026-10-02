@@ -126,3 +126,31 @@ describe("改项目：不是 Friday 自主干的活", () => {
     expect(getTask(t.id)!.pending ?? []).toEqual([]);
   });
 });
+
+describe("需求定项目，缺陷跟着走", () => {
+  const story = (meegleId: string, project?: string) =>
+    createTask({ title: `需求 ${meegleId}`, kind: "meegle", status: "understood", ...(project ? { project } : {}), source: { meegleId, storyContainer: true } });
+  const defect = (storyId: string, extra: Partial<Parameters<typeof createTask>[0]> = {}) =>
+    createTask({ title: `缺陷 of ${storyId}`, kind: "meegle", status: "understood", ...extra, source: { meegleId: `d-${Math.random()}`, linkedStoryId: storyId, ...(extra.source ?? {}) } });
+
+  it("没项目的缺陷、跟着旧项目走的缺陷都改；你单独指定过的不动", () => {
+    const s = story("st-1", "old-app");
+    const empty = defect("st-1");
+    const followed = defect("st-1", { project: "old-app" });
+    const mine = defect("st-1", { project: "other-app", source: { projectBy: "user" } });
+    const elsewhere = defect("st-x");
+    requestProjectChange(s.id, "fe-wealth-admin");
+    expect(getTask(empty.id)!.project).toBe("fe-wealth-admin");
+    expect(getTask(followed.id)!.project).toBe("fe-wealth-admin");
+    expect(getTask(mine.id)!.project).toBe("other-app");
+    expect(getTask(elsewhere.id)!.project).toBeUndefined();
+    expect(listAudit({ taskId: empty.id }).some((e) => e.action === "project_inherited")).toBe(true);
+  });
+
+  it("需求第一次定项目（原来没有），缺陷补上", () => {
+    const s = story("st-2");
+    const d = defect("st-2");
+    requestProjectChange(s.id, "fe-wealth-admin");
+    expect(getTask(d.id)!.project).toBe("fe-wealth-admin");
+  });
+});
