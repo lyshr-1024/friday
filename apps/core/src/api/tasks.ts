@@ -14,7 +14,7 @@ import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { handToFriday, startTask } from "../agent/taskStart.js";
-import { approvePending, finishTask, rejectTask } from "../agent/pipeline.js";
+import { approvePending, finishTask, rejectTask, reopenTask } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
@@ -442,6 +442,11 @@ export const tasks = new Hono()
   .post("/tasks/:id/ignore", async (c) => {
     const t = await finishTask(c.req.param("id"), "ignored", "你忽略了这条任务");
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
+  })
+  /** 收工了的任务重新打开；会话被关了但 worktree 还在就接回原来的对话 */
+  .post("/tasks/:id/reopen", async (c) => {
+    const r = await reopenTask(c.req.param("id"));
+    return r ? c.json(r) : c.json({ error: "任务不存在" }, 404);
   })
   .patch("/tasks/:id", async (c) => {
     const parsed = z

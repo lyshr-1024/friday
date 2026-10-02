@@ -90,5 +90,11 @@ const stamp = (col: "last_input_at" | "last_stop_at" | "seen_at") => (id: string
 };
 
 export const markInput = stamp("last_input_at");
+
+/** 重建会话时刷新：对账只放过刚建的会话，不刷的话 kill→new-session 那一下可能被当成已关 */
+export function refreshCreatedAt(id: string): void {
+  const t = now();
+  db().prepare("UPDATE term_sessions SET created_at = ?, updated_at = ? WHERE id = ?").run(t, t, id);
+}
 export const markStop = stamp("last_stop_at");
 export const markSeen = stamp("seen_at");

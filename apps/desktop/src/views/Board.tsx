@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type OkrWeeklyDraft, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
@@ -570,7 +570,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
       ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }, { label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
       ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
       ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
-      ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : []),
+      ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : [{ label: "重新打开", run: run(() => taskReopen(t.id)) }]),
       { label: "归到项目…", run: () => { close(); setEditing(t); } },
       { label: "操作记录", run: () => { close(); openLedger(t.id); } },
     ];
@@ -911,6 +911,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "ignore"))}>忽略</button>}
+      {closed && <button role="menuitem" onClick={() => run(() => taskReopen(t.id))}>重新打开</button>}
       <button
         role="menuitem"
         className="ctx__danger"
@@ -1240,7 +1241,7 @@ function TaskChat({ t, placeholder, onEscape }: { t: Task; placeholder: string; 
         mentionsFor={t.id}
         noJobCards
         {...(onEscape ? { onEscape, escLeavesDraft: true } : {})}
-        {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，重新打开后可以继续聊" } : {})}
+        {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，右上「···」里重新打开后可以继续聊" } : {})}
       />
     </div>
   );

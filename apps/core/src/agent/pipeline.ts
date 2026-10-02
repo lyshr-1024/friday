@@ -13,7 +13,7 @@ import { addMessage, conversationExists } from "../memory/conversations.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog } from "./runner.js";
-import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, runInSession } from "./sessions.js";
+import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession } from "./sessions.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
@@ -21,7 +21,7 @@ import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 import { closeRun, fillRunCost } from "./runLog.js";
-import { createRun, pendingRunsForTask, runByJob, setRunOutcome } from "../memory/runs.js";
+import { createRun, pendingRunsForTask, runByJob, runsForTask, setRunOutcome } from "../memory/runs.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
 
@@ -61,6 +61,22 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
+}
+
+/**
+ * 重新打开收工了的任务：回到进行中（没开过工的回待办），原来记成合并 / 收下的运行改记 reopened。
+ * 它自己的会话被收工关掉了但 worktree 还在，就重建会话接回原来的对话。
+ */
+export async function reopenTask(id: string): Promise<{ task: Task; terminal: boolean } | undefined> {
+  const t = getTask(id);
+  if (!t) return undefined;
+  if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
+  const task = updateTask(id, { status: t.source.jobId ? "processing" : "understood", attention: undefined, releasedAt: undefined })!;
+  for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
+  record({ taskId: id, action: "task_reopened", why: "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });
+  const s = getTermSession(id);
+  const terminal = Boolean(s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
+  return { task: getTask(id)!, terminal };
 }
 
 /**

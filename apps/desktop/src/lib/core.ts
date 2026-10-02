@@ -566,6 +566,12 @@ export async function taskSet(id: string, action: "done" | "ignore"): Promise<Ta
   return res.json();
 }
 
+export async function taskReopen(id: string): Promise<{ task: Task; terminal: boolean }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reopen`, { method: "POST" });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `reopen ${res.status}`);
+  return res.json();
+}
+
 export interface MentionItem { kind: "file" | "doc" | "shot"; label: string; ref: string }
 
 export async function taskMentions(id: string, q: string, signal?: AbortSignal): Promise<MentionItem[]> {
