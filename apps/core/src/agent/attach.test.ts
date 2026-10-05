@@ -142,6 +142,24 @@ describe("同步输出整帧发", () => {
     expect(out).toEqual(["a", "b"]);
   });
 
+  it("tmux 的局部刷新先藏光标、下一段才显示回来，攒到显示回来再发", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push("\x1b[34;47H\x1b[?25l\x1b[38;5;241m2");
+    expect(out).toEqual([]);
+    f.push("\x1b[39dHaiku\x1b[37;3H\x1b[?12l\x1b[?25h");
+    expect(out).toEqual(["\x1b[34;47H\x1b[?25l\x1b[38;5;241m2\x1b[39dHaiku\x1b[37;3H\x1b[?12l\x1b[?25h"]);
+  });
+
+  it("光标在之前的帧里就藏着（程序自己藏的），后续输出照常立刻发", () => {
+    const out: string[] = [];
+    const f = frameBuffer((d) => out.push(d));
+    f.push("\x1b[?25l");
+    vi.advanceTimersByTime(50);
+    f.push("a");
+    expect(out).toEqual(["\x1b[?25l", "a"]);
+  });
+
   it("一直不收口最多等 50ms", () => {
     const out: string[] = [];
     const f = frameBuffer((d) => out.push(d));

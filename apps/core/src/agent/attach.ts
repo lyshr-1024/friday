@@ -29,9 +29,13 @@ interface Viewer { sessionId: string; pty: PtyLike; listeners: Set<(d: string) =
 
 // 窗格里的程序一用同步输出（Claude Code 每次刷状态栏都包一层 ?2026h…l），tmux 在同步结束时把整屏重画一遍（3–6KB），
 // node-pty 按 1KB 切成好几段。一段一发，xterm 就可能在「光标已藏、整屏还没画完」时出一帧——光标和输入框边框跟着闪（2026-10-02 用户报）。
-// 所以同步块没收口就先攒着，收口了再整帧发；收不了口最多等 SYNC_HOLD_MS
+// 所以同步块没收口就先攒着，收口了再整帧发；收不了口最多等 SYNC_HOLD_MS。
+// tmux 发给客户端的其实不带 ?2026（2026-10-05 录过：0 处），它每次刷新是「?25l 藏光标 … 挪回输入框 ?25h」，
+// spinner 每跳一下都这样，且常被切在 ?25l 之后。所以这段缓冲里藏了光标还没显示回来，也一样攒着——否则 Claude 一输出，输入框光标就跟着闪
 const SYNC_ON = "\x1b[?2026h";
 const SYNC_OFF = "\x1b[?2026l";
+const CURSOR_HIDE = "\x1b[?25l";
+const CURSOR_SHOW = "\x1b[?25h";
 const SYNC_HOLD_MS = 50;
 export function frameBuffer(emit: (d: string) => void): { push(d: string): void; flush(): void } {
   let buf = "";
@@ -47,7 +51,7 @@ export function frameBuffer(emit: (d: string) => void): { push(d: string): void;
   return {
     push(d) {
       buf += d;
-      if (buf.lastIndexOf(SYNC_ON) <= buf.lastIndexOf(SYNC_OFF)) return flush();
+      if (buf.lastIndexOf(SYNC_ON) <= buf.lastIndexOf(SYNC_OFF) && buf.lastIndexOf(CURSOR_HIDE) <= buf.lastIndexOf(CURSOR_SHOW)) return flush();
       timer ??= setTimeout(flush, SYNC_HOLD_MS);
     },
     flush,
