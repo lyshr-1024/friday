@@ -987,6 +987,8 @@ export interface SummonCard {
   reply?: string;
   actions: SummonAction[];
   matchTaskId?: string;
+  /** 模型判断这件事属于注册表里的哪个项目；「建成任务」时带到任务上，开工就不用再选 */
+  project?: string;
 }
 
 /** HUD 里说的话去了哪：转给终端 / 重开终端后转达 / 新开终端 / 落回通用对话 */

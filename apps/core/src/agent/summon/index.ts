@@ -87,6 +87,7 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
       rules,
       candidates: candidates(input),
       global: globalContext(),
+      registry: projects.map((p) => p.name),
       ...(scene ? { scene } : {}),
       ...(slack ? { slackConv: slack.conv } : {}),
     });

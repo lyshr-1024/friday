@@ -21,6 +21,8 @@ export interface CardInput {
   scene?: string;
   /** Slack 场景命中的对话键，供模型的 slack_query/slack_task/slack_attach 动作使用 */
   slackConv?: string;
+  /** 项目注册表里的全部项目名，card.project 只能从这里选 */
+  registry?: string[];
   signal?: AbortSignal;
 }
 
@@ -29,6 +31,8 @@ export interface AllowedIds {
   /** key 是 taskId，值是该任务下允许的 pending：actionId → 类型。类型取自真实任务数据，模型伪造不了 */
   actionIds: Record<string, Record<string, PendingActionType>>;
   projects: string[];
+  /** 注册表全部项目名：card.project 的取值范围（start_work 的 project 仍只认候选任务的） */
+  registry: string[];
   /** Slack 场景命中的对话键，slack_query/slack_task/slack_attach 只能指向它 */
   slackConv?: string;
   /** 此刻浏览器停的地址，meegle_add 只能指向它，防止模型编一个工单链接 */
@@ -48,8 +52,14 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     "判断要短：verdict 一到两句中文，说结论不说过程，不要复述你看到的内容。",
     `只能用这几种动作：${KINDS.join(" / ")}。taskId、actionId、project 只能用下面给出的值，不能自己编。最多 3 个动作。`,
     UNTRUSTED_NOTE,
-    'Slack 场景可以给 reply 草稿（用户身份，中文，不要承诺工期和人力）。只输出一个 JSON 对象：{"verdict":"","reply":"","actions":[],"matchTaskId":""}。',
-  ].join("\n");
+    // 判断里认出的项目要单独落成字段：卡片阶段看过整段对话和注册表，建任务时要靠它免掉「再选一次项目」
+    input.registry?.length
+      ? `project：这件事属于哪个项目，只能填这几个名字之一：${input.registry.join(" / ")}；判不出来留空，不要猜。`
+      : "",
+    'Slack 场景可以给 reply 草稿（用户身份，中文，不要承诺工期和人力）。只输出一个 JSON 对象：{"verdict":"","reply":"","actions":[],"matchTaskId":"","project":""}。',
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   // 浏览器的标题在 browser.title 里，app.title 往往是空的；
   // 两处都写会让模型读到「标题：」的空缺，然后回一句「标题为空」——它其实拿到了
@@ -188,11 +198,13 @@ export function parseCard(text: string, allowed: AllowedIds): SummonCard {
       : [];
     const matchTaskId = typeof row.matchTaskId === "string" && allowed.taskIds.includes(row.matchTaskId) ? row.matchTaskId : undefined;
     const reply = typeof row.reply === "string" && row.reply.trim() ? row.reply.slice(0, 2000) : undefined;
+    const project = typeof row.project === "string" && allowed.registry.includes(row.project) ? row.project : undefined;
     return {
       verdict: typeof row.verdict === "string" ? row.verdict.slice(0, 400) : "",
       actions,
       ...(reply ? { reply } : {}),
       ...(matchTaskId ? { matchTaskId } : {}),
+      ...(project ? { project } : {}),
     };
   } catch {
     return { verdict: "", actions: [] };
@@ -206,6 +218,7 @@ export async function summonCard(input: CardInput): Promise<SummonCard> {
       input.candidates.map((c) => [c.task.id, Object.fromEntries((c.task.pending ?? []).map((p) => [p.id, p.type]))]),
     ),
     projects: [...new Set(input.candidates.map((c) => c.task.project).filter((p): p is string => Boolean(p)))],
+    registry: input.registry ?? [],
     ...(input.slackConv ? { slackConv: input.slackConv } : {}),
     ...(input.snapshot.browser?.url ? { browserUrl: input.snapshot.browser.url } : {}),
   };
