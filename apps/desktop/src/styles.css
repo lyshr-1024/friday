@@ -4704,16 +4704,6 @@ body:has(.hud)::-webkit-scrollbar {
 .topbar__jobs .num {
   color: var(--live);
 }
-.topbar__confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: 3px var(--s-2);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  font-size: var(--t-micro);
-  color: var(--fg-2);
-}
 .topbar__model {
   font-size: var(--t-micro);
   color: var(--fg-4);
@@ -5352,3 +5342,18 @@ label.hbr__item { cursor: default; }
 .pj__term:last-child { margin-bottom: 16px; }
 .pj__bar { flex: none; display: flex; align-items: center; gap: var(--s-2); padding: 0 2px 6px; font-size: var(--t-xs); color: var(--fg-2); }
 .pj__termbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- 顶栏「N 个终端」点开的列表 ---------- */
+.tlist__wrap { position: relative; }
+.tlist { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px; border-radius: 10px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(10, 16, 24, 0.98); box-shadow: var(--shadow-pop); }
+.tlist__row { display: flex; align-items: center; gap: var(--s-2); padding: 2px 4px 2px 8px; border-radius: 6px; }
+.tlist__row:hover { background: rgba(56, 214, 255, 0.06); }
+.tlist__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border: none; background: none; color: inherit; font: inherit; text-align: left; cursor: default; }
+.tlist__t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); color: var(--fg-1); }
+.tlist__m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-micro); color: var(--fg-4); }
+.tlist__x { flex: none; width: 24px; height: 24px; border-radius: 6px; border: none; background: none; color: var(--fg-3); font-size: 15px; cursor: default; }
+.tlist__x:hover:not(:disabled) { background: rgba(255, 90, 90, 0.12); color: var(--bad); }
+.tlist__main:focus-visible, .tlist__x:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.tlist__foot { display: flex; align-items: center; gap: var(--s-2); margin-top: 4px; padding: 8px 8px 4px; border-top: 1px solid var(--line-1); }
+.tlist__note { flex: 1; min-width: 0; font-size: var(--t-micro); color: var(--fg-4); }
+.tlist__err { flex: 1; min-width: 0; font-size: var(--t-micro); color: var(--bad); }

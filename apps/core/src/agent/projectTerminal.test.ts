@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ProjectOverview, ProjectTerminal } from "@friday/shared";
+import type { OpenTerminal, ProjectOverview, ProjectTerminal } from "@friday/shared";
 import { app } from "../api/index.js";
 import { config } from "../config.js";
 import { createTask, getTask, taskBoard } from "../memory/tasks.js";
@@ -100,6 +100,20 @@ describe("项目终端", () => {
     expect(o.envs).toEqual([{ name: "测试", url: "demo.test/x" }]);
     expect(o.open.map((x) => x.id)).toEqual([t.id]);
     expect((await app.request("/projects/nope/overview")).status).toBe(404);
+  });
+
+  it("顶栏终端列表：每个会话一行，能单个关、能全部关", async () => {
+    const c = await open();
+    const sh = await post("/projects/pt-demo/shell");
+    const list = async () => ((await (await app.request("/terminals")).json()) as OpenTerminal[]).filter((t) => t.project === "pt-demo");
+    const before = await list();
+    expect(before.map((t) => [t.where, t.label]).sort()).toEqual([["project", "pt-demo · Claude"], ["shell", "pt-demo · 终端"]]);
+    expect(before.every((t) => t.taskId === undefined)).toBe(true);
+    await app.request(`/terminals/${sh.shell.taskId}/close`, { method: "POST" });
+    expect((await list()).map((t) => t.where)).toEqual(["project"]);
+    await app.request("/terminals/close-all", { method: "POST" });
+    expect(await list()).toEqual([]);
+    expect(getJob(c.jobId)!.status).not.toBe("running");
   });
 
   it("注册表里没有的项目报 404", async () => {

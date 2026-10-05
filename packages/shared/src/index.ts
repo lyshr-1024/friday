@@ -322,6 +322,18 @@ export interface ProjectTerminal {
   openTasks: number;
 }
 
+/** 顶栏「N 个终端」点开的列表：一个 tmux 会话一行 */
+export interface OpenTerminal {
+  sessionId: string;
+  label: string;
+  where: "task" | "query" | "project" | "shell";
+  project: string;
+  state: SessionState;
+  /** 点了跳到哪：任务会话是任务 id；项目的 Claude / 终端跳项目页 */
+  taskId?: string;
+  branch?: string;
+}
+
 export interface ProjectTaskLine {
   id: string;
   title: string;

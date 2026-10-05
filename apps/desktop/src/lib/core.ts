@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -452,13 +452,16 @@ export async function jobReopen(id: string): Promise<void> {
 }
 
 /** 批量关终端。onlyFinished 只关任务已完成或忽略的。 */
-export async function closeAllJobs(onlyFinished = false): Promise<{ closed: number; scanned: number }> {
-  const res = await fetch(`${await coreBaseUrl()}/jobs/close-all`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ onlyFinished }),
-  });
-  if (!res.ok) throw new Error(`关闭失败：core 返回 ${res.status}`);
+export async function openTerminals(): Promise<OpenTerminal[]> {
+  const res = await fetch(`${await coreBaseUrl()}/terminals`);
+  if (!res.ok) throw new Error(`terminals ${res.status}`);
+  return res.json();
+}
+
+/** 关一个（id = 会话 id）或全部；任务本身不动 */
+export async function closeTerminals(id?: string): Promise<{ closed: number | boolean }> {
+  const res = await fetch(`${await coreBaseUrl()}/terminals/${id ? `${encodeURIComponent(id)}/close` : "close-all"}`, { method: "POST" });
+  if (!res.ok) throw new Error(`关不掉（${res.status}）`);
   return res.json();
 }
 
