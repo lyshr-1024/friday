@@ -152,7 +152,12 @@ export function Hud() {
     setNote(null);
     // 成功后窗口还要停 1.5 秒才收，这期间保持锁住，下次呼出由 start() 解锁
     try {
-      const text = await runAction(a);
+      const { text, focus } = await runAction(a);
+      if (focus) {
+        // 建成 / 打开任务：直接跳到工作台选中它，HUD 不停留
+        void invoke("open_task", { taskId: focus });
+        return;
+      }
       setNote({ text, err: false });
       setTimeout(() => void invoke("hide_hud"), 1500);
     } catch (e) {
@@ -271,6 +276,11 @@ export function Hud() {
           if (ev.result.choices?.length && slackConv) {
             setAttaching({ conv: slackConv.conv, tasks: ev.result.choices.map((x) => ({ id: x.id, title: x.title }) as Task) });
             setAnswer("");
+            return;
+          }
+          if (ev.result.did === "slack_task" && ev.result.taskId) {
+            // 「建成任务」建完直接跳到工作台选中它，原来只闪一句提示就收起，人还停在 Slack 里
+            void invoke("open_task", { taskId: ev.result.taskId });
             return;
           }
           setNote({ text: ev.result.message, err: false });

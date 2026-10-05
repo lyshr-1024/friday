@@ -76,6 +76,13 @@ fn hide_hud(app: tauri::AppHandle) {
     hud::hide(&app);
 }
 
+/// HUD 里建成 / 打开任务后跳到工作台选中它。收起 HUD 时不回到上一个 app，焦点给工作台。
+#[tauri::command]
+fn open_task(app: tauri::AppHandle, task_id: String) {
+    hud::dismiss(&app);
+    window::open_task(&app, task_id);
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
     // dev 实例与正式版共用 bundle id，单实例插件会把焦点转给已运行的正式版；
@@ -112,6 +119,7 @@ pub fn run() {
             capture_snapshot,
             take_pending_summon,
             hide_hud,
+            open_task,
             resummon
         ])
         .setup(|app| {
