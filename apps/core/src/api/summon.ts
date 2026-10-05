@@ -16,7 +16,7 @@ import { askStream } from "../agent/claude.js";
 import { classifyIntent } from "../agent/summon/intent.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
 import { candidateTasks } from "../agent/slack/attach.js";
-import { conversationKey, slackNode, taskNode } from "../memory/infer.js";
+import { conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { listTasks, updateTask } from "../memory/tasks.js";
@@ -99,7 +99,7 @@ async function runIntent(intent: NonNullable<ReturnType<typeof classifyIntent>>,
     case "slack_task": {
       const first = items[0]!;
       const task = addNoteTask({
-        text: first.text,
+        text: withoutMentions(first.text),
         source: { conversation: conv, channelId: first.channelId, userName: first.userName, ...(first.threadTs ? { threadTs: first.threadTs } : {}) },
       });
       linkUp(slackNode(conv), taskNode(task.id), "user", "你在 HUD 里把这段对话建成了任务");

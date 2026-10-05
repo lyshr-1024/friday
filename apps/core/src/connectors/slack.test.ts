@@ -400,18 +400,35 @@ describe("频道里最近的对话", () => {
       seen.push(params);
       return { messages: { matches } } as Record<string, unknown>;
     };
-    const res = await fetchChannelRecent(call, "#team-fe-bo", 6);
+    const res = await fetchChannelRecent(call, "#team-fe-bo", "", 6);
     expect(seen[0]).toEqual({ query: "in:#team-fe-bo", count: "6", sort: "timestamp", sort_dir: "desc" });
     expect(res.channelId).toBe("C9");
-    expect(res.lines.map((l) => [l.userName, l.text])).toEqual([
-      ["U3", "菜单去掉 anyOf"],
-      ["浩然", "没有人在用了"],
+    expect(res.lines.map((l) => [l.userId, l.userName, l.text])).toEqual([
+      ["U3", "U3", "菜单去掉 anyOf"],
+      ["U2", "浩然", "没有人在用了"],
+    ]);
+  });
+
+  it("我自己发的标成「我」，thread 里的带上根 ts", async () => {
+    const call = async () =>
+      ({
+        messages: {
+          matches: [
+            { ts: "1757000300.000100", text: "我来批量改吧", user: "ME", username: "haoran.jing", channel: { id: "C9" } },
+            { ts: "1757000200.000100", text: "<@ME> 这个在基础组件中优化一下", user: "U2", username: "bo.li", thread_ts: "1757000100.000100", channel: { id: "C9" } },
+          ],
+        },
+      }) as Record<string, unknown>;
+    const res = await fetchChannelRecent(call, "team-fe-bo", "ME");
+    expect(res.lines.map((l) => [l.userName, l.threadTs])).toEqual([
+      ["bo.li", "1757000100.000100"],
+      ["我", undefined],
     ]);
   });
 
   it("接口报错时返回空，不让呼出失败", async () => {
     const call = async () => { throw new Error("enterprise_is_restricted"); };
-    expect(await fetchChannelRecent(call, "team-fe-bo")).toEqual({ lines: [] });
+    expect(await fetchChannelRecent(call, "team-fe-bo", "")).toEqual({ lines: [] });
   });
 });
 
