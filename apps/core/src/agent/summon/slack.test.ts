@@ -6,7 +6,7 @@ import { linkUp } from "../../memory/links.js";
 import { slackNode, taskNode } from "../../memory/infer.js";
 import { slackScene } from "./slack.js";
 
-type Recent = { channelId?: string; lines: Array<{ ts: string; userName: string; text: string }> };
+type Recent = { channelId?: string; lines: Array<{ ts: string; userId?: string; userName: string; text: string; threadTs?: string }> };
 const channelMock = vi.fn(async (): Promise<Recent> => ({ lines: [] }));
 const dmMock = vi.fn(async (): Promise<Recent> => ({ lines: [] }));
 vi.mock("../../connectors/slack.js", () => ({
@@ -96,6 +96,44 @@ describe("HUD 在 Slack 前台", () => {
     const scene = (await slackScene("team-name-book", undefined))!;
     expect(scene.recent?.[0]?.userName).toBe("佳成 (Zhou Jiacheng)");
     expect(scene.recent?.[1]?.userName).toBe("someone.else");
+  });
+
+  it("频道里 @ 我的那条才是对话键，不是最后一条；@ 换成人名，我自己的标「我」", async () => {
+    addInboxItems([
+      { id: "C77:200", kind: "mention", channelId: "C77", channelName: "#team-fe-bo", userId: "U8", userName: "bo.li", text: "<@ME> 这个在基础组件中优化一下", permalink: "p", ts: "200" },
+      { id: "H9:1", kind: "dm", channelId: "H9", channelName: "与 佳成 (Zhou Jiacheng) 的私聊", userId: "U9", userName: "佳成 (Zhou Jiacheng)", text: "在", permalink: "p", ts: "100" },
+    ]);
+    channelMock.mockResolvedValue({
+      channelId: "C77",
+      lines: [
+        { ts: "150", userId: "U5", userName: "zhiyuan.xu", text: "<https://gitlab/mr/1021|mr> <@U9> 帮忙合一下" },
+        { ts: "200", userId: "U8", userName: "bo.li", text: "<@ME> 这个在基础组件中优化一下" },
+        { ts: "201", userId: "U9", userName: "jiacheng.zhou", text: "把分页调成 20" },
+        { ts: "202", userId: "ME", userName: "我", text: "我来批量改吧 <@U404>" },
+      ],
+    });
+    const scene = (await slackScene("team-fe-bo", undefined))!;
+    expect(channelMock).toHaveBeenCalledWith(expect.anything(), "team-fe-bo", "ME");
+    expect(scene.conv).toBe("C77:200");
+    expect(scene.text).toBe("@我 这个在基础组件中优化一下");
+    expect(scene.userName).toBe("bo.li");
+    expect(scene.recent?.map((l) => `${l.userName}：${l.text}`)).toEqual([
+      "zhiyuan.xu：<https://gitlab/mr/1021|mr> @佳成 (Zhou Jiacheng) 帮忙合一下",
+      "bo.li：@我 这个在基础组件中优化一下",
+      "佳成 (Zhou Jiacheng)：把分页调成 20",
+      "我：我来批量改吧 @某人",
+    ]);
+  });
+
+  it("@ 我的那条在 thread 里时，对话键用根 ts，跟收件箱一致", async () => {
+    channelMock.mockResolvedValue({
+      channelId: "C78",
+      lines: [
+        { ts: "310", userId: "U8", userName: "bo.li", text: "<@ME> 看下这个", threadTs: "300" },
+        { ts: "320", userId: "U9", userName: "x", text: "无关的新消息" },
+      ],
+    });
+    expect((await slackScene("team-fe-bo", undefined))?.conv).toBe("C78:300");
   });
 
   it("整段对话里出现过工单号就自动挂上，收件箱里没这条也认得", async () => {

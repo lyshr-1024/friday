@@ -31,6 +31,11 @@ const URL_IN_TEXT = /https?:\/\/[^\s<>"'）)】]+/g;
 // 中英文句读都可能紧跟在链接后面，一起剥掉
 const TAIL_PUNCT = /[.,;:!?。，、；：！？]+$/;
 
+/** 建任务标题用：把 `<@U…>` 这类 Slack 标记去掉——「<@U092UA21P6D> 这个优化一下」当标题谁都读不懂 */
+export function withoutMentions(text: string): string {
+  return text.replace(/<[@!][^>]*>/g, "").replace(/\s{2,}/g, " ").trim();
+}
+
 export function urlsIn(text: string): string[] {
   return text ? [...new Set((text.match(URL_IN_TEXT) ?? []).map((u) => u.replace(TAIL_PUNCT, "")))] : [];
 }

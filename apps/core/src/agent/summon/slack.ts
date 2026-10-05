@@ -12,7 +12,7 @@ import { normUrl } from "../docTitle.js";
 import { attachedTasks } from "../slack/attach.js";
 import { linkUp } from "../../memory/links.js";
 import { listTasks } from "../../memory/tasks.js";
-import { displayNames } from "../../memory/roster.js";
+import { displayNames, userNames } from "../../memory/roster.js";
 
 export interface SlackScene {
   conv: string;
@@ -34,7 +34,7 @@ const prettyName = (raw: string, book: Map<string, string>) => book.get(raw.toLo
  */
 const LIVE_TIMEOUT_MS = 4_000;
 
-type Live = { channelId?: string; lines: SlackContextLine[] };
+type Live = { channelId?: string; lines: SlackContextLine[]; me?: string };
 
 /**
  * 去 Slack 拉这段对话的原文。私聊和频道取数的接口不同（私聊只能 client.counts + history，
@@ -44,9 +44,23 @@ async function liveConversation(channel?: string, person?: string): Promise<Live
   const creds = await loadSlackCreds();
   if (!creds) return { lines: [] };
   const call = slackCaller(creds);
-  if (channel) return fetchChannelRecent(call, channel);
+  const me = await slackSelfId(call);
+  if (channel) return { ...(await fetchChannelRecent(call, channel, me)), me };
   if (!person) return { lines: [] };
-  return fetchDmRecent(call, person, await slackSelfId(call));
+  return { ...(await fetchDmRecent(call, person, me)), me };
+}
+
+const MENTION = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
+
+const mentionsMe = (text: string, me: string) => Boolean(me) && text.includes(`<@${me}>`);
+
+/**
+ * `<@U092UA21P6D>` 对模型是一串乱码：它分不清哪条 @ 的是我、哪条 @ 的是别人，
+ * 实测把「@佳成 帮忙合一下」说成「有人在等你处理」。换成人名，我自己换成「我」。
+ * 人名只从本地查：对话里出现过的人 + 收件箱花名册，都没有写「某人」，绝不显示 ID。
+ */
+function renderMentions(text: string, names: Map<string, string>, me: string): string {
+  return text.replace(MENTION, (_m, id: string) => `@${id === me ? "我" : (names.get(id) ?? "某人")}`);
 }
 
 
@@ -102,8 +116,12 @@ export async function slackScene(channel?: string, person?: string): Promise<Sla
     new Promise<Live>((r) => setTimeout(() => r({ lines: [] }), LIVE_TIMEOUT_MS)),
   ]);
 
+  const me = live.me ?? "";
   const book = live.lines.length ? displayNames() : new Map<string, string>();
-  const lines = live.lines.map((l) => ({ ...l, userName: prettyName(l.userName, book) }));
+  const named = live.lines.map((l) => ({ ...l, userName: prettyName(l.userName, book) }));
+  const names = live.lines.length ? userNames() : new Map<string, string>();
+  for (const l of named) if (l.userId && l.userName !== "我") names.set(l.userId, l.userName);
+  const lines = named.map((l) => ({ ...l, text: renderMentions(l.text, names, me) }));
 
   const want = channel?.replace(/^#/, "");
   const who = person ? bareName(person) : "";
@@ -115,14 +133,17 @@ export async function slackScene(channel?: string, person?: string): Promise<Sla
     )
     .sort((a, b) => Number(b.ts) - Number(a.ts))[0];
 
-  const last = lines.at(-1);
-  if (last && live.channelId) {
-    const conv = `${live.channelId}:${last.ts}`;
+  // 对话键锚在最后一条 @ 我的消息上：那才是「要我处理的事」，收件箱里存的也是它——
+  // 锚在最后一条（往往是我自己的回话）会让「建成任务 / 帮我查」在收件箱里查不到对话。
+  const anchorAt = live.lines.map((l) => mentionsMe(l.text, me)).lastIndexOf(true);
+  const anchor = anchorAt >= 0 ? lines[anchorAt] : lines.at(-1);
+  if (anchor && live.channelId) {
+    const conv = `${live.channelId}:${anchor.threadTs ?? anchor.ts}`;
     const taskId = attachedTasks(conv)[0] ?? attachByTicket(conv, lines);
     return {
       conv,
-      text: last.text,
-      userName: last.userName,
+      text: anchor.text,
+      userName: anchor.userName,
       channelName: channel ? (channel.startsWith("#") ? channel : `#${channel}`) : (hit?.channelName ?? `与 ${person} 的私聊`),
       ...(taskId ? { taskId } : {}),
       recent: lines,

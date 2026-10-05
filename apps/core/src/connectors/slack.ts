@@ -293,6 +293,8 @@ export interface SlackContextLine {
   userId?: string;
   userName: string;
   text: string;
+  /** 在 thread 里时的根 ts；对话键按它算，跟收件箱一致 */
+  threadTs?: string;
 }
 
 export const CONTEXT_LIMIT = 10;
@@ -358,6 +360,7 @@ export async function deleteMessage(call: Call, channel: string, ts: string): Pr
 export async function fetchChannelRecent(
   call: Call,
   channelName: string,
+  me: string,
   limit = CONTEXT_LIMIT,
 ): Promise<{ channelId?: string; lines: SlackContextLine[] }> {
   let matches: SearchMatch[] = [];
@@ -381,7 +384,15 @@ export async function fetchChannelRecent(
     if ((m as { subtype?: string }).subtype) continue;
     const text = (m.text ?? "").trim();
     if (!text) continue;
-    lines.push({ ts: m.ts, userName: m.username ?? m.user ?? "未知", text });
+    // 我自己说的标「我」，跟私聊那条路一致——否则模型分不清哪条是我的承诺、哪条 @ 的是我
+    const userName = me && m.user === me ? "我" : (m.username ?? m.user ?? "未知");
+    lines.push({
+      ts: m.ts,
+      ...(m.user ? { userId: m.user } : {}),
+      userName,
+      text,
+      ...(m.thread_ts && m.thread_ts !== m.ts ? { threadTs: m.thread_ts } : {}),
+    });
   }
   lines.sort((a, b) => Number(a.ts) - Number(b.ts));
   return { ...(channelId ? { channelId } : {}), lines };
