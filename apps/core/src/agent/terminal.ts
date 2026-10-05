@@ -1,13 +1,14 @@
 import { existsSync } from "node:fs";
-import type { Task } from "@friday/shared";
+import type { OpenTerminal, Task } from "@friday/shared";
 import { isFridayRun } from "@friday/shared";
 import { finishJob, getJob, runningJobs } from "../memory/jobs.js";
-import { listTasks } from "../memory/tasks.js";
+import { getTask, listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { getTermSession, openTermSessions, updateTermSession } from "../memory/termSessions.js";
 import { killSession, listSessionNames } from "./tmux.js";
 import { liveRootId, sayToSession } from "./sessions.js";
 import { detachSession } from "./attach.js";
+import { sessionState } from "./sessionState.js";
 import { publish } from "../bus.js";
 
 const FRESH_SESSION_MS = 30_000;
@@ -73,4 +74,34 @@ export async function closeTaskTerminal(task: Task, why: string): Promise<boolea
   const tree = task.source.worktree;
   if (tree && existsSync(tree)) record({ taskId: task.id, action: "worktree_kept", why, how: `worktree 还在：${tree}，终端里的 Claude 没收，留给你在设置页处理`, evidence: { worktree: tree, branch: task.source.branch ?? null }, risk: "read" });
   return closed;
+}
+
+/** 顶栏点开「N 个终端」：tmux 里还开着的会话，包括 Claude 已退出、只剩 zsh 的 */
+export function openTerminals(): OpenTerminal[] {
+  return openTermSessions().map((s) => {
+    const t = getTask(s.id);
+    const where: OpenTerminal["where"] = t?.source.projectShell ? "shell" : t?.source.projectTerminal ? "project" : s.kind === "query" ? "query" : "task";
+    const label = where === "shell" ? `${s.project} · 终端` : where === "project" ? `${s.project} · Claude` : (t?.title ?? s.tmuxName);
+    return {
+      sessionId: s.id,
+      label,
+      where,
+      project: s.project,
+      state: sessionState(t ?? { status: "processing" }, s),
+      ...(t && (where === "task" || where === "query") ? { taskId: t.id } : {}),
+      ...(s.branch ? { branch: s.branch } : {}),
+    };
+  });
+}
+
+/** 按会话关：杀 tmux 会话、会话里那次运行收尾。任务本身不动，worktree 留着 */
+export async function closeSessionTerminal(sessionId: string, why: string): Promise<boolean> {
+  const s = getTermSession(sessionId);
+  if (!s || s.status === "closed") return false;
+  if (s.jobId && getJob(s.jobId)) return closeJobTerminal(s.jobId, why, s.id);
+  await killSession(s.tmuxName);
+  updateTermSession(s.id, { status: "closed" });
+  detachSession(s.id);
+  record({ taskId: s.id, action: "terminal_closed", why, how: "关掉 tmux 会话", evidence: { session: s.tmuxName }, risk: "reversible" });
+  return true;
 }

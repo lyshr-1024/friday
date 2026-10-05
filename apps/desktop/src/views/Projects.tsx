@@ -92,6 +92,13 @@ export function Projects({ nav, onOpenTask }: { nav: ReactNode; onOpenTask: (id:
     return () => { window.clearInterval(t); window.removeEventListener("friday:tasks-changed", refresh); };
   }, [refresh]);
 
+  // 顶栏终端列表里点了某个项目
+  useEffect(() => {
+    const onPick = (e: Event) => setPicked((e as CustomEvent<string>).detail);
+    window.addEventListener("friday:pick-project", onPick);
+    return () => window.removeEventListener("friday:pick-project", onPick);
+  }, []);
+
   const cur = list?.find((p) => p.name === picked) ?? list?.[0];
 
   useEffect(() => {

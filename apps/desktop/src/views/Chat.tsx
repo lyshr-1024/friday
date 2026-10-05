@@ -4,12 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, coreBaseUrl, jobs as fetchJobs, jobsSweep, newConversation, routeAsk, routines, settings, updateSettings, closeAllJobs } from "../lib/core";
+import { cancelAsk, conversations, coreBaseUrl, jobsSweep, newConversation, routeAsk, routines, settings, updateSettings } from "../lib/core";
 import type { RouteResult } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { LinkMenuHost, fmtTime } from "./shared";
 import { MoreMenu } from "./TaskDialog";
 import { Projects } from "./Projects";
+import { TerminalsMenu } from "./TerminalsMenu";
 import { LearnDialog, WeeklyDialog, openReviews, openWeekly, type Routine } from "./Routines";
 import { Board } from "./Board";
 import { Search } from "./Search";
@@ -145,26 +146,14 @@ export function Chat() {
   }, []);
   const runningConvs = useMemo(() => new Set(list.filter((c) => c.running).map((c) => c.id)), [list]);
 
-  // 导航底部「N 个任务在跑」
-  const [runningJobs, setRunningJobs] = useState(0);
-  const [closingJobs, setClosingJobs] = useState(false);
-
-  async function doCloseJobs() {
-    setClosingJobs(false);
+  /** 终端列表里点了项目的 Claude / 终端：切到项目页并选中它 */
+  function openProject(name: string) {
     try {
-      const r = await closeAllJobs();
-      setRunningJobs((n) => Math.max(0, n - r.closed));
-      window.dispatchEvent(new Event("friday:tasks-changed"));
-    } catch {
-      /* 关不掉就让下一轮轮询纠正计数 */
-    }
+      localStorage.setItem("friday:project", name);
+    } catch {}
+    setView("projects");
+    window.dispatchEvent(new CustomEvent("friday:pick-project", { detail: name }));
   }
-  useEffect(() => {
-    const pull = () => void fetchJobs().then((js) => setRunningJobs(js.filter((j) => j.status === "running").length)).catch(() => {});
-    pull();
-    const t = setInterval(pull, 10000);
-    return () => clearInterval(t);
-  }, []);
 
   async function refreshList() {
     try {
@@ -304,19 +293,7 @@ export function Chat() {
         ))}
       </span>
       <span className="topnav__sp" data-tauri-drag-region />
-      {runningJobs > 0 &&
-        (closingJobs ? (
-          <span className="topbar__confirm">
-            关掉这 {runningJobs} 个终端？里面跑着的 Claude Code 会一起停掉。
-            <button className="b b--primary" onClick={() => void doCloseJobs()}>全部关掉</button>
-            <button className="b b--text" onClick={() => setClosingJobs(false)}>取消</button>
-          </span>
-        ) : (
-          <button className="topbar__jobs" onClick={() => setClosingJobs(true)} title="关掉所有在跑的终端">
-            <span className="side__spin" />
-            <span className="num mono">{runningJobs}</span> 个终端
-          </button>
-        ))}
+      <TerminalsMenu onOpenTask={(id) => void openTask(id)} onOpenProject={openProject} />
       <UsageStrip />
       <span className="topbar__model mono" title="会话用的模型，设置里可改">{modelLabel || "跟随 Claude Code"}</span>
       <MoreMenu actions={menu} label="Friday 菜单" />

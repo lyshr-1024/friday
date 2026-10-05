@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { z } from "zod";
 import { onJobExit } from "../agent/pipeline.js";
-import { closeJobTerminal, sweepClosedTerminals } from "../agent/terminal.js";
+import { closeJobTerminal, closeSessionTerminal, openTerminals, sweepClosedTerminals } from "../agent/terminal.js";
 import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
 import { checkPush, describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
@@ -22,29 +22,25 @@ export const jobs = new Hono()
       你 ⌘W 关掉终端再切回来，看到的状态就是对的，不用等调度器那一分钟。 */
   .post("/jobs/sweep", async (c) => c.json({ closed: await sweepClosedTerminals() }))
   /** 关掉一个终端：杀进程组 + job 收尾。任务不动，用户可能还想接着做。 */
+  .get("/terminals", (c) => c.json(openTerminals()))
+  .post("/terminals/:id/close", async (c) => {
+    const closed = await closeSessionTerminal(c.req.param("id"), "你在顶栏的终端列表里关了它");
+    publish({ type: "tasks" });
+    return c.json({ closed });
+  })
+  /** 全部关掉：按会话关，Claude 已退出、只剩 zsh 的也一起关（原来按运行中的 job 关，会漏掉这些） */
+  .post("/terminals/close-all", async (c) => {
+    let closed = 0;
+    for (const t of openTerminals()) if (await closeSessionTerminal(t.sessionId, "你在顶栏一键关了全部终端")) closed++;
+    publish({ type: "tasks" });
+    return c.json({ closed });
+  })
   .post("/jobs/:id/close", async (c) => {
     const id = c.req.param("id");
     const job = getJob(id);
     if (!job) return c.json({ error: "没有这个终端" }, 404);
     await closeJobTerminal(id, "用户手动关闭");
     return c.json({ closed: getJob(id)?.status !== "running", id });
-  })
-  /** 关掉所有在跑的终端。任务已经完成或忽略的优先，全关则不挑。 */
-  .post("/jobs/close-all", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { onlyFinished?: boolean };
-    const running = listJobs().filter((j) => j.status === "running");
-    const targets = body.onlyFinished
-      ? running.filter((j) => {
-          const t = findTaskBySource((src) => src.jobId === j.id, true);
-          return !t || t.status === "done" || t.status === "ignored";
-        })
-      : running;
-    let closed = 0;
-    for (const j of targets) {
-      closeJobTerminal(j.id, body.onlyFinished ? "任务已收工，清理遗留终端" : "用户一键关闭全部终端");
-      if (getJob(j.id)?.status !== "running") closed++;
-    }
-    return c.json({ closed, scanned: running.length });
   })
   .get("/jobs/:id", (c) => {
     const job = getJob(c.req.param("id"));
