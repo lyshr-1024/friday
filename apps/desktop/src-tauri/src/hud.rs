@@ -162,3 +162,22 @@ pub fn hide(app: &AppHandle) {
         let _ = win.hide();
     }
 }
+
+/// 收起 HUD 但不把焦点还给上一个 app：接下来要把工作台推到前台（建完任务跳过去），
+/// 走 hide() 的话上一个 app 和工作台会抢焦点。
+#[cfg(target_os = "macos")]
+pub fn dismiss(app: &AppHandle) {
+    if let Ok(panel) = app.get_webview_panel("hud") {
+        panel.order_out(None);
+    } else if let Some(win) = app.get_webview_window("hud") {
+        let _ = win.hide();
+    }
+    if let Some(prior) = app.try_state::<PriorApp>() {
+        prior.0.lock().unwrap().take();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn dismiss(app: &AppHandle) {
+    hide(app);
+}

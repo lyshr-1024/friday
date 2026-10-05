@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { RunResponse, Snapshot, SummonAction, SummonEvent } from "@friday/shared";
 import { coreBaseUrl, conversationToTask, queryConversation } from "./core";
 
@@ -41,17 +40,21 @@ export async function* summonStream(snapshot: Snapshot, signal: AbortSignal): As
 }
 
 /** 执行一个动作，返回给用户看的一句话。 */
-export async function runAction(action: SummonAction): Promise<string> {
+/** 动作的结果：一句提示；带 focus 时 HUD 不停留，直接跳到工作台选中那条任务 */
+export interface ActionOutcome {
+  text: string;
+  focus?: string;
+}
+
+export async function runAction(action: SummonAction): Promise<ActionOutcome> {
   const base = await coreBaseUrl();
   switch (action.kind) {
     case "open_task":
-      // 工作台没有按 taskId 聚焦的现成入口，M1 只负责打开它，不新造事件
-      await invoke("open_chat", { conversationId: null, initialPrompt: null });
-      return "已打开工作台";
+      return { text: "已打开任务", focus: action.taskId };
     case "approve_pending": {
       const res = await fetch(`${base}/tasks/${action.taskId}/approve/${action.actionId}`, { method: "POST" });
       if (!res.ok) throw new Error(`执行失败 ${res.status}`);
-      return "已执行";
+      return { text: "已执行" };
     }
     case "start_work": {
       const res = await fetch(`${base}/run`, {
@@ -62,26 +65,30 @@ export async function runAction(action: SummonAction): Promise<string> {
       if (!res.ok) throw new Error(`开工失败 ${res.status}`);
       const body = (await res.json()) as RunResponse;
       if (body.status === "ambiguous") throw new Error(`项目名有歧义：${body.candidates.map((c) => c.name).join("、")}`);
-      return `已在 ${action.project} 开工`;
+      return { text: `已在 ${action.project} 开工` };
     }
     case "copy":
       await navigator.clipboard.writeText(action.text);
-      return "已复制";
+      return { text: "已复制" };
     case "slack_query":
+      // 后台查询不弹窗口（用户定），查完结果进任务卡
       await queryConversation(action.conv);
-      return "已在工作台里查";
-    case "slack_task":
-      await conversationToTask(action.conv);
-      return "已建成任务";
+      return { text: "已在工作台里查" };
+    case "slack_task": {
+      const task = await conversationToTask(action.conv);
+      return { text: "已建成任务", focus: task.id };
+    }
     default: {
       const res = await fetch(`${base}/summon/act`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      const body = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+      const body = (await res.json()) as { ok?: boolean; message?: string; error?: string; taskId?: string };
       if (!res.ok || !body.ok) throw new Error(body.error ?? "执行失败");
-      return body.message ?? "已完成";
+      // 建成任务 / 加进任务板：建完直接跳过去，不然人还停在原来的 app 里、不知道去哪找
+      const created = action.kind === "create_task" || action.kind === "meegle_add";
+      return { text: body.message ?? "已完成", ...(created && body.taskId ? { focus: body.taskId } : {}) };
     }
   }
 }
