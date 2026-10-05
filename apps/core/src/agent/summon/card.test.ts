@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Snapshot, SummonRules } from "@friday/shared";
 import { type AllowedIds, cardPrompt, parseCard } from "./card.js";
 
-const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "slack_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"] };
+const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "slack_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"], registry: ["whale-console", "fe-wealth-admin"] };
 
 const snapshot: Snapshot = {
   at: 0,
@@ -14,6 +14,12 @@ const snapshot: Snapshot = {
 const rules: SummonRules = { saw: "Slack · #wealth-fe", actions: [], willThink: true };
 
 describe("parseCard", () => {
+  it("project 只认注册表里的名字：认得的带上，编的丢掉", () => {
+    expect(parseCard('{"verdict":"x","actions":[],"project":"fe-wealth-admin"}', allowed).project).toBe("fe-wealth-admin");
+    expect(parseCard('{"verdict":"x","actions":[],"project":"不存在的项目"}', allowed).project).toBeUndefined();
+    expect(parseCard('{"verdict":"x","actions":[]}', allowed).project).toBeUndefined();
+  });
+
   it("解析正常输出", () => {
     const card = parseCard('{"verdict":"拂晓在催验收","reply":"我下午改","actions":[{"kind":"open_task","label":"打开","taskId":"t1"}],"matchTaskId":"t1"}', allowed);
     expect(card.verdict).toBe("拂晓在催验收");

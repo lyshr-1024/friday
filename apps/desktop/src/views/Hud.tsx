@@ -259,6 +259,7 @@ export function Hud() {
           ...(scene ? { scene } : {}),
           ...(snapshot?.browser?.url ? { url: snapshot.browser.url } : {}),
           ...(slackConv ? { conv: slackConv.conv } : {}),
+          ...(card?.project ? { project: card.project } : {}),
         },
         ctrl.signal,
       )) {

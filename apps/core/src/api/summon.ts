@@ -85,13 +85,20 @@ const findConv = (conv: string) => listInbox(true, CONV_SCAN_LIMIT).filter((i) =
  * 「帮我查这个 / 建成任务 / 挂到…」原来是三个按钮，零模型调用。按钮收起来之后这条性质要保住：
  * 正则认出来的直接在这儿执行，认不出来的才落回下面的通用对话（那里才花模型钱）。
  */
-async function runIntent(intent: NonNullable<ReturnType<typeof classifyIntent>>, conv: string): Promise<SummonRelayResult | undefined> {
+async function runIntent(
+  intent: NonNullable<ReturnType<typeof classifyIntent>>,
+  conv: string,
+  // HUD 卡片阶段已经算出来的：模型判的项目（只认注册表里有的）和整段对话 + 判断。
+  // 原来建任务只拿收件箱那一句，项目、背景全丢，开工时还得让用户再选一次项目。
+  ctx: { project?: string; scene?: string },
+): Promise<SummonRelayResult | undefined> {
   const items = findConv(conv);
   if (!items.length) return undefined;
+  const project = ctx.project && resolveProject(ctx.project).kind === "match" ? ctx.project : undefined;
   switch (intent) {
     case "slack_query": {
       const last = items.at(-1)!;
-      const task = await startQueryJob(last, last.text, undefined);
+      const task = await startQueryJob(last, last.text, project);
       return task
         ? { kind: "acted", did: intent, message: "已经在后台读代码查了，结果进任务卡", taskId: task.id }
         : { kind: "acted", did: intent, message: "没有可查的项目，projects.md 里先登记一个" };
@@ -100,7 +107,15 @@ async function runIntent(intent: NonNullable<ReturnType<typeof classifyIntent>>,
       const first = items[0]!;
       const task = addNoteTask({
         text: withoutMentions(first.text),
-        source: { conversation: conv, channelId: first.channelId, userName: first.userName, ...(first.threadTs ? { threadTs: first.threadTs } : {}) },
+        source: {
+          conversation: conv,
+          channelId: first.channelId,
+          userName: first.userName,
+          ...(first.threadTs ? { threadTs: first.threadTs } : {}),
+          ...(project ? { projectBy: "friday" as const } : {}),
+        },
+        ...(project ? { project } : {}),
+        ...(ctx.scene ? { understanding: ctx.scene.slice(0, 4000) } : {}),
       });
       linkUp(slackNode(conv), taskNode(task.id), "user", "你在 HUD 里把这段对话建成了任务");
       return { kind: "acted", did: intent, message: `已建成任务：${task.title}`, taskId: task.id };
@@ -170,7 +185,14 @@ export const summonApi = new Hono()
     }
   })
   .post("/summon/relay", async (c) => {
-    const { text, taskId, scene, url, conv } = (await c.req.json().catch(() => ({}))) as { text?: string; taskId?: string; scene?: string; url?: string; conv?: string };
+    const { text, taskId, scene, url, conv, project } = (await c.req.json().catch(() => ({}))) as {
+      text?: string;
+      taskId?: string;
+      scene?: string;
+      url?: string;
+      conv?: string;
+      project?: string;
+    };
     if (!text?.trim()) return c.json({ error: "缺 text" }, 400);
     const said = text.trim();
 
@@ -183,7 +205,7 @@ export const summonApi = new Hono()
       // ① 那三个原来是按钮的动作：正则认出来就直接做，不花模型钱
       const intent = conv ? classifyIntent(said) : undefined;
       if (intent) {
-        const acted = await runIntent(intent, conv!);
+        const acted = await runIntent(intent, conv!, { ...(project ? { project } : {}), ...(scene ? { scene } : {}) });
         if (acted) return finish(acted);
       }
 
