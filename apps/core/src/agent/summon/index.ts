@@ -8,6 +8,7 @@ import { buildRules, candidates, parseSlackTitle } from "./match.js";
 import { summonCard } from "./card.js";
 import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
+import { identifyUrl, sourceLine } from "../../connectors/urlSource.js";
 
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
@@ -80,6 +81,7 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const scene = sceneContext(snapshot, projects, slack);
   const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
+  const source = sourceLine(identifyUrl(snapshot.browser?.url, projects), snapshot.browser?.lane);
 
   try {
     const card = await summonCard({
@@ -88,6 +90,7 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
       candidates: candidates(input),
       global: globalContext(),
       registry: projects.map((p) => p.name),
+      ...(source ? { source } : {}),
       ...(scene ? { scene } : {}),
       ...(slack ? { slackConv: slack.conv } : {}),
     });

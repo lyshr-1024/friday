@@ -25,8 +25,8 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
     } else {
         None
     };
-    let browser = browser.map(|(url, title, text, errors)| {
-        json!({ "url": url, "title": title, "text": text, "errors": if errors.is_empty() { None } else { Some(errors) } })
+    let browser = browser.map(|(url, title, text, errors, lane)| {
+        json!({ "url": url, "title": title, "text": text, "errors": if errors.is_empty() { None } else { Some(errors) }, "lane": lane })
     });
     json!({
         "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
@@ -92,13 +92,15 @@ fn ax_attribute(element: &AXUIElement, attribute: &str) -> Option<CFRetained<CFT
 // 单引号是因为整段要嵌进 AppleScript 的双引号字符串里；换行一律走 String.fromCharCode(10)，
 // 写成 \n 会被 AppleScript 先解释成真换行，把 JS 的字符串字面量截断，整段返回 missing value（实测过）。
 const PAGE_JS: &str = "(function(){var N=String.fromCharCode(10);var t=document.body.innerText;var e=[];\
+var L=(document.cookie.split(';').map(function(x){return x.trim()}).filter(function(x){return x.indexOf('deploy-env=')===0})[0]||'').slice(11);\
 document.querySelectorAll('[role=alert],[class*=error],[class*=Error]').forEach(function(n){\
 var s=(n.innerText||'').trim();if(s&&s.length<300&&e.indexOf(s)<0)e.push(s)});\
 try{performance.getEntriesByType('resource').forEach(function(r){\
 if(r.responseStatus>=400)e.push(r.responseStatus+' '+r.name)})}catch(x){}\
-return t+N+'---ERRORS---'+N+e.slice(0,10).join(N)})()";
+return '---LANE---'+L+N+t+N+'---ERRORS---'+N+e.slice(0,10).join(N)})()";
 
-type TabInfo = (String, String, Option<String>, Vec<String>);
+/// url / tab 标题 / 正文 / 页面报错 / 泳道（根域 cookie deploy-env，console 系的环境靠它区分，URL 看不出）
+type TabInfo = (String, String, Option<String>, Vec<String>, Option<String>);
 
 fn browser_app_name(bundle_id: &str) -> Option<&'static str> {
     Some(match bundle_id {
@@ -148,19 +150,19 @@ fn browser_tab(bundle_id: &str, pid: i32, window_title: &str, accessibility: boo
     let scripted = scripted_tab(app_name);
     let expected_title = strip_browser_suffix(window_title, app_name);
     match (ax_url, scripted) {
-        (Some(url), Some((s_url, s_title, text, errors))) => {
+        (Some(url), Some((s_url, s_title, text, errors, lane))) => {
             if visible_chars(&s_url).trim_end_matches('/') == visible_chars(&url).trim_end_matches('/') {
-                Some((url, s_title, text, errors))
+                Some((url, s_title, text, errors, lane))
             } else {
                 crate::notify::log(&format!("浏览器抓取：AppleScript 拿到的是别的窗口或实例（{}），只用 AX 的 URL", truncate(&s_url, 80)));
-                Some((url, expected_title, None, Vec::new()))
+                Some((url, expected_title, None, Vec::new(), None))
             }
         }
-        (Some(url), None) => Some((url, expected_title, None, Vec::new())),
-        (None, Some((s_url, s_title, text, errors))) => {
+        (Some(url), None) => Some((url, expected_title, None, Vec::new(), None)),
+        (None, Some((s_url, s_title, text, errors, lane))) => {
             let tab = visible_chars(&s_title);
             if !tab.is_empty() && expected_title.starts_with(&tab) {
-                Some((s_url, s_title, text, errors))
+                Some((s_url, s_title, text, errors, lane))
             } else {
                 crate::notify::log(&format!("浏览器抓取：AX 读不到 URL，AppleScript 的 tab「{}」对不上窗口「{}」，丢弃", truncate(&tab, 40), truncate(&expected_title, 40)));
                 None
@@ -264,6 +266,13 @@ end tell"#
         return None;
     }
     let (body, error_block) = body.split_once("---ERRORS---").unwrap_or((body, ""));
+    let (lane, body) = match body.trim_start().strip_prefix("---LANE---") {
+        Some(rest) => {
+            let (l, b) = rest.split_once('\n').unwrap_or((rest, ""));
+            (Some(l.trim().to_string()).filter(|l| !l.is_empty()), b)
+        }
+        None => (None, body),
+    };
     let errors: Vec<String> = error_block
         .lines()
         .map(|l| l.trim())
@@ -273,7 +282,7 @@ end tell"#
     let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
     eprintln!("[friday] 浏览器抓取：url={} title={} 正文={}字 报错={}条", url.len(), title.len(), collapsed.chars().count(), errors.len());
     let text = if collapsed.is_empty() { None } else { Some(collapsed.chars().take(4000).collect()) };
-    Some((url, title, text, errors))
+    Some((url, title, text, errors, lane))
 }
 
 fn run_with_watchdog(program: &str, args: &[&str], timeout: Duration) -> Option<String> {

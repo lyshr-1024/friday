@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot, Task } from "@friday/shared";
 import type { Project } from "../../memory/projects.js";
-import { buildRules, browserEnv, candidates, defaultActions, meegleIdFromUrl, pagePath, parseSlackTitle, projectByCwd } from "./match.js";
+import { buildRules, browserEnv, candidates, defaultActions, meegleIdFromUrl, pagePath, parseSlackTitle, projectByCwd, projectByTitle } from "./match.js";
 
 const projects: Project[] = [
   { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: ["#wealth-fe"], urls: [], envs: [], extra: {} },
@@ -31,6 +31,47 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
     ...over,
   };
 }
+
+describe("页面标题与文档链接", () => {
+  const named: Project[] = [
+    { ...projects[0]!, aliases: ["后台", "console", "新后台"] },
+    { ...projects[1]!, aliases: ["老后台", "BO"] },
+  ];
+
+  it("「新的WBO后台验收」归新后台：中文别名按子串，ASCII 别名 BO 不能从 WBO 里抠出来", () => {
+    expect(projectByTitle("新的WBO后台验收-1006 - Lark云文档", named)?.name).toBe("whale-console");
+    expect(projectByTitle("BO 权限申请 - Lark云文档", named)?.name).toBe("fe-wealth-admin");
+    expect(projectByTitle("老后台菜单迁移", named)?.name).toBe("fe-wealth-admin");
+    expect(projectByTitle("今天天气", named)).toBeUndefined();
+  });
+
+  it("标题点了项目，该项目在办的任务成为候选", () => {
+    const mine = task({ id: "wc", project: "whale-console" });
+    const theirs = task({ id: "fw", project: "fe-wealth-admin" });
+    const out = candidates({
+      snapshot: snap({ app: { bundleId: "com.google.Chrome", name: "Chrome", title: "新的WBO后台验收-1006 - Lark云文档 - Google Chrome" } }),
+      tasks: [mine, theirs],
+      projects: named,
+    });
+    expect(out.map((c) => c.task.id)).toEqual(["wc"]);
+    expect(out[0]!.why).toContain("whale-console");
+  });
+
+  it("开着的 Lark 文档是某条任务挂着的资料就是 sure，带不带跟踪参数都认", () => {
+    const t = task({ id: "doc", source: { docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v?from=from_copylink", from: "meegle", title: "免佣卡多时段" }] } });
+    const out = candidates({
+      snapshot: snap({ browser: { url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v", title: "免佣卡多时段 - Lark云文档" } }),
+      tasks: [t, task({ id: "x" })],
+      projects,
+    });
+    expect(out[0]).toMatchObject({ task: { id: "doc" }, strength: "sure" });
+  });
+
+  it("saw 写明页面认成了什么", () => {
+    const rules = buildRules({ snapshot: snap({ browser: { url: "https://longbridge-group.jp.larksuite.com/docx/NWpXdmf6zo5Q", title: "新的WBO后台验收-1006" } }), tasks: [], projects });
+    expect(rules.saw).toContain("Lark 文档");
+  });
+});
 
 describe("parseSlackTitle", () => {
   it("从窗口标题里取频道", () => {
