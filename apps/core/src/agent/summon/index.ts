@@ -9,6 +9,10 @@ import { summonCard } from "./card.js";
 import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
 import { identifyUrl, sourceLine } from "../../connectors/urlSource.js";
+import { docExcerpt, fetchLarkDoc } from "../../connectors/lark.js";
+
+/** 文档正文的预算：到点没回来就不带正文直接问模型，卡上也只晚这么多 */
+const DOC_TIMEOUT_MS = 3_000;
 
 const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
@@ -81,7 +85,12 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const scene = sceneContext(snapshot, projects, slack);
   const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
-  const source = sourceLine(identifyUrl(snapshot.browser?.url, projects), snapshot.browser?.lane);
+  const identified = identifyUrl(snapshot.browser?.url, projects);
+  const source = sourceLine(identified, snapshot.browser?.lane);
+  // Lark 文档的正文页面 DOM 拿不到（虚拟渲染 + 目录评论栏混在一起），走 lark-cli；
+  // 规则卡已经发出去了，这里等的只是模型那张卡
+  const larkDoc = identified?.kind === "lark_doc" ? await fetchLarkDoc(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
+  const doc = larkDoc ? docExcerpt(larkDoc, snapshot.selection) : undefined;
 
   try {
     const card = await summonCard({
@@ -91,6 +100,7 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
       global: globalContext(),
       registry: projects.map((p) => p.name),
       ...(source ? { source } : {}),
+      ...(doc ? { doc } : {}),
       ...(scene ? { scene } : {}),
       ...(slack ? { slackConv: slack.conv } : {}),
     });

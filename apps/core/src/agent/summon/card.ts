@@ -21,6 +21,8 @@ export interface CardInput {
   scene?: string;
   /** 浏览器页面认成了什么（Lark 文档 / Meegle 工单 / 哪个项目哪条泳道），URL 结构模型自己看不出 */
   source?: string;
+  /** 开着的 Lark 文档的节选（lark-cli 取的，不是页面 DOM） */
+  doc?: string;
   /** Slack 场景命中的对话键，供模型的 slack_query/slack_task/slack_attach 动作使用 */
   slackConv?: string;
   /** 项目注册表里的全部项目名，card.project 只能从这里选 */
@@ -70,6 +72,7 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
     `app：${snapshot.app.name}${title ? `，标题：${title}` : ""}`,
     snapshot.browser?.url ? `网址：${snapshot.browser.url}` : "",
     input.source ?? "",
+    input.doc ? `文档内容（节选）：\n${input.doc}` : "",
     snapshot.browser?.text ? `页面正文：${snapshot.browser.text.slice(0, 4000)}` : "",
     snapshot.browser?.errors?.length ? `页面上的报错与失败请求：\n${snapshot.browser.errors.slice(0, 10).join("\n")}` : "",
     snapshot.selection ? `选中的文字：${snapshot.selection.slice(0, 4000)}` : "",
