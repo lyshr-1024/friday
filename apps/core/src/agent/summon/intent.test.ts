@@ -14,6 +14,17 @@ describe("HUD 里说的话想干什么", () => {
     }
   });
 
+  it("认得出「打开任务」的几种说法——说了没反应、还被 Opus 描述了一遍任务，就是因为原来不认这句", () => {
+    for (const s of ["打开一下对应任务", "打开任务", "打开这条任务", "跳到任务卡", "帮我打开刚才建的任务", "打开对应的任务看看"]) {
+      expect(classifyIntent(s), s).toBe("open_task");
+    }
+  });
+
+  it("「看看这条」仍是查代码，不是打开任务", () => {
+    expect(classifyIntent("看看这条")).toBe("slack_query");
+    expect(classifyIntent("看一下")).toBe("slack_query");
+  });
+
   it("认得出「挂到」的几种说法", () => {
     for (const s of ["挂到", "挂到 0921 那条上", "关联到验收问题", "并入这段对话"]) {
       expect(classifyIntent(s), s).toBe("slack_attach");
