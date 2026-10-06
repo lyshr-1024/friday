@@ -137,7 +137,10 @@ export function candidates(input: MatchInput): Candidate[] {
   // 页面标题里点了项目名：验收文档、设计稿标题常带「XX后台」「XX项目」，比环境地址更早能钉住项目
   const pageTitle = snapshot.browser?.title || snapshot.app.title;
   const named = projectByTitle(pageTitle, projects);
-  if (named) for (const t of tasks) if (t.project === named.name) push(t, `页面标题里提到了 ${named.name}`, "maybe");
+  if (named) {
+    const mine = tasks.filter((t) => t.project === named.name).sort((a, b) => rank(b) - rank(a));
+    for (const t of mine) push(t, `页面标题里提到了 ${named.name}`, "maybe");
+  }
 
   if (channel) {
     const project = projectByChannel(channel, projects);
@@ -159,7 +162,10 @@ export function candidates(input: MatchInput): Candidate[] {
   return out;
 }
 
-export function defaultActions(task: Task | undefined, project: Project | undefined, snapshot: Snapshot): SummonAction[] {
+export function defaultActions(task: Task | undefined, project: Project | undefined, snapshot: Snapshot, strength: Candidate["strength"] = "sure"): SummonAction[] {
+  // 「同一个项目」这种弱关联只配一个入口：标记完成 / 开工 / 通过并执行是针对那条任务的，
+  // 2026-10-06 真机上开着验收文档，卡头顶着项目里另一条在办任务还给了「标记完成」
+  if (task && strength === "maybe") return [{ kind: "open_task", label: "打开任务", taskId: task.id }];
   if (!task) {
     const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
     // 开着工单页而任务板上没有它：建个普通待办会把工单号丢掉，按链接拉详情才带得上状态和优先级
@@ -221,7 +227,7 @@ export function buildRules(input: MatchInput): SummonRules {
   return {
     saw: describe(input.snapshot, input.projects, input.channel),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
-    actions: slackActions(input.scene) ?? defaultActions(top?.task, project, input.snapshot),
+    actions: slackActions(input.scene) ?? defaultActions(top?.task, project, input.snapshot, top?.strength),
     // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。
     // 以前没命中就闭嘴，用户只看到「我看到了 Chrome」加一个建任务按钮，那是登记表不是助理。
     willThink: true,
