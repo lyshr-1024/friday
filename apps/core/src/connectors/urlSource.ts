@@ -7,11 +7,15 @@ import { parseMeegleRef } from "../agent/meegle.js";
  * 认得出的走对应的结构化来源取内容（lark-cli / meegle CLI），认不出的才退到页面 DOM。
  */
 export type UrlSource =
+  | { kind: "local_dev"; url: string; port: number; path: string }
   | { kind: "lark_doc"; url: string; host: string; docType: string; token: string }
   | { kind: "meegle"; url: string; projectKey: string; workItemId: string }
   | { kind: "gitlab_mr"; url: string; repo: string; mr: string }
   | { kind: "project_page"; url: string; project: string; env?: string; path: string }
   | { kind: "other"; url: string; host: string };
+
+/** 本机 dev server：localhost / 回环地址。局域网 IP 不算——那是别人的机器或容器，本机没有对应进程 */
+export const isLocalHost = (host: string) => /^(localhost|127(\.\d+){3}|\[?::1\]?|0\.0\.0\.0)$/i.test(host);
 
 const LARK_HOST = /(^|\.)(larksuite\.com|feishu\.cn)$/i;
 const LARK_PATH = /^\/(docx|wiki|docs|sheets|base|slides|file)\/([A-Za-z0-9]+)/;
@@ -28,6 +32,10 @@ export function identifyUrl(raw: string | undefined, projects: Project[]): UrlSo
   const url = u.toString();
   const host = u.hostname.toLowerCase();
 
+  if (isLocalHost(host)) {
+    const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+    return { kind: "local_dev", url, port, path: u.pathname === "/" ? "" : u.pathname };
+  }
   if (LARK_HOST.test(host)) {
     const m = LARK_PATH.exec(u.pathname);
     if (m) return { kind: "lark_doc", url, host, docType: m[1]!, token: m[2]! };
@@ -44,6 +52,8 @@ export function identifyUrl(raw: string | undefined, projects: Project[]): UrlSo
 /** HUD 标题栏那一段：一眼看出 Friday 把眼前这个页认成了什么 */
 export function sourceLabel(s: UrlSource, lane?: string): string {
   switch (s.kind) {
+    case "local_dev":
+      return `本地 :${s.port}`;
     case "lark_doc":
       return s.docType === "wiki" ? "Lark 知识库" : "Lark 文档";
     case "meegle":
@@ -58,9 +68,11 @@ export function sourceLabel(s: UrlSource, lane?: string): string {
 }
 
 /** 给模型的一句话：页面是什么、泳道是哪条。模型看不到 URL 结构，这句替它把硬信息摆明。 */
-export function sourceLine(s: UrlSource | undefined, lane?: string): string {
+export function sourceLine(s: UrlSource | undefined, lane?: string, localDir?: string): string {
   if (!s) return "";
   switch (s.kind) {
+    case "local_dev":
+      return `这是本机 dev server（localhost:${s.port}${s.path ? `，路径 ${s.path}` : ""}）${localDir ? `，跑在目录 ${localDir}` : "，没查到是哪个目录在跑"}`;
     case "lark_doc":
       return `这是一篇 Lark ${s.docType === "wiki" ? "知识库页面" : "云文档"}（${s.host}）`;
     case "meegle":

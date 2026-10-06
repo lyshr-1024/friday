@@ -8,7 +8,8 @@ import { buildRules, candidates, parseSlackTitle } from "./match.js";
 import { summonCard } from "./card.js";
 import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
-import { identifyUrl, sourceLine } from "../../connectors/urlSource.js";
+import { identifyUrl, isLocalHost, sourceLine } from "../../connectors/urlSource.js";
+import { resolveLocalDev } from "../../connectors/localDev.js";
 import { docExcerpt, fetchLarkDoc } from "../../connectors/lark.js";
 
 /** 文档正文的预算：到点没回来就不带正文直接问模型，卡上也只晚这么多 */
@@ -66,7 +67,8 @@ export function trimUrl(snapshot: Snapshot, allowlist: string[]): Snapshot {
   } catch {
     return { ...snapshot, browser: { url: "", title: "" } };
   }
-  if (allowlist.some((d) => host === d || host.endsWith(`.${d}`))) return snapshot;
+  // 本机 dev server 是工作页面，不用登记
+  if (isLocalHost(host) || allowlist.some((d) => host === d || host.endsWith(`.${d}`))) return snapshot;
   return { ...snapshot, browser: { url: host, title: "" } };
 }
 
@@ -81,12 +83,13 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const projects = loadProjects();
   const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
   const slack = snapshot.app.bundleId === SLACK_BUNDLE ? await slackScene(channel, person) : undefined;
-  const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}) };
+  const identified = identifyUrl(snapshot.browser?.url, projects);
+  const localDev = identified?.kind === "local_dev" ? await resolveLocalDev(identified.port) : undefined;
+  const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}), ...(localDev ? { localDev } : {}) };
   const scene = sceneContext(snapshot, projects, slack);
   const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
-  const identified = identifyUrl(snapshot.browser?.url, projects);
-  const source = sourceLine(identified, snapshot.browser?.lane);
+  const source = sourceLine(identified, snapshot.browser?.lane, localDev?.dir);
   // Lark 文档的正文页面 DOM 拿不到（虚拟渲染 + 目录评论栏混在一起），走 lark-cli；
   // 规则卡已经发出去了，这里等的只是模型那张卡
   const larkDoc = identified?.kind === "lark_doc" ? await fetchLarkDoc(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
