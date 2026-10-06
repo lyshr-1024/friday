@@ -1,5 +1,6 @@
 use objc2_application_services::{AXError, AXUIElement};
-use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType};
+use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType, CFURL};
+use std::collections::VecDeque;
 use objc2_core_graphics::{kCGWindowNumber, kCGWindowOwnerPID, CGWindowListCopyWindowInfo, CGWindowListOption};
 use serde_json::json;
 use std::ffi::c_void;
@@ -17,7 +18,7 @@ pub fn capture(screenshot_fallback: bool) -> serde_json::Value {
     let perms = crate::permissions::status();
     let (bundle_id, name, pid) = front_app();
     let title = if perms.accessibility { front_window_title(pid) } else { String::new() };
-    let browser = if BROWSERS.contains(&bundle_id.as_str()) { browser_tab(&bundle_id) } else { None };
+    let browser = if BROWSERS.contains(&bundle_id.as_str()) { browser_tab(&bundle_id, pid, &title, perms.accessibility) } else { None };
     let selection = if perms.accessibility { selected_text() } else { None };
     let screenshot_path = if screenshot_fallback && browser.is_none() && selection.is_none() && perms.screen {
         capture_window(pid)
@@ -97,14 +98,134 @@ try{performance.getEntriesByType('resource').forEach(function(r){\
 if(r.responseStatus>=400)e.push(r.responseStatus+' '+r.name)})}catch(x){}\
 return t+N+'---ERRORS---'+N+e.slice(0,10).join(N)})()";
 
-fn browser_tab(bundle_id: &str) -> Option<(String, String, Option<String>, Vec<String>)> {
-    let app_name = match bundle_id {
+type TabInfo = (String, String, Option<String>, Vec<String>);
+
+fn browser_app_name(bundle_id: &str) -> Option<&'static str> {
+    Some(match bundle_id {
         "com.apple.Safari" => "Safari",
         "com.google.Chrome" => "Google Chrome",
         "company.thebrowser.Browser" => "Arc",
         "com.microsoft.edgemac" => "Microsoft Edge",
         _ => return None,
-    };
+    })
+}
+
+/// Lark 这类页面会往 document.title 里塞零宽字符当水印，比标题前先剥掉，否则两边永远对不上。
+fn visible_chars(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            let u = *c as u32;
+            !(c.is_control()
+                || (0x200B..=0x200F).contains(&u)
+                || (0x2028..=0x202E).contains(&u)
+                || (0x2060..=0x206F).contains(&u)
+                || u == 0xFEFF
+                || u == 0x00AD)
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// 「新的WBO后台验收-1006 - Lark云文档 - Google Chrome - 浩然 (longbridge-inc.com)」→ 去掉浏览器名起的那段后缀
+fn strip_browser_suffix(window_title: &str, app_name: &str) -> String {
+    let t = visible_chars(window_title);
+    match t.rfind(&format!(" - {app_name}")) {
+        Some(i) => t[..i].trim().to_string(),
+        None => t,
+    }
+}
+
+/// 当前 tab 的 URL / 标题 / 正文。
+///
+/// URL 以辅助功能读到的为准（按前台 pid 走，天然是你正看的那个窗口）。AppleScript 按 bundle id 找进程，
+/// 本机同时跑着 agent-browser 起的调试 Chrome 时会跟那个实例说话——2026-10-05 实测 HUD 拿到的
+/// URL、标题、正文全是调试实例里 agent-browser 开的页，窗口标题却是你真正看的 Lark 文档，于是问牛答马。
+/// 所以 AppleScript 的结果只有和 AX 对得上（URL 相同，或读不到 URL 时 tab 标题是窗口标题的前缀）才采用。
+fn browser_tab(bundle_id: &str, pid: i32, window_title: &str, accessibility: bool) -> Option<TabInfo> {
+    let app_name = browser_app_name(bundle_id)?;
+    let ax_url = if accessibility { ax_page_url(pid) } else { None };
+    let scripted = scripted_tab(app_name);
+    let expected_title = strip_browser_suffix(window_title, app_name);
+    match (ax_url, scripted) {
+        (Some(url), Some((s_url, s_title, text, errors))) => {
+            if visible_chars(&s_url).trim_end_matches('/') == visible_chars(&url).trim_end_matches('/') {
+                Some((url, s_title, text, errors))
+            } else {
+                crate::notify::log(&format!("浏览器抓取：AppleScript 拿到的是别的窗口或实例（{}），只用 AX 的 URL", truncate(&s_url, 80)));
+                Some((url, expected_title, None, Vec::new()))
+            }
+        }
+        (Some(url), None) => Some((url, expected_title, None, Vec::new())),
+        (None, Some((s_url, s_title, text, errors))) => {
+            let tab = visible_chars(&s_title);
+            if !tab.is_empty() && expected_title.starts_with(&tab) {
+                Some((s_url, s_title, text, errors))
+            } else {
+                crate::notify::log(&format!("浏览器抓取：AX 读不到 URL，AppleScript 的 tab「{}」对不上窗口「{}」，丢弃", truncate(&tab, 40), truncate(&expected_title, 40)));
+                None
+            }
+        }
+        (None, None) => None,
+    }
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+fn ax_string(element: &AXUIElement, attribute: &str) -> Option<String> {
+    let value = ax_attribute(element, attribute)?;
+    if let Some(s) = value.downcast_ref::<CFString>() {
+        return Some(s.to_string());
+    }
+    if let Some(u) = value.downcast_ref::<CFURL>() {
+        return Some(u.string().to_string());
+    }
+    None
+}
+
+/// 焦点窗口的页面地址：Safari 直接挂在窗口的 AXDocument 上，Chrome 挂在 AXWebArea 的 AXURL / AXDocument 上。
+/// 只在前台 app 上调（Chrome 不在前台时只给一个壳），广度优先、限深限量，不进 web area 内部。
+fn ax_page_url(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let app = unsafe { AXUIElement::new_application(pid) };
+    let window = ax_attribute(&app, "AXFocusedWindow")?;
+    let window = window.downcast_ref::<AXUIElement>()?;
+    if let Some(doc) = ax_string(window, "AXDocument").filter(|d| d.contains("://")) {
+        return Some(doc);
+    }
+    let mut queue: VecDeque<(CFRetained<AXUIElement>, u8)> = VecDeque::new();
+    queue.push_back((unsafe { CFRetained::retain(std::ptr::NonNull::from(window)) }, 0));
+    let mut visited = 0;
+    while let Some((el, depth)) = queue.pop_front() {
+        visited += 1;
+        if visited > 600 {
+            break;
+        }
+        if ax_string(&el, "AXRole").as_deref() == Some("AXWebArea") {
+            let url = ax_string(&el, "AXURL").or_else(|| ax_string(&el, "AXDocument")).filter(|d| d.contains("://"));
+            crate::notify::log(&format!("浏览器抓取：AX web area 深度 {depth}，URL {}", url.as_deref().map(|u| truncate(u, 80)).unwrap_or_else(|| "读不到".into())));
+            return url;
+        }
+        if depth >= 12 {
+            continue;
+        }
+        let Some(children) = ax_attribute(&el, "AXChildren") else { continue };
+        let Some(children) = children.downcast_ref::<CFArray>() else { continue };
+        for i in 0..children.count() {
+            let ptr = unsafe { children.value_at_index(i) };
+            let Some(ptr) = std::ptr::NonNull::new(ptr.cast_mut().cast::<AXUIElement>()) else { continue };
+            queue.push_back((unsafe { CFRetained::retain(ptr) }, depth + 1));
+        }
+    }
+    crate::notify::log(&format!("浏览器抓取：AX 没找到 web area（看了 {visited} 个节点）"));
+    None
+}
+
+fn scripted_tab(app_name: &str) -> Option<TabInfo> {
     // url / title / 正文一次取完：osascript 启动一次就要一两百毫秒，
     // 分两次调用会让呼出从 300ms 掉到 430ms，而这段挡在按键与 HUD 之间。
     // 正文那句用 try 兜住——没开「允许 JavaScript from Apple Events」时它会报错，
