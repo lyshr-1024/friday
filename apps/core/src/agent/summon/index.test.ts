@@ -4,7 +4,9 @@ import type { Snapshot } from "@friday/shared";
 const cardMock = vi.fn();
 vi.mock("./card.js", () => ({ summonCard: cardMock, SUMMON_MODEL: "sonnet" }));
 vi.mock("../../memory/tasks.js", () => ({ listTasks: () => [] }));
-vi.mock("../../memory/projects.js", () => ({ loadProjects: () => [] }));
+vi.mock("../../memory/projects.js", async (orig) => ({ ...(await orig<object>()), loadProjects: () => [] }));
+const larkMock = vi.fn();
+vi.mock("../../connectors/lark.js", async (orig) => ({ ...(await orig<object>()), fetchLarkDoc: larkMock }));
 
 const { summon, trimUrl } = await import("./index.js");
 
@@ -18,7 +20,29 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
 }
 
 describe("summon", () => {
-  beforeEach(() => cardMock.mockReset());
+  beforeEach(() => {
+    cardMock.mockReset();
+    larkMock.mockReset();
+  });
+
+  it("开着企业租户的 Lark 文档：正文走 lark-cli，节选进模型卡；规则卡先发不等它", async () => {
+    larkMock.mockResolvedValue({ title: "新的WBO后台验收-1006", outline: ["新后台链接", "1005验收新问题"], text: "入金申请 | 这些状态筛选还是需要的" });
+    cardMock.mockResolvedValue({ verdict: "x", actions: [] });
+    const events: string[] = [];
+    for await (const ev of summon(snap({ app: { bundleId: "com.google.Chrome", name: "Chrome", title: "新的WBO后台验收-1006 - Lark云文档" }, browser: { url: "https://longbridge-group.jp.larksuite.com/docx/NWpXdmf6zo5Q", title: "新的WBO后台验收-1006" } }))) events.push(ev.type);
+    expect(events[0]).toBe("rules");
+    expect(larkMock).toHaveBeenCalledWith("https://longbridge-group.jp.larksuite.com/docx/NWpXdmf6zo5Q", { timeoutMs: 3000 });
+    const input = cardMock.mock.calls[0]![0] as { doc?: string; source?: string };
+    expect(input.source).toContain("Lark");
+    expect(input.doc).toContain("大纲：新后台链接 / 1005验收新问题");
+    expect(input.doc).toContain("这些状态筛选还是需要的");
+  });
+
+  it("不在白名单的 Lark 域名：URL 被削成 host，不去拉正文", async () => {
+    cardMock.mockResolvedValue({ verdict: "x", actions: [] });
+    for await (const _ of summon(snap({ browser: { url: "https://someone.larksuite.com/docx/ABC", title: "私人文档" } }))) void _;
+    expect(larkMock).not.toHaveBeenCalled();
+  });
 
   it("先发 rules 再发 done", async () => {
     const events = [];
