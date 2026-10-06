@@ -143,7 +143,7 @@ fn fetch(port: u16) -> Vec<Notice> {
 }
 
 /// 打包后的壳没有可见的 stderr，通知结果写到记忆库目录的 logs/shell.log 便于排查。
-fn log(line: &str) {
+pub fn log(line: &str) {
     eprintln!("[friday] {line}");
     let path = crate::settings::data_dir().join("logs").join("shell.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
