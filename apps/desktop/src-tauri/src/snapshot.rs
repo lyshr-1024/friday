@@ -147,7 +147,7 @@ fn strip_browser_suffix(window_title: &str, app_name: &str) -> String {
 fn browser_tab(bundle_id: &str, pid: i32, window_title: &str, accessibility: bool) -> Option<TabInfo> {
     let app_name = browser_app_name(bundle_id)?;
     let ax_url = if accessibility { ax_page_url(pid) } else { None };
-    let scripted = scripted_tab(app_name);
+    let scripted = scripted_tab(app_name, pid, ax_url.as_deref());
     let expected_title = strip_browser_suffix(window_title, app_name);
     match (ax_url, scripted) {
         (Some(url), Some((s_url, s_title, text, errors, lane))) => {
@@ -227,13 +227,14 @@ fn ax_page_url(pid: i32) -> Option<String> {
     None
 }
 
-fn scripted_tab(app_name: &str) -> Option<TabInfo> {
+/// `want` 是 AX 读到的 URL：Chromium 系按它在候选实例的所有窗口里找同一个 tab，找到了才在那上面跑 JS。
+fn scripted_tab(app_name: &str, pid: i32, want: Option<&str>) -> Option<TabInfo> {
     // url / title / 正文一次取完：osascript 启动一次就要一两百毫秒，
     // 分两次调用会让呼出从 300ms 掉到 430ms，而这段挡在按键与 HUD 之间。
     // 正文那句用 try 兜住——没开「允许 JavaScript from Apple Events」时它会报错，
     // 那是常态，不该连带把 url 和 title 也弄丢。
-    let script = if app_name == "Safari" {
-        format!(
+    let output = if app_name == "Safari" {
+        let script = format!(
             r#"tell application "{app_name}"
   set u to URL of front document
   set t to name of front document
@@ -243,21 +244,28 @@ fn scripted_tab(app_name: &str) -> Option<TabInfo> {
   end try
   return u & "\n" & t & "\n---BODY---\n" & b
 end tell"#
-        )
+        );
+        run_with_watchdog("osascript", &["-e", &script], Duration::from_secs(2))?
     } else {
-        format!(
-            r#"tell application "{app_name}"
-  set u to URL of active tab of front window
-  set t to title of active tab of front window
-  set b to ""
-  try
-    set b to (execute active tab of front window javascript "{PAGE_JS}")
-  end try
-  return u & "\n" & t & "\n---BODY---\n" & b
-end tell"#
-        )
+        // 同时跑着两个 Chrome（agent-browser 用 ~/.chrome-debug-profile 起的那个也叫 Google Chrome）时，
+        // 两种解析各认死一个实例：JXA 的 Application(pid) 落到先启动的那个，按名字落到后启动的那个，
+        // 谁都不按 pid 走（2026-10-06 实测）。所以两个候选都拿，按 AX 读到的 URL 在所有窗口里找同一个 tab。
+        let page_js = serde_json::to_string(PAGE_JS).unwrap_or_default();
+        let want_js = serde_json::to_string(want.unwrap_or("")).unwrap_or_default();
+        let name_js = serde_json::to_string(app_name).unwrap_or_default();
+        let script = format!(
+            r#"(function(){{var want={want_js};var norm=function(u){{return String(u||'').replace(/\/+$/,'')}};
+var cands=[Application({pid}),Application({name_js})];
+for(var i=0;i<cands.length;i++){{try{{var ws=cands[i].windows();for(var j=0;j<ws.length;j++){{var t=ws[j].activeTab();var u=String(t.url()||'');
+if(want&&norm(u)!==norm(want))continue;var b='';try{{b=String(t.execute({{javascript:{page_js}}})||'')}}catch(e){{}}
+return u+'
+'+String(t.title()||'')+'
+---BODY---
+'+b}}}}catch(e){{}}}}
+return ''}})()"#
+        );
+        run_with_watchdog("osascript", &["-l", "JavaScript", "-e", &script], Duration::from_secs(2))?
     };
-    let output = run_with_watchdog("osascript", &["-e", &script], Duration::from_secs(2))?;
     let (head, body) = output.split_once("---BODY---").unwrap_or((output.as_str(), ""));
     let mut lines = head.lines();
     let url = lines.next()?.trim().to_string();
