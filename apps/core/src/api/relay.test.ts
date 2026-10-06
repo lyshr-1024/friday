@@ -21,6 +21,8 @@ const { createJob, finishJob } = await import("../memory/jobs.js");
 const { loadProjects } = await import("../memory/projects.js");
 const { writeMemoryFile } = await import("../memory/files.js");
 const { addInboxItems } = await import("../memory/inbox.js");
+const { linkUp } = await import("../memory/links.js");
+const { slackNode, taskNode } = await import("../memory/infer.js");
 const { listTasks } = await import("../memory/tasks.js");
 
 async function relay(body: unknown): Promise<string> {
@@ -112,6 +114,29 @@ describe("POST /summon/relay", () => {
     const task = listTasks(["understood"], 50).find((t) => t.source.conversation === "CU:100")!;
     expect(task.project).toBeUndefined();
     expect(task.source.projectBy).toBeUndefined();
+  });
+
+  it("「打开一下对应任务」：对上的任务直接回 open_task，不转给终端、不落到模型", async () => {
+    const { task } = taskWithJob("running");
+    say.mockResolvedValue("sent");
+    const body = await relay({ text: "打开一下对应任务", taskId: task.id });
+    expect(body).toContain('"did":"open_task"');
+    expect(body).toContain(`"taskId":"${task.id}"`);
+    expect(body).not.toContain('"type":"delta"');
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("规则层没对上但这段对话挂着任务，也能打开它", async () => {
+    const task = createTask({ title: "挂着的", kind: "verbal", source: {}, status: "understood" });
+    linkUp(slackNode("CV:1"), taskNode(task.id), "user", "x");
+    const body = await relay({ text: "打开任务", conv: "CV:1" });
+    expect(body).toContain(`"taskId":"${task.id}"`);
+  });
+
+  it("什么都没对上就说清楚，不开窗口", async () => {
+    const body = await relay({ text: "打开任务" });
+    expect(body).toContain("没有对应的任务");
+    expect(body).not.toContain('"taskId"');
   });
 
   it("缺 text 返回 400", async () => {

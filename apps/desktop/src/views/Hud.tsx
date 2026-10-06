@@ -278,8 +278,8 @@ export function Hud() {
             setAnswer("");
             return;
           }
-          if (ev.result.did === "slack_task" && ev.result.taskId) {
-            // 「建成任务」建完直接跳到工作台选中它，原来只闪一句提示就收起，人还停在 Slack 里
+          if ((ev.result.did === "slack_task" || ev.result.did === "open_task") && ev.result.taskId) {
+            // 「建成任务」建完 / 「打开任务」直接跳到工作台选中它，原来只闪一句提示就收起，人还停在 Slack 里
             void invoke("open_task", { taskId: ev.result.taskId });
             return;
           }

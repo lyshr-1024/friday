@@ -15,7 +15,7 @@ import { loadProjects, matchEnv, resolveProject } from "../memory/projects.js";
 import { askStream } from "../agent/claude.js";
 import { classifyIntent } from "../agent/summon/intent.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
-import { candidateTasks } from "../agent/slack/attach.js";
+import { attachedTasks, candidateTasks } from "../agent/slack/attach.js";
 import { conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
@@ -86,7 +86,7 @@ const findConv = (conv: string) => listInbox(true, CONV_SCAN_LIMIT).filter((i) =
  * 正则认出来的直接在这儿执行，认不出来的才落回下面的通用对话（那里才花模型钱）。
  */
 async function runIntent(
-  intent: NonNullable<ReturnType<typeof classifyIntent>>,
+  intent: Exclude<NonNullable<ReturnType<typeof classifyIntent>>, "open_task">,
   conv: string,
   // HUD 卡片阶段已经算出来的：模型判的项目（只认注册表里有的）和整段对话 + 判断。
   // 原来建任务只拿收件箱那一句，项目、背景全丢，开工时还得让用户再选一次项目。
@@ -202,10 +202,20 @@ export const summonApi = new Hono()
         await stream.writeSSE({ data: JSON.stringify({ type: "done" }) });
       };
 
-      // ① 那三个原来是按钮的动作：正则认出来就直接做，不花模型钱
-      const intent = conv ? classifyIntent(said) : undefined;
-      if (intent) {
-        const acted = await runIntent(intent, conv!, { ...(project ? { project } : {}), ...(scene ? { scene } : {}) });
+      // ① 那几个原来是按钮的动作：正则认出来就直接做，不花模型钱
+      const intent = classifyIntent(said);
+      // 「打开任务」必须排在转给终端之前：这句话不是给终端里 Claude 的指令，
+      // 落到通用对话也只会得到一段任务描述（模型开不了窗口）。能打开的是规则层对上的，或这段对话挂着的。
+      if (intent === "open_task") {
+        const id = taskId ?? (conv ? attachedTasks(conv)[0] : undefined);
+        return finish(
+          id && getTask(id)
+            ? { kind: "acted", did: "open_task", message: "已打开", taskId: id }
+            : { kind: "acted", did: "open_task", message: "这里没有对应的任务，先建一条或挂到某条上" },
+        );
+      }
+      if (intent && conv) {
+        const acted = await runIntent(intent, conv, { ...(project ? { project } : {}), ...(scene ? { scene } : {}) });
         if (acted) return finish(acted);
       }
 

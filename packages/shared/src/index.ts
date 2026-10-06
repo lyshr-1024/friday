@@ -998,7 +998,7 @@ export interface SummonRelayResult {
   taskId?: string;
   jobId?: string;
   /** 这轮说的话被当成了哪个动作（帮我查 / 建成任务 / 挂到…），前端据此提示 */
-  did?: "slack_query" | "slack_task" | "slack_attach";
+  did?: "slack_query" | "slack_task" | "slack_attach" | "open_task";
   /** 挂靠要用户选挂到哪条，后端把候选给回来让 HUD 列出来 */
   choices?: { id: string; title: string }[];
 }
