@@ -274,7 +274,11 @@ export function Hud() {
         if (ctrl.signal.aborted) return;
         if (ev.type === "delta") setAnswer((v) => v + ev.text);
         else if (ev.type === "reset") setAnswer("");
-        else if (ev.type === "result" && ev.result.kind !== "asked") {
+        else if (ev.type === "result" && ev.result.kind === "asked" && ev.result.taskId) {
+          // 模型这一轮建了任务：回答留一下让人看到「已建」，然后跳到工作台选中它
+          const taskId = ev.result.taskId;
+          setTimeout(() => void invoke("open_task", { taskId }), 1200);
+        } else if (ev.type === "result" && ev.result.kind !== "asked") {
           // 说「挂到…」时后端把候选给回来，在原地列出来让用户点，不收起 HUD
           if (ev.result.choices?.length && slackConv) {
             setAttaching({ conv: slackConv.conv, tasks: ev.result.choices.map((x) => ({ id: x.id, title: x.title }) as Task) });

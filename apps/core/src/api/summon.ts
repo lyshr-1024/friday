@@ -226,6 +226,7 @@ export const summonApi = new Hono()
 
       // ③ 落到通用对话。一次呼出算一段，对上任务就接那条任务的会话
       const { id: conversationId, resume } = hudConversation(taskId);
+      const startedAt = new Date().toISOString();
       addMessage(conversationId, { role: "user", kind: "ask", content: said });
       const prompt = [scene ? untrusted("当前场景", scene) : "", said].filter(Boolean).join("\n\n");
       let answer = "";
@@ -247,6 +248,11 @@ export const summonApi = new Hono()
         }
       }
       if (answer) addMessage(conversationId, { role: "assistant", kind: "ask", content: answer });
-      await finish({ kind: "asked", message: answer });
+      // 这一轮里 Friday 用 task_add 建了任务（「建个任务跟进一下…」这类带说明的话走的是模型，不是零模型那条）：
+      // 把它带回去，HUD 好跳过去——原来只回一句「已建」，人还停在原来的 app 里
+      const created = listTasks(["collected", "understood", "processing", "review"], 20)
+        .filter((t) => t.createdAt >= startedAt && !t.source.meegleId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      await finish({ kind: "asked", message: answer, ...(created ? { taskId: created.id } : {}) });
     });
   });
