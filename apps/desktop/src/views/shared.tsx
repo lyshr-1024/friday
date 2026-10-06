@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import type { Attachment, Job, Message, RunResponse } from "@friday/shared";
-import { attachmentUrl } from "../lib/core";
+import { attachmentUrl, type MentionItem } from "../lib/core";
 
 export function AssistantBody({ m, jobs }: { m: Message; jobs?: Job[] }) {
   if (m.kind === "error") return <div className="err">{m.content}</div>;
@@ -252,6 +252,35 @@ export function Row({ label, hint, children }: { label: string; hint?: string; c
             })
           : children}
       </div>
+    </div>
+  );
+}
+
+const MENTION_KIND: Record<MentionItem["kind"], string> = { file: "文件", doc: "资料", shot: "截图" };
+
+/** 光标前面是不是正在敲一个 @ 词：是就给出 @ 的位置和已敲的查询串 */
+export function mentionAt(value: string, caret: number): { at: number; q: string } | null {
+  const m = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+  return m ? { at: caret - m[1]!.length - 1, q: m[1]! } : null;
+}
+
+export function MentionPop({ items, sel, onSel, onPick }: { items: MentionItem[]; sel: number; onSel: (i: number) => void; onPick: (item: MentionItem) => void }) {
+  return (
+    <div className="mention-pop" role="listbox" aria-label="@ 引入">
+      <div className="mention-pop__k">@ 引入</div>
+      {items.length ? items.map((it, i) => (
+        <div
+          key={`${it.kind}:${it.ref}`}
+          role="option"
+          aria-selected={i === sel}
+          className="mention-pop__item"
+          onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
+          onMouseEnter={() => onSel(i)}
+        >
+          <span className="mention-pop__kind">{MENTION_KIND[it.kind]}</span>
+          <span className="mention-pop__label">{it.kind === "file" ? it.ref : it.label}</span>
+        </div>
+      )) : <div className="mention-pop__empty">没有对得上的文件、资料或截图</div>}
     </div>
   );
 }

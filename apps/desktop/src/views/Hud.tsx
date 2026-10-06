@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import type { Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
-import { attachConversation, coreBaseUrl, settings, summonRelay, taskBoard } from "../lib/core";
+import type { Attachment, Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
+import { attachConversation, coreBaseUrl, settings, summonRelay, taskBoard, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";
+import { AttachmentStrip, MentionPop, mentionAt } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { applyTheme, onThemeChange } from "../lib/theme";
 
@@ -37,6 +38,12 @@ export function Hud() {
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
   const [attaching, setAttaching] = useState<{ conv: string; tasks: Task[] } | null>(null);
+  // 粘进来的图 / @ 引入的截图：先传到 core，发的时候只带 id。HUD 一关就丢，不像会话有地方留
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const [mention, setMention] = useState<{ at: number; q: string } | null>(null);
+  const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
+  const [mentionSel, setMentionSel] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -73,6 +80,8 @@ export function Hud() {
     setConfirming(false);
     setPendingAction(null);
     setNote(null);
+    setPending([]);
+    setMention(null);
     unlock();
     void (async () => {
       for await (const ev of summonStream(snap, ctrl.signal)) {
@@ -239,9 +248,71 @@ export function Hud() {
     return () => window.removeEventListener("keydown", onKey);
   }, [actions, pendingAction, confirming, replyText]);
 
+  // @ 只在认出了任务时有东西可列：列表是那条任务 worktree 里的文件、资料、截图
+  const mentionsFor = match?.taskId;
+  useEffect(() => {
+    if (!mention || !mentionsFor) {
+      setMentionItems([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      void taskMentions(mentionsFor, mention.q, ctrl.signal)
+        .then((items) => { setMentionItems(items); setMentionSel(0); })
+        .catch(() => {});
+    }, 150);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [mention?.q, mention !== null, mentionsFor]);
+
+  async function pickMention(item: MentionItem) {
+    const m = mention;
+    setMention(null);
+    if (!m || !mentionsFor) return;
+    try {
+      const r = await taskMention(mentionsFor, item);
+      const token = `${r.text ?? `@${item.label}`} `;
+      setAsk((v) => v.slice(0, m.at) + token + v.slice(m.at + 1 + m.q.length));
+      if (r.attachment) setPending((p) => (p.some((a) => a.id === r.attachment!.id) ? p : [...p, r.attachment!]));
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        el?.focus();
+        el?.setSelectionRange(m.at + token.length, m.at + token.length);
+      });
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : String(e), err: true });
+    }
+  }
+
+  async function addFiles(files: Iterable<File>) {
+    const list = [...files].filter((f) => f.size > 0).slice(0, 10 - pending.length);
+    if (!list.length) return;
+    setUploading((n) => n + list.length);
+    for (const f of list) {
+      try {
+        const a = await uploadAttachment(f);
+        setPending((p) => [...p, a]);
+      } catch (e) {
+        setNote({ text: e instanceof Error ? e.message : String(e), err: true });
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  }
+
+  function onAskPaste(e: React.ClipboardEvent) {
+    const files = [...e.clipboardData.items].filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter((f): f is File => Boolean(f));
+    if (!files.length) return;
+    e.preventDefault();
+    void addFiles(files);
+  }
+
   async function sendAsk() {
-    const text = ask.trim();
-    if (!text || asking) return;
+    // 只粘了图没打字也能发，给模型一句默认的话
+    const text = ask.trim() || (pending.length ? "看一下这个" : "");
+    if (!text || asking || uploading > 0) return;
+    const attachments = pending.map((a) => a.id);
+    setPending([]);
+    setMention(null);
     askAbortRef.current?.abort();
     const ctrl = new AbortController();
     askAbortRef.current = ctrl;
@@ -268,6 +339,7 @@ export function Hud() {
           ...(snapshot?.browser?.url ? { url: snapshot.browser.url } : {}),
           ...(slackConv ? { conv: slackConv.conv } : {}),
           ...(card?.project ? { project: card.project } : {}),
+          ...(attachments.length ? { attachments } : {}),
         },
         ctrl.signal,
       )) {
@@ -419,16 +491,44 @@ export function Hud() {
       {answer && <p className="hud__answer">{answer}</p>}
       {!confirming && !attaching && (
         <div className="hud__ask">
+          {mention && mentionsFor && <MentionPop items={mentionItems} sel={mentionSel} onSel={setMentionSel} onPick={(it) => void pickMention(it)} />}
+          {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
           <textarea
             ref={inputRef}
             className="hud__ask-input"
             rows={1}
-            placeholder={asking ? "Friday 在想…" : slackConv ? "帮我查 / 建成任务 / 挂到…，或直接问" : match ? "让终端做点什么" : "跟 Friday 说点什么"}
+            placeholder={asking ? "Friday 在想…" : uploading ? "上传中…" : slackConv ? "帮我查 / 建成任务 / 挂到…，或直接问" : match ? "让终端做点什么，@ 可引入文件，可粘贴图片" : "跟 Friday 说点什么，可粘贴图片"}
             value={ask}
             disabled={asking}
-            onChange={(e) => setAsk(e.target.value)}
+            onChange={(e) => {
+              setAsk(e.target.value);
+              if (mentionsFor) setMention(mentionAt(e.target.value, e.target.selectionStart ?? e.target.value.length));
+            }}
+            onPaste={onAskPaste}
+            onBlur={() => setMention(null)}
             {...ime.handlers}
             onKeyDown={(e) => {
+              if (mention && !(e.nativeEvent.isComposing || e.keyCode === 229)) {
+                const n = mentionItems.length;
+                if (n && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMentionSel((i) => (i + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
+                  return;
+                }
+                if (n && ((e.key === "Enter" && !e.shiftKey && !ime.isImeEnter(e)) || e.key === "Tab")) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void pickMention(mentionItems[Math.min(mentionSel, n - 1)]!);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMention(null);
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 if (ime.isImeEnter(e)) return;
                 e.preventDefault();

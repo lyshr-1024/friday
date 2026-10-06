@@ -12,9 +12,10 @@ async function* defaultAsk() {
   yield { type: "done" } as const;
 }
 let askImpl: () => AsyncGenerator<{ type: string; text?: string }> = defaultAsk;
+const askCalls: unknown[][] = [];
 vi.mock("../agent/claude.js", async (orig) => ({
   ...(await orig<object>()),
-  askStream: () => askImpl(),
+  askStream: (...args: unknown[]) => { askCalls.push(args); return askImpl(); },
 }));
 
 const { app } = await import("./index.js");
@@ -26,6 +27,7 @@ const { addInboxItems } = await import("../memory/inbox.js");
 const { linkUp } = await import("../memory/links.js");
 const { slackNode, taskNode } = await import("../memory/infer.js");
 const { listTasks } = await import("../memory/tasks.js");
+const { saveAttachment } = await import("../memory/attachments.js");
 
 async function relay(body: unknown): Promise<string> {
   const res = await app.request("/summon/relay", {
@@ -50,6 +52,7 @@ beforeEach(() => {
   resumeInSession.mockReset();
   startInteractiveJob.mockReset();
   askImpl = defaultAsk;
+  askCalls.length = 0;
 });
 
 describe("POST /summon/relay", () => {
@@ -105,6 +108,30 @@ describe("POST /summon/relay", () => {
     const body = await relay({ text: "今天天气怎么样" });
     expect(body).toContain('"kind":"asked"');
     expect(body).not.toContain('"taskId"');
+  });
+
+  it("HUD 里粘的图跟着话一起进通用对话：图进 image 块，消息记录里也带上附件", async () => {
+    const a = saveAttachment("粘贴的图片.png", "image/png", Buffer.from("png-bytes"));
+    const body = await relay({ text: "这个报错是什么意思", attachments: [a.id, "no-such-id"] });
+    expect(body).toContain('"kind":"asked"');
+    const content = askCalls[0]![0] as Array<{ type: string; text?: string }>;
+    expect(content.map((b) => b.type)).toEqual(["image", "text"]);
+    expect(content[1]!.text).toContain("这个报错是什么意思");
+    const { listConversations, getConversation } = await import("../memory/conversations.js");
+    const conv = getConversation(listConversations(1)[0]!.id)!;
+    expect(conv.messages[0]!.payload).toMatchObject({ attachments: [{ id: a.id, name: "粘贴的图片.png" }] });
+  });
+
+  it("终端在跑时附件按本机路径一起转达，终端里的 Claude 自己 Read", async () => {
+    const { task, jobId } = taskWithJob("running");
+    say.mockResolvedValue("sent");
+    const a = saveAttachment("报错截图.png", "image/png", Buffer.from("png-bytes"));
+    await relay({ text: "按这张图改", taskId: task.id, attachments: [a.id] });
+    const said = say.mock.calls[0]![1];
+    expect(said.startsWith("按这张图改")).toBe(true);
+    expect(said).toContain("附件");
+    expect(said).toMatch(/attachments\/[0-9a-f-]+\.png/);
+    expect(say).toHaveBeenCalledWith(jobId, expect.any(String));
   });
 
   it("没有任务：落回通用对话，流式吐字", async () => {

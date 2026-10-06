@@ -4,7 +4,7 @@ import type { Attachment, Job, Message } from "@friday/shared";
 import { ask, askSubscribe, cancelAsk, conversationById, jobs as fetchJobs, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
 import type { AskEvent } from "../lib/core";
 import { useImeGuard } from "../lib/ime";
-import { AssistantBody, AttachmentStrip, Linkified } from "./shared";
+import { AssistantBody, AttachmentStrip, Linkified, MentionPop, mentionAt } from "./shared";
 
 export interface ThreadHandle {
   load(id: string): Promise<void>;
@@ -43,13 +43,7 @@ interface Props {
   noJobCards?: boolean;
 }
 
-const MENTION_KIND: Record<MentionItem["kind"], string> = { file: "文件", doc: "资料", shot: "截图" };
 const MENTION_RE = /(?<=^|\s)@[^\s@]+/g;
-
-function mentionAt(value: string, caret: number): { at: number; q: string } | null {
-  const m = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
-  return m ? { at: caret - m[1]!.length - 1, q: m[1]! } : null;
-}
 
 function MentionText({ text }: { text: string }) {
   const parts: ReactNode[] = [];
@@ -417,24 +411,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       )}
       </div>
       <div className="composer">
-        {mention && mentionsFor && (
-          <div className="mention-pop" role="listbox" aria-label="@ 引入">
-            <div className="mention-pop__k">@ 引入</div>
-            {mentionItems.length ? mentionItems.map((it, i) => (
-              <div
-                key={`${it.kind}:${it.ref}`}
-                role="option"
-                aria-selected={i === mentionSel}
-                className="mention-pop__item"
-                onMouseDown={(e) => { e.preventDefault(); void pickMention(it); }}
-                onMouseEnter={() => setMentionSel(i)}
-              >
-                <span className="mention-pop__kind">{MENTION_KIND[it.kind]}</span>
-                <span className="mention-pop__label">{it.kind === "file" ? it.ref : it.label}</span>
-              </div>
-            )) : <div className="mention-pop__empty">没有对得上的文件、资料或截图</div>}
-          </div>
-        )}
+        {mention && mentionsFor && <MentionPop items={mentionItems} sel={mentionSel} onSel={setMentionSel} onPick={(it) => void pickMention(it)} />}
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
         <div className={`composer__box${disabledNote ? " is-off" : ""}`} onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
           <span className="composer__caret" aria-hidden="true">›</span>

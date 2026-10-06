@@ -21,6 +21,8 @@ import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { listTasks, updateTask } from "../memory/tasks.js";
 import { claudeSessionId, conversationExists, createConversation, addMessage, setClaudeSessionId } from "../memory/conversations.js";
+import { getAttachment } from "../memory/attachments.js";
+import { buildUserContent } from "../agent/content.js";
 import { transcriptPath } from "../agent/runner.js";
 import { existsSync } from "node:fs";
 import { friday } from "../agent/prompt.js";
@@ -48,14 +50,20 @@ export function pageHint(url: string | undefined, dir: string): string {
  * HUD 里打的字优先转给这条需求自己的终端——那里有项目上下文和 skill，
  * 比丢给一个只知道窗口标题的通用对话强得多。转不过去才返回 undefined 落回通用对话。
  */
-async function relayToTerminal(text: string, taskId?: string, scene?: string, url?: string): Promise<SummonRelayResult | undefined> {
+/** 终端收不了图，给路径：HUD 里粘的图已经落在记忆库 attachments/ 下，终端里的 Claude 自己 Read */
+function attachmentHint(ids: string[]): string {
+  const paths = ids.map((id) => getAttachment(id)?.path).filter((p): p is string => Boolean(p));
+  return paths.length ? `附件（用 Read 看）：${paths.join("、")}` : "";
+}
+
+async function relayToTerminal(text: string, taskId?: string, scene?: string, url?: string, attachments: string[] = []): Promise<SummonRelayResult | undefined> {
   const task = taskId ? getTask(taskId) : undefined;
   if (!task) return undefined;
 
   const jobId = task.source.jobId;
   if (jobId) {
     const job = getJob(jobId);
-    const said = [text, pageHint(url, job?.dir ?? "")].filter(Boolean).join(" ");
+    const said = [text, pageHint(url, job?.dir ?? ""), attachmentHint(attachments)].filter(Boolean).join(" ");
     if (job?.status === "running" && (await say(jobId, said)) === "sent") {
       return { kind: "said", message: "已转达给终端", taskId: task.id, jobId };
     }
@@ -68,7 +76,7 @@ async function relayToTerminal(text: string, taskId?: string, scene?: string, ur
   if (!task.project) return undefined;
   const resolved = resolveProject(task.project);
   if (resolved.kind !== "match") return undefined;
-  const detail = [text, pageHint(url, resolved.project.dir), scene ? untrusted("当前场景", scene) : ""].filter(Boolean).join("\n\n");
+  const detail = [text, pageHint(url, resolved.project.dir), attachmentHint(attachments), scene ? untrusted("当前场景", scene) : ""].filter(Boolean).join("\n\n");
   const started = await startInteractiveJob(task, resolved.project.name, resolved.project.dir, detail);
   return {
     kind: "started",
@@ -186,16 +194,18 @@ export const summonApi = new Hono()
     }
   })
   .post("/summon/relay", async (c) => {
-    const { text, taskId, scene, url, conv, project } = (await c.req.json().catch(() => ({}))) as {
+    const { text, taskId, scene, url, conv, project, attachments: rawAttachments } = (await c.req.json().catch(() => ({}))) as {
       text?: string;
       taskId?: string;
       scene?: string;
       url?: string;
       conv?: string;
       project?: string;
+      attachments?: unknown;
     };
     if (!text?.trim()) return c.json({ error: "缺 text" }, 400);
     const said = text.trim();
+    const attachments = Array.isArray(rawAttachments) ? rawAttachments.filter((x): x is string => typeof x === "string").slice(0, 10) : [];
 
     return streamSSE(c, async (stream) => {
       const finish = async (result: SummonRelayResult) => {
@@ -221,16 +231,17 @@ export const summonApi = new Hono()
       }
 
       // ② 有终端的任务，话优先转给它——那里有代码上下文和项目 skill
-      const relayed = await relayToTerminal(said, taskId, scene, url);
+      const relayed = await relayToTerminal(said, taskId, scene, url, attachments);
       if (relayed) return finish(relayed);
 
       // ③ 落到通用对话。一次呼出算一段，对上任务就接那条任务的会话
       const { id: conversationId, resume } = hudConversation(taskId);
       const startedAt = new Date().toISOString();
-      addMessage(conversationId, { role: "user", kind: "ask", content: said });
       const prompt = [scene ? untrusted("当前场景", scene) : "", said].filter(Boolean).join("\n\n");
+      const { content, attached } = buildUserContent(prompt, attachments);
+      addMessage(conversationId, { role: "user", kind: "ask", content: said, ...(attached.length ? { payload: { attachments: attached } } : {}) });
       let answer = "";
-      for await (const ev of askStream(prompt, {
+      for await (const ev of askStream(content, {
         systemPrompt: friday(loadMemoryContext()),
         cwd: config.dataDir,
         label: "ask",
