@@ -2,6 +2,8 @@ import type { Project } from "../../memory/projects.js";
 import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
 import { matchEnv } from "../../memory/projects.js";
+import { identifyUrl, sourceLabel } from "../../connectors/urlSource.js";
+import { normUrl } from "../docTitle.js";
 import type { SlackScene } from "./slack.js";
 
 export interface MatchInput {
@@ -75,6 +77,25 @@ function projectByChannel(channel: string, projects: Project[]): Project | undef
   return projects.find((p) => p.channels.includes(channel));
 }
 
+/**
+ * 页面标题里提到了哪个项目（名字或别名）。中文别名按子串，ASCII 别名按整词——
+ * 「新的WBO后台验收」含「后台」归新后台，但不能因为含「BO」就归老后台。
+ */
+export function projectByTitle(title: string, projects: Project[]): Project | undefined {
+  if (!title) return undefined;
+  let best: { project: Project; len: number } | undefined;
+  for (const p of projects) {
+    for (const name of [p.name, ...p.aliases]) {
+      if (name.length < 2) continue;
+      const hit = /^[\x00-\x7f]+$/.test(name)
+        ? new RegExp(`(^|[^A-Za-z0-9])${name.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}([^A-Za-z0-9]|$)`, "i").test(title)
+        : title.includes(name);
+      if (hit && (!best || name.length > best.len)) best = { project: p, len: name.length };
+    }
+  }
+  return best?.project;
+}
+
 /** 终端在跑 > 处理中 > 其余：越靠前越可能是此刻手上的活 */
 const rank = (t: Task) => (t.source.jobId ? 4 : 0) + (t.status === "processing" ? 2 : 0) + (t.status === "review" ? 1 : 0);
 
@@ -102,6 +123,21 @@ export function candidates(input: MatchInput): Candidate[] {
     const task = input.scene?.taskId ? getTask(input.scene.taskId) : undefined;
     if (task) push(task, "这段 Slack 对话挂着这条任务", "sure");
   }
+
+  // 开着的文档正是某条任务挂着的需求资料：Meegle 工单上的 Lark 链接就是这些
+  const source = identifyUrl(snapshot.browser?.url, projects);
+  if (source?.kind === "lark_doc") {
+    const want = normUrl(source.url);
+    for (const t of tasks) {
+      const doc = (t.source.docs ?? []).find((d) => normUrl(d.url) === want);
+      if (doc) push(t, `你开着这条任务的资料「${doc.title ?? "文档"}」`, "sure");
+    }
+  }
+
+  // 页面标题里点了项目名：验收文档、设计稿标题常带「XX后台」「XX项目」，比环境地址更早能钉住项目
+  const pageTitle = snapshot.browser?.title || snapshot.app.title;
+  const named = projectByTitle(pageTitle, projects);
+  if (named) for (const t of tasks) if (t.project === named.name) push(t, `页面标题里提到了 ${named.name}`, "maybe");
 
   if (channel) {
     const project = projectByChannel(channel, projects);
@@ -155,9 +191,8 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
 
 function describe(snapshot: Snapshot, projects: Project[], channel?: string): string {
   const bits = [snapshot.app.name];
-  const hit = browserEnv(snapshot, projects);
-  if (hit?.env) bits.push(`${hit.project.name} ${hit.env}环境`);
-  else if (hit) bits.push(hit.project.name);
+  const source = identifyUrl(snapshot.browser?.url, projects);
+  if (source && source.kind !== "other") bits.push(sourceLabel(source, snapshot.browser?.lane));
   // 私聊解析出的是人名不是频道，原来会退到原始标题，
   // 把「(2) - Longbridge - Slack」这串未读数字和后缀也显示出来
   const slack = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : undefined;

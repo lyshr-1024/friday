@@ -943,7 +943,7 @@ export interface Snapshot {
   at: number;
   app: { bundleId: string; name: string; title: string };
   /** 浏览器当前 tab，AppleScript 拿的；errors 是此刻页面上可见的报错与失败请求，拿不到就没有 */
-  browser?: { url: string; title: string; text?: string; errors?: string[] };
+  browser?: { url: string; title: string; text?: string; errors?: string[]; lane?: string };
   /** 选中文字，最多 8000 字 */
   selection?: string;
   /** 兜底截图的本地绝对路径，前端用 convertFileSrc 显示 */
@@ -1024,5 +1024,6 @@ export interface SummonSettings {
 
 export const DEFAULT_SUMMON_SETTINGS: SummonSettings = {
   screenshotFallback: true,
-  urlAllowlist: ["meegle.com", "project.feishu.cn", "project.larksuite.com", "longbridge.sg", "longbridge-inc.com"],
+  // 企业租户的 Lark 云文档（验收文档、需求文档）是工作面，整个 larksuite.com 不放，免得个人文档也进模型
+  urlAllowlist: ["meegle.com", "project.feishu.cn", "project.larksuite.com", "longbridge-group.jp.larksuite.com", "longbridge.sg", "longbridge-inc.com"],
 };
