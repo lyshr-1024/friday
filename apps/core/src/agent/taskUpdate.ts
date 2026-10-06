@@ -66,9 +66,6 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     changed.push(`项目没改：${change.why}`);
   } else if (change?.kind === "set") {
     task = change.task;
-    // 用户答了归属就把 Friday 的提问清掉——问题已经解决，不该还挂在「待我决定」里。
-    // 终端在问的（question）是另一回事，它还在等答案，不能顺手清。
-    if (task.attention === "intake") task = updateTask(taskId, { attention: undefined })!;
     changed.push(`项目 → ${known!.name}`);
     // 顺带记住线索：标题里的【BO】这类标记、工单页面的地址前缀，下次同类自动归
     const links = [task.source.url, ...(task.understanding ?? "").match(/https?:\/\/[^\s)）」】]+/g) ?? []].filter((u): u is string => Boolean(u));

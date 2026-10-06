@@ -124,7 +124,9 @@ export function requestProjectChange(taskId: string, to: string | null): Project
     return { kind: "cancelled", task: removePending(taskId, open.id) ?? t };
   }
   if (!isFridayWork(t)) {
-    const task = updateTask(taskId, { project: to ?? undefined, source: { projectBy: "user" } })!;
+    // 定了项目就把 Friday「这是哪个项目的」那句提问收掉，不然会话还以为自己没得到答复、不肯开工
+    const asked = t.attention === "intake";
+    const task = updateTask(taskId, { project: to ?? undefined, source: { projectBy: "user" }, ...(asked && to ? { attention: undefined, progress: `项目定为 ${to}` } : {}) })!;
     if (to) inheritToDefects(task, t.project);
     return { kind: "set", task, ...(t.project ? { before: t.project } : {}) };
   }

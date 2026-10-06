@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { runByJob, setRunOutcome } from "../memory/runs.js";
 import { config } from "../config.js";
@@ -118,6 +118,14 @@ describe("改项目：不是 Friday 自主干的活", () => {
     const r = requestProjectChange(t.id, "rightapp")!;
     expect(r.kind).toBe("set");
     expect(getTask(t.id)).toMatchObject({ project: "rightapp", source: { projectBy: "user" } });
+  });
+
+  it("卡片上选了项目也要把 Friday 的提问收掉，不然会话还以为它没得到答复", () => {
+    const t = createTask({ title: "蚂蚁抽奖活动 AC 与 Appid 不匹配", kind: "meegle", status: "understood", source: { meegleId: "24660264" } });
+    updateTask(t.id, { attention: "intake", progress: "这条工单是哪个项目的（whale-console 还是 fe-wealth-admin）？" });
+    expect(requestProjectChange(t.id, "fe-wealth-admin")!.kind).toBe("set");
+    expect(getTask(t.id)).toMatchObject({ project: "fe-wealth-admin", progress: "项目定为 fe-wealth-admin" });
+    expect(getTask(t.id)!.attention).toBeUndefined();
   });
 
   it("你自己的交互式任务直接改，不挂回退清单", () => {
