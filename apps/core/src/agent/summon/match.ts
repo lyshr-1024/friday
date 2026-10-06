@@ -3,6 +3,8 @@ import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
 import { matchEnv } from "../../memory/projects.js";
 import { identifyUrl, sourceLabel } from "../../connectors/urlSource.js";
+import type { LocalDev } from "../../connectors/localDev.js";
+import { basename } from "node:path";
 import { normUrl } from "../docTitle.js";
 import type { SlackScene } from "./slack.js";
 
@@ -14,6 +16,17 @@ export interface MatchInput {
   person?: string;
   /** Slack 场景在 summon() 里算好一次传进来，规则层和卡片层共用，别各自重算 */
   scene?: SlackScene;
+  /** 浏览器开着 localhost 时，监听那个端口的 dev server 跑在哪个目录（summon() 里 lsof 查好传进来） */
+  localDev?: LocalDev;
+}
+
+const under = (dir: string, root: string) => Boolean(root) && (dir === root || dir.startsWith(`${root.replace(/\/+$/, "")}/`));
+
+/** dev server 的 cwd 常是 worktree 里的子目录（apps/web），显示时要的是 worktree 或主仓那一层 */
+function devRoot(dir: string, tasks: Task[], projects: Project[]): string {
+  const roots = [...tasks.flatMap((t) => [t.source.worktree, t.source.repoDir]), ...projects.map((p) => p.dir)].filter((r): r is string => Boolean(r));
+  const hit = roots.filter((r) => under(dir, r)).sort((a, b) => b.length - a.length)[0];
+  return hit ?? dir;
 }
 
 export interface Candidate {
@@ -124,6 +137,21 @@ export function candidates(input: MatchInput): Candidate[] {
     if (task) push(task, "这段 Slack 对话挂着这条任务", "sure");
   }
 
+  // 本机 dev server 跑在哪条任务的 worktree 里，那条就是手上的活；跑在主仓里只能到项目级
+  if (input.localDev) {
+    const { port, dir } = input.localDev;
+    const inWorktree = tasks.filter((t) => t.source.worktree && under(dir, t.source.worktree)).sort((a, b) => rank(b) - rank(a));
+    if (inWorktree.length) {
+      for (const t of inWorktree) push(t, `端口 ${port} 的 dev server 跑在这条任务的 worktree ${basename(t.source.worktree!)} 里`, "sure");
+    } else {
+      const project = projectByCwd(dir, projects) ?? projects.find((p) => tasks.some((t) => t.source.repoDir && under(dir, t.source.repoDir) && t.project === p.name));
+      if (project) {
+        const mine = tasks.filter((t) => t.project === project.name).sort((a, b) => rank(b) - rank(a));
+        for (const t of mine) push(t, `端口 ${port} 的 dev server 跑在 ${project.name} 的目录 ${basename(devRoot(dir, tasks, projects))} 里`, "maybe");
+      }
+    }
+  }
+
   // 开着的文档正是某条任务挂着的需求资料：Meegle 工单上的 Lark 链接就是这些
   const source = identifyUrl(snapshot.browser?.url, projects);
   if (source?.kind === "lark_doc") {
@@ -195,10 +223,11 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
     : [{ kind: "open_task", label: "打开任务", taskId: task.id }];
 }
 
-function describe(snapshot: Snapshot, projects: Project[], channel?: string): string {
+function describe(snapshot: Snapshot, projects: Project[], channel?: string, localDev?: LocalDev, tasks: Task[] = []): string {
   const bits = [snapshot.app.name];
   const source = identifyUrl(snapshot.browser?.url, projects);
-  if (source && source.kind !== "other") bits.push(sourceLabel(source, snapshot.browser?.lane));
+  if (source?.kind === "local_dev" && localDev) bits.push(`${basename(devRoot(localDev.dir, tasks, projects))} · :${localDev.port}`);
+  else if (source && source.kind !== "other") bits.push(sourceLabel(source, snapshot.browser?.lane));
   // 私聊解析出的是人名不是频道，原来会退到原始标题，
   // 把「(2) - Longbridge - Slack」这串未读数字和后缀也显示出来
   const slack = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : undefined;
@@ -225,7 +254,7 @@ export function buildRules(input: MatchInput): SummonRules {
   const top = hits[0];
   const project = top?.task.project ? input.projects.find((p) => p.name === top.task.project) : undefined;
   return {
-    saw: describe(input.snapshot, input.projects, input.channel),
+    saw: describe(input.snapshot, input.projects, input.channel, input.localDev, input.tasks),
     match: top ? { taskId: top.task.id, title: top.task.title, status: top.task.status, why: top.why, strength: top.strength } : undefined,
     actions: slackActions(input.scene) ?? defaultActions(top?.task, project, input.snapshot, top?.strength),
     // 模型永远跑：规则没命中恰恰是最该动脑的时候（这是什么、跟我哪件事有关）。

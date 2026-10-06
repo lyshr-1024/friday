@@ -13,6 +13,14 @@ describe("identifyUrl", () => {
     expect(identifyUrl("https://longbridge-group.jp.larksuite.com/wiki/DtRCwlEA2io7gck1yj1jqRZ?from=x", projects)).toMatchObject({ kind: "lark_doc", docType: "wiki" });
   });
 
+  it("localhost / 回环地址是本机 dev server，带端口和路径；局域网 IP 不算", () => {
+    expect(identifyUrl("http://localhost:5173/x/wbo/funds?a=1", projects)).toMatchObject({ kind: "local_dev", port: 5173, path: "/x/wbo/funds" });
+    expect(identifyUrl("http://127.0.0.1:8000/", projects)).toMatchObject({ kind: "local_dev", port: 8000, path: "" });
+    expect(identifyUrl("http://192.168.1.20:5173/", projects)?.kind).toBe("other");
+    expect(sourceLabel(identifyUrl("http://localhost:5173/", projects)!)).toBe("本地 :5173");
+    expect(sourceLine(identifyUrl("http://localhost:5173/", projects), undefined, "/Users/me/ws/whale-console-x")).toContain("跑在目录 /Users/me/ws/whale-console-x");
+  });
+
   it("Meegle 工单", () => {
     expect(identifyUrl("https://project.larksuite.com/saas/story/detail/24487610", projects)).toMatchObject({ kind: "meegle", projectKey: "saas", workItemId: "24487610" });
   });

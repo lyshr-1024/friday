@@ -6,6 +6,8 @@ vi.mock("./card.js", () => ({ summonCard: cardMock, SUMMON_MODEL: "sonnet" }));
 vi.mock("../../memory/tasks.js", () => ({ listTasks: () => [] }));
 vi.mock("../../memory/projects.js", async (orig) => ({ ...(await orig<object>()), loadProjects: () => [] }));
 const larkMock = vi.fn();
+const localDevMock = vi.fn();
+vi.mock("../../connectors/localDev.js", async (orig) => ({ ...(await orig<object>()), resolveLocalDev: localDevMock }));
 vi.mock("../../connectors/lark.js", async (orig) => ({ ...(await orig<object>()), fetchLarkDoc: larkMock }));
 
 const { summon, trimUrl } = await import("./index.js");
@@ -23,6 +25,17 @@ describe("summon", () => {
   beforeEach(() => {
     cardMock.mockReset();
     larkMock.mockReset();
+    localDevMock.mockReset();
+  });
+
+  it("localhost 不用登记也放行，按端口查目录后写进给模型的那句", async () => {
+    localDevMock.mockResolvedValue({ port: 5173, dir: "/Users/me/work/whale-console-funds-params" });
+    cardMock.mockResolvedValue({ verdict: "x", actions: [] });
+    for await (const _ of summon(snap({ browser: { url: "http://localhost:5173/x/wbo/funds", title: "资金参数" } }))) void _;
+    expect(localDevMock).toHaveBeenCalledWith(5173);
+    const input = cardMock.mock.calls[0]![0] as { source?: string; snapshot: Snapshot };
+    expect(input.snapshot.browser?.url).toBe("http://localhost:5173/x/wbo/funds");
+    expect(input.source).toContain("跑在目录 /Users/me/work/whale-console-funds-params");
   });
 
   it("开着企业租户的 Lark 文档：正文走 lark-cli，节选进模型卡；规则卡先发不等它", async () => {

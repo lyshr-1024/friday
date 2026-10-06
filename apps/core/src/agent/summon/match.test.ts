@@ -67,6 +67,23 @@ describe("页面标题与文档链接", () => {
     expect(out[0]).toMatchObject({ task: { id: "doc" }, strength: "sure" });
   });
 
+  it("localhost 的 dev server 跑在某条任务的 worktree 里就是 sure，跑在主仓里只到项目级（maybe）", () => {
+    const wt = task({ id: "wt", status: "processing", source: { worktree: "/Users/me/work/whale-console-funds-params", repoDir: "/Users/me/work/whale-console" } });
+    const other = task({ id: "other", source: { repoDir: "/Users/me/work/whale-console" } });
+    const url = "http://localhost:5173/x/wbo/funds";
+    const sure = candidates({ snapshot: snap({ browser: { url, title: "资金参数" } }), tasks: [other, wt], projects, localDev: { port: 5173, dir: "/Users/me/work/whale-console-funds-params/apps/web" } });
+    expect(sure.map((c) => [c.task.id, c.strength])).toEqual([["wt", "sure"]]);
+    expect(sure[0]!.why).toContain("worktree whale-console-funds-params");
+
+    const maybe = candidates({ snapshot: snap({ browser: { url, title: "资金参数" } }), tasks: [other, wt], projects, localDev: { port: 5173, dir: "/Users/me/work/whale-console" } });
+    expect(maybe.map((c) => c.strength)).toEqual(["maybe", "maybe"]);
+    expect(maybe[0]!.task.id).toBe("wt");
+
+    const rules = buildRules({ snapshot: snap({ browser: { url, title: "资金参数" } }), tasks: [wt], projects, localDev: { port: 5173, dir: "/Users/me/work/whale-console-funds-params/apps/web" } });
+    expect(rules.saw).toContain("whale-console-funds-params · :5173");
+    expect(rules.actions.map((a) => a.kind)).toContain("mark_done");
+  });
+
   it("saw 写明页面认成了什么", () => {
     const rules = buildRules({ snapshot: snap({ browser: { url: "https://longbridge-group.jp.larksuite.com/docx/NWpXdmf6zo5Q", title: "新的WBO后台验收-1006" } }), tasks: [], projects });
     expect(rules.saw).toContain("Lark 文档");
