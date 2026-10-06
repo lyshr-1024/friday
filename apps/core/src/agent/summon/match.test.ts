@@ -196,6 +196,25 @@ describe("defaultActions", () => {
 });
 
 describe("buildRules", () => {
+  it("只按项目对上的（maybe）只给「打开任务」，不给标记完成 / 开工；工单号对上的（sure）照旧", () => {
+    const running = task({ id: "run", status: "processing", source: { jobId: "j1", meegleId: "1234" } });
+    const maybe = buildRules({
+      snapshot: snap({ app: { bundleId: "com.google.Chrome", name: "Chrome", title: "鲸鱼后台验收文档" } }),
+      tasks: [running],
+      projects,
+    });
+    expect(maybe.match).toMatchObject({ taskId: "run", strength: "maybe" });
+    expect(maybe.actions.map((a) => a.kind)).toEqual(["open_task"]);
+
+    const sure = buildRules({
+      snapshot: snap({ browser: { url: "https://project.feishu.cn/x/issue/detail/1234", title: "提现规则" } }),
+      tasks: [running],
+      projects,
+    });
+    expect(sure.match?.strength).toBe("sure");
+    expect(sure.actions.map((a) => a.kind)).toContain("mark_done");
+  });
+
   it("Slack 私聊只显示人名，不带未读数字和后缀", () => {
     const rules = buildRules({
       snapshot: snap({ app: { bundleId: "com.tinyspeck.slackmacgap", name: "Slack", title: "拂晓 (2) - Longbridge - Slack" } }),

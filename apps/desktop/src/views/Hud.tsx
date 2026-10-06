@@ -47,7 +47,10 @@ export function Hud() {
   // 就走同一条路，仍然零模型调用）。留在这儿会和输入框重复一遍，还把真正要你拍板的动作
   // （发 Slack、标完成）挤到后面去。其余动作照旧——它们是不可逆的，按钮的确认步骤不能省。
   const SLACK_CHAT_ACTIONS = new Set(["slack_query", "slack_task", "slack_attach"]);
-  const actions = (card?.actions.length ? card.actions : rules?.actions ?? []).filter((a) => !SLACK_CHAT_ACTIONS.has(a.kind));
+  // 规则层只按项目对上的（maybe）是试探：模型那张卡回来、没点头说是同一条，就把它从卡头和按钮上撤下来
+  const matchDenied = Boolean(rules?.match && rules.match.strength === "maybe" && card && card.matchTaskId !== rules.match.taskId);
+  const match = matchDenied ? undefined : rules?.match;
+  const actions = (card?.actions.length ? card.actions : matchDenied ? [] : rules?.actions ?? []).filter((a) => !SLACK_CHAT_ACTIONS.has(a.kind));
   // Slack 场景下这几个动作改成对话触发，输入框提示里告诉用户能说什么
   const slackConv = (card?.actions.length ? card.actions : rules?.actions ?? []).find((a) => SLACK_CHAT_ACTIONS.has(a.kind)) as (SummonAction & { conv: string }) | undefined;
   // 键盘不代劳不可逆动作：起 Claude Code 干活、标完成都会真的改东西，
@@ -260,7 +263,7 @@ export function Hud() {
       for await (const ev of summonRelay(
         {
           text,
-          ...(rules?.match ? { taskId: rules.match.taskId } : {}),
+          ...(match ? { taskId: match.taskId } : {}),
           ...(scene ? { scene } : {}),
           ...(snapshot?.browser?.url ? { url: snapshot.browser.url } : {}),
           ...(slackConv ? { conv: slackConv.conv } : {}),
@@ -334,13 +337,13 @@ export function Hud() {
           {shotUrl && <img className="hud__shot" src={shotUrl} alt="当前屏幕截图" />}
         </div>
       )}
-      {rules?.match && (
+      {match && (
         <>
           <div className="hud__match">
-            <span className={`dot dot--${statusDot(rules.match.status)}`} />
-            {rules.match.title}
+            <span className={`dot dot--${statusDot(match.status)}`} />
+            {match.strength === "maybe" ? `可能相关 · ${match.title}` : match.title}
           </div>
-          <div className="hud__why">{rules.match.why}</div>
+          <div className="hud__why">{match.why}</div>
         </>
       )}
       {card?.verdict ? (
@@ -416,7 +419,7 @@ export function Hud() {
             ref={inputRef}
             className="hud__ask-input"
             rows={1}
-            placeholder={asking ? "Friday 在想…" : slackConv ? "帮我查 / 建成任务 / 挂到…，或直接问" : rules?.match ? "让终端做点什么" : "跟 Friday 说点什么"}
+            placeholder={asking ? "Friday 在想…" : slackConv ? "帮我查 / 建成任务 / 挂到…，或直接问" : match ? "让终端做点什么" : "跟 Friday 说点什么"}
             value={ask}
             disabled={asking}
             onChange={(e) => setAsk(e.target.value)}
