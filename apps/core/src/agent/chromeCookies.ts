@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process";
 import { createDecipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+
+// 同 memory/db.ts：esbuild 会把 node:sqlite 的前缀剥掉，打包后启动就找不到包
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
 // 从你 Chrome 的 Cookie 库里取某个站点的 Cookie，给 Friday 的无头浏览器用：你在 Chrome 里登着什么，Friday 就是什么。
 const CHROME_DIR = process.env.FRIDAY_CHROME_DIR || join(process.env.HOME ?? "", "Library/Application Support/Google/Chrome");
