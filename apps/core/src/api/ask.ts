@@ -78,6 +78,7 @@ export const ask = new Hono()
         cwd: config.dataDir,
         skills: prefs.skills,
         skillList: prefs.skillList,
+        web: true,
         ...(resume ? { resume } : {}),
         ...(prefs.model ? { model: prefs.model } : {}),
       },

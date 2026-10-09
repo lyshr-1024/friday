@@ -16,6 +16,7 @@ import { TmuxMissingError } from "../agent/tmux.js";
 import { handToFriday, startTask } from "../agent/taskStart.js";
 import { approvePending, finishTask, rejectTask, reopenTask } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
+import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
 import { autostartPlan, runningAutonomous } from "../agent/autostart.js";
@@ -589,6 +590,11 @@ export const tasks = new Hono()
     }
     if (plan.kind === "reopen_task") {
       if (!updateTask(plan.id, { status: plan.status as TaskStatus })) return c.json({ error: "任务已不在" }, 409);
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "delete_research") {
+      if (!deleteResearchNote(plan.file)) return c.json({ error: "笔记已经不在了" }, 409);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
