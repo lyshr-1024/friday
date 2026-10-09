@@ -27,11 +27,15 @@ export interface AskOptions {
   builtin?: string[];
   /** 这次调用算在哪个调用点名下（ask / triage / brief …），用量统计按它分组 */
   label?: string;
+  /** 放行 WebSearch。只给用户直接对话的 /ask 和 HUD，后台小判断不需要上网 */
+  web?: boolean;
   /** 一轮出结果：不挂工具、不思考。HUD 呼出实测 Sonnet 5 默认的 adaptive thinking 一项就占 10 秒 */
   oneShot?: boolean;
 }
 
 const SKILL_TOOLS = ["Skill", "Bash", "Read", "Glob", "Grep"];
+// 读网页走 Friday 自己的 web_read（能读要登录的内网页面、给全文），WebFetch 只回模型摘要，不再多放一条路
+const WEB_TOOLS = ["WebSearch"];
 
 /** 只答一个 JSON 的小判断都用它：挂靠、查询分类、接哪段会话 */
 export const SMALL_MODEL = "haiku";
@@ -51,15 +55,16 @@ export async function* askStream(prompt: string | MessageParam["content"], opts:
   const abortController = new AbortController();
   opts.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
 
+  const builtins = opts.builtin ?? [...(opts.skills ? SKILL_TOOLS : []), ...(opts.web ? WEB_TOOLS : [])];
   const q = query({
     prompt: typeof prompt === "string" ? prompt : single(prompt),
     options: {
       systemPrompt: opts.systemPrompt,
       cwd: opts.cwd,
-      tools: opts.builtin ?? (opts.skills ? SKILL_TOOLS : []),
+      tools: builtins,
       ...(opts.builtin || opts.oneShot ? {} : { mcpServers: { friday: fridayTools(opts.conversationId) } }),
-      allowedTools: opts.oneShot ? [] : (opts.builtin ?? (opts.skills ? [...FRIDAY_TOOL_NAMES, ...SKILL_TOOLS] : FRIDAY_TOOL_NAMES)),
-      maxTurns: opts.oneShot ? 1 : opts.builtin ? 20 : opts.skills ? 30 : 8,
+      allowedTools: opts.oneShot ? [] : (opts.builtin ?? [...FRIDAY_TOOL_NAMES, ...builtins]),
+      maxTurns: opts.oneShot ? 1 : opts.builtin ? 20 : opts.skills ? 30 : 12,
       ...(opts.oneShot ? { thinking: { type: "disabled" as const } } : {}),
       includePartialMessages: true,
       persistSession: true,

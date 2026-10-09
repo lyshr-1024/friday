@@ -207,6 +207,16 @@ Friday 起草、你审、你点头后 Friday 逐条提交，跟 Slack 回复一�
 
 - **首屏**（`GET /desk`，`agent/desk.ts`）：会话窗空对话不再是介绍文案，而是「Hello {name}！{时段问候}，有什么可以帮你？」+ Sonnet 写的「现在先做什么」（≤5 行，素材没变 10 分钟内用缓存）+ 等你回的人 / 待办 / 进行中任务，带一键动作。名字取 `settings.name`，缺省用 macOS 账户全名（`id -F`），设置页可改；启动器占位符同样问候。
 
+## 读网页与学习笔记（2026-10-09）
+
+用户贴内网文章说「学习一下」，Friday 回「打不开链接」。查下来 `/ask` 从来没有联网工具：09-04 写的「不能联网」是为了挡它假装执行命令，不是有意不给；WebSearch 只在已删的「每天自学一题」里用过。
+
+- **WebSearch**：`askStream` 的 `web: true` 放行，只有 `/ask` 和 HUD 通用对话传，后台小判断不给。不开 WebFetch——它只回模型摘要、读不了要登录的页面，读网页统一走 `web_read`。
+- **`web_read(url, offset?)`**（`agent/web.ts`）：一律用 agent-browser 无头打开（session `friday-web`，空闲 2 分钟自退），不走 fetch——内网页面要登录、SPA 要跑完 JS。**登录态现从你的 Chrome 取**（`agent/chromeCookies.ts`）：每次读之前，从各 profile 的 Cookie 库（拷一份再读）取目标 host 及各级父域的 Cookie，取最近用过的那个 profile 的，用钥匙串「Chrome Safe Storage」解密（新版明文前有 32 字节 SHA256(host) 前缀要剥），逐条 `cookies set` 注入。密钥进程内缓存：每次 core 启动最多弹一次钥匙串授权，点「始终允许」后不弹。**试过但不用的**：agent-browser `--profile <Chrome profile>` 读不到 Cookie（GitLab 都跳登录页）；Friday 独立 profile + 弹窗登录（用户否：账号要全部重登、不同步）；`--auto-connect` 连你的 Chrome（要开远程调试、Friday 会在主浏览器里开标签，口子太大）。只能带 Cookie，靠 localStorage 存 token 的站点读不到。
+- **正文在哪**：iframe（最多 3 个）逐个打开它的地址读——VibeClub 的页面是 sandbox iframe，跨源读不到；可见正文短于 8000 字时把内联脚本也交给模型——精读页 9 章内容都在脚本数据里，按 `#ch1…` 只渲染当前一章。整页上限 10 万字。读到登录页 / 无权页（`needsLogin`：跳去 accounts./login/sso，或短页面带 401 / Access restricted / 登录字样）就让用户先在 Chrome 里确认能看。
+- **分段**：一次工具返回超过 Claude Code 的 MCP 输出上限（约 2.5 万 token）会被转存成文件，Friday 没有 Read 读不到、直接放弃。所以每段 2 万字，结尾写下一段的 offset，整页缓存 10 分钟；非 Skill 模式 `maxTurns` 8 → 12。
+- **学习 = 存笔记**：`research_save(title, content, url?)` 写 `research/<上海日期>-<标题>.md`（重名加序号），记账 `research_saved`，`undo: delete_research` 删文件；`memory_read research` 列笔记、`research:<文件名>` 读一份（`basename` 挡 `../`）。**只写在系统提示里压不住**：实测两次读完就说「笔记已存」、还编了个文件名，`research_save` 一次没调——现在 `web_read` 每段末尾都带一句「没调 research_save、没看到已存就不能说存了」，同「终端里调完工具别换英文」一个思路；系统提示的「说已 X 之前必须真调过」也补了「已存」。实测一轮「学习一下这篇文章」约 $0.2。
+
 ## 附件与链接
 
 - 会话窗支持粘贴图片、拖入文件、📎 选文件：前端读成 base64 `POST /attachments` 存到记忆库目录 `attachments/`（表 `attachments`，单个 20MB 上限，一条消息最多 10 个），`/ask` 带 `attachments: [id]`。`agent/content.ts` 组装 Anthropic 消息内容：png/jpg/gif/webp → image 块，pdf → document 块，文本类（按 mime 或扩展名）→ 内联 text 块（10 万字截断），其他类型只告知文件名。带附件时 `askStream` 走流式输入（一条 `SDKUserMessage`）。用户消息 `payload.attachments` 存元数据，缩略图从 `GET /attachments/:id` 加载（CSP `img-src` 已放行 127.0.0.1）。

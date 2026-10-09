@@ -245,6 +245,7 @@ export const summonApi = new Hono()
         systemPrompt: friday(loadMemoryContext()),
         cwd: config.dataDir,
         label: "ask",
+        web: true,
         conversationId,
         ...(resume ? { resume } : {}),
       })) {

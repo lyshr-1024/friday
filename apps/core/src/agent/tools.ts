@@ -1,5 +1,8 @@
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
+import { listResearchNotes, readResearchByName, saveResearchNote } from "../memory/research.js";
+import { readChunk } from "./web.js";
+import { untrusted } from "./fence.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { STAGE_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
@@ -50,11 +53,14 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
 export const fridayToolList = (conversationId?: string) => [
     tool(
       "memory_read",
-      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册。",
-      { file: z.string().min(1).max(80) },
+      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册；传 research 列出存过的学习笔记，research:<文件名> 读其中一份。",
+      { file: z.string().min(1).max(120) },
       async ({ file }) => {
         const hb = /^handbook:(.+)$/.exec(file);
         if (hb) return text(readHandbook(hb[1]!) || `（没有 ${hb[1]} 的手册，现有：${listHandbooks().join("、") || "一份都没有"}）`);
+        if (file === "research") return text(listResearchNotes().join("\n") || "（还没存过笔记）");
+        const rs = /^research:(.+)$/.exec(file);
+        if (rs) return text(readResearchByName(rs[1]!) || `（没有这份笔记，用 memory_read research 看有哪些）`);
         const parsed = MEMORY_NAMES.safeParse(file);
         if (!parsed.success) return text(`没有这个文件。可读：projects / decisions / people${listHandbooks().length ? `，以及 ${listHandbooks().map((h) => `handbook:${h}`).join("、")}` : ""}`);
         return text(readMemoryFile(parsed.data) || "（空文件）");
@@ -69,6 +75,43 @@ export const fridayToolList = (conversationId?: string) => [
         writeMemoryFile(file, content);
         console.log(`[tool] memory_write ${file} ${content.length} chars`);
         return text(`已写入 ${file}`);
+      },
+    ),
+    tool(
+      "web_read",
+      "用无头浏览器打开一个网页，读回标题和正文（含 iframe 里的），长文分段返回，按结尾的提示带 offset 接着读。用户发链接让你看、读、学习时用它。登录态用的是用户 Chrome 里的 Cookie，他在 Chrome 里能看的内网页面这里也能读。",
+      {
+        url: z.string().url().refine((u) => /^https?:\/\//.test(u), "只支持 http / https"),
+        offset: z.number().int().min(0).optional().describe("从第几个字开始读，第一次不填"),
+      },
+      async ({ url, offset }) => {
+        try {
+          const r = await readChunk(url, offset);
+          if (r.kind === "login") return text(`读到的是登录页 / 无权页（${r.url}）：用户 Chrome 里没登录这个站点、登录过期了，或者账号本身没权限。告诉用户先在 Chrome 里打开这个链接确认能看，再让你重读。`);
+          const body = untrusted(`网页 ${new URL(r.url).host}`, `标题：${r.title}\n地址：${r.url}\n\n${r.text}`);
+          const where = `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）`;
+          const rest = r.next !== undefined ? `还没读完，接着读：web_read url=${url} offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
+          // 只写在系统提示里压不住：实测两次读完就说「笔记已存」，research_save 一次没调
+          const save = "用户要你学习、记下来的话，读够了就调 research_save 存笔记；没调它、没看到「已存」，就不能说存了。";
+          return text(`${where}\n${body}\n${rest}\n${save}`);
+        } catch (e) {
+          return text(`没读到：${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
+    ),
+    tool(
+      "research_save",
+      "把学到的内容存成一份笔记进记忆库 research/ 目录，以后用 memory_read research:<文件名> 能翻出来。用户说「学习一下」「记下来」时，读完再用它存：content 写你整理的要点，不是原文照抄。",
+      {
+        title: z.string().min(1).max(100).describe("笔记标题，用文章标题或主题"),
+        content: z.string().min(1).max(100_000).describe("Markdown：要点、关键例子、能直接拿来用的规则"),
+        url: z.string().url().optional().describe("来源链接"),
+      },
+      async ({ title, content, url }) => {
+        if (!decide("reversible").allowed) return text("操作被拒绝");
+        const rel = saveResearchNote(title, content, url);
+        record({ action: "research_saved", why: "用户让学习 / 记下这份内容", how: `存成笔记 ${rel}`, evidence: { title, ...(url ? { url } : {}) }, risk: "reversible", undo: { kind: "delete_research", file: rel } });
+        return text(`已存：${rel.replace(/^research\//, "")}`);
       },
     ),
     tool(
