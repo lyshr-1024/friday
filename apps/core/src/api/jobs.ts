@@ -5,6 +5,7 @@ import { onJobExit } from "../agent/pipeline.js";
 import { closeJobTerminal, closeSessionTerminal, openTerminals, sweepClosedTerminals } from "../agent/terminal.js";
 import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../agent/sessions.js";
 import { jobActivity } from "../agent/transcript.js";
+import { trayStatus } from "../agent/tray.js";
 import { checkPush, describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource, getTask } from "../memory/tasks.js";
@@ -23,6 +24,8 @@ export const jobs = new Hono()
   .post("/jobs/sweep", async (c) => c.json({ closed: await sweepClosedTerminals() }))
   /** 关掉一个终端：杀进程组 + job 收尾。任务不动，用户可能还想接着做。 */
   .get("/terminals", (c) => c.json(openTerminals()))
+  /** 菜单栏图标和它的菜单，壳每 2 秒拉一次 */
+  .get("/tray", (c) => c.json(trayStatus()))
   .post("/terminals/:id/close", async (c) => {
     const closed = await closeSessionTerminal(c.req.param("id"), "你在顶栏的终端列表里关了它");
     publish({ type: "tasks" });

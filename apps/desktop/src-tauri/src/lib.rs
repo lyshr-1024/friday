@@ -6,6 +6,7 @@ mod settings;
 mod sidecar;
 mod snapshot;
 mod tray;
+mod tray_art;
 mod window;
 
 use tauri::{ActivationPolicy, Manager, RunEvent, WindowEvent};
