@@ -121,7 +121,8 @@ fn animate(app: AppHandle, tray: TrayIcon, hotkey: String) {
                     }
                     Err(e) => eprintln!("[friday] 菜单栏菜单重建失败：{e}"),
                 }
-                let _ = tray.set_title((next.count > 0).then(|| next.count.to_string()));
+                // tray-icon 在 macOS 上 set_title(None) 什么都不做，清掉要传空串
+                let _ = tray.set_title(Some(if next.count > 0 { next.count.to_string() } else { String::new() }));
                 let _ = tray.set_show_menu_on_left_click(on_left);
                 MENU_ON_LEFT.store(on_left, Ordering::Relaxed);
                 status = next;

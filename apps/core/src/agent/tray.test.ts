@@ -9,6 +9,8 @@ const ago = (min: number) => new Date(NOW - min * 60000).toISOString();
 describe("菜单栏状态", () => {
   it("在问你 > 等你 > 在干活 > 空闲，计数只算要你出手的", () => {
     expect(trayStatus(NOW)).toEqual({ state: "idle", count: 0, items: [], doing: [] });
+    createTask({ title: "卡住的", kind: "meegle", source: {}, status: "blocked" });
+    expect(trayStatus(NOW)).toEqual({ state: "idle", count: 0, items: [], doing: [] });
 
     const busy = createTask({ title: "在跑的", kind: "code", source: {}, status: "processing" });
     createTermSession({ id: busy.id, project: "p", repoDir: "/r", tmuxName: "r-busy", kind: "interactive", jobId: "j1" });

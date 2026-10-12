@@ -5,7 +5,8 @@ import { getTermSession } from "../memory/termSessions.js";
 import { taskSession } from "./sessionState.js";
 import { openTerminals } from "./terminal.js";
 
-const NEEDS: SessionState[] = ["asking", "awaiting", "deciding", "blocked"];
+// 卡住的不算：它要等外部（缺依赖、等别人），点开菜单也做不了什么
+const NEEDS: SessionState[] = ["asking", "awaiting", "deciding"];
 const MAX_ITEMS = 8;
 
 function waited(since: string | undefined, now: number): string {
@@ -25,7 +26,7 @@ export function trayStatus(now = Date.now()): TrayStatus {
   for (const t of open) {
     const s = taskSession(t);
     if (!NEEDS.includes(s.state)) continue;
-    const since = s.state === "deciding" ? s.waitingSince : s.state === "awaiting" ? s.lastStopAt : t.updatedAt;
+    const since = s.state === "deciding" ? s.waitingSince : s.state === "awaiting" ? s.lastStopAt : undefined;
     needs.push({ text: line(s.state, t.title, since, now), kind: s.state === "asking" ? "asking" : "waiting", taskId: t.id, since });
   }
   const terms = openTerminals();
