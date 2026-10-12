@@ -334,6 +334,25 @@ export interface OpenTerminal {
   branch?: string;
 }
 
+/** 菜单栏图标：在问你 > 等你 > 在干活 > 空闲，同一时刻只亮一种 */
+export type TrayState = "asking" | "waiting" | "working" | "idle";
+
+export interface TrayItem {
+  /** 菜单里的整行文字，壳原样显示 */
+  text: string;
+  kind: "asking" | "waiting";
+  /** 没有就是项目终端，点了只打开工作台 */
+  taskId?: string;
+}
+
+export interface TrayStatus {
+  state: TrayState;
+  count: number;
+  items: TrayItem[];
+  /** 「Friday 在做」：自主任务和后台查询 */
+  doing: { taskId: string; title: string }[];
+}
+
 export interface ProjectTaskLine {
   id: string;
   title: string;

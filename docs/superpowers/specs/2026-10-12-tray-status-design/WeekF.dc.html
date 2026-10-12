@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一周七格带 F</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#9aa3ab}a:hover{color:#e8ecef}
+.wf .seg{opacity:0.35}
+.wf .s5{opacity:1}
+.wf-work .seg{opacity:0.35}
+.wf-full .seg{opacity:0}
+@keyframes wf-cy{0%,100%{opacity:0}8%,22%{opacity:1}36%{opacity:0}}
+@keyframes wf-blink{0%,70%,100%{opacity:1}80%{opacity:0.15}}
+.cy circle{opacity:0;animation:wf-cy 1.4s linear infinite}
+.cy .s2{animation-delay:0.2s}.cy .s3{animation-delay:0.4s}.cy .s4{animation-delay:0.6s}.cy .s5{animation-delay:0.8s}.cy .s6{animation-delay:1s}.cy .s7{animation-delay:1.2s}
+.wf-ask .ff{animation:wf-blink 1.2s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.cy circle,.wf-ask .ff{animation:none}.cy .s5{opacity:1}}
+</style>
+</helmet>
+<div style="width: 640px; height: 800px; box-sizing: border-box; padding: 36px 40px; background: #1b1d20; color: #e8ecef; font-family: -apple-system, 'PingFang SC', system-ui, sans-serif; display: flex; flex-direction: column; gap: 28px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em">E · 带 F 的四种状态</h2>
+<div style="display: flex; align-items: flex-end; gap: 24px">
+<svg width="200" height="200" viewBox="0 0 1024 1024" role="img" aria-label="Friday 图标，一周七格中间带 F">
+<rect x="100" y="100" width="824" height="824" rx="185" fill="#17191c"></rect>
+<rect x="100" y="100" width="824" height="412" rx="185" fill="#ffffff" opacity="0.035"></rect>
+<rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="4"></rect>
+<circle cx="512" cy="512" r="250" fill="none" stroke="#33383e" stroke-width="84" stroke-dasharray="186 38.4" stroke-dashoffset="-19.2" transform="rotate(-90 512 512)"></circle>
+<circle cx="512" cy="512" r="250" fill="none" stroke="#eef1f4" stroke-opacity="0.85" stroke-width="84" stroke-dasharray="186 38.4 186 38.4 186 38.4 186 711.6" stroke-dashoffset="-19.2" transform="rotate(-90 512 512)"></circle>
+<circle cx="512" cy="512" r="250" fill="none" stroke="{{accent}}" stroke-width="84" stroke-dasharray="186 1384.8" stroke-dashoffset="-916.8" transform="rotate(-90 512 512)"></circle>
+<rect x="452" y="414" width="54" height="196" rx="27" fill="#eef1f4"></rect>
+<rect x="452" y="414" width="130" height="52" rx="26" fill="#eef1f4"></rect>
+<rect x="452" y="490" width="92" height="48" rx="24" fill="#eef1f4"></rect>
+</svg>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px">
+<div style="font-size: 13px; color: #c9cdd2">App 图标</div>
+<div style="font-size: 12px; color: #8b9198; line-height: 1.6">青色那格 = 周五<br>周一到周四亮，周末暗</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; color: #8b9198; letter-spacing: 0.04em">菜单栏图标 · 放大 4 倍看细节</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+<sc-for list="{{states}}" as="st" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0; border-radius: 10px; background: #2b2b2d; color: #f2f2f2">
+<svg width="72" height="72" viewBox="0 0 18 18" aria-hidden="true">
+<g class="{{st.cls}}">
+<g fill="none" stroke="currentColor" stroke-width="1.8" transform="rotate(-90 9 9)">
+<circle class="seg s1" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-0.6"></circle>
+<circle class="seg s2" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-7.063"></circle>
+<circle class="seg s3" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-13.526"></circle>
+<circle class="seg s4" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-19.989"></circle>
+<circle class="seg s5" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-26.452"></circle>
+<circle class="seg s6" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-32.915"></circle>
+<circle class="seg s7" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-39.378"></circle>
+</g>
+<sc-if value="{{st.color}}" hint-placeholder-val="{{ false }}">
+<g class="{{st.ring}}" fill="none" stroke="{{st.dark}}" stroke-width="1.8" transform="rotate(-90 9 9)">
+<circle class="s1" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-0.6"></circle>
+<circle class="s2" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-7.063"></circle>
+<circle class="s3" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-13.526"></circle>
+<circle class="s4" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-19.989"></circle>
+<circle class="s5" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-26.452"></circle>
+<circle class="s6" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-32.915"></circle>
+<circle class="s7" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-39.378"></circle>
+</g>
+</sc-if>
+<g class="ff" fill="currentColor">
+<rect x="6.7" y="5.5" width="1.7" height="7" rx="0.85"></rect>
+<rect x="6.7" y="5.5" width="4.9" height="1.7" rx="0.85"></rect>
+<rect x="6.7" y="8.5" width="3.5" height="1.5" rx="0.75"></rect>
+</g>
+</g>
+</svg>
+<div style="font-size: 12px; color: #c9cdd2">{{st.name}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; color: #8b9198; letter-spacing: 0.04em">菜单栏图标 · 实际大小</div>
+<div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 12px; align-items: center">
+<sc-for list="{{states}}" as="st" hint-placeholder-count="4">
+<div style="font-size: 13px; color: #c9cdd2">{{st.name}}</div>
+<sc-for list="{{st.bars}}" as="bar" hint-placeholder-count="2">
+<div style="height: 30px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; font-size: 13px; background: {{bar.bg}}; color: {{bar.fg}}">
+<div style="display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 5px; background: {{st.hl}}">
+<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+<g class="{{st.cls}}">
+<g fill="none" stroke="currentColor" stroke-width="1.8" transform="rotate(-90 9 9)">
+<circle class="seg s1" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-0.6"></circle>
+<circle class="seg s2" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-7.063"></circle>
+<circle class="seg s3" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-13.526"></circle>
+<circle class="seg s4" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-19.989"></circle>
+<circle class="seg s5" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-26.452"></circle>
+<circle class="seg s6" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-32.915"></circle>
+<circle class="seg s7" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-39.378"></circle>
+</g>
+<sc-if value="{{st.color}}" hint-placeholder-val="{{ false }}">
+<g class="{{st.ring}}" fill="none" stroke="{{bar.ring}}" stroke-width="1.8" transform="rotate(-90 9 9)">
+<circle class="s1" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-0.6"></circle>
+<circle class="s2" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-7.063"></circle>
+<circle class="s3" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-13.526"></circle>
+<circle class="s4" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-19.989"></circle>
+<circle class="s5" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-26.452"></circle>
+<circle class="s6" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-32.915"></circle>
+<circle class="s7" cx="9" cy="9" r="7.2" stroke-dasharray="5.263 39.977" stroke-dashoffset="-39.378"></circle>
+</g>
+</sc-if>
+<g class="ff" fill="currentColor">
+<rect x="6.7" y="5.5" width="1.7" height="7" rx="0.85"></rect>
+<rect x="6.7" y="5.5" width="4.9" height="1.7" rx="0.85"></rect>
+<rect x="6.7" y="8.5" width="3.5" height="1.5" rx="0.75"></rect>
+</g>
+</g>
+</svg>
+<sc-if value="{{st.hasCount}}" hint-placeholder-val="{{ false }}">
+<span style="font-weight: 600; font-variant-numeric: tabular-nums">{{st.count}}</span>
+</sc-if>
+</div>
+<span style="font-variant-numeric: tabular-nums; opacity: 0.85">10:24</span>
+</div>
+</sc-for>
+</sc-for>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#38d6ff","options":["#38d6ff","#ff9f43","#7cdb8a","#c58bff"]},"$preview":{"width":640,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+const light = { bg: '#e9e9ea', fg: '#111111' };
+const dark = { bg: '#2b2b2d', fg: '#f2f2f2' };
+const pair = (l, d) => [{ ...light, ring: l }, { ...dark, ring: d }];
+return {
+accent: this.props.accent ?? '#38d6ff',
+states: [
+{ name: '空闲', cls: 'wf', color: false, ring: '', dark: '', bars: pair('', ''), hasCount: false, count: '', hl: 'transparent' },
+{ name: '在干活', cls: 'wf-work', color: true, ring: 'cy', dark: '#38d6ff', bars: pair('#0a8fc2', '#38d6ff'), hasCount: false, count: '', hl: 'transparent' },
+{ name: '等你 · 2', cls: 'wf-full', color: true, ring: '', dark: '#ffb224', bars: pair('#b87100', '#ffb224'), hasCount: true, count: '2', hl: 'transparent' },
+{ name: '在问你 · 1', cls: 'wf-full wf-ask', color: true, ring: '', dark: '#ff6369', bars: pair('#d93036', '#ff6369'), hasCount: true, count: '1', hl: 'rgba(127,127,127,0.25)' }
+]
+};
+}
+}
+</script>
+</body>
+</html>
