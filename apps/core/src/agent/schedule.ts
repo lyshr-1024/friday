@@ -128,8 +128,7 @@ function fireFriday(s: Schedule): Fired {
     off?.();
     const first = answer.trim().split("\n").find((l) => l.trim())?.slice(0, 80);
     state.notices.push({ title: s.title, body: first ?? (error ? `出错了：${error.slice(0, 120)}` : "（没有回答）") });
-    const failed = Boolean(error) && !first;
-    setLastRun(s.id, { ok: !failed, result: first ?? (error || "（没有回答）"), ref: conv, at: getSchedule(s.id)?.lastRunAt ?? new Date().toISOString() });
+    setLastRun(s.id, { ok: !error, result: first ?? (error || "（没有回答）"), ref: conv, at: getSchedule(s.id)?.lastRunAt ?? new Date().toISOString() });
   });
   return { ok: true, result: "Friday 在跑，结果写进这段会话", ref: conv };
 }

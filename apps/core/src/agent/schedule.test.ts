@@ -101,6 +101,8 @@ describe("friday 执行方", () => {
     expect(getSchedule(s.id)).toMatchObject({ lastOk: true, lastResult: "结论：都好" });
     await finish([{ type: "error", message: "炸了" }, { type: "done" }]);
     expect(getSchedule(s.id)).toMatchObject({ lastOk: false, lastResult: "炸了" });
+    await finish([{ type: "delta", text: "先写了半句" }, { type: "error", message: "断了" }, { type: "done" }]);
+    expect(getSchedule(s.id)).toMatchObject({ lastOk: false, lastResult: "先写了半句" });
   });
 
   it("上一轮还在生成就算忙", () => {
