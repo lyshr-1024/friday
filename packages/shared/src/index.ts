@@ -545,6 +545,8 @@ export interface TaskSource {
   researchFile?: string;
   /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
   fromTaskId?: string;
+  /** 由哪条定时任务触发 */
+  scheduleId?: string;
   /**
    * 在哪条任务的分支上接着开。一期还没上线、二期要在它基础上继续做时，
    * 开工不从主干拉新分支，而是检出那条任务的分支再往下走。
@@ -885,7 +887,7 @@ export interface Rule {
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
 export type RunKind = "autonomous" | "query" | "interactive_round";
-export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user";
+export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user" | "schedule";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
 export type RunOutcome = "pending" | "merged_as_is" | "merged_modified" | "rejected" | "abandoned" | "reopened" | "closed_unverified";
@@ -1046,3 +1048,37 @@ export const DEFAULT_SUMMON_SETTINGS: SummonSettings = {
   // 企业租户的 Lark 云文档（验收文档、需求文档）是工作面，整个 larksuite.com 不放，免得个人文档也进模型
   urlAllowlist: ["meegle.com", "project.feishu.cn", "project.larksuite.com", "longbridge-group.jp.larksuite.com", "longbridge.sg", "longbridge-inc.com"],
 };
+
+export type ScheduleExecutor = "project" | "friday" | "call";
+
+export interface Schedule {
+  id: string;
+  title: string;
+  cron: string;
+  enabled: boolean;
+  executor: ScheduleExecutor;
+  project?: string;
+  prompt?: string;
+  mode: "continue" | "fresh";
+  attended: boolean;
+  server?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  anchorTaskId?: string;
+  conversationId?: string;
+  createdAt: string;
+  lastRunAt?: string;
+  lastResult?: string;
+  lastOk?: boolean;
+  lastRef?: string;
+  history: Array<{ at: string; summary: string }>;
+}
+
+export interface ScheduleView extends Schedule {
+  when: string;
+  nextRunAt?: string;
+  executorLabel: string;
+}
+
+export type ScheduleInput = Pick<Schedule, "title" | "cron" | "executor"> &
+  Partial<Pick<Schedule, "project" | "prompt" | "mode" | "attended" | "server" | "tool" | "args" | "enabled">>;

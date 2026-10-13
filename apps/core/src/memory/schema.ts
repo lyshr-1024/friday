@@ -251,6 +251,28 @@ CREATE TABLE IF NOT EXISTS term_sessions (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schedules (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  cron TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  executor TEXT NOT NULL,
+  project TEXT,
+  prompt TEXT,
+  mode TEXT NOT NULL DEFAULT 'continue',
+  attended INTEGER NOT NULL DEFAULT 0,
+  server TEXT,
+  tool TEXT,
+  args TEXT,
+  anchor_task_id TEXT,
+  conversation_id TEXT,
+  created_at TEXT NOT NULL,
+  last_run_at TEXT,
+  last_result TEXT,
+  last_ok INTEGER,
+  last_ref TEXT,
+  history TEXT NOT NULL DEFAULT '[]'
+);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {
