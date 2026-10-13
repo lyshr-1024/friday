@@ -67,7 +67,7 @@ export async function callTool(
   tool: string,
   args: Record<string, unknown>,
   opts: { file?: string; label?: string; timeoutMs?: number } = {},
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; blocks: string[]; isError: boolean }> {
   const label = opts.label ?? server;
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const ep = mcpEndpoint(server, opts.file);
@@ -77,6 +77,6 @@ export async function callTool(
   await post(ep, { method: "notifications/initialized" }, label, timeoutMs, session);
   const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/call", params: { name: tool, arguments: args } }, label, timeoutMs, session)).body, label);
   if (msg.error) throw new McpError(`${tool} 失败：${msg.error.message}`);
-  const text = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n") ?? "";
-  return { text, isError: Boolean(msg.result?.isError) };
+  const blocks = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.filter((c) => c.type === "text").map((c) => c.text ?? "") ?? [];
+  return { text: blocks.join("\n"), blocks, isError: Boolean(msg.result?.isError) };
 }

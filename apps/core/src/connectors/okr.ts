@@ -11,17 +11,18 @@ export function okrEndpoint(file?: string): McpEndpoint {
 }
 
 async function call<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  let r: { text: string; isError: boolean };
+  let r: Awaited<ReturnType<typeof callTool>>;
   try {
     r = await callTool("okr", name, args, { label: "OKR 平台" });
   } catch (e) {
     throw new OkrError(e instanceof Error ? e.message : String(e));
   }
   if (r.isError) throw new OkrError(`${name} 失败：${r.text.slice(0, 200)}`);
+  const first = r.blocks[0] ?? "";
   try {
-    return JSON.parse(r.text) as T;
+    return JSON.parse(first) as T;
   } catch {
-    throw new OkrError(`${name} 返回的不是 JSON：${r.text.slice(0, 120)}`);
+    throw new OkrError(`${name} 返回的不是 JSON：${first.slice(0, 120)}`);
   }
 }
 

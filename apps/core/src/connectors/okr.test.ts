@@ -81,4 +81,15 @@ describe("OKR 客户端", () => {
     await expect(myKRs()).rejects.toThrow(OkrError);
     await expect(myKRs()).rejects.toThrow("OKR 平台返回的内容解析不了：<html>502 Bad Gateway</html>");
   });
+
+  it("多段文本只解析第一段 JSON（后面的说明文字不能把解析弄坏）", async () => {
+    good();
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      const msg = JSON.parse(String(init.body)) as { id?: number; method: string };
+      if (msg.id === undefined) return new Response(null, { status: 202 });
+      const result = msg.method === "initialize" ? {} : { content: [{ type: "text", text: JSON.stringify({ root: { objects: [{ id: 1, name: "O", label: "O", parent_id: 0, quarter: "q" }, { id: 2, name: "KR", label: "KR", parent_id: 1, quarter: "q" }] } }) }, { type: "text", text: "共 2 条" }] };
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }));
+    }));
+    expect(await myKRs()).toEqual([{ id: 2, name: "KR", objective: "O", quarter: "q" }]);
+  });
 });

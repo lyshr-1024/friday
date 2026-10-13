@@ -44,7 +44,7 @@ describe("http MCP 客户端", () => {
   });
   it("JSON 响应，带上 session id", async () => {
     mode = "json";
-    expect(await callTool("fake", "t", {}, { file })).toEqual({ text: "ok:s1", isError: false });
+    expect(await callTool("fake", "t", {}, { file })).toEqual({ text: "ok:s1", blocks: ["ok:s1"], isError: false });
   });
   it("SSE 响应", async () => {
     mode = "sse";
@@ -52,7 +52,7 @@ describe("http MCP 客户端", () => {
   });
   it("isError 透传", async () => {
     mode = "error";
-    expect(await callTool("fake", "t", {}, { file })).toEqual({ text: "不行", isError: true });
+    expect(await callTool("fake", "t", {}, { file })).toEqual({ text: "不行", blocks: ["不行"], isError: true });
   });
   it("超时报错", async () => {
     mode = "slow";
