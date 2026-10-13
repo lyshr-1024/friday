@@ -136,6 +136,12 @@ export async function sendText(name: string, text: string, windowIndex?: number)
   await run("send-keys", "-t", W(name, windowIndex), "Enter");
 }
 
+// 往 shell 提示符里敲命令前先 C-u 清空输入行：残留的按键会拼到命令前面（2026-10-13 实测成了 `c/bin/zsh …`）。别用在 Claude 里，会删掉你写了一半的话
+export async function sendCommand(name: string, command: string, windowIndex?: number): Promise<void> {
+  await run("send-keys", "-t", W(name, windowIndex), "C-u");
+  await sendText(name, command, windowIndex);
+}
+
 export async function claudeWindowIndex(name: string): Promise<number | undefined> {
   try {
     const idx = (await listWindows(name)).filter((w) => w.name === "claude").map((w) => w.index);

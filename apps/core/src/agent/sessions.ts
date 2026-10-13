@@ -9,7 +9,7 @@ import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
 import { branchExistsSync, branchesForIdSync, currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
-import { claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
+import { claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendCommand, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
 let launch: typeof launchInSession = launchInSession;
 export function setLauncher(fn: typeof launchInSession): void {
@@ -140,7 +140,7 @@ export async function resumeInSession(sessionId: string, prompt?: string, jobId?
     s.worktree ?? s.repoDir,
     jobKind(job, s.kind),
   );
-  await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
+  await sendCommand(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
   reviveJob(job.id);
   updateTermSession(sessionId, { status: "running" });
   markInput(sessionId);
@@ -188,7 +188,7 @@ export async function runInSession(sessionId: string, launch: SessionLaunch, own
   const file = await writeResumeScript({ ...launch, repoDir: s.repoDir, project: s.project }, cwd);
   createJob({ id: launch.id, project: s.project, dir: cwd, task: (launch.task ?? "").slice(0, 500), logPath: jobLog(launch.id), taskId: ownerId, sessionId });
   try {
-    await sendText(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
+    await sendCommand(s.tmuxName, `/bin/zsh ${shellQuote(file)}`, win);
   } catch (e) {
     finishJob(launch.id, 1);
     throw e;

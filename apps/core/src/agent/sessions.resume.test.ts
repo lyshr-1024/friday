@@ -39,6 +39,11 @@ beforeEach(() => {
 });
 
 const typed = () => calls.filter((c) => c[4] === "send-keys" && c.includes("-l")).map((c) => c.at(-1)!);
+// 敲命令前先清空 shell 输入行：残留的按键会拼到命令前面
+const clearedBeforeTyping = () => {
+  const keys = calls.filter((c) => c[4] === "send-keys").map((c) => (c.includes("-l") ? "-l" : c.at(-1)));
+  return keys[keys.lastIndexOf("-l") - 1] === "C-u";
+};
 const scriptOf = (cmd: string) => readFileSync(cmd.replace(/^\/bin\/zsh '/, "").replace(/'$/, ""), "utf8");
 const settingsOf = (script: string) => JSON.parse(readFileSync(/--settings '\\''([^']+)'\\''/.exec(script)![1]!, "utf8")) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>> };
 
@@ -74,6 +79,7 @@ describe("接回不丢守卫", () => {
     expect(await resumeInSession(t.id)).toBe(true);
     const pre = settingsOf(scriptOf(typed().at(-1)!)).hooks.PreToolUse!;
     expect(pre.some((h) => h.matcher === "Bash")).toBe(false);
+    expect(clearedBeforeTyping()).toBe(true);
   });
 });
 
@@ -84,6 +90,7 @@ describe("自主入口遇到已退出的根会话：在原会话里起一次新�
     launched = [];
     const after = await startAutonomousJob(getTask(t.id)!, "app", dir, "再修一次", "retry");
     expect(launched).toEqual([]);
+    expect(clearedBeforeTyping()).toBe(true);
     const script = scriptOf(typed().at(-1)!);
     expect(script).toMatch(/-p --model ['\\].*opus/);
     expect(script).not.toContain("--resume");

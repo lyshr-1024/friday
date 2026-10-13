@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { findTmux, hasSession, killWindow, listSessionNames, listWindows, newSession, safeName, sendText, sessionName, setTmuxRunner, tmuxArgs, TMUX_CONF } from "./tmux.js";
+import { findTmux, hasSession, killWindow, listSessionNames, listWindows, newSession, safeName, sendCommand, sendText, sessionName, setTmuxRunner, tmuxArgs, TMUX_CONF } from "./tmux.js";
 
 let calls: string[][] = [];
 let reply: (args: string[]) => string | Error = () => "";
@@ -42,6 +42,15 @@ describe("tmux 封装", () => {
     expect(calls.map(tail)).toEqual([
       ["send-keys", "-t", "=repo-1:", "-l", "改一下 $HOME; rm -rf"],
       ["send-keys", "-t", "=repo-1:", "Enter"],
+    ]);
+  });
+
+  it("敲命令：先 C-u 清掉输入行里残留的字符，再按字面发、单独回车", async () => {
+    await sendCommand("repo-1", "/bin/zsh '/x/j.resume.sh'", 0);
+    expect(calls.map(tail)).toEqual([
+      ["send-keys", "-t", "=repo-1:0", "C-u"],
+      ["send-keys", "-t", "=repo-1:0", "-l", "/bin/zsh '/x/j.resume.sh'"],
+      ["send-keys", "-t", "=repo-1:0", "Enter"],
     ]);
   });
 
