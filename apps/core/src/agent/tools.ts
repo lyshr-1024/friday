@@ -511,6 +511,7 @@ export const fridayToolList = (conversationId?: string) => [
         args: z.record(z.string(), z.unknown()).optional(),
       },
       async (input) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能登记、改或删定时任务，等用户回来。");
         const { validateSchedule, toView } = await import("./schedule.js");
         const bad = validateSchedule(input);
         if (bad) return text(`没登记：${bad}`);
@@ -537,13 +538,20 @@ export const fridayToolList = (conversationId?: string) => [
         args: z.record(z.string(), z.unknown()).optional(),
       },
       async ({ id, ...patch }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能登记、改或删定时任务，等用户回来。");
         const s = getSchedule(id);
         if (!s) return text(`没有定时任务 ${id}，先用 schedules_list 看看。`);
         const { validateSchedule, toView } = await import("./schedule.js");
         const next = { ...s, ...patch } as typeof s;
         const bad = validateSchedule(next);
         if (bad) return text(`没改：${bad}`);
-        const u = updateSchedule(id, patch)!;
+        const changed = (k: "project" | "attended" | "mode") => patch[k] !== undefined && patch[k] !== s[k];
+        // 长期卡 / 会话绑着旧项目、旧驾驶方式，留着下一轮会跑进旧 worktree 或旧会话
+        const reset = {
+          ...(changed("project") || changed("attended") || changed("mode") ? { anchorTaskId: undefined } : {}),
+          ...(changed("mode") ? { conversationId: undefined } : {}),
+        };
+        const u = updateSchedule(id, { ...patch, ...reset })!;
         record({ action: "schedule_updated", why: "你让 Friday 改一条定时任务", how: Object.keys(patch).join("、"), evidence: { before: s, after: u }, risk: "reversible" });
         const v = toView(u);
         return text(`改好了：${u.title} · ${v.when} · ${v.executorLabel}${u.enabled ? "" : "（已暂停）"}`);
@@ -554,6 +562,7 @@ export const fridayToolList = (conversationId?: string) => [
       "删掉一条定时任务。用户明确说删才调；只是想暂停用 schedule_update 的 enabled=false。",
       { id: z.string().min(1).max(20) },
       async ({ id }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能登记、改或删定时任务，等用户回来。");
         const s = getSchedule(id);
         if (!s || !deleteSchedule(id)) return text(`没有定时任务 ${id}。`);
         record({ action: "schedule_removed", why: "你让 Friday 删掉一条定时任务", how: s.title, evidence: { schedule: s }, risk: "reversible" });
