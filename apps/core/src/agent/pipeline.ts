@@ -72,11 +72,17 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   const t = getTask(id);
   if (!t) return undefined;
   if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
+  const before = getTermSession(id);
+  // 阶段拖到「已上线」会标 done 却不关终端，不关的话开工入口会接进旧 worktree
+  if (opts.fresh && before && before.status !== "closed") await closeTaskTerminal(t, "定时任务新一轮从主干开始");
+  const tree = t.source.worktree ?? before?.worktree;
+  const repo = t.source.repoDir ?? before?.repoDir;
+  const prior = t.source.priorWorktrees ?? [];
   const task = updateTask(id, {
     status: t.source.jobId && !opts.fresh ? "processing" : "understood",
     attention: undefined,
     releasedAt: undefined,
-    ...(opts.fresh ? { source: { branch: undefined, worktree: undefined } } : {}),
+    ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(tree && repo && !prior.some((w) => w.path === tree) ? { priorWorktrees: [...prior, { path: tree, repoDir: repo }] } : {}) } } : {}),
   })!;
   if (!opts.fresh) for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
   record({ taskId: id, action: "task_reopened", why: opts.why ?? "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });

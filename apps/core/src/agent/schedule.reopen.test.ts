@@ -23,6 +23,7 @@ import { createTask, getTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob, setJobSession } from "../memory/jobs.js";
 import { createRun, runByJob, setRunOutcome } from "../memory/runs.js";
 import { createTermSession, getTermSession, updateTermSession } from "../memory/termSessions.js";
+import { leftoverWorktrees } from "../api/worktrees.js";
 
 let calls: string[][] = [];
 beforeEach(() => {
@@ -38,14 +39,14 @@ beforeEach(() => {
 });
 
 /** 长期卡上一轮交付合并后收工：会话关了，worktree 还在 */
-function mergedAnchor(scheduleId: string, jobId: string) {
+function mergedAnchor(scheduleId: string, jobId: string, sessionStatus: "closed" | "exited" = "closed") {
   const wt = mkdtempSync(join(tmpdir(), "friday-sched-reopen-"));
   const t = createTask({ title: "[定时] 修验收", kind: "code", status: "done", project: "demo", source: { scheduleId, jobId, autonomous: true, repoDir: "/repo", worktree: wt, branch: "fix/round-1" } });
   createJob({ id: jobId, project: "demo", dir: wt, logPath: "/tmp/x.log", taskId: t.id, sessionId: t.id });
   setJobSession(jobId, "claude-sess-1");
   finishJob(jobId, 0);
   createTermSession({ id: t.id, project: "demo", repoDir: "/repo", tmuxName: `demo-${jobId}`, kind: "autonomous", jobId });
-  updateTermSession(t.id, { status: "closed", worktree: wt });
+  updateTermSession(t.id, { status: sessionStatus, worktree: wt });
   createRun({ id: jobId, jobId, taskId: t.id, project: "demo", kind: "autonomous", trigger: "schedule" });
   setRunOutcome(jobId, "merged_as_is");
   updateSchedule(scheduleId, { anchorTaskId: t.id });
@@ -83,6 +84,27 @@ describe("continue 的长期卡已收工、worktree 还在", () => {
     const call = vi.mocked(startInteractiveJob).mock.calls[0]!;
     expect(call[0]).toMatchObject({ id: t.id, status: "understood" });
     expect(call[0].source.branch).toBeUndefined();
+  });
+});
+
+describe("重开长期卡时上一轮的 worktree 和终端", () => {
+  it("上一轮的 worktree 记进 priorWorktrees，进遗留列表能在设置页删", async () => {
+    const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
+    const t = mergedAnchor(s.id, "sr-3");
+    const wt = t.source.worktree!;
+    await fireSchedule(getSchedule(s.id)!, "due");
+    expect(getTask(t.id)!.source.priorWorktrees).toEqual([{ path: wt, repoDir: "/repo" }]);
+    expect(leftoverWorktrees().find((w) => w.path === wt)).toMatchObject({ repoDir: "/repo", taskId: t.id });
+  });
+
+  it("长期卡收工了但会话没关（阶段拖到已上线）：先关掉旧会话再重开，不接进旧 worktree", async () => {
+    const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
+    const t = mergedAnchor(s.id, "sr-4", "exited");
+    await fireSchedule(getSchedule(s.id)!, "due");
+    expect(calls.some((a) => a[4] === "kill-session")).toBe(true);
+    expect(getTermSession(t.id)!.status).toBe("closed");
+    expect(listAudit({ taskId: t.id }).find((e) => e.action === "terminal_closed")?.why).toBe("定时任务新一轮从主干开始");
+    expect(calls.some((a) => a[4] === "send-keys")).toBe(false);
   });
 });
 

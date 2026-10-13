@@ -77,4 +77,28 @@ describe("遗留 worktree", () => {
     const list = (await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string }>;
     expect(list.some((w) => w.path === tree)).toBe(false);
   });
+
+  it("任务记着的上一轮 worktree（priorWorktrees）不管任务开没开都列出来，能删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    const t = createTask({ title: "定时长期卡", kind: "code", source: { priorWorktrees: [{ path: tree, repoDir: repo }] }, status: "understood" });
+    const list = (await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string; repoDir: string; taskId?: string }>;
+    expect(list.find((w) => w.path === tree)).toMatchObject({ repoDir: repo, taskId: t.id });
+    const res = await post({ path: tree, repoDir: "/nonexistent" });
+    expect(res.status).toBe(200);
+    expect(existsSync(tree)).toBe(false);
+  });
+
+  it("priorWorktrees 里的路径还在被会话或开着的任务用就不算遗留", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "定时长期卡2", kind: "code", source: { priorWorktrees: [{ path: tree, repoDir: repo }] }, status: "understood" });
+    const live = createTask({ title: "会话在用", kind: "verbal", source: {}, status: "processing" });
+    createTermSession({ id: live.id, project: "p", repoDir: repo, tmuxName: "y", kind: "interactive", jobId: "j2" });
+    updateTermSession(live.id, { status: "running", worktree: tree });
+    expect(((await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string }>).some((w) => w.path === tree)).toBe(false);
+    updateTermSession(live.id, { status: "closed" });
+    createTask({ title: "开着的任务在用", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "review" });
+    expect(((await (await app.request("/worktrees/leftover")).json()) as Array<{ path: string }>).some((w) => w.path === tree)).toBe(false);
+    expect((await post({ path: tree })).status).toBe(400);
+    expect(existsSync(tree)).toBe(true);
+  });
 });

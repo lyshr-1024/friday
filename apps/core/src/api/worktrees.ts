@@ -22,6 +22,12 @@ export function leftoverWorktrees(): Leftover[] {
     if (!p || !repo || inUse.has(p) || !existsSync(p)) continue;
     out.set(p, { path: p, repoDir: repo, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p), taskId: t.id, title: t.title });
   }
+  for (const t of listTasks(undefined, 5000)) {
+    for (const { path: p, repoDir } of t.source.priorWorktrees ?? []) {
+      if (out.has(p) || inUse.has(p) || !existsSync(p)) continue;
+      out.set(p, { path: p, repoDir, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p), taskId: t.id, title: t.title });
+    }
+  }
   for (const proj of loadProjects()) {
     const dir = join(proj.dir, ".claude", "worktrees");
     if (!existsSync(dir)) continue;
