@@ -47,6 +47,8 @@ describe("project 执行方", () => {
     expect(call2[0].id).toBe(anchor);
     expect(call2[3]).toContain("修了资产总览配色");
     expect(getSchedule(s.id)!.history).toHaveLength(1);
+    expect(getTask(anchor)!.report).toBeUndefined();
+    expect(call2[0].report).toBeUndefined();
   });
 
   it("continue：长期卡被标完成了先重开", async () => {

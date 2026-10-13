@@ -6,7 +6,7 @@ import { userSettings } from "../settings.js";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { claudeSessionId, createConversation, renameConversation } from "../memory/conversations.js";
 import { loadMemoryContext } from "../memory/context.js";
 import { getSchedule, listSchedules, pushHistory, setLastRun, updateSchedule } from "../memory/schedules.js";
@@ -69,8 +69,12 @@ async function fireProject(s: Schedule, by: "due" | "manual"): Promise<Fired> {
   let detail = s.prompt ?? "";
   if (s.mode === "continue") {
     task = s.anchorTaskId ? getTask(s.anchorTaskId) : undefined;
-    if (task?.report?.at) pushHistory(s.id, { at: task.report.at, summary: task.report.summary });
-    // 无人值守不能接回交互式会话：那样活会被敲进交互式 Claude，没有自主提示词、永不退出
+    if (task?.report) {
+      pushHistory(s.id, { at: task.report.at ?? new Date().toISOString(), summary: task.report.summary });
+      // 归档进 history 后撤下，否则这一轮没出报告时卡上和「交付待审核」挂的还是上一轮的
+      task = updateTask(task.id, { report: undefined });
+    }
+    // 上一轮已收工（多半合进主干了）：不接回旧会话、不沿用旧分支，新一轮从主干起
     const why = by === "due" ? `定时任务「${s.title}」到点，重开长期卡` : `你点了「现在跑一次」：${s.title}，重开长期卡`;
     if (task && (task.status === "done" || task.status === "ignored")) task = (await reopenTask(task.id, { fresh: true, why }))?.task;
     const history = getSchedule(s.id)?.history ?? [];
