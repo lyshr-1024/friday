@@ -98,7 +98,7 @@ export function openTerminals(): OpenTerminal[] {
 export async function closeSessionTerminal(sessionId: string, why: string): Promise<boolean> {
   const s = getTermSession(sessionId);
   if (!s || s.status === "closed") return false;
-  if (s.jobId && getJob(s.jobId)) return closeJobTerminal(s.jobId, why, s.id);
+  if (s.jobId && getJob(s.jobId) && (await closeJobTerminal(s.jobId, why, s.id))) return true;
   await killSession(s.tmuxName);
   updateTermSession(s.id, { status: "closed" });
   detachSession(s.id);

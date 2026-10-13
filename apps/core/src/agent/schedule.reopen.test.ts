@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,7 @@ import { fireSchedule } from "./schedule.js";
 import { setClaudeFinder } from "./runner.js";
 import { setTmuxRunner } from "./tmux.js";
 import { createSchedule, getSchedule, updateSchedule } from "../memory/schedules.js";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob, setJobSession } from "../memory/jobs.js";
 import { createRun, runByJob, setRunOutcome } from "../memory/runs.js";
 import { createTermSession, getTermSession, updateTermSession } from "../memory/termSessions.js";
@@ -105,6 +105,28 @@ describe("重开长期卡时上一轮的 worktree 和终端", () => {
     expect(getTermSession(t.id)!.status).toBe("closed");
     expect(listAudit({ taskId: t.id }).find((e) => e.action === "terminal_closed")?.why).toBe("定时任务新一轮从主干开始");
     expect(calls.some((a) => a[4] === "send-keys")).toBe(false);
+  });
+});
+
+describe("重开长期卡的收尾边界", () => {
+  it("会话没关、job 行对不上：按会话名直接杀掉并标 closed", async () => {
+    const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
+    const t = mergedAnchor(s.id, "sr-5", "exited");
+    updateTermSession(t.id, { jobId: "ghost-job" });
+    await fireSchedule(getSchedule(s.id)!, "due");
+    expect(calls.some((a) => a[4] === "kill-session")).toBe(true);
+    expect(getTermSession(t.id)!.status).toBe("closed");
+    expect(calls.some((a) => a[4] === "send-keys")).toBe(false);
+  });
+
+  it("priorWorktrees 追加时丢掉磁盘上已不在的目录", async () => {
+    const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
+    const t = mergedAnchor(s.id, "sr-6");
+    const gone = mkdtempSync(join(tmpdir(), "friday-sched-gone-"));
+    rmSync(gone, { recursive: true });
+    updateTask(t.id, { source: { priorWorktrees: [{ path: gone, repoDir: "/repo" }] } });
+    await fireSchedule(getSchedule(s.id)!, "due");
+    expect(getTask(t.id)!.source.priorWorktrees).toEqual([{ path: t.source.worktree, repoDir: "/repo" }]);
   });
 });
 

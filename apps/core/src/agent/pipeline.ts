@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeTaskTerminal } from "./terminal.js";
+import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -74,10 +74,13 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
   const before = getTermSession(id);
   // 阶段拖到「已上线」会标 done 却不关终端，不关的话开工入口会接进旧 worktree
-  if (opts.fresh && before && before.status !== "closed") await closeTaskTerminal(t, "定时任务新一轮从主干开始");
+  if (opts.fresh && before && before.status !== "closed") {
+    await closeTaskTerminal(t, "定时任务新一轮从主干开始");
+    if (getTermSession(id)?.status !== "closed") await closeSessionTerminal(id, "定时任务新一轮从主干开始");
+  }
   const tree = t.source.worktree ?? before?.worktree;
   const repo = t.source.repoDir ?? before?.repoDir;
-  const prior = t.source.priorWorktrees ?? [];
+  const prior = (t.source.priorWorktrees ?? []).filter((w) => existsSync(w.path));
   const task = updateTask(id, {
     status: t.source.jobId && !opts.fresh ? "processing" : "understood",
     attention: undefined,

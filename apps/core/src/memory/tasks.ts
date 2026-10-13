@@ -182,6 +182,10 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
   return rows.map(toTask);
 }
 
+export function listTasksWithPriorWorktrees(): Task[] {
+  return (db().prepare("SELECT * FROM tasks WHERE source LIKE '%\"priorWorktrees\"%'").all() as unknown as Row[]).map(toTask);
+}
+
 const ROUTINE_KINDS = new Set<TaskKind>(["project", "okr_weekly", "handbook"]);
 
 /** 周报、手册这类例行卡不进任务板，在各自的弹窗里看，连已忽略的一起列（那也是记录） */

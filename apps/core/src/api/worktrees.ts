@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
-import { listTasks } from "../memory/tasks.js";
+import { listTasks, listTasksWithPriorWorktrees } from "../memory/tasks.js";
 import { loadProjects } from "../memory/projects.js";
 import { openTermSessions } from "../memory/termSessions.js";
 import { record } from "../memory/audit.js";
@@ -22,7 +22,7 @@ export function leftoverWorktrees(): Leftover[] {
     if (!p || !repo || inUse.has(p) || !existsSync(p)) continue;
     out.set(p, { path: p, repoDir: repo, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p), taskId: t.id, title: t.title });
   }
-  for (const t of listTasks(undefined, 5000)) {
+  for (const t of listTasksWithPriorWorktrees()) {
     for (const { path: p, repoDir } of t.source.priorWorktrees ?? []) {
       if (out.has(p) || inUse.has(p) || !existsSync(p)) continue;
       out.set(p, { path: p, repoDir, ...(currentBranchSync(p) ? { branch: currentBranchSync(p) } : {}), dirty: worktreeDirtySync(p), taskId: t.id, title: t.title });
