@@ -509,7 +509,7 @@ export const fridayToolList = (conversationId?: string) => [
         attended: z.boolean().optional(),
         server: z.string().max(60).optional(),
         tool: z.string().max(80).optional(),
-        args: z.record(z.string(), z.unknown()).optional(),
+        args: z.object({}).passthrough().optional(),
       },
       async (input) => {
         if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能登记、改或删定时任务，等用户回来。");
@@ -536,7 +536,7 @@ export const fridayToolList = (conversationId?: string) => [
         attended: z.boolean().optional(),
         server: z.string().max(60).optional(),
         tool: z.string().max(80).optional(),
-        args: z.record(z.string(), z.unknown()).optional(),
+        args: z.object({}).passthrough().optional(),
       },
       async ({ id, ...patch }) => {
         if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能登记、改或删定时任务，等用户回来。");
