@@ -6,7 +6,7 @@ interface Row {
   id: string; title: string; cron: string; enabled: number; executor: Schedule["executor"];
   project: string | null; prompt: string | null; mode: Schedule["mode"]; attended: number;
   server: string | null; tool: string | null; args: string | null;
-  anchor_task_id: string | null; conversation_id: string | null; created_at: string;
+  anchor_task_id: string | null; conversation_id: string | null; created_at: string; armed_at: string | null;
   last_run_at: string | null; last_result: string | null; last_ok: number | null; last_ref: string | null; history: string;
 }
 
@@ -21,6 +21,7 @@ const toSchedule = (r: Row): Schedule => ({
   ...(r.anchor_task_id ? { anchorTaskId: r.anchor_task_id } : {}),
   ...(r.conversation_id ? { conversationId: r.conversation_id } : {}),
   createdAt: r.created_at,
+  ...(r.armed_at ? { armedAt: r.armed_at } : {}),
   ...(r.last_run_at ? { lastRunAt: r.last_run_at } : {}),
   ...(r.last_result !== null ? { lastResult: r.last_result } : {}),
   ...(r.last_ok !== null ? { lastOk: r.last_ok === 1 } : {}),
@@ -51,9 +52,14 @@ const COLS: Record<string, string> = {
   anchorTaskId: "anchor_task_id", conversationId: "conversation_id",
 };
 
-export function updateSchedule(id: string, patch: Partial<Omit<Schedule, "id" | "createdAt">>): Schedule | undefined {
+export function updateSchedule(id: string, patch: Partial<Omit<Schedule, "id" | "createdAt" | "armedAt">>, now = new Date()): Schedule | undefined {
   const sets: string[] = [];
   const vals: Array<string | number | null> = [];
+  const cur = getSchedule(id);
+  if (cur && ((patch.enabled && !cur.enabled) || (patch.cron !== undefined && patch.cron !== cur.cron))) {
+    sets.push("armed_at = ?");
+    vals.push(now.toISOString());
+  }
   for (const [k, v] of Object.entries(patch)) {
     const col = COLS[k];
     if (!col) continue;

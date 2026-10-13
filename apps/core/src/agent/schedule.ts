@@ -168,7 +168,7 @@ export async function scheduleTick(now = new Date(), fire = fireSchedule): Promi
   try {
     for (const s of listSchedules()) {
       if (!s.enabled) continue;
-      const after = new Date(Math.max(Date.parse(s.createdAt), s.lastRunAt ? Date.parse(s.lastRunAt) : 0));
+      const after = new Date(Math.max(Date.parse(s.createdAt), s.lastRunAt ? Date.parse(s.lastRunAt) : 0, s.armedAt ? Date.parse(s.armedAt) : 0));
       const due = lastDue(s.cron, after, now);
       if (!due) continue;
       const at = now.toISOString();

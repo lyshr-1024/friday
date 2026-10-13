@@ -53,7 +53,7 @@ describe("scheduleTick", () => {
     backdate(s.id, sh("2026-10-12T00:00:00").toISOString());
     const fire = vi.fn(async () => ({ ok: true, result: "ok" }));
     expect(await scheduleTick(sh("2026-10-13T10:00:20"), fire)).toBe(0);
-    updateSchedule(s.id, { enabled: true, conversationId: "c-busy2" });
+    updateSchedule(s.id, { enabled: true, conversationId: "c-busy2" }, sh("2026-10-12T12:00:00"));
     vi.mocked(isRunning).mockReturnValueOnce(true);
     expect(await scheduleTick(sh("2026-10-13T10:00:20"), fire)).toBe(0);
     expect(getSchedule(s.id)!.lastResult).toMatch(/还在/);
@@ -76,5 +76,36 @@ describe("scheduleTick", () => {
     expect(await scheduleTick(sh("2026-10-13T10:00:30"), fire)).toBe(0);
     release();
     expect(await first).toBe(1);
+  });
+
+  it("暂停期间错过的那次，恢复开关后不补跑；明天照常", async () => {
+    clean();
+    const s = createSchedule({ title: "f", cron: "0 10 * * *", executor: "friday", prompt: "p" });
+    backdate(s.id, sh("2026-10-12T00:00:00").toISOString());
+    updateSchedule(s.id, { enabled: false }, sh("2026-10-13T09:00:00"));
+    updateSchedule(s.id, { enabled: true }, sh("2026-10-13T10:30:00"));
+    const fire = vi.fn(async () => ({ ok: true, result: "ok" }));
+    expect(await scheduleTick(sh("2026-10-13T10:31:00"), fire)).toBe(0);
+    expect(getSchedule(s.id)!.lastRunAt).toBeUndefined();
+    expect(await scheduleTick(sh("2026-10-14T10:00:20"), fire)).toBe(1);
+  });
+
+  it("改 cron 不会把刚变成「已过」的那个点立刻补跑", async () => {
+    clean();
+    const s = createSchedule({ title: "g", cron: "0 10 * * *", executor: "friday", prompt: "p" });
+    backdate(s.id, sh("2026-10-12T00:00:00").toISOString());
+    updateSchedule(s.id, { cron: "0 9 * * *" }, sh("2026-10-13T09:30:00"));
+    const fire = vi.fn(async () => ({ ok: true, result: "ok" }));
+    expect(await scheduleTick(sh("2026-10-13T09:31:00"), fire)).toBe(0);
+    expect(await scheduleTick(sh("2026-10-14T09:00:20"), fire)).toBe(1);
+  });
+
+  it("只改标题、或本来就开着再开一次，不重新起算", async () => {
+    clean();
+    const s = createSchedule({ title: "h", cron: "0 10 * * *", executor: "friday", prompt: "p" });
+    backdate(s.id, sh("2026-10-12T00:00:00").toISOString());
+    updateSchedule(s.id, { title: "h2", enabled: true, cron: "0 10 * * *" }, sh("2026-10-13T10:30:00"));
+    const fire = vi.fn(async () => ({ ok: true, result: "ok" }));
+    expect(await scheduleTick(sh("2026-10-13T10:31:00"), fire)).toBe(1);
   });
 });

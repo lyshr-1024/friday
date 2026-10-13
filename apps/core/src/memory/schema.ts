@@ -267,6 +267,7 @@ CREATE TABLE IF NOT EXISTS schedules (
   anchor_task_id TEXT,
   conversation_id TEXT,
   created_at TEXT NOT NULL,
+  armed_at TEXT,
   last_run_at TEXT,
   last_result TEXT,
   last_ok INTEGER,

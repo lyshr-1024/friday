@@ -1067,6 +1067,8 @@ export interface Schedule {
   anchorTaskId?: string;
   conversationId?: string;
   createdAt: string;
+  /** 打开开关 / 改 cron 的时间：之前错过的点不补 */
+  armedAt?: string;
   lastRunAt?: string;
   lastResult?: string;
   lastOk?: boolean;
