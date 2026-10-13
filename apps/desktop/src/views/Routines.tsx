@@ -24,8 +24,8 @@ function usePrefs() {
   return { prefs, toggle };
 }
 
-function Switch({ on, disabled, onClick }: { on: boolean; disabled: boolean; onClick: () => void }) {
-  return <button className={`switch ${on ? "switch--on" : ""}`} role="switch" aria-checked={on} disabled={disabled} onClick={onClick} />;
+function Switch({ on, disabled, onClick, label }: { on: boolean; disabled: boolean; onClick: () => void; label?: string }) {
+  return <button className={`switch ${on ? "switch--on" : ""}`} role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={onClick} />;
 }
 
 /** 点了就跑、跑完把结果在按钮上显示几秒 */
@@ -251,6 +251,12 @@ export function ScheduleDialog({ onClose, onOpenWeekly, onOpenLearn, onOpenTask,
   const [err, setErr] = useState("");
   const pull = () => listSchedules().then(setItems).catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)));
   useEffect(() => { void pull(); }, []);
+  // WebKit 点按钮不给焦点，onBlur 可能永远不来
+  useEffect(() => {
+    if (!arm) return;
+    const t = setTimeout(() => setArm(null), 3000);
+    return () => clearTimeout(t);
+  }, [arm]);
 
   async function act(id: string, fn: () => Promise<unknown>) {
     setBusy(id);
@@ -270,22 +276,23 @@ export function ScheduleDialog({ onClose, onOpenWeekly, onOpenLearn, onOpenTask,
     if (s.executor === "friday") onOpenConversation(s.lastRef);
     else if (s.executor === "project") onOpenTask(s.lastRef);
   };
+  const last = (s: ScheduleView) => (s.lastRunAt ? `${s.lastOk ? "✓" : "✗"} ${ago(s.lastRunAt)}` : "还没跑过");
   const rowKey = (fn: () => void) => (e: React.KeyboardEvent) => { if (e.key === "Enter" && e.target === e.currentTarget) fn(); };
 
   return (
-    <Modal label="定时任务" title="定时任务" sub="到点 Friday 会自己做的事" onClose={onClose} className="rtn">
+    <Modal label="定时任务" title="定时任务" sub="到点 Friday 会自己做的事" onClose={onClose} className="rtn rtn--sched">
       <section className="rtn__sec">
         <div className="tdlg__k">内置</div>
         <div className="rtn__list">
           <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} onClick={onOpenWeekly} onKeyDown={rowKey(onOpenWeekly)}>
             <span className="rtn__name">OKR 周报</span>
             <span className="rtn__note">周五 16:00 起自动起草</span>
-            <span onClick={(e) => e.stopPropagation()}><Switch on={!!prefs?.okrWeekly} disabled={!prefs} onClick={() => toggle("okrWeekly")} /></span>
+            <span onClick={(e) => e.stopPropagation()}><Switch label="OKR 周报" on={!!prefs?.okrWeekly} disabled={!prefs} onClick={() => toggle("okrWeekly")} /></span>
           </div>
           <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} onClick={onOpenLearn} onKeyDown={rowKey(onOpenLearn)}>
             <span className="rtn__name">从历史学手册</span>
             <span className="rtn__note">每周一轮</span>
-            <span onClick={(e) => e.stopPropagation()}><Switch on={!!prefs?.learnHistory} disabled={!prefs} onClick={() => toggle("learnHistory")} /></span>
+            <span onClick={(e) => e.stopPropagation()}><Switch label="从历史学手册" on={!!prefs?.learnHistory} disabled={!prefs} onClick={() => toggle("learnHistory")} /></span>
           </div>
         </div>
       </section>
@@ -300,14 +307,16 @@ export function ScheduleDialog({ onClose, onOpenWeekly, onOpenLearn, onOpenTask,
             return (
               <div key={s.id} className="rtn__sched">
                 <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} aria-expanded={open === s.id} onClick={toggleOpen} onKeyDown={rowKey(toggleOpen)}>
-                  <span className="rtn__name">{s.title}</span>
-                  <span className="rtn__note mono">{s.when}</span>
-                  <span className="rtn__note">{s.executorLabel}</span>
+                  <span className="rtn__name" title={s.title}>{s.title}</span>
+                  <span className="rtn__note mono" title={s.cron}>{s.when}</span>
+                  <span className="rtn__note" title={s.executorLabel}>{s.executorLabel}</span>
                   <span className="rtn__note">下次 {s.enabled ? at(s.nextRunAt) : "已暂停"}</span>
-                  <button className="link" disabled={!s.lastRef} title={s.lastResult ?? ""} onClick={(e) => { e.stopPropagation(); goLast(s); }}>
-                    {s.lastRunAt ? `${s.lastOk ? "✓" : "✗"} ${ago(s.lastRunAt)}` : "还没跑过"}
-                  </button>
-                  <span onClick={(e) => e.stopPropagation()}><Switch on={s.enabled} disabled={busy === s.id} onClick={() => void act(s.id, () => setScheduleEnabled(s.id, !s.enabled))} /></span>
+                  {s.lastRef && s.executor !== "call" ? (
+                    <button className="link rtn__last" title={s.lastResult ?? ""} onClick={(e) => { e.stopPropagation(); goLast(s); }}>{last(s)}</button>
+                  ) : (
+                    <span className="rtn__note" title={s.lastResult ?? ""}>{last(s)}</span>
+                  )}
+                  <span onClick={(e) => e.stopPropagation()}><Switch label={s.title} on={s.enabled} disabled={busy === s.id} onClick={() => void act(s.id, () => setScheduleEnabled(s.id, !s.enabled))} /></span>
                   <button className="b b--ghost" disabled={busy === s.id} onClick={(e) => { e.stopPropagation(); void act(s.id, () => runSchedule(s.id)); }}>{busy === s.id ? "在跑" : "现在跑一次"}</button>
                   <button
                     className="b b--ghost"
@@ -320,6 +329,7 @@ export function ScheduleDialog({ onClose, onOpenWeekly, onOpenLearn, onOpenTask,
                 </div>
                 {open === s.id && (
                   <div className="rtn__detail">
+                    <div className="rtn__facts">{s.title} · {s.when}（<span className="mono">{s.cron}</span>）· {s.executorLabel}</div>
                     {s.lastResult && <div className="rtn__note">上次：{s.lastResult}</div>}
                     <pre className="rtn__prompt">{s.executor === "call" ? `${s.server}.${s.tool}\n${JSON.stringify(s.args ?? {}, null, 2)}` : s.prompt}</pre>
                   </div>

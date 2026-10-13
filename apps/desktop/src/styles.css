@@ -5323,8 +5323,17 @@ label.hbr__item { cursor: default; }
 .rtn__state--blocked { color: var(--bad); }
 .rtn__note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-4); font-size: var(--t-xs); }
 .rtn__item--btn { cursor: default; }
-.rtn__sched .rtn__item { flex-wrap: wrap; align-items: center; }
+.tdlg.rtn--sched { width: min(960px, calc(100vw - 64px)); }
+.rtn--sched .rtn__item { align-items: center; }
+/* 每行一个 grid、轨道定宽：各行列对齐，「再点一次删除」变宽也不挤别的列 */
+.rtn__sched .rtn__item { display: grid; grid-template-columns: minmax(8em, 1fr) 6.5em minmax(0, 11em) 9.5em 5.5em auto 6em 7em; }
+.rtn__sched .rtn__item > * { min-width: 0; }
+.rtn__sched .rtn__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtn__sched .b { justify-content: center; padding: 0 var(--s-2); font-size: var(--t-xs); }
+.rtn__last { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: var(--t-xs); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rtn__detail { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-2) var(--s-3); }
+.rtn__facts { color: var(--fg-3); font-size: var(--t-xs); line-height: 1.6; }
+.rtn__detail .rtn__note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rtn__prompt { white-space: pre-wrap; margin: 0; font-family: var(--mono); font-size: var(--t-sm); line-height: 1.5; color: var(--fg-2); }
 .rtn__empty { color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
 .rtn .editor { height: auto; background: transparent; }
