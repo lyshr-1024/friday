@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OkrError, myKRs, okrEndpoint, parseRpcBody, submit } from "./okr.js";
+import { OkrError, myKRs, okrEndpoint, submit } from "./okr.js";
 
 const dir = mkdtempSync(join(tmpdir(), "okr-"));
 const cfg = (v: unknown) => {
@@ -30,12 +30,6 @@ describe("OKR 客户端", () => {
     const f = cfg({ mcpServers: {} });
     expect(() => okrEndpoint()).toThrow(OkrError);
     expect(() => okrEndpoint()).toThrow(`${f} 里没有 mcpServers.okr`);
-  });
-
-  it("JSON 和 SSE 两种响应体都能解析", () => {
-    expect(parseRpcBody('{"jsonrpc":"2.0","id":1,"result":{"a":1}}').result).toEqual({ a: 1 });
-    expect(parseRpcBody('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"a":2}}\n\n').result).toEqual({ a: 2 });
-    expect(() => parseRpcBody("")).toThrow(OkrError);
   });
 
   it("myKRs 只要 KR，带上父 O 的名字；请求带配置里的 header 和 session", async () => {
@@ -86,12 +80,5 @@ describe("OKR 客户端", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>502 Bad Gateway</html>")));
     await expect(myKRs()).rejects.toThrow(OkrError);
     await expect(myKRs()).rejects.toThrow("OKR 平台返回的内容解析不了：<html>502 Bad Gateway</html>");
-  });
-
-  it("响应体不是空而是乱码时不说「空响应」", () => {
-    expect(() => parseRpcBody("{oops")).toThrow("OKR 平台返回的内容解析不了：{oops");
-    expect(() => parseRpcBody("data: {oops")).toThrow("OKR 平台返回的内容解析不了");
-    expect(() => parseRpcBody("event: message")).toThrow("OKR 平台返回的内容解析不了：event: message");
-    expect(() => parseRpcBody("   ")).toThrow("OKR 平台返回了空响应");
   });
 });

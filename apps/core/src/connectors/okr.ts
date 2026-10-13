@@ -1,76 +1,27 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { callTool, mcpEndpoint, type McpEndpoint } from "./mcp.js";
 
 export class OkrError extends Error {}
 
-type Endpoint = { url: string; headers: Record<string, string> };
-
-// 凭证是 Claude Code 的 okr MCP 配置，Friday 不另存一份：用户在那边换了 token 这边自动跟上
-export function okrEndpoint(file = process.env.FRIDAY_CLAUDE_JSON || join(homedir(), ".claude.json")): Endpoint {
-  let raw: unknown;
+export function okrEndpoint(file?: string): McpEndpoint {
   try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    throw new OkrError(`读不到 ${file}`);
-  }
-  const s = (raw as { mcpServers?: Record<string, { url?: string; headers?: Record<string, string> }> }).mcpServers?.okr;
-  if (!s?.url) throw new OkrError(`${file} 里没有 mcpServers.okr`);
-  return { url: s.url, headers: s.headers ?? {} };
-}
-
-export function parseRpcBody(body: string): { result?: any; error?: { message: string } } {
-  const t = body.trim();
-  if (!t) throw new OkrError("OKR 平台返回了空响应");
-  const data = t.startsWith("{") ? t : t.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).filter(Boolean).at(-1);
-  try {
-    return JSON.parse(data ?? "");
-  } catch {
-    throw new OkrError(`OKR 平台返回的内容解析不了：${t.slice(0, 120)}`);
-  }
-}
-
-function netError(e: unknown): OkrError {
-  if (e instanceof OkrError) return e;
-  if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return new OkrError("OKR 平台 15 秒没响应");
-  return new OkrError(`连不上 OKR 平台：${e instanceof Error ? e.message : String(e)}`);
-}
-
-let seq = 0;
-
-async function post(ep: Endpoint, msg: Record<string, unknown>, session?: string): Promise<{ res: Response; body: string }> {
-  let res: Response;
-  let body: string;
-  try {
-    res = await fetch(ep.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(session ? { "mcp-session-id": session } : {}), ...ep.headers },
-      body: JSON.stringify({ jsonrpc: "2.0", ...msg }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    body = await res.text();
+    return mcpEndpoint("okr", file);
   } catch (e) {
-    throw netError(e);
+    throw new OkrError(e instanceof Error ? e.message : String(e));
   }
-  if (res.status === 401 || res.status === 403) throw new OkrError("OKR 平台拒绝了 token，去 Claude Code 里重新配一下 okr MCP");
-  if (!res.ok && res.status !== 202) throw new OkrError(`OKR 平台返回 ${res.status}`);
-  return { res, body };
 }
 
 async function call<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const ep = okrEndpoint();
-  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } });
-  const session = init.res.headers.get("mcp-session-id") ?? undefined;
-  parseRpcBody(init.body);
-  await post(ep, { method: "notifications/initialized" }, session);
-  const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/call", params: { name, arguments: args } }, session)).body);
-  if (msg.error) throw new OkrError(`${name} 失败：${msg.error.message}`);
-  const text = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.find((c) => c.type === "text")?.text ?? "";
-  if (msg.result?.isError) throw new OkrError(`${name} 失败：${text.slice(0, 200)}`);
+  let r: { text: string; isError: boolean };
   try {
-    return JSON.parse(text) as T;
+    r = await callTool("okr", name, args, { label: "OKR 平台" });
+  } catch (e) {
+    throw new OkrError(e instanceof Error ? e.message : String(e));
+  }
+  if (r.isError) throw new OkrError(`${name} 失败：${r.text.slice(0, 200)}`);
+  try {
+    return JSON.parse(r.text) as T;
   } catch {
-    throw new OkrError(`${name} 返回的不是 JSON：${text.slice(0, 120)}`);
+    throw new OkrError(`${name} 返回的不是 JSON：${r.text.slice(0, 120)}`);
   }
 }
 
