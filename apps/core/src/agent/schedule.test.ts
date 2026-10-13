@@ -15,7 +15,9 @@ import { startAutonomousJob, startInteractiveJob, reopenTask } from "./pipeline.
 import { startRun, isRunning, subscribe } from "./runs.js";
 import { busyReason, fireSchedule, validateSchedule } from "./schedule.js";
 import { createSchedule, getSchedule, updateSchedule } from "../memory/schedules.js";
-import { getTask, updateTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
+import { createTermSession, markStop, updateTermSession } from "../memory/termSessions.js";
+import { db } from "../memory/db.js";
 import { getConversation } from "../memory/conversations.js";
 
 beforeEach(() => vi.clearAllMocks());
@@ -106,6 +108,25 @@ describe("friday 执行方", () => {
     updateSchedule(s.id, { conversationId: "c-busy" });
     vi.mocked(isRunning).mockReturnValueOnce(true);
     expect(busyReason(getSchedule(s.id)!)).toMatch(/还在/);
+  });
+});
+
+describe("有人值守的上一轮会话还在用", () => {
+  it("干活中 / 在问你 / 等你输入都跳过，空闲了才跑", () => {
+    const s = createSchedule({ title: "值守", cron: "0 9 * * *", executor: "project", project: "whale-console", prompt: "p", attended: true });
+    const t = createTask({ title: "[定时] 值守", kind: "code", status: "processing", project: "whale-console", source: { scheduleId: s.id, jobId: "att-1" } });
+    updateSchedule(s.id, { anchorTaskId: t.id });
+    createTermSession({ id: t.id, project: "whale-console", repoDir: "/tmp/wc", tmuxName: "wc-att", kind: "interactive", jobId: "att-1" });
+    updateTermSession(t.id, { status: "running" });
+    expect(busyReason(getSchedule(s.id)!)).toMatch(/干活中/);
+    markStop(t.id);
+    db().prepare("UPDATE term_sessions SET last_input_at = '2026-01-01T00:00:00.000Z' WHERE id = ?").run(t.id);
+    expect(busyReason(getSchedule(s.id)!)).toMatch(/等你输入/);
+    updateTask(t.id, { attention: "question" });
+    expect(busyReason(getSchedule(s.id)!)).toMatch(/在问你/);
+    updateTask(t.id, { attention: undefined });
+    db().prepare("UPDATE term_sessions SET seen_at = '2999-01-01T00:00:00.000Z' WHERE id = ?").run(t.id);
+    expect(busyReason(getSchedule(s.id)!)).toBeUndefined();
   });
 });
 

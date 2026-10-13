@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { z } from "zod";
-import type { Schedule, ScheduleInput, ScheduleView, Task } from "@friday/shared";
+import { SESSION_STATE_LABEL } from "@friday/shared";
+import type { Schedule, ScheduleInput, ScheduleView, SessionState, Task } from "@friday/shared";
 import { config } from "../config.js";
 import { userSettings } from "../settings.js";
 import { record } from "../memory/audit.js";
@@ -15,6 +16,7 @@ import { state } from "../scheduler/index.js";
 import { callTool, mcpEndpoint } from "../connectors/mcp.js";
 import { reopenTask, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
 import { friday } from "./prompt.js";
+import { taskSession } from "./sessionState.js";
 import { isRunning, startRun, subscribe } from "./runs.js";
 import { transcriptPath } from "./runner.js";
 import { fridayToolList } from "./tools.js";
@@ -53,12 +55,17 @@ export function validateSchedule(i: ScheduleInput): string | undefined {
 const runningJob = (t: Task | undefined) => Boolean(t?.source.jobId && getJob(t.source.jobId)?.status === "running");
 const hasPending = (t: Task | undefined) => Boolean(t && t.status !== "done" && t.status !== "ignored" && (t.pending ?? []).length);
 
+const ATTENDED_BUSY: SessionState[] = ["preparing", "working", "asking", "awaiting"];
+
 export function busyReason(s: Schedule): string | undefined {
   if (s.executor === "friday") return s.conversationId && isRunning(s.conversationId) ? "上一轮还在生成" : undefined;
   if (s.executor !== "project") return undefined;
   const last = getTask((s.mode === "continue" ? s.anchorTaskId : s.lastRef) ?? "");
   if (hasPending(last)) return "上一轮的交付还等你处理";
   if (!s.attended && runningJob(last)) return "上一轮还在跑";
+  // 到点会把话敲进这个会话，你正用着就别插嘴
+  const state = s.attended && last ? taskSession(last).state : undefined;
+  if (state && ATTENDED_BUSY.includes(state)) return `上一轮的终端还${SESSION_STATE_LABEL[state]}`;
   return undefined;
 }
 
