@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "./index.js";
+import { db } from "../memory/db.js";
 import { createTask } from "../memory/tasks.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { listAudit } from "../memory/audit.js";
@@ -88,13 +89,14 @@ describe("遗留 worktree", () => {
     expect(existsSync(tree)).toBe(false);
   });
 
-  it("priorWorktrees 的任务排在最近更新的 5000 条之外也照样列出", async () => {
+  it("priorWorktrees 的任务更新时间再老也照样列出", async () => {
     const { repo, tree } = repoWithWorktree();
-    createTask({ title: "很久以前的长期卡", kind: "code", source: { priorWorktrees: [{ path: tree, repoDir: repo }] }, status: "understood" });
-    for (let i = 0; i < 5001; i++) createTask({ title: `填充${i}`, kind: "verbal", source: {}, status: "done" });
+    const old = createTask({ title: "很久以前的长期卡", kind: "code", source: { priorWorktrees: [{ path: tree, repoDir: repo }] }, status: "understood" });
+    db().prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run("2000-01-01T00:00:00.000Z", old.id);
+    for (let i = 0; i < 5; i++) createTask({ title: `填充${i}`, kind: "verbal", source: {}, status: "done" });
     const res = await app.request("/worktrees/leftover");
     expect(((await res.json()) as { path: string }[]).some((w) => w.path === tree)).toBe(true);
-  }, 60_000);
+  });
 
   it("priorWorktrees 里的路径还在被会话或开着的任务用就不算遗留", async () => {
     const { repo, tree } = repoWithWorktree();

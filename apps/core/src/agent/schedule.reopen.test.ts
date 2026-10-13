@@ -119,6 +119,16 @@ describe("重开长期卡的收尾边界", () => {
     expect(calls.some((a) => a[4] === "send-keys")).toBe(false);
   });
 
+  it("本轮没有新 worktree 可追加（旧路径已在列表里）时，已不在的目录也照样清掉", async () => {
+    const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
+    const t = mergedAnchor(s.id, "sr-7");
+    const gone = mkdtempSync(join(tmpdir(), "friday-sched-gone-"));
+    rmSync(gone, { recursive: true });
+    updateTask(t.id, { source: { priorWorktrees: [{ path: gone, repoDir: "/repo" }, { path: t.source.worktree!, repoDir: "/repo" }] } });
+    await fireSchedule(getSchedule(s.id)!, "due");
+    expect(getTask(t.id)!.source.priorWorktrees).toEqual([{ path: t.source.worktree, repoDir: "/repo" }]);
+  });
+
   it("priorWorktrees 追加时丢掉磁盘上已不在的目录", async () => {
     const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
     const t = mergedAnchor(s.id, "sr-6");

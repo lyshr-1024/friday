@@ -80,12 +80,14 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   }
   const tree = t.source.worktree ?? before?.worktree;
   const repo = t.source.repoDir ?? before?.repoDir;
-  const prior = (t.source.priorWorktrees ?? []).filter((w) => existsSync(w.path));
+  const was = t.source.priorWorktrees ?? [];
+  const kept = was.filter((w) => existsSync(w.path));
+  const prior = tree && repo && !kept.some((w) => w.path === tree) ? [...kept, { path: tree, repoDir: repo }] : kept;
   const task = updateTask(id, {
     status: t.source.jobId && !opts.fresh ? "processing" : "understood",
     attention: undefined,
     releasedAt: undefined,
-    ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(tree && repo && !prior.some((w) => w.path === tree) ? { priorWorktrees: [...prior, { path: tree, repoDir: repo }] } : {}) } } : {}),
+    ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(prior.length !== was.length || prior.some((w, i) => w !== was[i]) ? { priorWorktrees: prior } : {}) } } : {}),
   })!;
   if (!opts.fresh) for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
   record({ taskId: id, action: "task_reopened", why: opts.why ?? "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });
