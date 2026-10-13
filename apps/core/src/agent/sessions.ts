@@ -7,7 +7,7 @@ import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
-import { currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
+import { branchExistsSync, branchesForIdSync, currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
 import { claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
@@ -41,6 +41,29 @@ export function baseBranchOf(t: Task): { baseBranch?: string } {
   return b ? { baseBranch: b } : {};
 }
 
+/**
+ * 这次在哪条分支上干：记着的分支还在就用它；不在了（合并后删了、你在终端里手动纠正过）清掉记录，
+ * 再找名字带工单号的分支——你在 Friday 接手前自己开过的那条——接着在上面做，都没有才从主干新开
+ */
+function pickBranch(root: Task, owner: Task, repoDir: string): string | undefined {
+  const holders = root.id === owner.id ? [root] : [root, owner];
+  for (const t of holders) {
+    const b = t.source.branch;
+    if (!b || b === "main" || b === "master") continue;
+    if (branchExistsSync(repoDir, b)) return b;
+    updateTask(t.id, { source: { branch: undefined, worktree: undefined } });
+    record({ taskId: t.id, action: "branch_gone", why: `记着的分支 ${b} 本地和 origin 上都没有了（合并后删了，或你手动纠正过）`, how: "清掉这条记录，按仓库里实际有的分支重新认", evidence: { branch: b, worktree: t.source.worktree ?? null }, risk: "reversible" });
+  }
+  for (const t of holders) {
+    const found = t.source.meegleId ? branchesForIdSync(repoDir, t.source.meegleId)[0] : undefined;
+    if (!found) continue;
+    updateTask(root.id, { source: { branch: found } });
+    record({ taskId: root.id, action: "branch_adopted", why: `仓库里已经有带工单号 ${t.source.meegleId} 的分支 ${found}，是之前在做的那条`, how: "接着在这条分支上做，不另起分支", evidence: { branch: found }, risk: "reversible" });
+    return found;
+  }
+  return undefined;
+}
+
 export async function openSession(
   root: Task,
   owner: Task,
@@ -54,7 +77,7 @@ export async function openSession(
     if (getTermSession(root.id)?.tmuxName === name) await killSession(name);
     else name = `${name}-${randomUUID().slice(0, 4)}`;
   }
-  const existingBranch = [root.source.branch, owner.source.branch].find((b) => b && b !== "main" && b !== "master");
+  const existingBranch = pickBranch(root, owner, o.repoDir);
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {

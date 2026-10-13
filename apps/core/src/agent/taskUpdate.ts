@@ -3,6 +3,9 @@ import { STAGE_LABEL } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
 import { loadProjects } from "../memory/projects.js";
+import { getTermSession } from "../memory/termSessions.js";
+import { branchExistsSync } from "./git.js";
+import { liveRootId } from "./sessions.js";
 import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
@@ -28,6 +31,8 @@ export interface TaskPatch {
   stageReason?: RollbackReason;
   /** 用户说「先别做 / 这条我来」= false：Friday 不再自己开工；「你来做吧」= true 恢复 */
   autostart?: boolean;
+  /** 用户说「在 X 分支上改」= X；「从主干新开」= ""。下次开工按它建 worktree */
+  branch?: string;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "进行中", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -82,6 +87,21 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
         updateTask(s.id, { project: known!.name, ...(s.attention === "intake" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known!.name}` } : {}) });
       }
       if (siblings.length) changed.push(`同需求另外 ${siblings.length} 条一起归到 ${known!.name}`);
+    }
+  }
+
+  const branch = patch.branch?.trim();
+  const rootId = liveRootId(task) ?? taskId;
+  const root = getTask(rootId)!;
+  if (branch !== undefined && branch !== (root.source.branch ?? "")) {
+    const dir = loadProjects().find((p) => p.name === (root.project ?? task!.project))?.dir;
+    const live = getTermSession(rootId);
+    if (live && live.status !== "closed") changed.push("分支没改：这条任务的终端还开着，先关掉再改");
+    else if (branch && (!dir || !branchExistsSync(dir, branch))) changed.push(`分支没改：${dir ? `仓库里没有 ${branch}（本地和 origin 都没有）` : "任务还没定项目"}`);
+    else {
+      updateTask(rootId, { source: { branch: branch || undefined, worktree: undefined } });
+      task = getTask(taskId)!;
+      changed.push(branch ? `分支 → ${branch}（下次开工在它上面做）` : "分支清掉了，下次开工从主干新开");
     }
   }
 

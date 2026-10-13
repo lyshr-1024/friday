@@ -316,12 +316,53 @@ describe("旧任务已有分支：准备段为它建 worktree，不新建分支"
   it("根任务 source.branch 不是主干：启动器拿到 existingBranch；主干或没有时不带", async () => {
     let got: { existingBranch?: string } = {};
     setLauncher(async (req, name) => { got = req; alive.add(name); });
+    execFileSync("git", ["-C", R, "branch", "feat/export"]);
     const old = createTask({ title: "进行中的旧任务", kind: "verbal", source: { branch: "feat/export" }, status: "processing", project: "app" });
     await openSession(old, old, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     expect(got.existingBranch).toBe("feat/export");
     const onMain = createTask({ title: "主干上的", kind: "verbal", source: { branch: "main" }, status: "processing", project: "app" });
     await openSession(onMain, onMain, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     expect(got.existingBranch).toBeUndefined();
+  });
+});
+
+describe("记着的分支和仓库对不上：以仓库为准", () => {
+  const launched = () => {
+    const box: { existingBranch?: string } = {};
+    setLauncher(async (req, name) => { box.existingBranch = req.existingBranch; alive.add(name); });
+    return box;
+  };
+
+  it("记着的分支已经删了：清掉记录（含 worktree）、记账，从主干新开", async () => {
+    const got = launched();
+    const t = createTask({ title: "分支合并后删了", kind: "verbal", source: { branch: "fix/gone", worktree: "/tmp/nowhere" }, status: "processing", project: "app" });
+    await openSession(t, t, { kind: "interactive", project: "app", repoDir: R, task: "x" });
+    expect(got.existingBranch).toBeUndefined();
+    expect(getTask(t.id)!.source.branch).toBeUndefined();
+    expect(getTask(t.id)!.source.worktree).toBeUndefined();
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "branch_gone")).toBe(true);
+  });
+
+  it("没记分支、仓库里有带工单号的分支（Friday 接手前你自己开的）：接着在它上面做，检出在 worktree 里的优先", async () => {
+    const repoDir = mainRepo("app");
+    execFileSync("git", ["-C", repoDir, "branch", "fix/m-24457294-old"]);
+    addTestWorktree(repoDir, "app-contest", "feat/m-24457294-ai-contest");
+    execFileSync("git", ["-C", repoDir, "branch", "feat/m-124457294-other"]);
+    const got = launched();
+    const story = createTask({ title: "AI 助理养成赛活动", kind: "meegle", source: { meegleId: "24457294" }, status: "processing", project: "app" });
+    await openSession(story, story, { kind: "interactive", project: "app", repoDir, task: "x" });
+    expect(got.existingBranch).toBe("feat/m-24457294-ai-contest");
+    expect(getTask(story.id)!.source.branch).toBe("feat/m-24457294-ai-contest");
+    expect(listAudit({ taskId: story.id }).some((e) => e.action === "branch_adopted")).toBe(true);
+  });
+
+  it("记着的分支删了、但还有带工单号的分支：换成那条", async () => {
+    const repoDir = mainRepo("app");
+    execFileSync("git", ["-C", repoDir, "branch", "feat/m-555-real"]);
+    const got = launched();
+    const t = createTask({ title: "纠正过的", kind: "meegle", source: { meegleId: "555", branch: "fix/m-555-wrong" }, status: "processing", project: "app" });
+    await openSession(t, t, { kind: "interactive", project: "app", repoDir, task: "x" });
+    expect(got.existingBranch).toBe("feat/m-555-real");
   });
 });
 

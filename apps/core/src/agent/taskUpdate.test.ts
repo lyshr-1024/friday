@@ -108,3 +108,29 @@ describe("会话结论回流任务卡", () => {
     expect(getTask(t.id)!.attention).toBeUndefined();
   });
 });
+
+describe("会话里纠正这条任务在哪条分支上做", () => {
+  it("改成仓库里有的分支、清掉旧 worktree；没有的分支和终端开着时不改；空串 = 从主干新开", async () => {
+    const { mainRepo } = await import("./testRepos.js");
+    const { execFileSync } = await import("node:child_process");
+    const { createTermSession, updateTermSession } = await import("../memory/termSessions.js");
+    const repo = mainRepo("contest");
+    execFileSync("git", ["-C", repo, "branch", "feat/m-1-contest"]);
+    writeFileSync(join(config.dataDir, "projects.md"), `## contest\n- 目录：${repo}\n`);
+    const t = createTask({ title: "需求", kind: "meegle", project: "contest", status: "blocked", source: { branch: "fix/m-1-wrong", worktree: "/tmp/gone" } });
+
+    expect(updateTaskFromChat(t.id, { branch: "feat/nope" })!.changed.join()).toMatch(/仓库里没有 feat\/nope/);
+    expect(getTask(t.id)!.source.branch).toBe("fix/m-1-wrong");
+
+    createTermSession({ id: t.id, project: "contest", repoDir: repo, tmuxName: "contest-x", kind: "interactive", jobId: "j-branch" });
+    expect(updateTaskFromChat(t.id, { branch: "feat/m-1-contest" })!.changed.join()).toMatch(/终端还开着/);
+    updateTermSession(t.id, { status: "closed" });
+
+    updateTaskFromChat(t.id, { branch: "feat/m-1-contest" });
+    expect(getTask(t.id)!.source).toMatchObject({ branch: "feat/m-1-contest" });
+    expect(getTask(t.id)!.source.worktree).toBeUndefined();
+
+    updateTaskFromChat(t.id, { branch: "" });
+    expect(getTask(t.id)!.source.branch).toBeUndefined();
+  });
+});

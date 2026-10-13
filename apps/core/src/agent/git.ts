@@ -31,6 +31,22 @@ export const headShaSync = (dir: string): string => gitSync(dir, ["rev-parse", "
 /** origin/HEAD 指向的分支（仓库的默认分支，foxden 是 release）；没设过 origin/HEAD 就不知道 */
 export const defaultBranchSync = (dir: string): string | undefined => gitSync(dir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") || undefined;
 
+const branchRefs = (dir: string): string[] =>
+  (gitSync(dir, ["for-each-ref", "--sort=-committerdate", "--format=%(refname)", "refs/heads", "refs/remotes/origin"]) ?? "").split("\n").filter(Boolean);
+
+/** 本地或 origin（上次 fetch 的）有没有这条分支。不 fetch */
+export const branchExistsSync = (dir: string, branch: string): boolean =>
+  branchRefs(dir).some((r) => r === `refs/heads/${branch}` || r === `refs/remotes/origin/${branch}`);
+
+/** 名字里带这个工单号的分支：检出在某个 worktree 里的排前面，其余按最近提交 */
+export function branchesForIdSync(dir: string, id: string): string[] {
+  if (!/^\d+$/.test(id)) return [];
+  const re = new RegExp(`(^|\\D)${id}(\\D|$)`);
+  const names = [...new Set(branchRefs(dir).map((r) => r.replace(/^refs\/(heads|remotes\/origin)\//, "")))].filter((b) => b !== "HEAD" && re.test(b));
+  const out = new Set((gitSync(dir, ["worktree", "list", "--porcelain"]) ?? "").split("\n").filter((l) => l.startsWith("branch refs/heads/")).map((l) => l.slice("branch refs/heads/".length)));
+  return [...names.filter((b) => out.has(b)), ...names.filter((b) => !out.has(b))];
+}
+
 /** `git diff --numstat` 的输出：二进制文件增删是 `-`，按 0 算、路径留着 */
 export function parseNumstat(out: string): DiffFile[] {
   return out.split("\n").filter(Boolean).map((line) => {
