@@ -11,7 +11,8 @@ import { setTmuxRunner } from "./tmux.js";
 import { AUTOSTART_CONFIDENCE, type Task } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, runningAutonomous, type AutostartEnv } from "./autostart.js";
+import { createJob } from "../memory/jobs.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
 const env: AutostartEnv = { now: NOW, running: 0, minConfidence: AUTOSTART_MIN_CONFIDENCE };
@@ -171,3 +172,16 @@ describe("autostartTick：tmux 没装", () => {
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "autostart")).toBe(false);
   });
 });
+
+describe("runningAutonomous", () => {
+  it("定时任务的自主运行不占 autostart 的并发", () => {
+    const before = runningAutonomous();
+    createJob({ id: "ra-sched", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    createTask({ title: "[定时] x", kind: "code", status: "processing", source: { scheduleId: "s-1", jobId: "ra-sched", autonomous: true } });
+    expect(runningAutonomous()).toBe(before);
+    createJob({ id: "ra-norm", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    createTask({ title: "缺陷", kind: "meegle", status: "processing", source: { jobId: "ra-norm", autonomous: true } });
+    expect(runningAutonomous()).toBe(before + 1);
+  });
+});
+

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ConversationSummary } from "@friday/shared";
 import { parseRoute, routeCandidates, routePrompt } from "./route.js";
 import { createTask } from "../memory/tasks.js";
+import { createSchedule, updateSchedule } from "../memory/schedules.js";
 
 const conv = (id: string, title: string, messageCount = 4): ConversationSummary => ({ id, title, messageCount, createdAt: "2026-09-05T02:00:00Z", updatedAt: "2026-09-07T02:00:00Z" });
 const convs = [conv("a", "提款规则加多语言字段"), conv("b", "Slack 怎么拿浏览器登录态"), conv("c", "买杯咖啡")];
@@ -32,6 +33,13 @@ describe("会话路由", () => {
     expect(bound).toBeTruthy();
     const out = routeCandidates([conv(bound, "合并那个分支"), conv("free", "随便聊聊")], []);
     expect(out.map((c) => c.id)).toEqual(["free"]);
+  });
+
+  it("定时任务的会话不进候选：那段是定时跑的，自由会话接进去会被当成下一轮的上下文", () => {
+    const s = createSchedule({ title: "早报", cron: "0 9 * * *", executor: "friday", prompt: "p" });
+    updateSchedule(s.id, { conversationId: "sched-conv" });
+    const out = routeCandidates([conv("sched-conv", "早报"), conv("free2", "随便聊聊")], []);
+    expect(out.map((c) => c.id)).toEqual(["free2"]);
   });
 
   it("提示词带上这句话、候选标题和项目别名，规则偏保守", () => {

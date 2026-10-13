@@ -72,7 +72,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
 }
 
 export function runningAutonomous(): number {
-  return listTasks("processing").filter((t) => t.source.autonomous && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
+  return listTasks("processing").filter((t) => t.source.autonomous && !t.source.scheduleId && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }
 
 /**

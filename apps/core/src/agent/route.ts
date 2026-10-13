@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { listConversations } from "../memory/conversations.js";
 import { loadProjects, type Project } from "../memory/projects.js";
 import { listTasks } from "../memory/tasks.js";
+import { listSchedules } from "../memory/schedules.js";
 
 export interface Route {
   conversationId?: string;
@@ -24,12 +25,12 @@ function ago(iso: string): string {
 }
 
 /**
- * 候选：最近有内容、没在生成中、没绑任务的会话。生成中的接不上（/ask 会 409）；
+ * 候选：最近有内容、没在生成中、没绑任务也不属于定时任务的会话。生成中的接不上（/ask 会 409）；
  * 任务会话里能批准那条任务的不可逆动作，自由会话一句「好」被接进去就可能误批。
  */
 export function routeCandidates(convs: ConversationSummary[], running: string[] = runningIds()): ConversationSummary[] {
   const busy = new Set(running);
-  const bound = new Set(listTasks(undefined, 100_000).map((t) => t.source.conversationId));
+  const bound = new Set([...listTasks(undefined, 100_000).map((t) => t.source.conversationId), ...listSchedules().map((s) => s.conversationId)]);
   return convs.filter((c) => c.messageCount > 0 && !busy.has(c.id) && !bound.has(c.id)).slice(0, CANDIDATES);
 }
 
