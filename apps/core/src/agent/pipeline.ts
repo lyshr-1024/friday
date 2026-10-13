@@ -198,7 +198,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     status: exitCode === 0 ? "done" : "failed",
   });
   // 自主任务必须有交付报告才算交付；交互式会话（你自己在终端里聊的）退出即完成。
-  const interactive = !job.task.plan && !report;
+  const interactive = !job.task.plan && !report && !job.task.source.scheduleId;
   const tail = !report && exitCode !== 0 ? logTail(jobId) : "";
   let task = updateTask(job.task.id, {
     status: report ? "review" : interactive && exitCode === 0 ? "done" : exitCode === 0 ? "review" : "blocked",

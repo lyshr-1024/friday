@@ -75,3 +75,15 @@ describe("continue 的长期卡已收工、worktree 还在", () => {
     expect(getTermSession(t.id)!.status).toBe("running");
   });
 });
+
+describe("无人值守的定时卡一轮没写交付报告", () => {
+  it("跟别的自主任务一样进审核、写「未生成交付报告」，不标已完成", async () => {
+    const { onJobExit } = await import("./pipeline.js");
+    const t = createTask({ title: "[定时] 修验收", kind: "code", status: "processing", project: "demo", understanding: "去修", source: { scheduleId: "s-x", jobId: "sn-1", autonomous: true, repoDir: "/nope" } });
+    createJob({ id: "sn-1", project: "demo", dir: "/nope", logPath: "/tmp/x.log", taskId: t.id });
+    createRun({ id: "sn-1", jobId: "sn-1", taskId: t.id, project: "demo", kind: "autonomous", trigger: "schedule" });
+    const out = onJobExit("sn-1", 0)!;
+    expect(out.status).toBe("review");
+    expect(out.progress).toMatch(/未生成交付报告/);
+  });
+});
