@@ -386,7 +386,7 @@ export function Chat() {
         ) : view === "projects" ? (
           <Projects nav={nav} onOpenTask={(id) => void openTask(id)} />
         ) : (
-          <Board view={view} nav={nav} go={go} runningConvs={runningConvs} request={boardReq} />
+          <Board view={view} nav={nav} runningConvs={runningConvs} request={boardReq} />
         )}
       </div>
       {routine === "weekly" && <WeeklyDialog tasks={routineTasks.weekly} onClose={() => setRoutine(null)} />}

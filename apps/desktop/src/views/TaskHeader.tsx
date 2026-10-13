@@ -26,7 +26,7 @@ export function stateLabel(t: Task): string {
   return s.state === "deciding" && s.waitingSince ? `${label} · ${waitedFor(s.waitingSince)}` : label;
 }
 
-export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume, actions, keepDetail }: {
+export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTerminal, onPin, onResume, actions, keepDetail, primary }: {
   t: Task;
   counts: { defects: number; docs: number; convs: number };
   onDetail: () => void;
@@ -38,6 +38,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   showingTerminal?: boolean;
   onPin: () => void;
   onResume?: () => void;
+  primary?: { label: string; run: () => void };
 }) {
   const s = t.session;
   const state = shownState(t);
@@ -66,6 +67,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
             {keepDetail && <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>}
             <span className="th__sp" />
             {onToggleTerminal && <button className="th__btn" onClick={onToggleTerminal}>{showingTerminal ? "看详情" : "看终端"}</button>}
+            {primary && <button className="th__btn" onClick={primary.run}>{primary.label}</button>}
             <MoreMenu actions={actions} />
           </>
         ) : (

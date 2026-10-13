@@ -9,7 +9,7 @@ import { Resources } from "./Resources";
 import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
 import { Thread } from "./Thread";
-import { TaskDetails, TaskDialog, type DetailSlots, type DialogAction } from "./TaskDialog";
+import { Modal, TaskDetails, TaskDialog, type DetailSlots, type DialogAction } from "./TaskDialog";
 
 export type BoardView = "queue" | "ledger";
 /** 顶栏「···」里要任务区去做的事；n 每次加一，同一件事连点两次也能触发 */
@@ -323,13 +323,11 @@ function byActivity(active: (t: Task) => boolean) {
   return (a: Task, b: Task) => Number(active(b)) - Number(active(a)) || b.updatedAt.localeCompare(a.updatedAt);
 }
 
-export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConvs, request }: {
+export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, request }: {
   view: BoardView;
   /** 顶栏那一行，由 Chat 给——它知道当前是哪个视图 */
   nav?: React.ReactNode;
   request?: BoardRequest | null;
-  /** 切到别的视图（卡片上的「操作记录 →」要用） */
-  go?: (v: BoardView) => void;
   /** Friday 正在生成中的会话 id：对应任务条目上显示青条 */
   runningConvs?: Set<string>;
   /** 待办四组各有几条，左栏锚点用 */
@@ -343,7 +341,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
   const [q, setQ] = useState("");
   const [dialogFor, setDialogFor] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
-  const [ledgerFor, setLedgerFor] = useState<string | null>(null);
+  const [ledgerTask, setLedgerTask] = useState<string | null>(null);
   const qRef = useRef<HTMLInputElement | null>(null);
   // ⌘F 搜索结果里点了一条任务：选中它（视图已由 Chat 切到「全部任务」）
   useEffect(() => {
@@ -417,9 +415,8 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
     };
   }, []);
   useEffect(() => {
-    if (view === "ledger") void fetchAudit(ledgerFor ?? undefined, 300).then(setLedger).catch(() => {});
-    else setLedgerFor(null);
-  }, [view, ledgerFor]);
+    if (view === "ledger") void fetchAudit(undefined, 300).then(setLedger).catch(() => {});
+  }, [view]);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -526,7 +523,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
       // 处理完接着看相邻的那条。清空选中会让焦点回落到 pinned[0] / decide[0]，
       // 而刚操作的那条常常根本不在顶上那个分组里，看着就是整个列表跳走了。
       if (t && (!after || after.status !== t.status)) setSelectedId(neighbourOf(t.id, order, b.tasks));
-      if (view === "ledger") setLedger(await fetchAudit(ledgerFor ?? undefined, 300));
+      if (view === "ledger") setLedger(await fetchAudit(undefined, 300));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -534,7 +531,7 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
     }
   }
 
-  const openLedger = (taskId: string) => { setLedgerFor(taskId); go?.("ledger"); };
+  const openLedger = (taskId: string) => setLedgerTask(taskId);
   const dialogTask = dialogFor ? board?.tasks.find((x) => x.id === dialogFor) : undefined;
   function detailSlots(t: Task): DetailSlots {
     const all = board?.tasks ?? [];
@@ -662,12 +659,6 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
         <div className="wb__scroll">
           <div className="wb__page">
             {err && <div className="err" style={{ marginBottom: 16 }}>{err}</div>}
-            {ledgerFor && (
-              <div className="ledger__for">
-                只看「{tasks.find((t) => t.id === ledgerFor)?.title ?? ledgerFor.slice(0, 8)}」
-                <button className="b b--text" onClick={() => setLedgerFor(null)}>看全部</button>
-              </div>
-            )}
             {board && <Ledger events={ledger} onUndo={(id) => void act(null, () => auditUndo(id))} />}
           </div>
         </div>
@@ -781,6 +772,14 @@ export function Board({ view, nav, go, onQueueCounts, onFocusChange, runningConv
           onClose={() => setDialogFor(null)}
         />
       )}
+      {ledgerTask && (
+        <TaskLedger
+          title={tasks.find((t) => t.id === ledgerTask)?.title ?? ledgerTask.slice(0, 8)}
+          taskId={ledgerTask}
+          onUndo={(id) => act(null, () => auditUndo(id))}
+          onClose={() => setLedgerTask(null)}
+        />
+      )}
       {editing && <TaskEditor t={editing} onClose={() => setEditing(null)} onSaved={(fn) => void act(editing, fn)} />}
       {deleting && (
         <DeleteConfirm
@@ -823,9 +822,11 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
   // Friday 自主的（含排队要自己开工的）：详情直接铺在面板上，交付看会话
   const panel = autonomous || Boolean(t.autostart);
   const termVisible = hasTerm && (!panel || showTerm);
+  // 开过工、终端已经关了（你关的或收工后清掉的）：还要能在这里接着说话、继续做
+  const idle = !termVisible && !panel && !notStarted(t) && !isClosed(t);
   return (
     <section
-      className={`detail ${panel || (!termVisible && notStarted(t)) ? "detail--panel" : ""}`}
+      className={`detail ${panel || (!termVisible && (notStarted(t) || idle)) ? "detail--panel" : ""}`}
     >
       <TaskHeader
         t={t}
@@ -834,7 +835,8 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         onPin={() => void onAct(t, () => taskPin(t.id, !t.pinned))}
         {...(panel && hasTerm ? { onToggleTerminal: () => setShowTerm((v) => !v), showingTerminal: showTerm } : {})}
         {...(!panel && canResume(t) ? { onResume: () => void onAct(t, () => jobReopen(t.source.jobId!)) } : {})}
-        {...(panel ? { actions } : notStarted(t) ? { actions, keepDetail: true } : {})}
+        {...(panel ? { actions } : notStarted(t) || idle ? { actions, keepDetail: true } : {})}
+        {...(idle && canStart(t) ? { primary: { label: "继续做", run: () => void onAct(t, () => taskStart(t.id)) } } : {})}
       />
       {termVisible ? (
         <>
@@ -869,9 +871,12 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
           <div className="detail__chat"><TaskChat t={t} placeholder="开始做 / 交给 Friday 改 / 这条不用管了" /></div>
         </>
       ) : (
-        <div className="detail__card">
-          <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
-        </div>
+        <>
+          <div className="detail__card">
+            <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
+          </div>
+          {idle && <div className="detail__chat"><TaskChat t={t} placeholder="继续做 / 修一下测试提的 bug / 标记完成" /></div>}
+        </>
       )}
     </section>
   );
@@ -1519,6 +1524,17 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
       )}
 
     </>
+  );
+}
+
+function TaskLedger({ title, taskId, onUndo, onClose }: { title: string; taskId: string; onUndo: (id: string) => Promise<void>; onClose: () => void }) {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const pull = () => fetchAudit(taskId, 300).then(setEvents).catch(() => setEvents([]));
+  useEffect(() => { void pull(); }, [taskId]);
+  return (
+    <Modal label="操作记录" title="操作记录" sub={title} onClose={onClose} className="rtn">
+      {events && <Ledger events={events} onUndo={(id) => void onUndo(id).then(pull)} />}
+    </Modal>
   );
 }
 
