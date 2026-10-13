@@ -21,6 +21,7 @@ import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskBySource, getTask, listTasks } from "../memory/tasks.js";
 import { listAudit, record } from "../memory/audit.js";
+import { createSchedule, deleteSchedule, getSchedule, listSchedules, scheduleByConversation, updateSchedule } from "../memory/schedules.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
@@ -345,6 +346,7 @@ export const fridayToolList = (conversationId?: string) => [
       "关掉在跑的终端。scope 为 finished 时只关任务已完成或已忽略的（清理遗留），为 all 时关掉全部。用户说「关掉终端」「终端太多了」「清理一下」时用。终端里跑着的 Claude Code 会一起停掉，任务本身不动。",
       { scope: z.enum(["finished", "all"]).optional().describe("finished 只关已收工任务的（默认），all 关全部") },
       async ({ scope }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能关终端，等用户回来。");
         const onlyFinished = scope !== "all";
         const running = listJobs().filter((j) => j.status === "running");
         const targets = onlyFinished
@@ -491,6 +493,82 @@ export const fridayToolList = (conversationId?: string) => [
         if (!t) return text("这条会话没有绑定任务。");
         rejectTask(t.id, reason);
         return text(`已打回：${reason}`);
+      },
+    ),
+    tool(
+      "schedule_add",
+      "登记一条定时任务。调之前必须先把「什么时候 · 谁跑 · 跑什么 · 接着上次还是每次新开 · 有没有人值守」复述给用户、他说好了再调；executor=call 时把 server、tool、args 原样列给他看（不经过模型、无人值守，写操作会直接执行）。cron 五段（分 时 日 月 周），按上海时区。executor：project=在项目里起 Claude Code（要 project + prompt），friday=你自己带 skill/MCP 跑一轮（要 prompt），call=固定调一个工具（server 为 friday 或用户 Claude Code 里配的 http MCP 名，tool，args）。mode：continue 接着上次（同一张卡 / 同一段会话，能看到之前做过什么），fresh 每次新开；attended：true 开交互式终端等用户接手，false 无人值守干完交审。用户没说 mode / attended 就按描述判断，并在复述里写明。",
+      {
+        title: z.string().min(1).max(80),
+        cron: z.string().min(1).max(60),
+        executor: z.enum(["project", "friday", "call"]),
+        project: z.string().max(120).optional(),
+        prompt: z.string().max(4000).optional(),
+        mode: z.enum(["continue", "fresh"]).optional(),
+        attended: z.boolean().optional(),
+        server: z.string().max(60).optional(),
+        tool: z.string().max(80).optional(),
+        args: z.record(z.string(), z.unknown()).optional(),
+      },
+      async (input) => {
+        const { validateSchedule, toView } = await import("./schedule.js");
+        const bad = validateSchedule(input);
+        if (bad) return text(`没登记：${bad}`);
+        const s = createSchedule(input);
+        record({ action: "schedule_added", why: "你让 Friday 登记一条定时任务", how: `${s.title}（${s.cron}）`, evidence: { schedule: s }, risk: "reversible" });
+        const v = toView(s);
+        return text(`已登记 ${s.id}：${v.when} · ${v.executorLabel}${v.nextRunAt ? `，下次 ${new Date(v.nextRunAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}` : ""}。在「···」→ 定时任务里能看到。`);
+      },
+    ),
+    tool(
+      "schedule_update",
+      "改一条定时任务（只传要改的字段）。改之前同样先复述改成什么、用户说好再调。enabled=false 是暂停。",
+      {
+        id: z.string().min(1).max(20),
+        title: z.string().min(1).max(80).optional(),
+        cron: z.string().min(1).max(60).optional(),
+        enabled: z.boolean().optional(),
+        project: z.string().max(120).optional(),
+        prompt: z.string().max(4000).optional(),
+        mode: z.enum(["continue", "fresh"]).optional(),
+        attended: z.boolean().optional(),
+        server: z.string().max(60).optional(),
+        tool: z.string().max(80).optional(),
+        args: z.record(z.string(), z.unknown()).optional(),
+      },
+      async ({ id, ...patch }) => {
+        const s = getSchedule(id);
+        if (!s) return text(`没有定时任务 ${id}，先用 schedules_list 看看。`);
+        const { validateSchedule, toView } = await import("./schedule.js");
+        const next = { ...s, ...patch } as typeof s;
+        const bad = validateSchedule(next);
+        if (bad) return text(`没改：${bad}`);
+        const u = updateSchedule(id, patch)!;
+        record({ action: "schedule_updated", why: "你让 Friday 改一条定时任务", how: Object.keys(patch).join("、"), evidence: { before: s, after: u }, risk: "reversible" });
+        const v = toView(u);
+        return text(`改好了：${u.title} · ${v.when} · ${v.executorLabel}${u.enabled ? "" : "（已暂停）"}`);
+      },
+    ),
+    tool(
+      "schedule_remove",
+      "删掉一条定时任务。用户明确说删才调；只是想暂停用 schedule_update 的 enabled=false。",
+      { id: z.string().min(1).max(20) },
+      async ({ id }) => {
+        const s = getSchedule(id);
+        if (!s || !deleteSchedule(id)) return text(`没有定时任务 ${id}。`);
+        record({ action: "schedule_removed", why: "你让 Friday 删掉一条定时任务", how: s.title, evidence: { schedule: s }, risk: "reversible" });
+        return text(`删了：${s.title}`);
+      },
+    ),
+    tool(
+      "schedules_list",
+      "列出所有定时任务：id、时间、谁跑、开没开、上次结果。用户问「有哪些定时任务」或要改 / 删之前先查。",
+      {},
+      async () => {
+        const { toView } = await import("./schedule.js");
+        const all = listSchedules().map(toView);
+        if (!all.length) return text("还没有定时任务。");
+        return text(all.map((v) => `${v.id} ${v.enabled ? "" : "[暂停] "}${v.title}｜${v.when}｜${v.executorLabel}｜上次：${v.lastRunAt ? `${v.lastOk ? "✓" : "✗"} ${v.lastResult ?? ""}`.slice(0, 80) : "还没跑过"}`).join("\n"));
       },
     ),
   ];
