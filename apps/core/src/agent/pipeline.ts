@@ -66,7 +66,7 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
  * 重新打开收工了的任务：回到进行中（没开过工的回待办），原来记成合并 / 收下的运行改记 reopened。
  * 它自己的会话被收工关掉了但 worktree 还在，就重建会话接回原来的对话。
  */
-export async function reopenTask(id: string): Promise<{ task: Task; terminal: boolean } | undefined> {
+export async function reopenTask(id: string, opts: { revive?: boolean } = {}): Promise<{ task: Task; terminal: boolean } | undefined> {
   const t = getTask(id);
   if (!t) return undefined;
   if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
@@ -74,7 +74,7 @@ export async function reopenTask(id: string): Promise<{ task: Task; terminal: bo
   for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
   record({ taskId: id, action: "task_reopened", why: "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });
   const s = getTermSession(id);
-  const terminal = Boolean(s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
+  const terminal = Boolean(opts.revive !== false && s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
   return { task: getTask(id)!, terminal };
 }
 

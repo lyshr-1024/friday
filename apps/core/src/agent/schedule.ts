@@ -70,7 +70,8 @@ async function fireProject(s: Schedule): Promise<Fired> {
   if (s.mode === "continue") {
     task = s.anchorTaskId ? getTask(s.anchorTaskId) : undefined;
     if (task?.report?.at) pushHistory(s.id, { at: task.report.at, summary: task.report.summary });
-    if (task && (task.status === "done" || task.status === "ignored")) task = (await reopenTask(task.id))?.task;
+    // 无人值守不能接回交互式会话：那样活会被敲进交互式 Claude，没有自主提示词、永不退出
+    if (task && (task.status === "done" || task.status === "ignored")) task = (await reopenTask(task.id, { revive: s.attended }))?.task;
     const history = getSchedule(s.id)?.history ?? [];
     if (history.length) detail += `\n\n上几轮做过的（别重复做）：\n${history.map((h) => `- ${h.at.slice(0, 10)}：${h.summary}`).join("\n")}`;
   }

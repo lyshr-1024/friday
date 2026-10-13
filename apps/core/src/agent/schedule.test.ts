@@ -55,7 +55,7 @@ describe("project 执行方", () => {
     const anchor = getSchedule(s.id)!.anchorTaskId!;
     updateTask(anchor, { status: "done" });
     await fireSchedule(getSchedule(s.id)!, "due");
-    expect(reopenTask).toHaveBeenCalledWith(anchor);
+    expect(reopenTask).toHaveBeenCalledWith(anchor, { revive: false });
   });
 
   it("fresh + 有人值守：每次新卡、走交互式", async () => {
