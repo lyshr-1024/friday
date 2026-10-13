@@ -142,6 +142,41 @@ export async function sendCommand(name: string, command: string, windowIndex?: n
   await sendText(name, command, windowIndex);
 }
 
+type PsRunner = () => Promise<string>;
+let psRunner: PsRunner = async () => (await execFileP("/bin/ps", ["-A", "-o", "pid=,ppid=,args="], { timeout: 5_000, maxBuffer: 8 * 1024 * 1024 })).stdout;
+
+export function setPsRunner(fn: PsRunner): void {
+  psRunner = fn;
+}
+
+const CLAUDE_ARGS = /(^|\/)claude(\s|$)|claude-code\/cli/;
+
+/**
+ * 窗口里还有没有 Claude 在跑：看窗格进程的子孙里有没有 claude。`pane_current_command` 在 Claude 跑着时也报 zsh，靠不住。
+ * 判断不了（tmux / ps 出错、找不到窗格）返回 undefined，调用方按「还在」处理。
+ */
+export async function claudeAlive(name: string, windowIndex?: number): Promise<boolean | undefined> {
+  try {
+    const roots = (await run("list-panes", "-t", W(name, windowIndex), "-F", "#{pane_pid}")).split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!roots.length) return undefined;
+    const children = new Map<string, Array<{ pid: string; args: string }>>();
+    for (const line of (await psRunner()).split("\n")) {
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      if (m) children.set(m[2]!, [...(children.get(m[2]!) ?? []), { pid: m[1]!, args: m[3]! }]);
+    }
+    const stack = [...roots];
+    while (stack.length) {
+      for (const c of children.get(stack.pop()!) ?? []) {
+        if (CLAUDE_ARGS.test(c.args)) return true;
+        stack.push(c.pid);
+      }
+    }
+    return false;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function claudeWindowIndex(name: string): Promise<number | undefined> {
   try {
     const idx = (await listWindows(name)).filter((w) => w.name === "claude").map((w) => w.index);

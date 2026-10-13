@@ -9,7 +9,7 @@ import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
 import { branchExistsSync, branchesForIdSync, currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
-import { claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendCommand, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
+import { claudeAlive, claudeWindowIndex, hasSession, killSession, newSession, renameSession, safeName, sendCommand, sendText, sessionName, tmuxVersion, TmuxMissingError, writeTmuxConf } from "./tmux.js";
 
 let launch: typeof launchInSession = launchInSession;
 export function setLauncher(fn: typeof launchInSession): void {
@@ -104,10 +104,27 @@ export async function sayToSession(sessionId: string, text: string): Promise<"se
   }
   const win = await claudeWindowIndex(s.tmuxName);
   if (win === undefined) return "no-terminal";
+  if (await claudeGone(s, win)) {
+    updateTermSession(sessionId, { status: "exited" });
+    record({ taskId: getJob(s.jobId ?? "")?.taskId ?? sessionId, action: "terminal_claude_gone", why: "会话记着 Claude 在跑，窗口里其实只剩 shell，话敲进去会被 zsh 当命令", how: "标成已退出，带着这句话 --resume 接回", evidence: { session: s.tmuxName, text: text.slice(0, 300) }, risk: "reversible" });
+    return (await resumeInSession(sessionId, text)) ? "sent" : "no-terminal";
+  }
   await sendText(s.tmuxName, text, win);
   markInput(sessionId);
   if (s.jobId) recordTerminalInput(s.jobId, text);
   return "sent";
+}
+
+// 刚敲过命令的这段时间 Claude 可能还没起来，不算不在
+const CLAUDE_START_GRACE_MS = 15_000;
+
+/** 状态是 running、窗口里却没有 claude 进程：接回没起来（2026-10-13 `c/bin/zsh …`），或 Claude 退出时没回报到 */
+export async function claudeGone(s: TermSession, win?: number): Promise<boolean> {
+  if (s.status !== "running") return false;
+  if (s.lastInputAt && Date.now() - Date.parse(s.lastInputAt) < CLAUDE_START_GRACE_MS) return false;
+  const w = win ?? (await claudeWindowIndex(s.tmuxName));
+  // 没有 claude 窗口（项目的普通终端）本来就不跑 Claude
+  return w !== undefined && (await claudeAlive(s.tmuxName, w)) === false;
 }
 
 export async function flushQueued(sessionId: string): Promise<void> {

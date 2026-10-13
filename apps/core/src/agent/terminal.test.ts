@@ -3,7 +3,7 @@ import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { listAudit } from "../memory/audit.js";
-import { setTmuxRunner } from "./tmux.js";
+import { setPsRunner, setTmuxRunner } from "./tmux.js";
 import { openSession, setLauncher, worktreeReady } from "./sessions.js";
 import { say, sweepClosedTerminals } from "./terminal.js";
 import { finishTask, rejectTask } from "./pipeline.js";
@@ -16,9 +16,14 @@ const R = mainRepo("app");
 let calls: string[][] = [];
 let alive = new Set<string>();
 let listFails = false;
+let panes = "";
+let ps = "";
 beforeEach(() => {
   calls = [];
   listFails = false;
+  panes = "";
+  ps = "";
+  setPsRunner(async () => ps);
   setTmuxRunner(async (args) => {
     calls.push(args);
     if (args[0] === "-V") return "tmux 3.5a";
@@ -26,6 +31,7 @@ beforeEach(() => {
     const target = (args[args.indexOf("-t") + 1] ?? "").replace(/^=/, "").replace(/:.*$/, "");
     if (sub === "has-session" && !alive.has(target)) throw new Error("can't find session");
     if (sub === "list-windows") return "0|claude|1\n";
+    if (sub === "list-panes") return panes;
     if (sub === "list-sessions") {
       if (listFails) throw Object.assign(new Error("spawn tmux EAGAIN"), { code: "EAGAIN" });
       return [...alive].join("\n");
@@ -37,7 +43,7 @@ beforeEach(() => {
   setLauncher(async (_req, name) => { alive.add(name); });
 });
 
-const age = (id: string) => db().prepare("UPDATE term_sessions SET created_at = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", id);
+const age = (id: string) => db().prepare("UPDATE term_sessions SET created_at = ?, last_input_at = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", "2020-01-01T00:00:00.000Z", id);
 
 async function running(title: string, extra: Record<string, unknown> = {}) {
   const t = createTask({ title, kind: "verbal", source: extra, status: "processing", project: "app" });
@@ -207,5 +213,59 @@ describe("缺陷的 rootId 指向已收工的需求", () => {
     const name = getTermSession(bug.id)!.tmuxName;
     await finishTask(bug.id, "done", "测试");
     expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
+  });
+});
+
+describe("会话记着在跑、窗口里 Claude 其实不在", () => {
+  const shellOnly = "100 1 -zsh -il\n";
+  const withClaude = "100 1 -zsh -il\n101 100 /bin/zsh /runs/x.resume.sh\n102 101 /Users/me/.local/bin/claude --resume abc\n";
+
+  it("看得出 Claude 在跑（孙进程）就照常转达", async () => {
+    const { jobId, t } = await running("在跑");
+    age(t.id);
+    panes = "100\n";
+    ps = withClaude;
+    expect(await say(jobId, "继续")).toBe("sent");
+    expect(calls.some((c) => c[4] === "send-keys" && c.at(-1) === "继续")).toBe(true);
+  });
+
+  it("只剩 shell：不往 zsh 里敲这句话，带着它 --resume 接回", async () => {
+    const { jobId, t } = await running("只剩 shell");
+    age(t.id);
+    panes = "100\n";
+    ps = shellOnly;
+    expect(await say(jobId, "再看一份验收文档")).toBe("sent");
+    const typed = calls.filter((c) => c[4] === "send-keys" && c.includes("-l")).map((c) => c.at(-1)!);
+    expect(typed).not.toContain("再看一份验收文档");
+    expect(typed.at(-1)).toMatch(/^\/bin\/zsh '.*\.resume\.sh'$/);
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "terminal_claude_gone")).toBe(true);
+    expect(getTermSession(t.id)!.status).toBe("running");
+  });
+
+  it("刚敲过命令（Claude 还在起）不算不在", async () => {
+    const { jobId } = await running("刚接回");
+    panes = "100\n";
+    ps = shellOnly;
+    expect(await say(jobId, "继续")).toBe("sent");
+    expect(calls.some((c) => c[4] === "send-keys" && c.at(-1) === "继续")).toBe(true);
+  });
+
+  it("判断不了（列不出窗格）按还在处理", async () => {
+    const { jobId, t } = await running("判不了");
+    age(t.id);
+    ps = shellOnly;
+    expect(await say(jobId, "继续")).toBe("sent");
+    expect(calls.some((c) => c[4] === "send-keys" && c.at(-1) === "继续")).toBe(true);
+  });
+
+  it("对账：会话标已退出、job 收尾", async () => {
+    const { jobId, t } = await running("对账");
+    age(t.id);
+    panes = "100\n";
+    ps = shellOnly;
+    expect(await sweepClosedTerminals()).toContain(jobId);
+    expect(getTermSession(t.id)!.status).toBe("exited");
+    expect(getJob(jobId)!.status).toBe("failed");
+    expect(alive.has(getTermSession(t.id)!.tmuxName)).toBe(true);
   });
 });

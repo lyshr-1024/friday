@@ -6,7 +6,7 @@ import { getTask, listTasks } from "../memory/tasks.js";
 import { record } from "../memory/audit.js";
 import { getTermSession, openTermSessions, updateTermSession } from "../memory/termSessions.js";
 import { killSession, listSessionNames } from "./tmux.js";
-import { liveRootId, sayToSession } from "./sessions.js";
+import { claudeGone, liveRootId, sayToSession } from "./sessions.js";
 import { detachSession } from "./attach.js";
 import { sessionState } from "./sessionState.js";
 import { publish } from "../bus.js";
@@ -30,6 +30,11 @@ export async function sweepClosedTerminals(): Promise<string[]> {
     if (Date.now() - Date.parse(s.createdAt) < FRESH_SESSION_MS) continue;
     updateTermSession(s.id, { status: "closed" });
     detachSession(s.id);
+    for (const j of runningJobs()) if (j.sessionId === s.id) { finishJob(j.id, -1); dead.push(j.id); }
+  }
+  for (const s of openTermSessions()) {
+    if (!live.has(s.tmuxName) || Date.now() - Date.parse(s.createdAt) < FRESH_SESSION_MS || !(await claudeGone(s))) continue;
+    updateTermSession(s.id, { status: "exited" });
     for (const j of runningJobs()) if (j.sessionId === s.id) { finishJob(j.id, -1); dead.push(j.id); }
   }
   for (const j of runningJobs()) if (!j.sessionId) { finishJob(j.id, -1); dead.push(j.id); }
