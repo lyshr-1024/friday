@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -381,6 +381,33 @@ export async function routines(): Promise<{ weekly: Task[]; learn: Task[] }> {
   const res = await fetch(`${await coreBaseUrl()}/routines`);
   if (!res.ok) throw new Error(`routines ${res.status}`);
   return res.json();
+}
+
+export async function listSchedules(): Promise<ScheduleView[]> {
+  const res = await fetch(`${await coreBaseUrl()}/schedules`);
+  if (!res.ok) throw new Error(`schedules ${res.status}`);
+  return ((await res.json()) as { items: ScheduleView[] }).items;
+}
+
+async function scheduleError(res: Response): Promise<Error> {
+  return new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+}
+
+export async function setScheduleEnabled(id: string, enabled: boolean): Promise<ScheduleView> {
+  const res = await fetch(`${await coreBaseUrl()}/schedules/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }) });
+  if (!res.ok) throw await scheduleError(res);
+  return res.json();
+}
+
+export async function runSchedule(id: string): Promise<{ ok: boolean; result: string; ref?: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/schedules/${encodeURIComponent(id)}/run`, { method: "POST" });
+  if (!res.ok) throw await scheduleError(res);
+  return res.json();
+}
+
+export async function removeSchedule(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw await scheduleError(res);
 }
 
 export async function taskNode(id: string): Promise<{ canConfirm: boolean; missing: string[] }> {

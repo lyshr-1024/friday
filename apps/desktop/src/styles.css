@@ -5322,6 +5322,10 @@ label.hbr__item { cursor: default; }
 .rtn__state--done { color: var(--ok); }
 .rtn__state--blocked { color: var(--bad); }
 .rtn__note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-4); font-size: var(--t-xs); }
+.rtn__item--btn { cursor: default; }
+.rtn__sched .rtn__item { flex-wrap: wrap; align-items: center; }
+.rtn__detail { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-2) var(--s-3); }
+.rtn__prompt { white-space: pre-wrap; margin: 0; font-family: var(--mono); font-size: var(--t-sm); line-height: 1.5; color: var(--fg-2); }
 .rtn__empty { color: var(--fg-3); font-size: var(--t-sm); line-height: 1.7; }
 .rtn .editor { height: auto; background: transparent; }
 .rtn .editor__head { padding-left: 0; }

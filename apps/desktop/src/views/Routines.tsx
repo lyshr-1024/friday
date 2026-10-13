@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import type { OkrRow, OkrWeeklyDraft, SettingsResponse, Task } from "@friday/shared";
-import { learnHistory, listHandbooks, okrWeeklyNow, settings, taskApprove, taskSet, updateSettings } from "../lib/core";
+import type { OkrRow, OkrWeeklyDraft, ScheduleView, SettingsResponse, Task } from "@friday/shared";
+import { learnHistory, listHandbooks, listSchedules, okrWeeklyNow, removeSchedule, runSchedule, setScheduleEnabled, settings, taskApprove, taskSet, updateSettings } from "../lib/core";
 import { Modal } from "./TaskDialog";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";
 import { HandbookReview } from "./HandbookReview";
 import { RulesEditor } from "./RulesEditor";
 import { Row } from "./shared";
 
-export type Routine = "weekly" | "learn";
+export type Routine = "weekly" | "learn" | "schedule";
 
 const closed = (t: Task) => t.status === "done" || t.status === "ignored";
 const day = (iso: string) => iso.slice(5, 10);
@@ -225,6 +225,110 @@ export function LearnDialog({ tasks, onClose }: { tasks: Task[]; onClose: () => 
           )}
         </>
       )}
+    </Modal>
+  );
+}
+
+const ago = (iso?: string) => {
+  if (!iso) return "还没跑过";
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`;
+};
+const at = (iso?: string) => (iso ? new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+
+export function ScheduleDialog({ onClose, onOpenWeekly, onOpenLearn, onOpenTask, onOpenConversation }: {
+  onClose: () => void;
+  onOpenWeekly: () => void;
+  onOpenLearn: () => void;
+  onOpenTask: (id: string) => void;
+  onOpenConversation: (id: string) => void;
+}) {
+  const { prefs, toggle } = usePrefs();
+  const [items, setItems] = useState<ScheduleView[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [arm, setArm] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const pull = () => listSchedules().then(setItems).catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)));
+  useEffect(() => { void pull(); }, []);
+
+  async function act(id: string, fn: () => Promise<unknown>) {
+    setBusy(id);
+    setErr("");
+    try {
+      await fn();
+      await pull();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const goLast = (s: ScheduleView) => {
+    if (!s.lastRef) return;
+    if (s.executor === "friday") onOpenConversation(s.lastRef);
+    else if (s.executor === "project") onOpenTask(s.lastRef);
+  };
+  const rowKey = (fn: () => void) => (e: React.KeyboardEvent) => { if (e.key === "Enter" && e.target === e.currentTarget) fn(); };
+
+  return (
+    <Modal label="定时任务" title="定时任务" sub="到点 Friday 会自己做的事" onClose={onClose} className="rtn">
+      <section className="rtn__sec">
+        <div className="tdlg__k">内置</div>
+        <div className="rtn__list">
+          <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} onClick={onOpenWeekly} onKeyDown={rowKey(onOpenWeekly)}>
+            <span className="rtn__name">OKR 周报</span>
+            <span className="rtn__note">周五 16:00 起自动起草</span>
+            <span onClick={(e) => e.stopPropagation()}><Switch on={!!prefs?.okrWeekly} disabled={!prefs} onClick={() => toggle("okrWeekly")} /></span>
+          </div>
+          <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} onClick={onOpenLearn} onKeyDown={rowKey(onOpenLearn)}>
+            <span className="rtn__name">从历史学手册</span>
+            <span className="rtn__note">每周一轮</span>
+            <span onClick={(e) => e.stopPropagation()}><Switch on={!!prefs?.learnHistory} disabled={!prefs} onClick={() => toggle("learnHistory")} /></span>
+          </div>
+        </div>
+      </section>
+
+      <section className="rtn__sec">
+        <div className="tdlg__k">你登记的</div>
+        {err && <div className="okr__err">{err}</div>}
+        {items && !items.length && <div className="rtn__empty">还没有定时任务。在会话里说「每天 10 点在 whale-console 里……」就能登记。</div>}
+        <div className="rtn__list">
+          {items?.map((s) => {
+            const toggleOpen = () => setOpen(open === s.id ? null : s.id);
+            return (
+              <div key={s.id} className="rtn__sched">
+                <div className="rtn__item rtn__item--btn" role="button" tabIndex={0} aria-expanded={open === s.id} onClick={toggleOpen} onKeyDown={rowKey(toggleOpen)}>
+                  <span className="rtn__name">{s.title}</span>
+                  <span className="rtn__note mono">{s.when}</span>
+                  <span className="rtn__note">{s.executorLabel}</span>
+                  <span className="rtn__note">下次 {s.enabled ? at(s.nextRunAt) : "已暂停"}</span>
+                  <button className="link" disabled={!s.lastRef} title={s.lastResult ?? ""} onClick={(e) => { e.stopPropagation(); goLast(s); }}>
+                    {s.lastRunAt ? `${s.lastOk ? "✓" : "✗"} ${ago(s.lastRunAt)}` : "还没跑过"}
+                  </button>
+                  <span onClick={(e) => e.stopPropagation()}><Switch on={s.enabled} disabled={busy === s.id} onClick={() => void act(s.id, () => setScheduleEnabled(s.id, !s.enabled))} /></span>
+                  <button className="b b--ghost" disabled={busy === s.id} onClick={(e) => { e.stopPropagation(); void act(s.id, () => runSchedule(s.id)); }}>{busy === s.id ? "在跑" : "现在跑一次"}</button>
+                  <button
+                    className="b b--ghost"
+                    disabled={busy === s.id}
+                    onClick={(e) => { e.stopPropagation(); if (arm !== s.id) return setArm(s.id); setArm(null); void act(s.id, () => removeSchedule(s.id)); }}
+                    onBlur={() => setArm(null)}
+                  >
+                    {arm === s.id ? "再点一次删除" : "删除"}
+                  </button>
+                </div>
+                {open === s.id && (
+                  <div className="rtn__detail">
+                    {s.lastResult && <div className="rtn__note">上次：{s.lastResult}</div>}
+                    <pre className="rtn__prompt">{s.executor === "call" ? `${s.server}.${s.tool}\n${JSON.stringify(s.args ?? {}, null, 2)}` : s.prompt}</pre>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </Modal>
   );
 }

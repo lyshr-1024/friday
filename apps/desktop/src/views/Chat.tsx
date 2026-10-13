@@ -11,7 +11,7 @@ import { LinkMenuHost, fmtTime } from "./shared";
 import { MoreMenu } from "./TaskDialog";
 import { Projects } from "./Projects";
 import { TerminalsMenu } from "./TerminalsMenu";
-import { LearnDialog, WeeklyDialog, openReviews, openWeekly, type Routine } from "./Routines";
+import { LearnDialog, ScheduleDialog, WeeklyDialog, openReviews, openWeekly, type Routine } from "./Routines";
 import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardRequest, BoardView } from "./Board";
@@ -276,6 +276,7 @@ export function Chat() {
     { label: "同步 Meegle", run: toBoard("meegle") },
     { label: weeklyPending ? "周报 · 待提交" : "周报", run: () => setRoutine("weekly") },
     { label: reviewsPending ? `学习 · ${reviewsPending} 批待过目` : "学习", run: () => setRoutine("learn") },
+    { label: "定时任务", run: () => setRoutine("schedule") },
     { label: "会话历史", run: () => go("history") },
     { label: "操作记录", run: () => go("ledger") },
     { label: "设置", run: () => void invoke("open_settings") },
@@ -390,6 +391,15 @@ export function Chat() {
       </div>
       {routine === "weekly" && <WeeklyDialog tasks={routineTasks.weekly} onClose={() => setRoutine(null)} />}
       {routine === "learn" && <LearnDialog tasks={routineTasks.learn} onClose={() => setRoutine(null)} />}
+      {routine === "schedule" && (
+        <ScheduleDialog
+          onClose={() => setRoutine(null)}
+          onOpenWeekly={() => setRoutine("weekly")}
+          onOpenLearn={() => setRoutine("learn")}
+          onOpenTask={(id) => { setRoutine(null); void openTask(id); }}
+          onOpenConversation={(id) => { setRoutine(null); openAsk({ kind: "load", id }); }}
+        />
+      )}
       {searching && (
         <Search
           onClose={() => setSearching(false)}
