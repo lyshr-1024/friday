@@ -13,7 +13,8 @@ vi.mock("../memory/projects.js", async (orig) => ({
   resolveProject: () => ({ kind: "match", project: { name: "demo", dir: "/repo" } }),
 }));
 
-import { startAutonomousJob } from "./pipeline.js";
+import { startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { listAudit } from "../memory/audit.js";
 import { fireSchedule } from "./schedule.js";
 import { setClaudeFinder } from "./runner.js";
 import { setTmuxRunner } from "./tmux.js";
@@ -39,7 +40,7 @@ beforeEach(() => {
 /** 长期卡上一轮交付合并后收工：会话关了，worktree 还在 */
 function mergedAnchor(scheduleId: string, jobId: string) {
   const wt = mkdtempSync(join(tmpdir(), "friday-sched-reopen-"));
-  const t = createTask({ title: "[定时] 修验收", kind: "code", status: "done", project: "demo", source: { scheduleId, jobId, autonomous: true, repoDir: "/repo", worktree: wt } });
+  const t = createTask({ title: "[定时] 修验收", kind: "code", status: "done", project: "demo", source: { scheduleId, jobId, autonomous: true, repoDir: "/repo", worktree: wt, branch: "fix/round-1" } });
   createJob({ id: jobId, project: "demo", dir: wt, logPath: "/tmp/x.log", taskId: t.id, sessionId: t.id });
   setJobSession(jobId, "claude-sess-1");
   finishJob(jobId, 0);
@@ -52,7 +53,7 @@ function mergedAnchor(scheduleId: string, jobId: string) {
 }
 
 describe("continue 的长期卡已收工、worktree 还在", () => {
-  it("无人值守：只重开任务，不接回交互式会话，交给自主开工走新的一轮", async () => {
+  it("无人值守：重开回待办、不动上一轮的结局、账写明是定时任务重开，不接回旧会话也不沿用旧分支", async () => {
     const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修" });
     const t = mergedAnchor(s.id, "sr-1");
     const r = await fireSchedule(getSchedule(s.id)!, "due");
@@ -60,19 +61,28 @@ describe("continue 的长期卡已收工、worktree 还在", () => {
     expect(calls.some((a) => a[4] === "new-session")).toBe(false);
     expect(getTermSession(t.id)!.status).toBe("closed");
     expect(getJob("sr-1")!.status).not.toBe("running");
-    expect(runByJob("sr-1")!.outcome).toBe("reopened");
+    expect(runByJob("sr-1")!.outcome).toBe("merged_as_is");
+    const audit = listAudit({ taskId: t.id }).find((e) => e.action === "task_reopened")!;
+    expect(audit.why).toBe("定时任务「修验收」到点，重开长期卡");
     const call = vi.mocked(startAutonomousJob).mock.calls[0]!;
-    expect(call[0]).toMatchObject({ id: t.id, status: "processing" });
+    expect(call[0]).toMatchObject({ id: t.id, status: "understood" });
+    expect(call[0].source.branch).toBeUndefined();
+    expect(call[0].source.worktree).toBeUndefined();
     expect(call[4]).toBe("schedule");
-    expect(getTask(t.id)!.status).toBe("processing");
+    expect(getTask(t.id)!.source.branch).toBeUndefined();
   });
 
-  it("有人值守：照旧在原 worktree 里接回会话", async () => {
+  it("有人值守：同样不接回旧 worktree 里的会话，交给 startInteractiveJob 从主干新开", async () => {
     const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修", attended: true });
     const t = mergedAnchor(s.id, "sr-2");
-    await fireSchedule(getSchedule(s.id)!, "due");
-    expect(calls.some((a) => a[4] === "new-session")).toBe(true);
-    expect(getTermSession(t.id)!.status).toBe("running");
+    await fireSchedule(getSchedule(s.id)!, "manual");
+    expect(calls.some((a) => a[4] === "new-session")).toBe(false);
+    expect(getTermSession(t.id)!.status).toBe("closed");
+    expect(runByJob("sr-2")!.outcome).toBe("merged_as_is");
+    expect(listAudit({ taskId: t.id }).find((e) => e.action === "task_reopened")!.why).toMatch(/现在跑一次/);
+    const call = vi.mocked(startInteractiveJob).mock.calls[0]!;
+    expect(call[0]).toMatchObject({ id: t.id, status: "understood" });
+    expect(call[0].source.branch).toBeUndefined();
   });
 });
 

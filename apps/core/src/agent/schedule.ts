@@ -62,7 +62,7 @@ export function busyReason(s: Schedule): string | undefined {
   return undefined;
 }
 
-async function fireProject(s: Schedule): Promise<Fired> {
+async function fireProject(s: Schedule, by: "due" | "manual"): Promise<Fired> {
   const r = resolveProject(s.project ?? "");
   if (r.kind !== "match") return { ok: false, result: `找不到项目「${s.project ?? ""}」，去项目注册表看看是不是改名了` };
   let task: Task | undefined;
@@ -71,7 +71,8 @@ async function fireProject(s: Schedule): Promise<Fired> {
     task = s.anchorTaskId ? getTask(s.anchorTaskId) : undefined;
     if (task?.report?.at) pushHistory(s.id, { at: task.report.at, summary: task.report.summary });
     // 无人值守不能接回交互式会话：那样活会被敲进交互式 Claude，没有自主提示词、永不退出
-    if (task && (task.status === "done" || task.status === "ignored")) task = (await reopenTask(task.id, { revive: s.attended }))?.task;
+    const why = by === "due" ? `定时任务「${s.title}」到点，重开长期卡` : `你点了「现在跑一次」：${s.title}，重开长期卡`;
+    if (task && (task.status === "done" || task.status === "ignored")) task = (await reopenTask(task.id, { fresh: true, why }))?.task;
     const history = getSchedule(s.id)?.history ?? [];
     if (history.length) detail += `\n\n上几轮做过的（别重复做）：\n${history.map((h) => `- ${h.at.slice(0, 10)}：${h.summary}`).join("\n")}`;
   }
@@ -140,7 +141,7 @@ async function fireCall(s: Schedule): Promise<Fired> {
 export async function fireSchedule(s: Schedule, why: "due" | "manual"): Promise<Fired> {
   let out: Fired;
   try {
-    out = s.executor === "project" ? await fireProject(s) : s.executor === "friday" ? fireFriday(s) : await fireCall(s);
+    out = s.executor === "project" ? await fireProject(s, why) : s.executor === "friday" ? fireFriday(s) : await fireCall(s);
   } catch (e) {
     out = { ok: false, result: e instanceof Error ? e.message : String(e) };
   }
