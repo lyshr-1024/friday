@@ -192,4 +192,10 @@ export function startScheduler(): void {
     setTimeout(okrTick, 30 * 60_000).unref();
   };
   setTimeout(okrTick, 60_000).unref();
+  const scheduleLoop = async () => {
+    const { scheduleTick } = await import("../agent/schedule.js");
+    await scheduleTick().catch((e) => console.error(`[schedule] ${e instanceof Error ? e.message : e}`));
+    setTimeout(scheduleLoop, 60_000).unref();
+  };
+  setTimeout(scheduleLoop, 15_000).unref();
 }

@@ -12,7 +12,7 @@ vi.mock("../memory/projects.js", async (orig) => ({
 }));
 
 import { startAutonomousJob, startInteractiveJob, reopenTask } from "./pipeline.js";
-import { startRun, isRunning } from "./runs.js";
+import { startRun, isRunning, subscribe } from "./runs.js";
 import { busyReason, fireSchedule, validateSchedule } from "./schedule.js";
 import { createSchedule, getSchedule, updateSchedule } from "../memory/schedules.js";
 import { getTask, updateTask } from "../memory/tasks.js";
@@ -84,6 +84,19 @@ describe("friday 执行方", () => {
     const opts = vi.mocked(startRun).mock.calls[0]![2];
     expect(opts.systemPrompt).toContain("定时任务「早报」");
     expect(opts.label).toBe("schedule");
+  });
+
+  it("生成结束后把结果写回 last_*，出错写 last_ok=0", async () => {
+    const s = createSchedule({ title: "g", cron: "0 9 * * *", executor: "friday", prompt: "p" });
+    const finish = async (events: Array<Record<string, unknown>>) => {
+      await fireSchedule(getSchedule(s.id)!, "due");
+      const cb = vi.mocked(subscribe).mock.calls.at(-1)![1] as (ev: unknown) => void;
+      events.forEach(cb);
+    };
+    await finish([{ type: "delta", text: "结论：都好\n细节" }, { type: "done" }]);
+    expect(getSchedule(s.id)).toMatchObject({ lastOk: true, lastResult: "结论：都好" });
+    await finish([{ type: "error", message: "炸了" }, { type: "done" }]);
+    expect(getSchedule(s.id)).toMatchObject({ lastOk: false, lastResult: "炸了" });
   });
 
   it("上一轮还在生成就算忙", () => {

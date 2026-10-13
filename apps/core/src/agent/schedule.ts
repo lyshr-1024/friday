@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { z } from "zod";
-import type { Schedule, ScheduleInput, Task } from "@friday/shared";
+import type { Schedule, ScheduleInput, ScheduleView, Task } from "@friday/shared";
 import { config } from "../config.js";
 import { userSettings } from "../settings.js";
 import { record } from "../memory/audit.js";
@@ -9,8 +9,8 @@ import { resolveProject } from "../memory/projects.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { claudeSessionId, createConversation, renameConversation } from "../memory/conversations.js";
 import { loadMemoryContext } from "../memory/context.js";
-import { getSchedule, pushHistory, updateSchedule } from "../memory/schedules.js";
-import { validateCron } from "../scheduler/cron.js";
+import { getSchedule, listSchedules, pushHistory, setLastRun, updateSchedule } from "../memory/schedules.js";
+import { describeCron, lastDue, nextDue, validateCron } from "../scheduler/cron.js";
 import { state } from "../scheduler/index.js";
 import { callTool, mcpEndpoint } from "../connectors/mcp.js";
 import { reopenTask, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
@@ -116,6 +116,8 @@ function fireFriday(s: Schedule): Fired {
     off?.();
     const first = answer.trim().split("\n").find((l) => l.trim())?.slice(0, 80);
     state.notices.push({ title: s.title, body: first ?? (error ? `出错了：${error.slice(0, 120)}` : "（没有回答）") });
+    const failed = Boolean(error) && !first;
+    setLastRun(s.id, { ok: !failed, result: first ?? (error || "（没有回答）"), ref: conv, at: getSchedule(s.id)?.lastRunAt ?? new Date().toISOString() });
   });
   return { ok: true, result: "Friday 在跑，结果写进这段会话", ref: conv };
 }
@@ -153,4 +155,58 @@ export async function fireSchedule(s: Schedule, why: "due" | "manual"): Promise<
   });
   if (!out.ok) state.notices.push({ title: `定时任务没跑成 · ${s.title}`, body: out.result.slice(0, 200) });
   return out;
+}
+
+const LATE_MS = 12 * 3600_000;
+let ticking = false;
+
+export async function scheduleTick(now = new Date(), fire = fireSchedule): Promise<number> {
+  if (ticking) return 0;
+  ticking = true;
+  let n = 0;
+  try {
+    for (const s of listSchedules()) {
+      if (!s.enabled) continue;
+      const after = new Date(Math.max(Date.parse(s.createdAt), s.lastRunAt ? Date.parse(s.lastRunAt) : 0));
+      const due = lastDue(s.cron, after, now);
+      if (!due) continue;
+      const at = now.toISOString();
+      if (now.getTime() - due.getTime() > LATE_MS) {
+        const hm = due.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        setLastRun(s.id, { ok: false, result: `错过了 ${hm} 那次，超过 12 小时不补`, at });
+        record({ action: "schedule_skipped", why: `定时任务「${s.title}」错过太久`, how: `错过了 ${hm}`, evidence: { scheduleId: s.id }, risk: "read" });
+        continue;
+      }
+      const busy = busyReason(s);
+      if (busy) {
+        setLastRun(s.id, { ok: false, result: `${busy}，这一轮跳过`, at });
+        record({ action: "schedule_skipped", why: `定时任务「${s.title}」${busy}`, how: "这一轮跳过", evidence: { scheduleId: s.id }, risk: "read" });
+        continue;
+      }
+      // 先占住 last_run_at：fire 里可能跑很久，期间不能被当成还没跑
+      setLastRun(s.id, { ok: true, result: "在跑", at });
+      try {
+        const r = await fire(s, "due");
+        setLastRun(s.id, { ok: r.ok, result: r.result, ...(r.ref ? { ref: r.ref } : {}), at });
+        n++;
+      } catch (e) {
+        setLastRun(s.id, { ok: false, result: e instanceof Error ? e.message : String(e), at });
+      }
+    }
+  } finally {
+    ticking = false;
+  }
+  return n;
+}
+
+const EXEC_LABEL = (s: Schedule) =>
+  s.executor === "project"
+    ? `${s.project} · ${s.attended ? "有人值守" : "无人值守"} · ${s.mode === "continue" ? "接着上次" : "每次新开"}`
+    : s.executor === "friday"
+      ? `Friday · ${s.mode === "continue" ? "接着上次" : "每次新开"}`
+      : `调用 ${s.server}.${s.tool}`;
+
+export function toView(s: Schedule): ScheduleView {
+  const next = s.enabled ? nextDue(s.cron) : undefined;
+  return { ...s, when: describeCron(s.cron), executorLabel: EXEC_LABEL(s), ...(next ? { nextRunAt: next.toISOString() } : {}) };
 }
