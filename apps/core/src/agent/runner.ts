@@ -28,7 +28,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "规则：",
     "1. 你已经在为这次任务准备好的 git worktree 里、在新分支上，直接开工；不要再建分支，不要回主仓操作。",
     "   开工先调 friday_progress 把当前分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
-    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 只放行当前功能分支，强推、推主干 / 受保护分支 / tag 都会被拦。",
+    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 只放行当前功能分支，推主干 / 受保护分支 / tag 都会被拦；强推默认也拦，只有 Friday 转达「用户授权强推」时用 git push --force-with-lease 推当前功能分支，一次有效。",
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -177,7 +177,7 @@ const decide = async () => {
   try {
     const r = await fetch(pushUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: cmd, cwd }), signal: AbortSignal.timeout(5000) });
     const v = await r.json();
-    out(v.allow ? "" : "Friday 拦下了这次推送：" + v.why + "。只推当前功能分支（git push -u origin 分支名），不要强推。确实推不了就在交付报告里写明。");
+    out(v.allow ? "" : "Friday 拦下了这次推送：" + v.why + "。只推当前功能分支（git push -u origin 分支名）；要强推得用户在 Friday 里授权，不要自己绕。确实推不了就在交付报告里写明。");
   } catch {
     out("连不上 Friday，推送先拦下。稍后再试，或在交付报告里写明「推送没做」。");
   }

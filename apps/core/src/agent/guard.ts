@@ -8,7 +8,7 @@ const gitCmd = (sub: string) => `\\bgit\\s+(?:${GIT_OPT}\\s+)*${sub}`;
 
 // 自主任务无人看着，这些命令一律拦下：要么不可逆，要么该由用户审核后 Friday 自己执行。
 // --dangerously-skip-permissions 会让 settings 里的 permissions.deny 失效，所以走 PreToolUse hook。
-export const PUSH_WHY = "只能推当前功能分支：不许强推、删远端分支、推主干 / 受保护分支或 tag";
+export const PUSH_WHY = "只能推当前功能分支：不许强推（除非用户在 Friday 里授权）、删远端分支、推主干 / 受保护分支或 tag";
 
 export const FORBIDDEN: Array<[pattern: string, why: string]> = [
   [`${gitCmd("push")}\\b`, PUSH_WHY],
@@ -53,12 +53,16 @@ export function pushDir(command: string, cwd?: string): string | undefined {
 
 /** 主干和常见的环境分支；仓库自己的默认分支（origin/HEAD）另外算 */
 const PROTECTED = /^(main|master|develop|dev|sit|uat|test|staging|prod|production|release)(\/.*)?$/;
+export const isProtectedBranch = (b: string): boolean => PROTECTED.test(b);
 
-export type PushVerdict = { allow: true; dir: string; branches: string[] } | { allow: false; why: string };
+export type ForceKind = "lease" | "bare";
+/** force：只因为是强推才拦的，带上推哪个分支、哪种强推，用户授权过就能放 */
+export type PushVerdict = { allow: true; dir: string; branches: string[] } | { allow: false; why: string; force?: { kind: ForceKind; dir: string; branches: string[] } };
 
 /**
  * 自主任务的 git push 放不放：推当前功能分支（或显式写的功能分支）放行，建 MR 要用；
  * 强推、删远端分支、推 tag、--all / --mirror、推主干和受保护分支一律拦。判断不了的也拦。
+ * 强推是唯一能被用户授权放行的：只因强推被拦时 verdict 带 force，由调用方查授权。
  * git 查询从外面传进来：currentBranch(dir) 当前分支（游离 HEAD 给空），defaultBranch(dir) origin/HEAD 指向的分支。
  */
 export function pushVerdict(command: string, cwd: string | undefined, git: { currentBranch: (dir: string) => string; defaultBranch: (dir: string) => string | undefined }): PushVerdict {
@@ -69,14 +73,17 @@ export function pushVerdict(command: string, cwd: string | undefined, git: { cur
   const words = segs[0]!.trim().match(/'[^']*'|"[^"]*"|\S+/g)!.map((w) => w.replace(/^(['"])(.*)\1$/, "$2"));
   const args = words.slice(words.indexOf("push") + 1);
   const positional: string[] = [];
+  let force: ForceKind | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (/^--(force|force-with-lease|force-if-includes)(=|$)/.test(a)) return { allow: false, why: "不许强推" };
+    if (/^--force(=|$)/.test(a)) { force = "bare"; continue; }
+    if (/^--(force-with-lease|force-if-includes)(=|$)/.test(a)) { force ??= "lease"; continue; }
     if (/^--(delete|prune)$/.test(a)) return { allow: false, why: "不许删远端分支" };
     if (/^--(all|mirror|branches)$/.test(a)) return { allow: false, why: "不许一次推所有分支" };
     if (/^--(tags|follow-tags)$/.test(a)) return { allow: false, why: "不许推 tag（可能触发发布）" };
     if (/^-[a-zA-Z]+$/.test(a)) {
-      if (/[fd]/.test(a)) return { allow: false, why: a.includes("f") ? "不许强推" : "不许删远端分支" };
+      if (a.includes("d")) return { allow: false, why: "不许删远端分支" };
+      if (a.includes("f")) force = "bare";
       if (a.includes("o")) i++;
       continue;
     }
@@ -88,8 +95,9 @@ export function pushVerdict(command: string, cwd: string | undefined, git: { cur
   const refspecs = positional.slice(1);
   const branches: string[] = [];
   for (const r of refspecs.length ? refspecs : ["HEAD"]) {
-    if (r.startsWith("+")) return { allow: false, why: "不许强推" };
-    const [src, dst] = r.includes(":") ? r.split(":", 2) as [string, string] : [r, r];
+    if (r.startsWith("+")) force = "bare";
+    const spec = r.replace(/^\+/, "");
+    const [src, dst] = spec.includes(":") ? spec.split(":", 2) as [string, string] : [spec, spec];
     if (!src) return { allow: false, why: "不许删远端分支" };
     if (/^refs\/tags\//.test(dst) || /^refs\/tags\//.test(src)) return { allow: false, why: "不许推 tag（可能触发发布）" };
     const name = (dst === "HEAD" || dst === "@" ? current : dst).replace(/^refs\/heads\//, "");
@@ -99,5 +107,6 @@ export function pushVerdict(command: string, cwd: string | undefined, git: { cur
   const main = git.defaultBranch(dir);
   const guarded = branches.find((b) => PROTECTED.test(b) || b === main);
   if (guarded) return { allow: false, why: `不许推 ${guarded}（主干 / 受保护分支），要进主干走 MR` };
+  if (force) return { allow: false, why: "不许强推：要用户在 Friday 里明确授权", force: { kind: force, dir, branches } };
   return { allow: true, dir, branches };
 }

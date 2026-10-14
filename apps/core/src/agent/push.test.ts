@@ -8,7 +8,10 @@ import { describe, expect, it } from "vitest";
 import { app } from "../api/index.js";
 import { listAudit } from "../memory/audit.js";
 import { createJob } from "../memory/jobs.js";
-import { createTask } from "../memory/tasks.js";
+import { createTask, getTask } from "../memory/tasks.js";
+import { addMessage, createConversation } from "../memory/conversations.js";
+import { FORCE_GRANT_MS, grantForcePush, hasForcePush } from "./pushGrant.js";
+import { fridayToolList } from "./tools.js";
 import { pushDir, pushVerdict } from "./guard.js";
 import { buildGuardScript } from "./runner.js";
 
@@ -52,11 +55,21 @@ describe("pushVerdict：推功能分支放行，危险的拦", () => {
   });
 
   it("强推、删远端、推 tag、推全部都拦", () => {
-    for (const cmd of ["git push -f", "git push --force origin fix/a", "git push --force-with-lease", "git push -uf origin fix/a", "git push origin +fix/a"]) expect(verdict(cmd), cmd).toMatchObject({ allow: false, why: "不许强推" });
+    for (const cmd of ["git push -f", "git push --force origin fix/a", "git push --force-with-lease", "git push -uf origin fix/a", "git push origin +fix/a"]) expect(verdict(cmd), cmd).toMatchObject({ allow: false, why: expect.stringContaining("不许强推") });
     for (const cmd of ["git push origin --delete fix/a", "git push origin :fix/a", "git push -d origin fix/a"]) expect(verdict(cmd), cmd).toMatchObject({ allow: false, why: "不许删远端分支" });
     expect(verdict("git push --tags")).toMatchObject({ allow: false });
     expect(verdict("git push origin refs/tags/v1")).toMatchObject({ allow: false });
     expect(verdict("git push --all")).toMatchObject({ allow: false });
+  });
+
+  it("只因强推被拦时带上强推种类和分支，留给授权判断；推主干的强推不带", () => {
+    expect(verdict("git push --force-with-lease origin fix/a")).toMatchObject({ allow: false, force: { kind: "lease", dir: "/repo", branches: ["fix/a"] } });
+    expect(verdict("git push --force-with-lease --force-if-includes")).toMatchObject({ force: { kind: "lease", branches: ["fix/a"] } });
+    for (const cmd of ["git push -f", "git push --force origin fix/a", "git push --force-with-lease --force", "git push origin +fix/a"]) expect(verdict(cmd), cmd).toMatchObject({ force: { kind: "bare", branches: ["fix/a"] } });
+    const main = verdict("git push --force-with-lease origin main");
+    expect(main).toMatchObject({ allow: false, why: expect.stringContaining("main") });
+    expect(main).not.toHaveProperty("force");
+    expect(verdict("git push -fd origin fix/a")).toMatchObject({ allow: false, why: "不许删远端分支" });
   });
 
   it("推主干、环境分支、仓库默认分支都拦；当前就在主干上推也拦", () => {
@@ -121,5 +134,55 @@ describe("守卫脚本问 core 放不放", () => {
     expect(await ask("git push -u origin HEAD")).toMatchObject({ allow: true, branches: ["fix/push-ok"] });
     expect(await ask("git push origin main")).toMatchObject({ allow: false });
     expect(listAudit({ taskId: t.id }).map((e) => e.action)).toEqual(expect.arrayContaining(["push_allowed", "push_denied"]));
+  });
+
+  it("强推：用户授权过才放，只放 --force-with-lease、只放授权的分支、用一次就作废", async () => {
+    const repo = repoOnBranch("fix/force-ok");
+    createJob({ id: "pc-2", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/y.log" });
+    const t = createTask({ title: "demo：pc-2", kind: "code", source: { jobId: "pc-2", autonomous: true, repoDir: repo, worktree: repo }, project: "demo", status: "processing" });
+    const ask = async (command: string) => (await app.request("/jobs/pc-2/push-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command, cwd: repo }) })).json();
+    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
+    grantForcePush(t.id, "fix/other");
+    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
+    grantForcePush(t.id, "fix/force-ok");
+    expect(await ask("git push --force origin fix/force-ok")).toMatchObject({ allow: false, why: expect.stringContaining("--force-with-lease") });
+    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: true, branches: ["fix/force-ok"] });
+    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
+    expect(listAudit({ taskId: t.id }).find((e) => e.action === "push_allowed")!.why).toContain("授权");
+    grantForcePush(t.id, "fix/force-ok", Date.now() - FORCE_GRANT_MS - 1);
+    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
+  });
+});
+
+describe("会话里授权强推（push_force_grant）", () => {
+  const setup = (branch: string) => {
+    const repo = repoOnBranch(branch);
+    const conv = createConversation().id;
+    const jobId = `pg-${conv.slice(0, 8)}`;
+    createJob({ id: jobId, project: "demo", dir: repo, task: "自主改", logPath: "/tmp/z.log" });
+    const t = createTask({ title: "授权强推", kind: "code", source: { jobId, autonomous: true, repoDir: repo, worktree: repo, conversationId: conv }, project: "demo", status: "review" });
+    const grant = async (said: string) => {
+      addMessage(conv, { role: "user", kind: "ask", content: said });
+      const tool = fridayToolList(conv).find((x) => x.name === "push_force_grant")!;
+      return ((await tool.handler({} as never, {})).content[0] as { text: string }).text;
+    };
+    return { t, grant };
+  };
+
+  it("整句是强推才记授权；带问号、附加要求的不算", async () => {
+    const { t, grant } = setup("fix/grant-a");
+    expect(await grant("要不要强推？")).toMatch(/还没明确授权/);
+    expect(await grant("强推吧，顺便改下描述")).toMatch(/还没明确授权/);
+    expect(hasForcePush(t.id, "fix/grant-a")).toBe(false);
+    expect(await grant("强推吧")).toMatch(/fix\/grant-a/);
+    expect(hasForcePush(t.id, "fix/grant-a")).toBe(true);
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "push_force_granted")).toBe(true);
+  });
+
+  it("任务在主干上：授权了也不推", async () => {
+    const { t, grant } = setup("main-like");
+    execFileSync("git", ["-C", getTask(t.id)!.source.worktree!, "switch", "-q", "main"], { stdio: "pipe" });
+    expect(await grant("强推")).toMatch(/受保护分支/);
+    expect(hasForcePush(t.id, "main")).toBe(false);
   });
 });
