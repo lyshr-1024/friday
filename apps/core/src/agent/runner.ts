@@ -227,7 +227,7 @@ export function claudeArgs(files: ClaudeFiles, headless = false, project?: strin
     "--mcp-config",
     files.mcp,
     "--append-system-prompt",
-    terminalBridgePrompt(headless ? undefined : project),
+    terminalBridgePrompt(headless ? undefined : project, headless),
   ];
 }
 

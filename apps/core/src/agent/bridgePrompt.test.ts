@@ -21,6 +21,16 @@ describe("交互式终端的 system prompt 带项目手册", () => {
   });
 });
 
+describe("强推的口径按终端归谁分开", () => {
+  it("交互终端不说要 Friday 转达授权，自主任务照旧要", () => {
+    const sys = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
+    const mine = sys(claudeArgs(files, false));
+    expect(mine).toContain("Friday 不拦这里的 git 操作");
+    expect(mine).not.toContain("用户授权强推");
+    expect(sys(claudeArgs(files, true))).toContain("用户授权强推");
+  });
+});
+
 describe("交互式终端的 system prompt 点名回复语言", () => {
   it("调完 Friday 工具之后的汇报也用你的常用语言", () => {
     writeFileSync(process.env.FRIDAY_CLAUDE_SETTINGS!, JSON.stringify({ language: "chinese" }));
