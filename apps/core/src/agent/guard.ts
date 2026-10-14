@@ -89,6 +89,11 @@ export function pushVerdict(command: string, cwd: string | undefined, git: { cur
     }
     if (/^--(push-option|repo|receive-pack|exec)$/.test(a)) { i++; continue; }
     if (a.startsWith("-")) continue;
+    // 重定向不是 refspec：`2>&1`、`>/dev/null`；`2> log` 这种分开写的连目标一起跳过
+    if (/^(\d*|&)[<>]/.test(a)) {
+      if (/^(\d*|&)[<>]{1,2}$/.test(a)) i++;
+      continue;
+    }
     positional.push(a);
   }
   const current = git.currentBranch(dir);

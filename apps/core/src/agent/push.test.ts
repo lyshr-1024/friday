@@ -80,6 +80,12 @@ describe("pushVerdict：推功能分支放行，危险的拦", () => {
     expect(verdict("git push", "")).toMatchObject({ allow: false });
   });
 
+  it("重定向不算要推的分支", () => {
+    expect(verdict("git push -u origin fix/a 2>&1 | tail -8")).toMatchObject({ allow: true, branches: ["fix/a"] });
+    expect(verdict("git push origin fix/a >/dev/null 2> /tmp/err")).toMatchObject({ allow: true, branches: ["fix/a"] });
+    expect(verdict("git push --force-with-lease origin fix/a 2>&1 | tail -4")).toMatchObject({ force: { kind: "lease", branches: ["fix/a"] } });
+  });
+
   it("一条命令里推好几次不放", () => {
     expect(verdict("git push origin fix/a && git push origin fix/b")).toMatchObject({ allow: false });
   });
@@ -146,7 +152,7 @@ describe("守卫脚本问 core 放不放", () => {
     expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
     grantForcePush(t.id, "fix/force-ok");
     expect(await ask("git push --force origin fix/force-ok")).toMatchObject({ allow: false, why: expect.stringContaining("--force-with-lease") });
-    expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: true, branches: ["fix/force-ok"] });
+    expect(await ask("git push --force-with-lease origin fix/force-ok 2>&1 | tail -4")).toMatchObject({ allow: true, branches: ["fix/force-ok"] });
     expect(await ask("git push --force-with-lease origin fix/force-ok")).toMatchObject({ allow: false });
     expect(listAudit({ taskId: t.id }).find((e) => e.action === "push_allowed")!.why).toContain("授权");
     grantForcePush(t.id, "fix/force-ok", Date.now() - FORCE_GRANT_MS - 1);
