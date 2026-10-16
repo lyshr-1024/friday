@@ -154,11 +154,12 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * 自主任务的 PreToolUse 守卫：每条 Bash 命令过一遍 guard.ts 的黑名单，命中就 deny。
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
-export function buildGuardScript(nodePath = process.execPath, pushUrl?: string): string {
+export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, allowMerge = false): string {
+  const rules = allowMerge ? FORBIDDEN.filter(([, why]) => !why.startsWith("合并由")) : FORBIDDEN;
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`
-const rules = ${JSON.stringify(FORBIDDEN)};
+const rules = ${JSON.stringify(rules)};
 const pushUrl = ${JSON.stringify(pushUrl ?? "")};
 const PUSH_WHY = ${JSON.stringify(PUSH_WHY)};
 let input = "";
@@ -198,7 +199,7 @@ export function buildMcpConfig(id: string, port: number): string {
   return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
 }
 
-export function writeHookFiles(id: string, autonomous = false, readOnly = false): ClaudeFiles {
+export function writeHookFiles(id: string, autonomous = false, readOnly = false, allowMerge = false): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
@@ -207,7 +208,7 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false)
   if (autonomous || readOnly) {
     guard = join(runsDir(), `${id}.guard.sh`);
     // 只读查询不该推送，拦下就完了；自主任务的 push 问 core 放不放
-    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-check`));
+    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-check`, allowMerge));
     chmodSync(guard, 0o755);
   }
   const settings = join(runsDir(), `${id}.settings.json`);
@@ -253,6 +254,7 @@ export interface SessionLaunch {
   inRepo?: boolean;
   /** 项目页的普通 shell：只开 zsh，不起 Claude */
   shell?: boolean;
+  allowMerge?: boolean;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
@@ -371,7 +373,7 @@ export async function launchInSession(req: SessionLaunch, tmuxName: string): Pro
 
 export async function writeResumeScript(req: SessionLaunch, cwd: string, hooks: TermSessionKind = req.kind, keepShell = false): Promise<string> {
   const claudePath = await claudeFinder();
-  const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query");
+  const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query", req.allowMerge);
   const script = join(runsDir(), `${req.id}.resume.sh`);
   writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ...(keepShell ? ["exec /bin/zsh -il"] : []), ""].join("\n"));
   chmodSync(script, 0o755);

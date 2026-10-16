@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { cleanEnv } from "./env.js";
-import { buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
+import { buildGuardScript, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
+import { PUSH_WHY } from "./guard.js";
 
 describe("终端环境与会话恢复", () => {
   it("清掉从 Claude Code 继承的会话标记，保留其他变量", () => {
@@ -26,5 +27,16 @@ describe("终端环境与会话恢复", () => {
     const script = buildHookScript("x", 7788, "/bin/node");
     expect(script).toContain("cwd");
     expect(script).toMatch(/hook_event_name === "Stop"/);
+  });
+});
+
+describe("buildGuardScript allowMerge", () => {
+  it("allowMerge 的守卫不含 merge 规则，rebase / reset --hard / push 照旧在", () => {
+    const s = buildGuardScript("/bin/node", "http://127.0.0.1:1/x", true);
+    expect(s).not.toContain("合并由 Friday");
+    expect(s).toContain("变基会改写历史");
+    expect(s).toContain("会丢掉未提交的改动");
+    expect(s).toContain(PUSH_WHY);
+    expect(buildGuardScript("/bin/node", "http://127.0.0.1:1/x")).toContain("合并由 Friday");
   });
 });
