@@ -4,12 +4,13 @@ import { state as schedState } from "../scheduler/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createRun, runByJob, setRunOutcome } from "../memory/runs.js";
 import { afterEach, describe, expect, it } from "vitest";
+import { listAudit } from "../memory/audit.js";
 import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle.js";
 import type { MeegleWorkItem } from "../connectors/meegle.js";
 import { matchProjectByUrl } from "../memory/projects.js";
 import { updateSettings } from "../settings.js";
-import { addMeegleByRef, intakeWorkItem, matchProject, parseMeegleRef, priorityOf, workItemToTask } from "./meegle.js";
+import { addMeegleByRef, applyTransition, intakeWorkItem, matchProject, parseMeegleRef, priorityOf, workItemToTask } from "./meegle.js";
 
 const projects = [
   { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], extra: {} },
@@ -543,5 +544,14 @@ describe("同步时缺陷跟着需求的项目走", () => {
     await syncOnce(conn([bug("pb1", "ps1"), bug("pb2", "ps1")]));
     expect(readTask(empty.id)!.project).toBe("app-a");
     expect(readTask(mine.id)!.project).toBe("app-b");
+  });
+});
+
+describe("applyTransition 的账本", () => {
+  it("不传 why 时写「你在 Friday 里点了」", async () => {
+    const t = mkTask({ title: "缺陷", kind: "meegle", source: { meegleProject: "p", meegleId: "9", statusKey: "OPEN" }, project: "demo", status: "understood" });
+    const fake = { transitionState: async () => {} } as never;
+    await applyTransition(t, { id: "1", label: "开始处理", stateKey: "IN PROGRESS" }, fake);
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "meegle_transition" && e.why === "你在 Friday 里点了「开始处理」")).toBe(true);
   });
 });

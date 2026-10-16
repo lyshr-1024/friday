@@ -243,14 +243,14 @@ export async function listTaskTransitions(t: Task, connector = new MeegleConnect
   return connector.listTransitions(projectKey, workItemId);
 }
 
-export async function applyTransition(t: Task, to: StateTransition, connector = new MeegleConnector()): Promise<Task> {
+export async function applyTransition(t: Task, to: StateTransition, connector = new MeegleConnector(), why = `你在 Friday 里点了「${to.label}」`): Promise<Task> {
   const { projectKey, workItemId } = meegleRef(t);
   const from = t.source.statusKey ?? "";
   await connector.transitionState(projectKey, workItemId, to.id);
   record({
     taskId: t.id,
     action: "meegle_transition",
-    why: `你在 Friday 里点了「${to.label}」`,
+    why,
     how: `workflow transition-state → ${to.stateKey}`,
     evidence: { meegleId: workItemId, from, to: to.stateKey },
     risk: "reversible",
@@ -258,6 +258,19 @@ export async function applyTransition(t: Task, to: StateTransition, connector = 
   });
   const moved = updateTask(t.id, { source: { statusKey: to.stateKey } })!;
   return to.stateKey === DONE_STATE ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`, { keepTerminal: true }))! : moved;
+}
+
+export async function transitionToInProgress(t: Task, connector = new MeegleConnector()): Promise<{ moved: true; label: string } | { moved: false; why: string }> {
+  try {
+    const to = (await listTaskTransitions(t, connector)).find((x) => x.stateKey === "IN PROGRESS");
+    if (!to) return { moved: false, why: `当前 ${t.source.statusKey ?? "未知"}，没有「开始处理」可走` };
+    await applyTransition(t, to, connector, "Friday 在需求分支上修完并发到测试环境");
+    return { moved: true, label: to.label };
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    record({ taskId: t.id, action: "meegle_transition", why: "Friday 在需求分支上修完并发到测试环境", how: "workflow transition-state → IN PROGRESS", evidence: { meegleId: t.source.meegleId, error: why }, risk: "reversible", status: "failed" });
+    return { moved: false, why };
+  }
 }
 
 function nodeRef(t: Task): { projectKey: string; workItemId: string; nodeKey: string } {

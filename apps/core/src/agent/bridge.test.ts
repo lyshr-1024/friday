@@ -3,12 +3,26 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { StateTransition } from "@friday/shared";
+import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
+
+const meegle = vi.hoisted(() => ({ transitions: [] as unknown[], calls: [] as string[][], failWith: "" }));
+vi.mock("../connectors/meegle.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/meegle.js")>()),
+  MeegleConnector: class {
+    async listTransitions() { return meegle.transitions; }
+    async transitionState(...a: string[]) {
+      if (meegle.failWith) throw new Error(meegle.failWith);
+      meegle.calls.push(a);
+    }
+  },
+}));
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>
@@ -223,5 +237,75 @@ describe("Friday 工具的返回提醒回复语言", () => {
     } finally {
       rmFile(process.env.FRIDAY_CLAUDE_SETTINGS!, { force: true });
     }
+  });
+});
+
+describe("需求会话里的交付归到缺陷", () => {
+  const toDev: StateTransition = { id: "1122151", label: "开始处理", stateKey: "IN PROGRESS" };
+  const setup = (tag: string, bugs = 1) => {
+    meegle.transitions = [toDev];
+    meegle.calls = [];
+    meegle.failWith = "";
+    const root = createTask({ title: `需求 ${tag}`, kind: "meegle", source: {}, project: "demo", status: "processing" });
+    createJob({ id: `job-root-${tag}`, project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: root.id, sessionId: root.id });
+    const bs = Array.from({ length: bugs }, (_, i) =>
+      createTask({ title: `缺陷 ${tag}${i}`, kind: "meegle", source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), meegleProject: "p", meegleId: `${100 + i}`, statusKey: "OPEN" }, project: "demo", status: "processing" }));
+    return { root, bs, job: `job-root-${tag}` };
+  };
+  const call = async (job: string, name: string, args: Record<string, unknown>) =>
+    ((await (await rpc(job, "tools/call", { name, arguments: args })).json()) as { result: { content: Array<{ text: string }> } }).result.content[0]!.text;
+
+  it("带 taskId 的 friday_done 归到缺陷：review、不挂 git_merge、Meegle 转 IN PROGRESS", async () => {
+    const { root, bs, job } = setup("a");
+    const text = await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "修好了", testResult: "过" });
+    const bug = getTask(bs[0]!.id)!;
+    expect(bug.status).toBe("review");
+    expect(bug.pending ?? []).toEqual([]);
+    expect(bug.report?.summary).toBe("修好了");
+    expect(meegle.calls).toEqual([["p", "100", "1122151"]]);
+    expect(bug.source.statusKey).toBe("IN PROGRESS");
+    expect(getTask(root.id)!.report).toBeUndefined();
+    expect(text).toContain("已转开发中");
+  });
+
+  it("不带 taskId、会话名下恰好一条 handed 缺陷：也归缺陷", async () => {
+    const { bs, job } = setup("b");
+    await call(job, "friday_done", { summary: "好了", testResult: "过" });
+    expect(getTask(bs[0]!.id)!.status).toBe("review");
+    expect(meegle.calls).toHaveLength(1);
+  });
+
+  it("不带 taskId、两条 handed 缺陷：归需求，缺陷不动", async () => {
+    const { root, bs, job } = setup("c", 2);
+    await call(job, "friday_done", { summary: "好了", testResult: "过" });
+    expect(getTask(root.id)!.report?.summary).toBe("好了");
+    for (const b of bs) expect(getTask(b.id)!.status).toBe("processing");
+    expect(meegle.calls).toEqual([]);
+  });
+
+  it("没有 IN PROGRESS 流转：交付仍 review，通知带「Meegle 状态没动」", async () => {
+    const { bs, job } = setup("d");
+    meegle.transitions = [];
+    const text = await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(getTask(bs[0]!.id)!.status).toBe("review");
+    expect(text).toContain("没转");
+    const notices = (await (await app.request("/notifications")).json()) as Array<{ body: string; taskId?: string }>;
+    expect(notices.some((n) => n.taskId === bs[0]!.id && n.body.includes("Meegle 状态没动"))).toBe(true);
+  });
+
+  it("流转 CLI 报错：交付仍 review，账本 meegle_transition failed", async () => {
+    const { bs, job } = setup("e");
+    meegle.failWith = "boom";
+    await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(getTask(bs[0]!.id)!.status).toBe("review");
+    expect(listAudit({ taskId: bs[0]!.id }).some((e) => e.action === "meegle_transition" && e.status === "failed")).toBe(true);
+  });
+
+  it("friday_blocked 带 taskId：缺陷 blocked，Meegle 没被调", async () => {
+    const { root, bs, job } = setup("f");
+    await call(job, "friday_blocked", { taskId: bs[0]!.id.slice(0, 8), reason: "缺权限" });
+    expect(getTask(bs[0]!.id)!.status).toBe("blocked");
+    expect(getTask(root.id)!.attention).toBeUndefined();
+    expect(meegle.calls).toEqual([]);
   });
 });

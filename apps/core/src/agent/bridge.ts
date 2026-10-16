@@ -7,7 +7,7 @@ import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects, projectDetail } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
 import { state } from "../scheduler/index.js";
@@ -22,7 +22,8 @@ import { replyLanguageLine } from "./lang.js";
 
 /** 贴在工具返回末尾：工具调用之后那段汇报最容易换成英文 */
 const lang = () => `\n接下来${replyLanguageLine()}。`;
-import { closeRun, recordRound } from "./runLog.js";
+import { closeRun, closeRunForTask, recordRound } from "./runLog.js";
+import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
 
 const execFileP = promisify(execFile);
@@ -37,6 +38,8 @@ export interface BridgeTool {
 const str = (description: string) => ({ type: "string", description });
 const list = (description: string) => ({ type: "array", items: { type: "string" }, description });
 
+const TASK_ID = str("Friday 任务 id 前 8 位；提示词里给了就填，没给不填");
+
 export const BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: "friday_context",
@@ -46,7 +49,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: "friday_progress",
     description: "报一句阶段进展（不超过 200 字），用户在 Friday 的任务卡上实时看到。每完成一个阶段调一次，不要每步都调。起好分支后第一次调用要带上 branch。",
-    inputSchema: { type: "object", properties: { text: str("一句话进展"), branch: str("当前分支名，起好或切换后报一次") }, required: ["text"] },
+    inputSchema: { type: "object", properties: { text: str("一句话进展"), branch: str("当前分支名，起好或切换后报一次"), taskId: TASK_ID }, required: ["text"] },
   },
   {
     name: "friday_done",
@@ -59,6 +62,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
         testSteps: list("每一步一条：跑了什么命令 / 做了什么操作 → 结果"),
         testResult: str("一句话：全部通过 / 哪些没过"),
         verify: list("用户应该亲自确认的点，写清楚打开哪里看什么"),
+        taskId: TASK_ID,
       },
       required: ["summary", "testResult"],
     },
@@ -71,7 +75,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: "friday_blocked",
     description: "卡住了，需要用户介入才能继续（缺权限、需求不清、环境问题）。说明原因和需要用户做什么。",
-    inputSchema: { type: "object", properties: { reason: str("卡在哪、需要用户做什么") }, required: ["reason"] },
+    inputSchema: { type: "object", properties: { reason: str("卡在哪、需要用户做什么"), taskId: TASK_ID }, required: ["reason"] },
   },
 ];
 
@@ -93,6 +97,17 @@ function taskFor(job: Job): Task {
   });
   record({ taskId: t.id, action: "task_create", why: "终端连回来时没有归属的任务", how: "按 job 补建一条", evidence: { jobId: job.id, project: job.project }, risk: "read" });
   return t;
+}
+
+function targetTask(job: Job, args: Record<string, unknown>): Task {
+  if (!job.sessionId) return taskFor(job);
+  const id = String(args.taskId ?? "").trim();
+  if (id) {
+    const hit = listTasks(undefined, 1000).filter((t) => t.source.rootId === job.sessionId && t.id.startsWith(id));
+    if (hit.length === 1) return hit[0]!;
+  }
+  const handed = listTasks("processing").filter((t) => t.source.rootId === job.sessionId && t.source.handedAt);
+  return handed.length === 1 ? handed[0]! : taskFor(job);
 }
 
 function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress", message = true): void {
@@ -258,7 +273,7 @@ export function terminalAnswered(jobId: string): void {
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };
-  const task = taskFor(job);
+  const task = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args) : taskFor(job);
 
   if (name === "friday_context") return { text: contextFor(task, job) };
 
@@ -267,7 +282,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!text) return { text: "text 不能为空", isError: true };
     // 分支是关联 Meegle / Slack / 浏览器的钥匙，它没报就自己去读
     const dir = task.source.worktree ?? task.source.repoDir ?? job.dir;
-    const branch = String(args.branch ?? "").trim() || (dir ? currentBranchSync(dir) : "");
+    const branch = task.source.handedAt ? "" : String(args.branch ?? "").trim() || (dir ? currentBranchSync(dir) : "");
     // 新一轮开始干活了，上一轮"等你看/卡住"的标记清掉
     updateTask(task.id, { progress: text, attention: undefined, ...(branch ? { source: { branch } } : {}) });
     // 分支起好了就是真的动手了，这条信号本机可查，直接推到「进行中」
@@ -288,6 +303,16 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       at: new Date().toISOString(),
     };
     const branch = await currentBranch(job.dir);
+    if (task.source.handedAt) {
+      const t = updateTask(task.id, { status: "review", report, progress: "修完了，等你核验" })!;
+      closeRunForTask(t.id, "report", t.source.worktree, job.taskId === t.id ? job.claudeSessionId : undefined);
+      onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "需求会话交付了缺陷" });
+      const m = await transitionToInProgress(t);
+      record({ taskId: t.id, action: "terminal_done", why: "需求会话里的 Claude Code 报告缺陷修完", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
+      notify(t, job, "修完了，等你核验", `${report.summary}${m.moved ? "" : `\nMeegle 状态没动：${m.why}`}`, "finished", false);
+      postDelivery(t, jobId, report);
+      return { text: `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。交付完就结束。${lang()}` };
+    }
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
       const t = updateTask(task.id, { report, progress: `这轮做完了：${report.summary}` })!;
@@ -335,7 +360,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_blocked") {
     const reason = String(args.reason ?? "").trim().slice(0, 500);
     if (!reason) return { text: "reason 不能为空", isError: true };
-    if (task.source.autonomous) closeRun(jobId, "blocked");
+    if (task.source.handedAt) closeRunForTask(task.id, "blocked", task.source.worktree, job.taskId === task.id ? job.claudeSessionId : undefined);
+    else if (task.source.autonomous) closeRun(jobId, "blocked");
     const t = task.source.autonomous
       ? updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!
       : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;
