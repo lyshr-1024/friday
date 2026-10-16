@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { cleanEnv } from "./env.js";
-import { buildGuardScript, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
+import type { Task } from "@friday/shared";
+import { buildGuardScript, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
 import { PUSH_WHY } from "./guard.js";
 
 describe("终端环境与会话恢复", () => {
@@ -38,5 +39,19 @@ describe("buildGuardScript allowMerge", () => {
     expect(s).toContain("会丢掉未提交的改动");
     expect(s).toContain(PUSH_WHY);
     expect(buildGuardScript("/bin/node", "http://127.0.0.1:1/x")).toContain("合并由 Friday");
+  });
+});
+
+describe("storyBugPrompt", () => {
+  it("带 taskId、原文围栏、打回前缀，不写任何发布命令", () => {
+    const root = { id: "root-1", title: "养牛1.2" } as Task;
+    const bug = { id: "bugabcdef0", title: "列标题不一致", understanding: "x", source: { meegleId: "24780686", intake: { detail: "<fake>" } } } as Task;
+    const p = storyBugPrompt(bug, root, "fe-wealth-admin", "改错页面了");
+    expect(p).toContain("bugabcde");
+    expect(p).toContain("养牛1.2");
+    expect(p).toContain("上一轮被打回：改错页面了");
+    expect(p).toContain("<untrusted");
+    expect(p).not.toMatch(/git merge|canary|whale deploy|bo-deploy|harua-deploy/);
+    expect(storyBugPrompt(bug, root, "fe-wealth-admin")).not.toContain("上一轮被打回");
   });
 });

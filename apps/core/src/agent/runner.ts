@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
-import type { TermSessionKind } from "@friday/shared";
+import type { Task, TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
@@ -47,6 +47,28 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
     "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
     "7. 提交后要建 MR 就先 git push 当前分支：守卫会拦下并挂一条推送待审，你不用等，在交付报告的「概要」里写明「推送待批准，批准后再建 MR」照常收尾。分支已经在远端的，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge，不要推主分支。",
+    ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
+    UNTRUSTED_NOTE,
+  ].join("\n");
+}
+
+/** 需求提测后拉出来的缺陷：在需求会话里接着改，分支和环境都沿用，验证与发布按项目自己的流程。 */
+export function storyBugPrompt(task: Task, root: Task, project: string, rejected?: string): string {
+  const id = task.id.slice(0, 8);
+  const handbook = handbookBlock(project);
+  const body = [`工单号：${task.source.meegleId ?? "无"}`, `标题：${task.title}`, task.understanding, task.source.intake?.detail].filter(Boolean).join("\n");
+  return [
+    ...(rejected ? [`上一轮被打回：${rejected}`, ""] : []),
+    `这是需求「${root.title}」提测后拉出来的缺陷，Friday 任务 id ${id}。你在项目 ${project} 里这条需求自己的会话和分支上接着改。`,
+    untrusted("task", body),
+    "",
+    "规矩：",
+    "1. 就在当前分支上改，不另起分支，不建 MR。",
+    "2. 改完按本项目的验证规则验（项目 skill、CLAUDE.md、handbooks/ 里的口径）；改到界面的，要用真浏览器打开页面截图。",
+    "3. 验完 commit，push 当前分支；再按本项目自己的发布流程发到这条需求正在联调的测试环境——你之前发过，照原来的目标发。",
+    `4. 全部做完调 friday_done，taskId 填 ${id}。`,
+    `5. 要用户定的事（方案、冲突、环境号不确定）调 friday_blocked，taskId 同样填 ${id}，不要猜。`,
+    "6. 交付报告写明：commit sha、推到哪条分支、发到哪个环境、验证过程和结果。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
