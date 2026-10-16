@@ -99,6 +99,8 @@ function taskFor(job: Job): Task {
   return t;
 }
 
+const closed = (t: Task) => t.status === "done" || t.status === "ignored";
+
 function targetTask(job: Job, args: Record<string, unknown>): Task {
   if (!job.sessionId) return taskFor(job);
   const id = String(args.taskId ?? "").trim();
@@ -304,6 +306,11 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       at: new Date().toISOString(),
     };
     const branch = await currentBranch(job.dir);
+    if (task.source.handedAt && closed(task)) {
+      closeRunForTask(task.id, "report", task.source.worktree, job.taskId === task.id ? job.claudeSessionId : undefined);
+      record({ taskId: task.id, action: "terminal_done_ignored", why: "缺陷已被用户收掉，这次交付不改卡片", how: "friday_done 交付报告", evidence: { jobId, status: task.status, summary: report.summary }, risk: "read" });
+      return { text: `用户已经收掉了这条，不用再做。${lang()}` };
+    }
     if (task.source.handedAt) {
       const t = updateTask(task.id, { status: "review", report, progress: "修完了，等你核验" })!;
       closeRunForTask(t.id, "report", t.source.worktree, job.taskId === t.id ? job.claudeSessionId : undefined);
@@ -363,6 +370,10 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!reason) return { text: "reason 不能为空", isError: true };
     if (task.source.handedAt) closeRunForTask(task.id, "blocked", task.source.worktree, job.taskId === task.id ? job.claudeSessionId : undefined);
     else if (task.source.autonomous) closeRun(jobId, "blocked");
+    if (task.source.handedAt && closed(task)) {
+      record({ taskId: task.id, action: "terminal_blocked", why: "缺陷已被用户收掉，卡住不改卡片", how: reason, evidence: { jobId, status: task.status }, risk: "read" });
+      return { text: `用户已经收掉了这条，不用再做。${lang()}` };
+    }
     const t = task.source.autonomous
       ? updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!
       : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;

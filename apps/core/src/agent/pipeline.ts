@@ -182,6 +182,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (job.task.source.handedAt) {
     closeRun(jobId, exitCode === -1 ? "window_closed" : "no_report");
     fillRunCost(jobId);
+    if (job.task.status === "done" || job.task.status === "ignored") return job.task;
     const t = updateTask(job.task.id, { status: "blocked", progress: "需求会话退出了，这条没交付" })!;
     state.notices.push({ title: "缺陷没交付", body: t.title, taskId: t.id });
     return t;

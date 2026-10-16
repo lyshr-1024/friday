@@ -121,6 +121,28 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
     expect(state.notices.length).toBe(n + 1);
   });
 
+  it("headless 缺陷已用 friday_done 交付（review）后退出：留在 review", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj3" });
+    mkJob("hj3", bug.id);
+    updateTask(bug.id, { status: "review", report: { summary: "修好了", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
+    onJobExit("hj3", 0);
+    expect(getTask(bug.id)!.status).toBe("review");
+  });
+
+  it("headless 缺陷用户已标完成后退出：仍是 done、不发通知、run 收尾", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj4" });
+    mkJob("hj4", bug.id);
+    createRun({ id: "hj4", jobId: "hj4", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
+    updateTask(bug.id, { status: "done" });
+    const n = state.notices.length;
+    onJobExit("hj4", 0);
+    expect(getTask(bug.id)!.status).toBe("done");
+    expect(state.notices.length).toBe(n);
+    expect(runByJob("hj4")!.endedAt).toBeTruthy();
+  });
+
   it("用户标完成：story_bug 的 run 记 merged_as_is；忽略记 abandoned", async () => {
     const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
     const a = handed(story.id);

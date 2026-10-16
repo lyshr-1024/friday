@@ -8,7 +8,7 @@ import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
 
@@ -309,6 +309,26 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(getTask(x.id)!.status).toBe("review");
     expect(getTask(bs[0]!.id)!.status).toBe("processing");
     expect(meegle.calls).toEqual([]);
+  });
+
+  it("用户已忽略的缺陷又收到 friday_done：卡片不动、Meegle 不调、告诉 Claude 不用再做", async () => {
+    const { bs, job } = setup("h");
+    updateTask(bs[0]!.id, { status: "ignored" });
+    const text = await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    const bug = getTask(bs[0]!.id)!;
+    expect(bug.status).toBe("ignored");
+    expect(bug.report).toBeUndefined();
+    expect(meegle.calls).toEqual([]);
+    expect(text).toContain("用户已经收掉了这条");
+    expect(listAudit({ taskId: bug.id }).some((e) => e.action === "terminal_done_ignored")).toBe(true);
+  });
+
+  it("用户已标完成的缺陷又收到 friday_blocked：仍是 done", async () => {
+    const { bs, job } = setup("i");
+    updateTask(bs[0]!.id, { status: "done" });
+    const text = await call(job, "friday_blocked", { taskId: bs[0]!.id.slice(0, 8), reason: "缺权限" });
+    expect(getTask(bs[0]!.id)!.status).toBe("done");
+    expect(text).toContain("用户已经收掉了这条");
   });
 
   it("friday_blocked 带 taskId：缺陷 blocked，Meegle 没被调", async () => {
