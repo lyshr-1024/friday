@@ -42,7 +42,7 @@ export async function handToFriday(t: Task): Promise<StartResult> {
   if (running?.status === "running") return { error: "这条任务已经在跑了，先关掉那个终端再重新开工", status: 409 };
   const root = resolveRoot(t);
   if (root.id !== t.id && root.stage === "testing") {
-    const h = await handToStorySession(t, root);
+    const h = await handToStorySession(t, root, { trigger: "retry" });
     return h === "handed" ? { task: getTask(t.id)! } : { error: h === "busy" ? "需求会话里的 Claude 还在跑，等它退出" : "需求会话已不在，先给需求开终端", status: 409 };
   }
   // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，拿它当任务描述等于什么都没说；

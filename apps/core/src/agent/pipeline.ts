@@ -21,7 +21,7 @@ import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
-import { closeRun, fillRunCost } from "./runLog.js";
+import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
 import { createRun, pendingRunsForTask, runByJob, runsForTask, setRunOutcome } from "../memory/runs.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
@@ -306,7 +306,15 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
   const updated = updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
   const root = t.source.handedAt && t.source.rootId ? getTask(t.source.rootId) : undefined;
-  if (updated && root) void handToStorySession(updated, root, { rejected: reason ?? "无说明" }).catch((e) => console.warn(`[story-bug] 打回后重交失败：${e instanceof Error ? e.message : String(e)}`));
+  if (updated && root) {
+    closeRunForTask(t.id, "report");
+    void handToStorySession(updated, root, { rejected: reason ?? "无说明", trigger: "retry" })
+      .then((h) => {
+        if (h === "handed") return;
+        updateTask(t.id, { status: "blocked", progress: h === "busy" ? "打回了，但需求会话里的 Claude 还在跑，没能重交，点「重新开工」再试" : "打回了，但需求会话已不在，没能重交，先给需求开终端" });
+      })
+      .catch((e) => console.warn(`[story-bug] 打回后重交失败：${e instanceof Error ? e.message : String(e)}`));
+  }
   return updated;
 }
 
@@ -451,7 +459,8 @@ export async function executePending(
 }
 
 /** 需求在测试中：缺陷交代进需求自己的会话，Claude 活着就敲进去，退出了就在同一个 worktree 里 -p --resume 接回后台跑 */
-export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string } = {}): Promise<"handed" | "busy" | "no-session"> {
+export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "no-session"> {
+  const trigger = opts.trigger ?? "autostart";
   const gone = (why: string) => {
     record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
     return "no-session" as const;
@@ -480,13 +489,13 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     status: "processing",
     attention: undefined,
     progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
-    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), ...(alive ? {} : { jobId: run.id }) },
+    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
   });
-  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger: "autostart" });
+  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger });
   record({
     taskId: task.id,
-    action: "autostart",
-    why: `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修`,
+    action: trigger === "autostart" ? "autostart" : "retry",
+    why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
     how: "交代进需求的会话（敲进去 / 接回后台跑）",
     evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "headless" },
     risk: "reversible",

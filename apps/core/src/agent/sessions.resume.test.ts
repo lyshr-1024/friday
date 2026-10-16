@@ -197,7 +197,7 @@ async function testingStory(name: string, kind: "interactive" | "autonomous" = "
 describe("测试阶段缺陷交代进需求会话", () => {
   it("interactive 根活着：send-keys 敲进去，缺陷卡 processing + handedAt，不写 jobId，runs 一行 story_bug", async () => {
     const { root, rootJobId, bug: mk, wt } = await testingStory("sbalive");
-    const bug = mk();
+    const bug = updateTask(mk().id, { source: { jobId: "stale-job" } })!;
     calls = [];
     expect(await handToStorySession(bug, root)).toBe("handed");
     expect(typed().at(-1)).toContain(bug.id.slice(0, 8));
@@ -264,14 +264,27 @@ describe("测试阶段缺陷交代进需求会话", () => {
     updateTermSession(root.id, { status: "exited" });
     calls = [];
     rejectTask(bug.id, "改错页面了");
+    expect(runsForTask(bug.id).find((r) => r.id === first.id)!.endedAt).toBeTruthy();
     await vi.waitFor(() => expect(getTask(bug.id)!.source.jobId).toBeTruthy());
     const script = scriptOf(typed().at(-1)!);
     expect(script).toContain("上一轮被打回：改错页面了");
     expect(script).toMatch(/-p --model/);
     const runs = runsForTask(bug.id);
     expect(runs.find((r) => r.id === first.id)).toMatchObject({ outcome: "rejected" });
-    expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)).toMatchObject({ kind: "story_bug", outcome: "pending" });
+    expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)).toMatchObject({ kind: "story_bug", outcome: "pending", trigger: "retry" });
+    expect(openRunForTask(bug.id)!.id).toBe(getTask(bug.id)!.source.jobId);
+    expect(listAudit({ taskId: bug.id }).some((e) => e.action === "retry" && e.why === "打回后重交")).toBe(true);
     expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)!.endedAt).toBeFalsy();
+  });
+
+  it("打回时根会话在忙：重交不了，缺陷卡标 blocked 说明原因", async () => {
+    const { root, bug: mk } = await testingStory("sbrejbusy", "autonomous");
+    const bug = updateTask(mk().id, { status: "processing", source: { rootId: root.id, handedAt: new Date().toISOString(), autonomous: true } })!;
+    calls = [];
+    rejectTask(bug.id, "没修好");
+    await vi.waitFor(() => expect(getTask(bug.id)!.status).toBe("blocked"));
+    expect(getTask(bug.id)!.progress).toContain("需求会话里的 Claude 还在跑");
+    expect(typed()).toEqual([]);
   });
 
   it("交给 Friday 改：需求在测试中就交代进需求会话，不另开 worktree", async () => {
@@ -285,6 +298,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect("task" in r && r.task.source.handedAt).toBeTruthy();
     expect(launched).toEqual([]);
     expect(getTask(bug.id)!.source.rootId).toBe(root.id);
+    expect(openRunForTask(bug.id)).toMatchObject({ trigger: "retry" });
     updateTermSession(root.id, { status: "closed" });
     const bug2 = mk(2);
     expect(await handToFriday(getTask(bug2.id)!)).toMatchObject({ status: 409, error: "需求会话已不在，先给需求开终端" });
