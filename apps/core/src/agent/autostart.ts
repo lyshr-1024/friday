@@ -65,14 +65,23 @@ export function testingStoryBug(t: Task, env: StoryEnv = defaultStoryEnv): { roo
   return { root };
 }
 
+const SESSION_GONE = "需求会话不在，先给需求开终端";
+/** 需求在测试中、却因为这些原因接不了：卡上要看得到 */
+const STORY_WAITING: Record<string, string> = {
+  "等前一条修完": "等前一条修完",
+  "需求没有会话，Friday 不知道分支在哪": SESSION_GONE,
+  "需求会话已关": SESSION_GONE,
+  "需求会话没有 worktree": SESSION_GONE,
+};
+
 export function storyPlan(t: Task, env: StoryEnv & { enabled: boolean; now?: number }): AutostartPlan | undefined {
   if (!env.enabled) return undefined;
-  const r = testingStoryBug(t, env);
+  const root = env.root(t);
+  const r = testingStoryBug(t, { ...env, root: () => root });
   const at = new Date(env.now ?? Date.now()).toISOString();
   if (typeof r !== "string") return { kind: "story", at, root: { id: r.root.id, title: r.root.title } };
-  if (r !== "等前一条修完") return undefined;
-  const root = env.root(t)!;
-  return { kind: "story", at, root: { id: root.id, title: root.title }, waiting: r };
+  const waiting = STORY_WAITING[r];
+  return waiting && root ? { kind: "story", at, root: { id: root.id, title: root.title }, waiting } : undefined;
 }
 
 export function pickStoryBugs(tasks: Task[], env: StoryEnv = defaultStoryEnv): Array<{ task: Task; root: Task }> {

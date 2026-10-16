@@ -489,6 +489,11 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 还在跑，等它退出`);
     return "busy";
   }
+  // 敲字带回车，会替你选中弹窗里高亮的那个选项
+  if (alive && root.attention === "question") {
+    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求终端在等你回答，不往里敲`);
+    return "busy";
+  }
   let run: { id: string; jobId: string };
   if (alive) {
     if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");

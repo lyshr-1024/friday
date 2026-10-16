@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -212,6 +212,14 @@ describe("testingStoryBug", () => {
     expect(storyPlan(fresh, { ...senv(story(), sess(), true), enabled: true })).toMatchObject({ kind: "story", waiting: "等前一条修完" });
     expect(storyPlan(fresh, { ...senv(story({ stage: "dev" }), sess()), enabled: true })).toBeUndefined();
     expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: false })).toBeUndefined();
+  });
+  it("storyPlan：需求在测试中但会话不在 / 已关 / 没 worktree，也给 story 并写原因；需求只找一次", () => {
+    for (const s of [undefined, sess({ status: "closed" }), sess({ worktree: undefined })]) {
+      const root = vi.fn(() => story());
+      expect(storyPlan(fresh, { root, session: () => s, occupied: () => false, enabled: true })).toMatchObject({ kind: "story", root: { id: "root-1" }, waiting: "需求会话不在，先给需求开终端" });
+      expect(root).toHaveBeenCalledTimes(1);
+    }
+    expect(storyPlan(fresh, { ...senv(undefined), enabled: true })).toBeUndefined();
   });
   it("runningAutonomous 不数 handed 的缺陷", () => {
     const before = runningAutonomous();

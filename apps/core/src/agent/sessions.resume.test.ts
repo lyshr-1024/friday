@@ -245,6 +245,17 @@ describe("测试阶段缺陷交代进需求会话", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
+  it("需求终端在问你（attention question）：busy，不往弹窗里敲回车", async () => {
+    const { root, bug: mk } = await testingStory("sbasking");
+    const bug = mk();
+    const asking = updateTask(root.id, { attention: "question" })!;
+    calls = [];
+    expect(await handToStorySession(bug, asking)).toBe("busy");
+    expect(calls.some((c) => c[4] === "send-keys")).toBe(false);
+    expect(getTask(bug.id)!.status).toBe("understood");
+    updateTask(bug.id, { status: "ignored" });
+  });
+
   it("会话 closed：no-session，记 story_session_gone，缺陷卡不动", async () => {
     const { root, bug: mk } = await testingStory("sbgone");
     const bug = mk();
