@@ -287,6 +287,21 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(typed()).toEqual([]);
   });
 
+  it("打回重交时 tmux 出错：缺陷卡标 blocked 写明错误，不占着需求的串行名额", async () => {
+    const { root, bug: mk } = await testingStory("sbrejthrow");
+    const bug = mk();
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    updateTermSession(root.id, { status: "exited" });
+    setTmuxRunner(async (args) => {
+      if (args[4] === "send-keys") throw new Error("tmux 炸了");
+      if (args[4] === "list-windows") return "0|claude|1\n";
+      return "";
+    });
+    rejectTask(bug.id, "没修好");
+    await vi.waitFor(() => expect(getTask(bug.id)!.status).toBe("blocked"));
+    expect(getTask(bug.id)!.progress).toBe("打回了，但重交时出错：tmux 炸了");
+  });
+
   it("交给 Friday 改：需求在测试中就交代进需求会话，不另开 worktree", async () => {
     const dir = repo("sbretry");
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## sbretry\n- 目录：${dir}\n`);

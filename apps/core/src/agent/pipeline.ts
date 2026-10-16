@@ -313,7 +313,11 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
         if (h === "handed") return;
         updateTask(t.id, { status: "blocked", progress: h === "busy" ? "打回了，但需求会话里的 Claude 还在跑，没能重交，点「重新开工」再试" : "打回了，但需求会话已不在，没能重交，先给需求开终端" });
       })
-      .catch((e) => console.warn(`[story-bug] 打回后重交失败：${e instanceof Error ? e.message : String(e)}`));
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn(`[story-bug] 打回后重交失败：${message}`);
+        updateTask(t.id, { status: "blocked", progress: `打回了，但重交时出错：${message}` });
+      });
   }
   return updated;
 }
