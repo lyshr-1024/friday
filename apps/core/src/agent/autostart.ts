@@ -1,4 +1,4 @@
-import { STAGE_LABEL, type Task } from "@friday/shared";
+import { STAGE_LABEL, type AutostartPlan, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
@@ -53,11 +53,11 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
  * 卡片上那句「Friday 会自己开工 · HH:mm」：开关开着、除了「等描述稳定」和并发都满足才有。
  * at 是稳定期结束的时刻（已过就是现在），behind 是前面还在跑的自主任务数。
  */
-export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }): { at: string; behind: number } | undefined {
+export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }): AutostartPlan | undefined {
   if (!env.enabled) return undefined;
   if (eligible(t, { ...env, now: Number.MAX_SAFE_INTEGER })) return undefined;
   const at = Math.max(env.now, Date.parse(t.createdAt) + AUTOSTART_SETTLE_MS);
-  return { at: new Date(at).toISOString(), behind: env.running };
+  return { kind: "gate", at: new Date(at).toISOString(), behind: env.running };
 }
 
 /** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发约束。 */

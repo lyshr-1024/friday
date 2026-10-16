@@ -117,10 +117,10 @@ describe("autostartPlan：卡片上「Friday 会自己开工 · HH:mm」", () =>
   const plan = { ...env, enabled: true };
   it("刚进来的：预计在稳定期结束时开", () => {
     const created = new Date(NOW - 60_000).toISOString();
-    expect(autostartPlan(defect({ createdAt: created }), plan)).toEqual({ at: new Date(Date.parse(created) + AUTOSTART_SETTLE_MS).toISOString(), behind: 0 });
+    expect(autostartPlan(defect({ createdAt: created }), plan)).toEqual({ kind: "gate", at: new Date(Date.parse(created) + AUTOSTART_SETTLE_MS).toISOString(), behind: 0 });
   });
   it("已过稳定期：现在就开，前面有一条在跑就写出来", () => {
-    expect(autostartPlan(defect(), { ...plan, running: 1 })).toEqual({ at: new Date(NOW).toISOString(), behind: 1 });
+    expect(autostartPlan(defect(), { ...plan, running: 1 })).toEqual({ kind: "gate", at: new Date(NOW).toISOString(), behind: 1 });
   });
   it("开关关着、或门禁不过的没有预告", () => {
     expect(autostartPlan(defect(), { ...plan, enabled: false })).toBeUndefined();

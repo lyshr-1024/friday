@@ -129,6 +129,11 @@ export function lessonsSince(since: string): RunRecord[] {
     .all(since) as unknown as Row[]).map(toRun);
 }
 
+export function openRunForTask(taskId: string): RunRecord | undefined {
+  const r = db().prepare("SELECT * FROM runs WHERE task_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1").get(taskId) as unknown as Row | undefined;
+  return r ? toRun(r) : undefined;
+}
+
 export function runsForTask(taskId: string): RunRecord[] {
   return (db().prepare("SELECT * FROM runs WHERE task_id = ? ORDER BY started_at").all(taskId) as unknown as Row[]).map(toRun);
 }

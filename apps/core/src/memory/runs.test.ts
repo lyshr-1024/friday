@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createRun, finishRun, pendingRunsForTask, runByJob, runsForTask, runsSummary, setRunOutcome } from "./runs.js";
+import { createRun, finishRun, openRunForTask, pendingRunsForTask, runByJob, runsForTask, runsSummary, setRunOutcome } from "./runs.js";
+import { closeRunForTask } from "../agent/runLog.js";
 
 describe("runs 账本", () => {
   it("开工 → 退出 → 结局，一行走完", () => {
@@ -43,5 +44,15 @@ describe("runs 账本", () => {
     createRun({ id: "j3", jobId: "j3", taskId: "t3", project: "lonely", kind: "autonomous", trigger: "retry" });
     const p = runsSummary("30d").byProject.find((x) => x.project === "lonely")!;
     expect(p).toMatchObject({ runs: 1, pending: 1, costUsd: 0, medianMinutes: 0 });
+  });
+
+  it("openRunForTask 取没结束的最新一行；closeRunForTask 只收它", () => {
+    createRun({ id: "r1", jobId: "j#a", taskId: "t1x", project: "p", kind: "story_bug", trigger: "autostart" });
+    finishRun("r1", { exit: "report" });
+    createRun({ id: "r2", jobId: "j#b", taskId: "t1x", project: "p", kind: "story_bug", trigger: "autostart" });
+    expect(openRunForTask("t1x")?.id).toBe("r2");
+    closeRunForTask("t1x", "blocked");
+    expect(openRunForTask("t1x")).toBeUndefined();
+    expect(runsForTask("t1x").find((r) => r.id === "r2")?.exit).toBe("blocked");
   });
 });

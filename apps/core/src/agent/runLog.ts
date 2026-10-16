@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RunExit } from "@friday/shared";
 import { getJob } from "../memory/jobs.js";
-import { createRun, finishRun, roundCostSoFar, runByJob, setRunCost } from "../memory/runs.js";
+import { createRun, finishRun, openRunForTask, roundCostSoFar, runByJob, setRunCost } from "../memory/runs.js";
 import { currentBranchSync, diffStatSync, headShaSync } from "./git.js";
 import { sessionCost } from "./transcript.js";
 
@@ -13,6 +13,12 @@ function snapshot(dir: string, sessionId: string | undefined) {
     ...(diffStatSync(dir) ?? {}),
     ...(cost ? { costUsd: cost.costUsd, model: cost.model } : {}),
   };
+}
+
+export function closeRunForTask(taskId: string, exit: RunExit, dir?: string, claudeSessionId?: string): void {
+  const run = openRunForTask(taskId);
+  if (!run) return;
+  finishRun(run.id, { exit, ...(dir ? snapshot(dir, claudeSessionId) : {}) });
 }
 
 /** 自主任务 / 后台查询收尾：一个 job 只收一次，先到的那个口径算数（friday_done 之后的进程退出不覆盖）。 */

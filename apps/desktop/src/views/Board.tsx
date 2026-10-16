@@ -305,7 +305,7 @@ function dueBits(t: Task): string[] {
 function anchorLine(t: Task, kids = 0): string {
   const s = t.session;
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
-  if (t.autostart) return ["Friday 会自己开工", hhmm(t.autostart.at), t.autostart.behind ? `前面 ${t.autostart.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  if (t.autostart) return ["Friday 会自己开工", hhmm(t.autostart.at), t.autostart.kind === "gate" && t.autostart.behind ? `前面 ${t.autostart.behind} 条在跑` : ""].filter(Boolean).join(" · ");
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
@@ -1203,7 +1203,7 @@ function FridayTop({ t }: { t: Task }) {
           <div className="ftop__row"><span className="ac__k">什么时候开</span>
             <span className="ac__text">
               {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
-              {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+              {a.kind === "gate" && a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
             </span>
           </div>
           {v && (
