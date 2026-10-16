@@ -74,7 +74,9 @@ function dueLabel(iso: string): string {
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
-const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+const canStart = (t: Task) => !isClosed(t) && !t.source.handedAt && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+/** 交代进需求会话的缺陷：只能再交代一次，不能自己开工（会另开会话、卡住需求的串行名额） */
+const canRehand = (t: Task) => Boolean(t.source.handedAt) && (t.status === "review" || t.status === "blocked");
 /** 还没开工、也不归 Friday 自己做：主区是空态，统筹信息在「详情」弹窗里。周报和手册卡有自己的编辑面，照旧 */
 const notStarted = (t: Task) => (t.status === "collected" || t.status === "understood") && !t.session?.name;
 /** Friday 自主干过活的：改项目要整体回退，不走「关终端、改动留着」那套 */
@@ -312,6 +314,7 @@ function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
     const root = all.find((x) => x.id === t.source.rootId);
     return root ? `在需求「${root.title.slice(0, 16)}」的会话里修` : "在需求的会话里改";
   }
+  if (t.source.handedAt && t.status === "review" && t.report) return ["交付了", "等你核验", t.report.verify.length ? `${t.report.verify.length} 个验收点` : ""].filter(Boolean).join(" · ");
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
@@ -558,7 +561,8 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const close = () => setDialogFor(null);
     const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
     return [
-      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }, { label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
+      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }] : []),
+      ...(canStart(t) || canRehand(t) ? [{ label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
       ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
       ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
       ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : [{ label: "重新打开", run: run(() => taskReopen(t.id)) }]),
@@ -904,7 +908,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
       {canStart(t) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
-      {canStart(t) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
+      {(canStart(t) || canRehand(t)) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
       {canResume(t) && <button role="menuitem" onClick={() => run(() => jobReopen(t.source.jobId!))}>接着聊</button>}
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
@@ -1184,6 +1188,7 @@ function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
+  if (t.source.handedAt) return "标记完成 / 打回：原因";
   return "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行";
 }
 

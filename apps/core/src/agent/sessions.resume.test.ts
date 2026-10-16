@@ -12,7 +12,7 @@ import { setTmuxRunner } from "./tmux.js";
 import { setClaudeFinder } from "./runner.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
 import { handToStorySession, rejectTask, startAutonomousJob } from "./pipeline.js";
-import { handToFriday } from "./taskStart.js";
+import { handToFriday, startTask } from "./taskStart.js";
 import { AUTOSTART_SETTLE_MS, autostartTick, testingStoryBug } from "./autostart.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
@@ -318,6 +318,23 @@ describe("测试阶段缺陷交代进需求会话", () => {
     updateTermSession(root.id, { status: "closed" });
     const bug2 = mk(2);
     expect(await handToFriday(getTask(bug2.id)!)).toMatchObject({ status: 409, error: "需求会话已不在，先给需求开终端" });
+  });
+
+  it("交代过的缺陷：开始做一律 409；还在处理中时再交给 Friday 改也 409", async () => {
+    const dir = repo("sbguard");
+    writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## sbguard\n- 目录：${dir}\n`);
+    const { root, bug: mk } = await testingStory("sbguard");
+    const bug = mk();
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    calls = [];
+    launched = [];
+    expect(await handToFriday(getTask(bug.id)!)).toMatchObject({ status: 409, error: "这条已经交代进需求会话了" });
+    expect(await startTask(getTask(bug.id)!)).toMatchObject({ status: 409, error: "这条缺陷在需求会话里由 Friday 修，要接手就在需求终端里说" });
+    updateTask(bug.id, { status: "review" });
+    expect(await startTask(getTask(bug.id)!)).toMatchObject({ status: 409 });
+    expect(typed()).toEqual([]);
+    expect(launched).toEqual([]);
+    updateTask(bug.id, { status: "ignored" });
   });
 
   it("autostartTick：需求在测试中就接，不看 intake；同一需求第二条等前一条", async () => {

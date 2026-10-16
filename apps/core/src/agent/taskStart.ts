@@ -11,6 +11,7 @@ export type StartResult = { task: Task } | { error: string; status: 400 | 409 };
 
 /** 「开始做」：在这条任务的会话里开交互式终端，你自己驱动。任务卡菜单和会话里的 task_start 共用 */
 export async function startTask(t: Task): Promise<StartResult> {
+  if (t.source.handedAt) return { error: "这条缺陷在需求会话里由 Friday 修，要接手就在需求终端里说", status: 409 };
   const project = t.project ?? (t.source.rootId ? getTask(t.source.rootId)?.project : undefined);
   if (!project) return { error: "任务没有关联项目，先选个项目", status: 400 };
   const r = resolveProject(project);
@@ -35,6 +36,7 @@ export async function startTask(t: Task): Promise<StartResult> {
 
 /** 「交给 Friday 改」：自主 claude -p 改完交审。重新开工也走这里 */
 export async function handToFriday(t: Task): Promise<StartResult> {
+  if (t.source.handedAt && t.status === "processing") return { error: "这条已经交代进需求会话了", status: 409 };
   if (!t.project) return { error: "任务没有关联项目，先选个项目", status: 400 };
   const r = resolveProject(t.project);
   if (r.kind !== "match") return { error: `找不到项目 ${t.project}`, status: 400 };
