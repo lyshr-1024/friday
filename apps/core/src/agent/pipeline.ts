@@ -11,8 +11,10 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
-import { autonomousPrompt, jobLog } from "./runner.js";
-import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession } from "./sessions.js";
+import { autonomousPrompt, jobLog, storyBugPrompt } from "./runner.js";
+import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession, sayToSession } from "./sessions.js";
+import { hasSession } from "./tmux.js";
+import { state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
@@ -302,7 +304,10 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
   if (!t) return undefined;
   record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
-  return updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
+  const updated = updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
+  const root = t.source.handedAt && t.source.rootId ? getTask(t.source.rootId) : undefined;
+  if (updated && root) void handToStorySession(updated, root, { rejected: reason ?? "无说明" }).catch((e) => console.warn(`[story-bug] 打回后重交失败：${e instanceof Error ? e.message : String(e)}`));
+  return updated;
 }
 
 /** 审核通过一条待审动作：按钮和会话里的「合并吧 / 发」走同一条路。text 是改过的要发原文 */
@@ -445,6 +450,47 @@ export async function executePending(
   return done;
 }
 
+/** 需求在测试中：缺陷交代进需求自己的会话，Claude 活着就敲进去，退出了就在同一个 worktree 里 -p --resume 接回后台跑 */
 export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string } = {}): Promise<"handed" | "busy" | "no-session"> {
-  return "no-session";
+  const gone = (why: string) => {
+    record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
+    return "no-session" as const;
+  };
+  const s = getTermSession(root.id);
+  if (!s || s.status === "closed" || !s.worktree || !(await hasSession(s.tmuxName))) return gone(`需求「${root.title.slice(0, 24)}」的会话已不在`);
+  const project = s.project;
+  const prompt = storyBugPrompt(task, root, project, opts.rejected);
+  const alive = s.status === "running" && !(await claudeGone(s));
+  if (alive && s.kind !== "interactive") {
+    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 还在跑，等它退出`);
+    return "busy";
+  }
+  let run: { id: string; jobId: string };
+  if (alive) {
+    if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
+    run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
+  } else {
+    const id = randomUUID();
+    const job = s.jobId ? getJob(s.jobId) : undefined;
+    const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, allowMerge: true, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}) }, task.id);
+    if (!ok) return gone("需求会话里起不了新的运行");
+    run = { id, jobId: id };
+  }
+  updateTask(task.id, {
+    status: "processing",
+    attention: undefined,
+    progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
+    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), ...(alive ? {} : { jobId: run.id }) },
+  });
+  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger: "autostart" });
+  record({
+    taskId: task.id,
+    action: "autostart",
+    why: `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修`,
+    how: "交代进需求的会话（敲进去 / 接回后台跑）",
+    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "headless" },
+    risk: "reversible",
+  });
+  state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
+  return "handed";
 }

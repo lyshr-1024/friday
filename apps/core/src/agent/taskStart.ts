@@ -3,7 +3,8 @@ import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { getTask } from "../memory/tasks.js";
-import { startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { handToStorySession, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
 
 export type StartResult = { task: Task } | { error: string; status: 400 | 409 };
@@ -39,6 +40,11 @@ export async function handToFriday(t: Task): Promise<StartResult> {
   if (r.kind !== "match") return { error: `找不到项目 ${t.project}`, status: 400 };
   const running = t.source.jobId ? getJob(t.source.jobId) : undefined;
   if (running?.status === "running") return { error: "这条任务已经在跑了，先关掉那个终端再重新开工", status: 409 };
+  const root = resolveRoot(t);
+  if (root.id !== t.id && root.stage === "testing") {
+    const h = await handToStorySession(t, root);
+    return h === "handed" ? { task: getTask(t.id)! } : { error: h === "busy" ? "需求会话里的 Claude 还在跑，等它退出" : "需求会话已不在，先给需求开终端", status: 409 };
+  }
   // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，拿它当任务描述等于什么都没说；
   // intake 判过就用它写的描述，其次方案第一行，最后才是标题
   const detail = t.source.intake?.detail ?? t.plan?.split("\n").find((l) => l.trim()) ?? t.title;
