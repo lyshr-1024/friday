@@ -268,7 +268,7 @@ export async function transitionToInProgress(t: Task, connector = new MeegleConn
     return { moved: true, label: to.label };
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    record({ taskId: t.id, action: "meegle_transition", why: "Friday 在需求分支上修完并发到测试环境", how: "workflow transition-state → IN PROGRESS", evidence: { meegleId: t.source.meegleId, error: why }, risk: "reversible", status: "failed" });
+    record({ taskId: t.id, action: "meegle_transition", why: "Friday 在需求分支上修完并发到测试环境", how: "workflow transition-state → IN PROGRESS", evidence: { meegleId: t.source.meegleId, error: why }, risk: "read", status: "failed" });
     return { moved: false, why };
   }
 }

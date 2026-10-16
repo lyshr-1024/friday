@@ -164,9 +164,13 @@ export async function autostartTick(now = Date.now()): Promise<number> {
   const env: AutostartEnv = { now, running: runningAutonomous(), minConfidence: userSettings().autonomousMinConfidence };
   let started = 0;
   for (const { task, root } of pickStoryBugs(listTasks("understood"))) {
-    const r = await handToStorySession(task, root);
-    if (r === "handed") started++;
-    else console.log(`[autostart] ${task.title.slice(0, 40)}：需求会话${r === "busy" ? "在忙" : "不可用"}，本轮不转交`);
+    try {
+      const r = await handToStorySession(task, root);
+      if (r === "handed") started++;
+      else console.log(`[autostart] ${task.title.slice(0, 40)}：需求会话${r === "busy" ? "在忙" : "不可用"}，本轮不转交`);
+    } catch (e) {
+      console.warn(`[autostart] ${task.title.slice(0, 40)}：交代进需求会话出错：${e instanceof Error ? e.message : String(e)}`);
+    }
   }
   for (const t of pickAutostart(listTasks("understood"), env)) {
     const v = t.source.intake!;

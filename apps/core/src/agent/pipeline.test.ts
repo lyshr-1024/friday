@@ -143,6 +143,16 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
     expect(runByJob("hj4")!.endedAt).toBeTruthy();
   });
 
+  it("需求停在 review（交付过）时它的 Claude 退出：say 路的 handed 缺陷照样标 blocked", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: { jobId: "sj2" }, status: "processing", project: "app" });
+    updateTask(story.id, { status: "review", report: { summary: "做完", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
+    mkJob("sj2", story.id);
+    const bug = handed(story.id);
+    onJobExit("sj2", 0);
+    expect(getTask(story.id)!.status).toBe("review");
+    expect(getTask(bug.id)!.status).toBe("blocked");
+  });
+
   it("用户标完成：story_bug 的 run 记 merged_as_is；忽略记 abandoned", async () => {
     const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
     const a = handed(story.id);

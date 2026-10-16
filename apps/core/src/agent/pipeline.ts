@@ -160,6 +160,7 @@ const exitText = (code: number) => (code === -1 ? "会话已不在" : `退出码
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (job.task.report && job.task.status === "review") {
     fillRunCost(jobId);
     if (!job.task.report.screenshots.length) {
@@ -174,7 +175,6 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   }
   // 分支是关联的钥匙，收工时补一次实际值（终端里可能 switch 过）
   const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
-  settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
@@ -322,7 +322,7 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
     void handToStorySession(updated, root, { rejected: reason ?? "无说明", trigger: "retry" })
       .then((h) => {
         if (h === "handed") return;
-        updateTask(t.id, { status: "blocked", progress: h === "busy" ? "打回了，但需求会话里的 Claude 还在跑，没能重交，点「重新开工」再试" : "打回了，但需求会话已不在，没能重交，先给需求开终端" });
+        updateTask(t.id, { status: "blocked", progress: h === "busy" ? "打回了，但需求会话里的 Claude 还在跑，没能重交，点「交给 Friday 改」再试" : "打回了，但需求会话已不在，没能重交，先给需求开终端" });
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : String(e);
