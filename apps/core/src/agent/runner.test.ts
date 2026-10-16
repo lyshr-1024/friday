@@ -54,4 +54,11 @@ describe("storyBugPrompt", () => {
     expect(p).not.toMatch(/git merge|canary|whale deploy|bo-deploy|harua-deploy/);
     expect(storyBugPrompt(bug, root, "fe-wealth-admin")).not.toContain("上一轮被打回");
   });
+
+  it("压住通用提示词里的合并审核与 friday_finish：发测试环境的 merge 是交代的一部分，不收整条需求", () => {
+    const p = storyBugPrompt({ id: "bugabcdef0", title: "x", source: {} } as Task, { id: "r", title: "r" } as Task, "fe-wealth-admin");
+    expect(p).toContain("不受");
+    expect(p).toContain("合进主干");
+    expect(p).toContain("不要调 friday_finish");
+  });
 });

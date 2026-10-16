@@ -168,6 +168,7 @@ describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求"
     expect(await resumeInSession(story.id)).toBe(true);
     const storyScript = scriptOf(typed().at(-1)!);
     expect(storyScript).toContain("--resume '\\''sess-story'\\''");
+    expect(storyScript).not.toContain("--fork-session");
     expect(settingsOf(storyScript).hooks.PreToolUse!.some((h) => h.matcher === "Bash")).toBe(false);
     expect(getJob(storyJob)!.status).toBe("running");
 
@@ -222,7 +223,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(launched).toEqual([]);
     const script = scriptOf(typed().at(-1)!);
     expect(script).toMatch(/-p --model ['\\].*opus/);
-    expect(script).toContain("--resume '\\''sess-root'\\''");
+    expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
     const guard = readFileSync(guardPathOf(script), "utf8");
     expect(guard).not.toContain("合并由 Friday");
     expect(guard).toContain("变基会改写历史");

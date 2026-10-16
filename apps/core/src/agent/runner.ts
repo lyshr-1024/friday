@@ -66,7 +66,8 @@ export function storyBugPrompt(task: Task, root: Task, project: string, rejected
     "1. 就在当前分支上改，不另起分支，不建 MR。",
     "2. 改完按本项目的验证规则验（项目 skill、CLAUDE.md、handbooks/ 里的口径）；改到界面的，要用真浏览器打开页面截图。",
     "3. 验完 commit，push 当前分支；再按本项目自己的发布流程发到这条需求正在联调的测试环境——你之前发过，照原来的目标发。",
-    `4. 全部做完调 friday_done，taskId 填 ${id}。`,
+    "   发测试环境时把当前分支 merge 进测试环境分支是这次交代的一部分，不受「合并由用户在 Friday 里审核」那条限制——那条说的是合进主干。",
+    `4. 全部做完只调 friday_done，taskId 填 ${id}。不要调 friday_finish：那会把整条需求收工。`,
     `5. 要用户定的事（方案、冲突、环境号不确定）调 friday_blocked，taskId 同样填 ${id}，不要猜。`,
     "6. 交付报告写明：commit sha、推到哪条分支、发到哪个环境、验证过程和结果。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
@@ -277,6 +278,7 @@ export interface SessionLaunch {
   /** 项目页的普通 shell：只开 zsh，不起 Claude */
   shell?: boolean;
   allowMerge?: boolean;
+  forkSession?: boolean;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
@@ -312,7 +314,7 @@ export function workCommand(req: SessionLaunch, claudePath: string, port: number
   const flags = claudeFlags(files, req.kind !== "interactive", req.project);
   const prompt = req.task ? ` ${shellQuote(req.task)}` : "";
   const claude = req.resumeSessionId
-    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
+    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${req.forkSession ? " --fork-session" : ""}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
     : `${shellQuote(claudePath)} ${flags}${prompt}`;
   // 不再用 script 录终端：macOS 的 script 不把窗口尺寸变化转给它开的 pty，Claude 一直按启动时的宽度画（2026-09-30 用户报：
   // 窗口放大了内容还只有那么宽，实测窗格 184×43、script 里 Claude 的 pty 85×25）。改由 tmux pipe-pane 把窗格输出追加进同一个日志
