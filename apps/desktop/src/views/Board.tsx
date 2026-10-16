@@ -302,10 +302,16 @@ function dueBits(t: Task): string[] {
 }
 
 /** 列表行的灰字：你在做的写状态位，Friday 自主的写交付，缺陷写它在哪个会话里改 */
-function anchorLine(t: Task, kids = 0): string {
+function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
   const s = t.session;
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
-  if (t.autostart) return ["Friday 会自己开工", hhmm(t.autostart.at), t.autostart.kind === "gate" && t.autostart.behind ? `前面 ${t.autostart.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  const a = t.autostart;
+  if (a?.kind === "story") return `跟着需求「${a.root.title.slice(0, 16)}」修 · ${a.waiting ?? "等它会话空闲"}`;
+  if (a) return ["Friday 会自己开工", hhmm(a.at), a.behind ? `前面 ${a.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  if (t.source.handedAt && t.status === "processing") {
+    const root = all.find((x) => x.id === t.source.rootId);
+    return root ? `在需求「${root.title.slice(0, 16)}」的会话里修` : "在需求的会话里改";
+  }
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
@@ -741,7 +747,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
                               </span>
                             ) : (
                               <span className="an__sub">
-                                {anchorLine(t, kids)}
+                                {anchorLine(t, kids, board?.tasks)}
                                 {!child && canResume(t) && <>{" · "}<button className="an__act" onClick={(e) => { e.stopPropagation(); void act(t, () => jobReopen(t.source.jobId!)); }}>接着聊</button></>}
                               </span>
                             )}
@@ -820,7 +826,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
     convs: (t.conversations ?? []).length,
   };
   // Friday 自主的（含排队要自己开工的）：详情直接铺在面板上，交付看会话
-  const panel = autonomous || Boolean(t.autostart);
+  const panel = autonomous || Boolean(t.autostart) || Boolean(t.source.handedAt);
   const termVisible = hasTerm && (!panel || showTerm);
   // 开过工、终端已经关了（你关的或收工后清掉的）：还要能在这里接着说话、继续做
   const idle = !termVisible && !panel && !notStarted(t) && !isClosed(t);
@@ -1202,11 +1208,15 @@ function FridayTop({ t }: { t: Task }) {
         <div className="ftop__queued">
           <div className="ftop__row"><span className="ac__k">什么时候开</span>
             <span className="ac__text">
-              {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
-              {a.kind === "gate" && a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+              {a.kind === "story"
+                ? `需求在测试中，Friday 直接在它的分支上修，不走把握分${a.waiting ? `。${a.waiting}` : ""}`
+                : <>
+                    {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
+                    {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+                  </>}
             </span>
           </div>
-          {v && (
+          {v && a.kind === "gate" && (
             <div className="qc__rows">
               <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} />{v.confidence !== undefined && <span className="qc__dim">把握 {v.confidence}</span>}</span></div>
               {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span></div>}

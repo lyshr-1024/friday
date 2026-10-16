@@ -20,6 +20,7 @@ export function shownState(t: Task): string {
 
 export function stateLabel(t: Task): string {
   const s = t.session;
+  if (t.autostart?.kind === "story") return "排队中 · 跟着需求修";
   if (t.autostart && (s?.state ?? "none") === "none") return `排队中 · ${hhmm(t.autostart.at)} 开工`;
   if (!s) return "";
   const label = SESSION_STATE_LABEL[s.state];
