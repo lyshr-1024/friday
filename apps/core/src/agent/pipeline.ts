@@ -19,6 +19,7 @@ import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
+import { settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
@@ -49,6 +50,7 @@ const execFileP = promisify(execFile);
  * 所以去本地主干里找交付时的那个提交。找不到不等于没合（squash、还没 pull），记成「没确认」而不是「白干」。
  */
 function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: string): void {
+  if (t.source.handedAt) return void setRunOutcome(r.id, status === "ignored" ? "abandoned" : "merged_as_is", "在需求分支上交付，由测试环境验收");
   if (status === "ignored") return void setRunOutcome(r.id, "abandoned", why);
   const repo = t.source.repoDir || getJob(r.jobId)?.dir;
   if (!r.tipSha || !repo || !isMergedSync(repo, r.tipSha)) return void setRunOutcome(r.id, "closed_unverified", why);
@@ -59,7 +61,7 @@ function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: strin
 
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
-  if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous") settleRun(r, t, status, why);
+  if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
 }
@@ -172,9 +174,17 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   }
   // 分支是关联的钥匙，收工时补一次实际值（终端里可能 switch 过）
   const exitBranch = currentBranchSync(job.task.source.worktree ?? job.dir) || undefined;
+  settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
+  }
+  if (job.task.source.handedAt) {
+    closeRun(jobId, exitCode === -1 ? "window_closed" : "no_report");
+    fillRunCost(jobId);
+    const t = updateTask(job.task.id, { status: "blocked", progress: "需求会话退出了，这条没交付" })!;
+    state.notices.push({ title: "缺陷没交付", body: t.title, taskId: t.id });
+    return t;
   }
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");

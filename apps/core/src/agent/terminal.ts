@@ -10,6 +10,7 @@ import { claudeGone, liveRootId, sayToSession } from "./sessions.js";
 import { detachSession } from "./attach.js";
 import { sessionState } from "./sessionState.js";
 import { publish } from "../bus.js";
+import { settleHandedBugs } from "./handedBugs.js";
 
 const FRESH_SESSION_MS = 30_000;
 
@@ -62,6 +63,7 @@ export async function closeJobTerminal(jobId: string, why: string, taskId?: stri
     await killSession(s.tmuxName);
     updateTermSession(s.id, { status: "closed" });
     detachSession(s.id);
+    settleHandedBugs(s.id, "需求会话关了，这条没交付");
   }
   if (job?.status === "running") finishJob(jobId, 0);
   if (killed || job?.status === "running") {
@@ -107,6 +109,7 @@ export async function closeSessionTerminal(sessionId: string, why: string): Prom
   await killSession(s.tmuxName);
   updateTermSession(s.id, { status: "closed" });
   detachSession(s.id);
+  settleHandedBugs(s.id, "需求会话关了，这条没交付");
   record({ taskId: s.id, action: "terminal_closed", why, how: "关掉 tmux 会话", evidence: { session: s.tmuxName }, risk: "reversible" });
   return true;
 }
