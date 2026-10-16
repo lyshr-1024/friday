@@ -8,10 +8,10 @@ import { createTask, getTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { updateSettings } from "../settings.js";
 import { setTmuxRunner } from "./tmux.js";
-import { AUTOSTART_CONFIDENCE, type Task } from "@friday/shared";
+import { AUTOSTART_CONFIDENCE, type Task, type TermSession } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, runningAutonomous, type AutostartEnv } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
 import { createJob } from "../memory/jobs.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
@@ -185,3 +185,38 @@ describe("runningAutonomous", () => {
   });
 });
 
+
+const story = (over: Partial<Task> = {}): Task => ({ id: "root-1", title: "养牛1.2", kind: "meegle", status: "processing", stage: "testing", priority: "normal", createdAt: settled, updatedAt: settled, source: { meegleType: "story", meegleId: "24642659" }, ...over }) as Task;
+const sess = (over: Partial<TermSession> = {}): TermSession => ({ id: "root-1", project: "x", repoDir: "/r", tmuxName: "x", kind: "interactive", status: "running", worktree: "/r-wt", createdAt: settled, updatedAt: settled, ...over }) as TermSession;
+const senv = (root?: Task, s?: TermSession, occupied = false): StoryEnv => ({ root: () => root, session: () => s, occupied: () => occupied });
+const fresh = defect({ createdAt: new Date(NOW).toISOString() }, { intake: { kind: "queue", why: "模糊", at: settled }, linkedStoryId: "24642659" });
+
+describe("testingStoryBug", () => {
+  it("需求在测试中、会话在：不看 intake、不等稳定期", () => expect(testingStoryBug(fresh, senv(story(), sess()))).toEqual({ root: story() }));
+  it("需求不在测试中 / 没会话 / 会话关了 / 没 worktree / 前一条没修完，各给原因", () => {
+    expect(testingStoryBug(fresh, senv(story({ stage: "dev" }), sess()))).toBe("需求「养牛1.2」不在测试中");
+    expect(testingStoryBug(fresh, senv(story(), undefined))).toBe("需求没有会话，Friday 不知道分支在哪");
+    expect(testingStoryBug(fresh, senv(story(), sess({ status: "closed" })))).toBe("需求会话已关");
+    expect(testingStoryBug(fresh, senv(story(), sess({ worktree: undefined })))).toBe("需求会话没有 worktree");
+    expect(testingStoryBug(fresh, senv(story(), sess(), true))).toBe("等前一条修完");
+  });
+  it("不挂在需求下的缺陷不走这条路", () => expect(testingStoryBug(defect(), senv(undefined))).toBe("不挂在需求下"));
+  it("旧门禁对需求在测试中的缺陷让路", () => expect(eligible(defect(), { ...env, root: () => story() })).toBe("需求在测试中，走需求会话那条路"));
+  it("pickStoryBugs 每个需求只挑一条，高优先级先", () => {
+    const a = defect({ id: "a", priority: "low" }, { linkedStoryId: "24642659" });
+    const b = defect({ id: "b", priority: "high" }, { linkedStoryId: "24642659" });
+    expect(pickStoryBugs([a, b], senv(story(), sess())).map((x) => x.task.id)).toEqual(["b"]);
+  });
+  it("storyPlan：通过给 kind story；等前一条给 waiting；旧路不受影响", () => {
+    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: true })).toMatchObject({ kind: "story", root: { id: "root-1", title: "养牛1.2" } });
+    expect(storyPlan(fresh, { ...senv(story(), sess(), true), enabled: true })).toMatchObject({ kind: "story", waiting: "等前一条修完" });
+    expect(storyPlan(fresh, { ...senv(story({ stage: "dev" }), sess()), enabled: true })).toBeUndefined();
+    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: false })).toBeUndefined();
+  });
+  it("runningAutonomous 不数 handed 的缺陷", () => {
+    const before = runningAutonomous();
+    createJob({ id: "ra-handed", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    createTask({ title: "转交的缺陷", kind: "meegle", status: "processing", source: { jobId: "ra-handed", autonomous: true, handedAt: new Date().toISOString() } });
+    expect(runningAutonomous()).toBe(before);
+  });
+});

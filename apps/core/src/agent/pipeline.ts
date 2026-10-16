@@ -444,3 +444,7 @@ export async function executePending(
   await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
 }
+
+export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string } = {}): Promise<"handed" | "busy" | "no-session"> {
+  return "no-session";
+}
