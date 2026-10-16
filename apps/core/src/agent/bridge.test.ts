@@ -301,6 +301,16 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(listAudit({ taskId: bs[0]!.id }).some((e) => e.action === "meegle_transition" && e.status === "failed")).toBe(true);
   });
 
+  it("job 是替另一条缺陷 X 跑的：不带 taskId 的 friday_done 归 X，不动 handed 缺陷 Y", async () => {
+    const { root, bs } = setup("g");
+    const x = createTask({ title: "缺陷 X", kind: "meegle", source: { rootId: root.id, autonomous: true, jobId: "job-x-g" }, project: "demo", status: "processing" });
+    createJob({ id: "job-x-g", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: x.id, sessionId: root.id });
+    await call("job-x-g", "friday_done", { summary: "好了", testResult: "过" });
+    expect(getTask(x.id)!.status).toBe("review");
+    expect(getTask(bs[0]!.id)!.status).toBe("processing");
+    expect(meegle.calls).toEqual([]);
+  });
+
   it("friday_blocked 带 taskId：缺陷 blocked，Meegle 没被调", async () => {
     const { root, bs, job } = setup("f");
     await call(job, "friday_blocked", { taskId: bs[0]!.id.slice(0, 8), reason: "缺权限" });

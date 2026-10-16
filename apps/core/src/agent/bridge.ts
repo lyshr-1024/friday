@@ -106,6 +106,7 @@ function targetTask(job: Job, args: Record<string, unknown>): Task {
     const hit = listTasks(undefined, 1000).filter((t) => t.source.rootId === job.sessionId && t.id.startsWith(id));
     if (hit.length === 1) return hit[0]!;
   }
+  if (job.taskId && job.taskId !== job.sessionId) return taskFor(job);
   const handed = listTasks("processing").filter((t) => t.source.rootId === job.sessionId && t.source.handedAt);
   return handed.length === 1 ? handed[0]! : taskFor(job);
 }
