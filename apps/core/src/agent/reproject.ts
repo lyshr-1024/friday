@@ -7,7 +7,7 @@ import { resolveProject } from "../memory/projects.js";
 import { runByJob, setRunOutcome } from "../memory/runs.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { addPending, getTask, listTasks, removePending, updateTask } from "../memory/tasks.js";
-import { isMergedSync } from "./git.js";
+import { commitsAheadSync, isMergedSync } from "./git.js";
 import { liveRootId } from "./sessions.js";
 import { closeJobTerminal } from "./terminal.js";
 
@@ -144,6 +144,99 @@ export function requestProjectChange(taskId: string, to: string | null): Project
   return { kind: "pending", task };
 }
 
+/** 关会话、删 worktree 和分支。路径得是这个仓库登记过的 worktree、不是主仓本身，否则什么都不动 */
+async function discardFootprint(f: Footprint, why: string, taskId: string): Promise<{ removed: boolean; branchDeleted: boolean }> {
+  if (f.worktree && f.repoDir && existsSync(f.worktree)) {
+    const listed = (git(f.repoDir, ["worktree", "list", "--porcelain"]) ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => real(l.slice(9)));
+    if (real(f.worktree) === real(f.repoDir) || !listed.includes(real(f.worktree))) throw new Error(`${f.worktree} 不是这个仓库的 worktree，不删`);
+  }
+
+  await closeJobTerminal(f.jobId, why, taskId);
+
+  let removed = false;
+  let branchDeleted = false;
+  if (f.worktree && f.repoDir && existsSync(f.worktree)) {
+    removed = git(f.repoDir, ["worktree", "remove", "--force", f.worktree]) !== undefined;
+    git(f.repoDir, ["worktree", "prune"]);
+    if (!removed) throw new Error(`worktree ${f.worktree} 删不掉`);
+  }
+  if (f.branch && f.repoDir && !["main", "master"].includes(f.branch)) {
+    branchDeleted = git(f.repoDir, ["branch", "-D", f.branch]) !== undefined;
+  }
+  return { removed, branchDeleted };
+}
+
+/**
+ * 缺陷自己的 worktree 里还有没进主干的改动（领先主干的提交、没提交的文件）。
+ * 在需求会话里改的不算：改动跟需求混在同一条分支上，拆不出来。交代进需求会话的缺陷 source.worktree 记的是
+ * 需求的 worktree，需求收工后 liveRootId 就认不出了，所以只认缺陷自己那个 tmux 会话登记的 worktree。
+ */
+function defectChanges(t: Task): (Footprint & { ahead: number; pushed: boolean }) | undefined {
+  if (!t.source.jobId || liveRootId(t) || t.source.handedAt) return undefined;
+  const own = getTermSession(t.id)?.worktree;
+  const f = footprint(t);
+  if (!own || !f.worktree || real(own) !== real(f.worktree)) return undefined;
+  if (!f.repoDir || !existsSync(f.worktree) || real(f.worktree) === real(f.repoDir)) return undefined;
+  const ahead = isMergedSync(f.worktree, "HEAD") ? 0 : (commitsAheadSync(f.worktree) ?? 0);
+  if (!ahead && !f.dirty) return undefined;
+  const pushed = Boolean(f.branch && git(f.repoDir, ["rev-parse", "--verify", "-q", `refs/remotes/origin/${f.branch}`]));
+  return { ...f, ahead, pushed };
+}
+
+/**
+ * Meegle 里缺陷关了：可能是你在别处改好了、需求变了，也可能是修完测试验收关的单——Friday 分不出来，
+ * 所以手上还有改动的挂一条「撤掉改动」等你定，不自动删。返回 false = 没东西要撤，照常收工。
+ */
+export function holdClosedDefect(t: Task, status: string): boolean {
+  const f = defectChanges(t);
+  if (!f) return false;
+  const running = getJob(f.jobId)?.status === "running";
+  const detail = [
+    `Meegle 里这条缺陷已经是 ${status}，Friday 这边还留着：`,
+    `- 分支 ${f.branch ?? "（读不到）"}${f.ahead ? `，比主干多 ${f.ahead} 个提交` : ""}`,
+    `- worktree ${f.worktree}${f.dirty ? `，${f.dirty} 个没提交的文件` : ""}`,
+    `说「撤掉」：${running ? "停掉正在跑的 Claude、" : ""}关掉会话，删掉 worktree 和分支（git branch -D），卡片收工。你的主仓不动。`,
+    "说「完成，不执行」：只收卡，改动留着，worktree 进设置页「遗留 worktree」。",
+    f.pushed ? `远端分支 origin/${f.branch} 和上面的 MR 不在撤销范围，要关得你自己去关。` : "",
+  ].filter(Boolean).join("\n");
+  updateTask(t.id, { progress: `Meegle 里已经是 ${status}，手上的改动等你定撤不撤`, source: { meegleClosed: status } });
+  addPending(t.id, { type: "discard_changes", label: "缺陷已关：撤掉改动", detail, payload: { status } });
+  record({
+    taskId: t.id,
+    action: "closed_defect_held",
+    why: `Meegle 里已经是 ${status}`,
+    how: "手上还有没进主干的改动，挂「撤掉改动」等你定",
+    evidence: { worktree: f.worktree ?? null, branch: f.branch ?? null, ahead: f.ahead, dirty: f.dirty, pushed: f.pushed },
+    risk: "read",
+  });
+  return true;
+}
+
+/** 执行「撤掉改动」：执行时重新看一遍现场，你这期间已经合进主干或自己清掉了的就只收卡 */
+export async function discardClosedDefect(taskId: string, status: string): Promise<Task> {
+  const t = getTask(taskId);
+  if (!t) throw new Error("任务不存在了");
+  const f = defectChanges(t);
+  const why = `Meegle 里已经是 ${status}，撤掉手上的改动`;
+  const res = f ? await discardFootprint(f, why, t.id) : undefined;
+  const run = f ? runByJob(f.jobId) : undefined;
+  if (run && (!run.outcome || run.outcome === "pending")) setRunOutcome(run.id, "abandoned", `Meegle 里已关（${status}），改动撤掉`);
+  record({
+    taskId: t.id,
+    action: "closed_defect_discarded",
+    why,
+    how: !f ? "现场已经没有没进主干的改动，只收卡" : [`删了 worktree ${f.worktree}`, f.branch ? (res?.branchDeleted ? `删了分支 ${f.branch}` : `分支 ${f.branch} 没删掉`) : ""].filter(Boolean).join("，"),
+    evidence: { worktree: f?.worktree ?? null, branch: f?.branch ?? null, ahead: f?.ahead ?? 0, dirty: f?.dirty ?? 0, pushed: f?.pushed ?? false },
+    risk: "irreversible",
+    status: "approved",
+  });
+  const { finishTask } = await import("./pipeline.js");
+  return (await finishTask(t.id, "done", why))!;
+}
+
 /** 执行回退：只动 Friday 这次建的东西，删完在新项目上重开 */
 export async function rollbackAndRestart(taskId: string, to: string): Promise<Task> {
   const t = getTask(taskId);
@@ -155,27 +248,7 @@ export async function rollbackAndRestart(taskId: string, to: string): Promise<Ta
   const merged = mergedWhy(f);
   if (merged) throw new Error(`${merged}，没法整体回退`);
 
-  if (f.worktree && f.repoDir && existsSync(f.worktree)) {
-    // 防呆：路径要是这个仓库登记过的 worktree，而且不是主仓本身
-    const listed = (git(f.repoDir, ["worktree", "list", "--porcelain"]) ?? "")
-      .split("\n")
-      .filter((l) => l.startsWith("worktree "))
-      .map((l) => real(l.slice(9)));
-    if (real(f.worktree) === real(f.repoDir) || !listed.includes(real(f.worktree))) throw new Error(`${f.worktree} 不是这个仓库的 worktree，不删`);
-  }
-
-  await closeJobTerminal(f.jobId, `项目从 ${f.from} 改成 ${to}，回退 Friday 在旧项目上做的`, t.id);
-
-  let removed = false;
-  let branchDeleted = false;
-  if (f.worktree && f.repoDir && existsSync(f.worktree)) {
-    removed = git(f.repoDir, ["worktree", "remove", "--force", f.worktree]) !== undefined;
-    git(f.repoDir, ["worktree", "prune"]);
-    if (!removed) throw new Error(`worktree ${f.worktree} 删不掉，先别重开`);
-  }
-  if (f.branch && f.repoDir && !["main", "master"].includes(f.branch)) {
-    branchDeleted = git(f.repoDir, ["branch", "-D", f.branch]) !== undefined;
-  }
+  const { removed, branchDeleted } = await discardFootprint(f, `项目从 ${f.from} 改成 ${to}，回退 Friday 在旧项目上做的`, t.id);
 
   const run = runByJob(f.jobId);
   if (run && (!run.outcome || run.outcome === "pending")) setRunOutcome(run.id, "rejected", `项目判错：${f.from} → ${to}`);

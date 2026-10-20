@@ -503,6 +503,8 @@ export interface TaskSource {
   projectShell?: string;
   /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
   autoClosed?: boolean;
+  /** Meegle 里这条缺陷已到终态（值是状态名），手上的改动挂着「撤掉改动」等你定；同步不再拿它收工 */
+  meegleClosed?: string;
   /** Meegle 空间 key，流转状态要用 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
@@ -748,7 +750,7 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "custom";
 
 export interface PendingAction {
   id: string;

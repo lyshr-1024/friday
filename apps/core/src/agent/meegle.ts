@@ -6,19 +6,21 @@ import { record } from "../memory/audit.js";
 import { loadProjects, matchProjectByUrl, resolveProject, type Project } from "../memory/projects.js";
 import { judgeIntake } from "./intake.js";
 import { finishTask, startAutonomousJob } from "./pipeline.js";
-import { addPending, createTask, findTaskBySource, listTasks, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { syncSourceTodos } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 import { runsForTask, setRunOutcome } from "../memory/runs.js";
-import { isFridayWork } from "./reproject.js";
+import { holdClosedDefect, isFridayWork } from "./reproject.js";
 import { clearHanded } from "./handedBugs.js";
 import { getJob } from "../memory/jobs.js";
-import { resolveRoot } from "./sessions.js";
+import { liveRootId, resolveRoot } from "./sessions.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
 const OPEN: TaskStatus[] = ["collected", "understood", "review"];
+// 收工检查还要看卡住的和在做的：准备段失败卡住的缺陷被测试关了，原来一直挂着（2026-10-20）
+const UNFINISHED: TaskStatus[] = [...OPEN, "blocked", "processing"];
 
 /** 中文两个字（风控、基金）已经够独特，拉丁字母短词太容易撞进别的词里（bo 命中 bond），仍要三个。 */
 function distinctive(name: string): boolean {
@@ -333,6 +335,12 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         // 跟着需求的项目走，但你单独给缺陷指定过的、Friday 已经在上面自主干过活的不覆盖（改那种得走回退清单）
         const patch = inherited && existing.source.projectBy !== "user" && !isFridayWork(existing) ? { ...rest, project: inherited } : rest;
         const isSelf = existing.source.meegleId === item.id;
+        if (existing.source.meegleClosed) {
+          // 关了又被 Reopen 分派回来：手上的改动还要用，「撤掉改动」收回
+          updateTask(existing.id, { status: existing.source.jobId ? "processing" : "understood", progress: `Meegle 里又是 ${item.status}，接着改`, pending: (existing.pending ?? []).filter((p) => p.type !== "discard_changes"), source: { meegleClosed: undefined } });
+          record({ taskId: existing.id, action: "meegle_reopened", why: `Meegle 里这条缺陷又是 ${item.status}`, how: "撤回「撤掉改动」，改动留着接着用", evidence: { meegleId: item.id }, risk: "read" });
+          reopened++;
+        }
         if (isSelf) {
           // source 会与旧值合并，顺带把早先同步下来、还没有类型和排期的工单补齐。
           updateTask(existing.id, { ...patch, source: input.source });
@@ -365,8 +373,10 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
     }
     const live = new Set(items.map((it) => it.id));
     let closed = 0;
-    for (const t of listTasks(OPEN, 500)) {
+    for (const t of listTasks(UNFINISHED, 500)) {
       if (t.kind !== "meegle" || !t.source.meegleId || live.has(t.source.meegleId)) continue;
+      // 已经挂着「撤掉改动」等你定，别每轮再问一次 Meegle、再挂一条
+      if (t.source.meegleClosed) continue;
       // 关了缺陷拉取就不知道它还在不在分派列表里，不能当作「不再分派给你」收掉
       if (!defects && isDefect(t.source.meegleType)) continue;
       // 需求容器本来就不在分派列表里（当前节点在别人手上），这正是它要当容器的原因——
@@ -394,8 +404,19 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       // 缺陷没有「FE 发布」节点，只等它就永远收不掉（实测 21 条 CLOSED 的缺陷一直挂着，
       // 还把名下的需求容器每 15 分钟复活一次）。已经到终态的不必再等。
       if (now && isDoneStatus(now.statusKey, now.status)) {
-        await finishTask(t.id, "done", `Meegle 里已经是 ${now.status || now.statusKey}`, { keepTerminal: true });
-        record({ taskId: t.id, action: "meegle_done", why: `Meegle 里已经是 ${now.status || now.statusKey}`, how: "工单已到终态，收工", evidence: { meegleId: t.source.meegleId, statusKey: now.statusKey }, risk: "read" });
+        const status = now.status || now.statusKey;
+        // 缺陷关了，手上的改动可能已经没用了（你在别处改好了、需求变了）：有就挂着等你定撤不撤
+        if (isDefect(t.source.meegleType) && holdClosedDefect(t, status)) {
+          state.notices.push({ title: "缺陷已关，改动要不要撤", body: t.title.slice(0, 120), taskId: t.id });
+          continue;
+        }
+        // 在需求会话里改的拆不出来，只提一句
+        const rootId = isDefect(t.source.meegleType) && (t.source.jobId || t.source.handedAt) ? (liveRootId(t) ?? (t.source.handedAt ? t.source.rootId : undefined)) : undefined;
+        const root = rootId ? getTask(rootId) : undefined;
+        const why = `Meegle 里已经是 ${status}${root ? `；它在需求「${root.title}」的会话里改过，改动跟需求混在同一条分支上，要撤得你在需求终端里自己 revert` : ""}`;
+        await finishTask(t.id, "done", why, { keepTerminal: true });
+        if (root) updateTask(t.id, { progress: why });
+        record({ taskId: t.id, action: "meegle_done", why, how: "工单已到终态，收工", evidence: { meegleId: t.source.meegleId, statusKey: now.statusKey }, risk: "read" });
         closed++;
         continue;
       }
@@ -408,7 +429,7 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { meegleId: t.source.meegleId }, risk: "read" });
       closed++;
     }
-    // 缺陷关联的需求不在任务板里时，只要我在那个需求里担角色就拉进来当容器
+    // 缺陷关联的需求不在任务板里时，拉进来当容器
     try {
       const made = await ensureStoryContainers(connector);
       if (made) console.log(`[meegle] 拉进 ${made} 条需求当容器`);

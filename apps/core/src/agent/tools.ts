@@ -629,6 +629,7 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   start_job: ["开工", "开工吧", "开始做", "开始做吧", "通过"],
   handbook_apply: ["通过", "应用", "应用吧"],
   reproject: ["撤掉", "撤掉吧", "回退", "回退吧", "通过"],
+  discard_changes: ["撤掉", "撤掉吧", "撤", "删掉", "通过"],
 };
 
 const FORCE_PUSH = ["强推", "强推吧", "可以强推", "强推上去", "强制推送", "force push"];

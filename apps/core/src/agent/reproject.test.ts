@@ -11,6 +11,8 @@ import { setClaudeFinder } from "./runner.js";
 import { setLauncher, worktreeReady } from "./sessions.js";
 import { executePending, startAutonomousJob } from "./pipeline.js";
 import { requestProjectChange } from "./reproject.js";
+import { syncMeegleOnce } from "./meegle.js";
+import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
 let calls: string[][] = [];
@@ -160,5 +162,105 @@ describe("需求定项目，缺陷跟着走", () => {
     const d = defect("st-2");
     requestProjectChange(s.id, "fe-wealth-admin");
     expect(getTask(d.id)!.project).toBe("fe-wealth-admin");
+  });
+});
+
+describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
+  const sh = (dir: string, ...args: string[]) =>
+    execFileSync("git", ["-C", dir, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" }, stdio: "ignore" });
+  const closedConn = (live: Array<Record<string, unknown>> = []) =>
+    ({ fetchWorkItems: async () => live, getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed" }), feReleased: async () => false }) as never;
+  let n = 0;
+  /** 缺陷自己当根、在自己的 worktree 里干过活 */
+  function defectWithWork(o: { commit?: boolean; dirty?: boolean; status?: "blocked" | "processing" } = {}) {
+    const id = `cd-${n++}`;
+    const repo = mainRepo(`app-${id}`);
+    const wt = addTestWorktree(repo, `app-${id}-fix`, `fix/${id}`);
+    if (o.commit) sh(wt, "commit", "-q", "--allow-empty", "-m", "fix");
+    if (o.dirty) writeFileSync(join(wt, "a.ts"), "x");
+    const t = createTask({
+      title: `缺陷 ${id}`,
+      kind: "meegle",
+      status: o.status ?? "processing",
+      source: { meegleId: id, meegleProject: "p1", meegleType: "issue", jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `fix/${id}` },
+    });
+    createTermSession({ id: t.id, project: "app", repoDir: repo, tmuxName: `app-${id}`, kind: "interactive", jobId: `job-${id}` });
+    updateTermSession(t.id, { status: "exited", worktree: wt, branch: `fix/${id}` });
+    return { t, repo, wt, branch: `fix/${id}` };
+  }
+
+  it("卡住的缺陷被关了也收工（原来只看待办和待审，blocked 的一直挂着）", async () => {
+    const t = createTask({ title: "缺陷 blk", kind: "meegle", status: "blocked", source: { meegleId: "cd-blk", meegleProject: "p1", meegleType: "issue" } });
+    await syncMeegleOnce(closedConn());
+    expect(getTask(t.id)!.status).toBe("done");
+  });
+
+  it("有没进主干的提交：不删，挂「撤掉改动」；下一轮同步不重复挂", async () => {
+    const { t, wt } = defectWithWork({ commit: true });
+    await syncMeegleOnce(closedConn());
+    let cur = getTask(t.id)!;
+    expect(cur.status).toBe("review");
+    expect(cur.pending?.map((p) => p.type)).toEqual(["discard_changes"]);
+    expect(cur.pending?.[0]?.detail).toContain("比主干多 1 个提交");
+    expect(existsSync(wt)).toBe(true);
+    await syncMeegleOnce(closedConn());
+    cur = getTask(t.id)!;
+    expect(cur.pending).toHaveLength(1);
+  });
+
+  it("说撤掉：删 worktree 和分支，收工", async () => {
+    const { t, repo, wt, branch } = defectWithWork({ dirty: true });
+    await syncMeegleOnce(closedConn());
+    const action = getTask(t.id)!.pending![0]!;
+    expect(action.detail).toContain("1 个没提交的文件");
+    await executePending(t.id, action.id, noSlack);
+    expect(existsSync(wt)).toBe(false);
+    expect(branches(repo)).not.toContain(branch);
+    expect(getTask(t.id)!.status).toBe("done");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "closed_defect_discarded")).toBe(true);
+  });
+
+  it("worktree 里没有改动：直接收工，不打扰你", async () => {
+    const { t, wt } = defectWithWork({ status: "blocked" });
+    await syncMeegleOnce(closedConn());
+    expect(getTask(t.id)!.status).toBe("done");
+    expect(getTask(t.id)!.pending ?? []).toEqual([]);
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it("挂着等你定的时候又被 Reopen 分派回来：撤回「撤掉改动」，接着改", async () => {
+    const { t } = defectWithWork({ commit: true });
+    await syncMeegleOnce(closedConn());
+    const back = [{ id: t.source.meegleId, name: t.title, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: "https://x/r", createdAt: "2026-09-01T00:00:00Z" }];
+    expect((await syncMeegleOnce(closedConn(back))).reopened).toBe(1);
+    const cur = getTask(t.id)!;
+    expect(cur.pending ?? []).toEqual([]);
+    expect(cur.source.meegleClosed).toBeUndefined();
+    expect(cur.status).toBe("processing");
+  });
+
+  it("交代进需求会话的缺陷：source 里记的是需求的 worktree，需求收工了也不能提议删它", async () => {
+    const id = `cd-${n++}`;
+    const repo = mainRepo(`app-${id}`);
+    const wt = addTestWorktree(repo, `app-${id}-story`, `feat/${id}`);
+    sh(wt, "commit", "-q", "--allow-empty", "-m", "story work");
+    const story = createTask({ title: "需求已收工", kind: "meegle", status: "done", source: { meegleId: `${id}-s`, meegleType: "story", worktree: wt, repoDir: repo, branch: `feat/${id}` } });
+    createTermSession({ id: story.id, project: "app", repoDir: repo, tmuxName: `app-${id}-s`, kind: "interactive", jobId: `job-${id}-s` });
+    updateTermSession(story.id, { worktree: wt, branch: `feat/${id}` });
+    const t = createTask({ title: "交代进去的缺陷", kind: "meegle", status: "processing", source: { meegleId: id, meegleProject: "p1", meegleType: "issue", rootId: story.id, handedAt: "2026-10-20T00:00:00Z", jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `feat/${id}` } });
+    await syncMeegleOnce(closedConn());
+    expect(getTask(t.id)!.status).toBe("done");
+    expect(getTask(t.id)!.pending ?? []).toEqual([]);
+    expect(getTask(t.id)!.progress).toContain("自己 revert");
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it("在需求会话里改的：改动拆不出来，收工时写明要你自己 revert", async () => {
+    const root = createTask({ title: "养牛1.2", kind: "meegle", status: "processing", source: { meegleId: "cd-story", meegleType: "story" } });
+    const t = createTask({ title: "缺陷 in story", kind: "meegle", status: "blocked", source: { meegleId: "cd-in-story", meegleProject: "p1", meegleType: "issue", jobId: "job-in-story", rootId: root.id, linkedStoryId: "cd-story" } });
+    await syncMeegleOnce(closedConn());
+    const cur = getTask(t.id)!;
+    expect(cur.status).toBe("done");
+    expect(cur.progress).toContain("自己 revert");
   });
 });

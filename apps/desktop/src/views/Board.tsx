@@ -47,6 +47,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   if (a.type === "reproject") {
     return `删掉的 worktree、分支和里面的改动撤不回。在会话里说「撤掉」执行；说「算了，还是 ${String(a.payload.from ?? "原来的")}」就不改。`;
   }
+  if (a.type === "discard_changes") {
+    return "删掉的 worktree、分支和里面的改动撤不回。不想撤就点「完成，不执行」，只收卡、改动留着。";
+  }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
     const conf = typeof a.payload.confidence === "number" ? `Friday 对这次判断的把握是 ${a.payload.confidence} 分。` : "";
@@ -1188,11 +1191,12 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉" };
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
   if (t.autostart?.kind === "story") return "先别做 / 这条我来";
+  if (t.pending?.some((a) => a.type === "discard_changes")) return "撤掉 / 完成，不执行";
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
   if (t.source.handedAt) return "标记完成 / 打回：原因";

@@ -409,6 +409,9 @@ export async function executePending(
       const { rollbackAndRestart } = await import("./reproject.js");
       // 回退完直接在新项目上重开：任务回到「Friday 在做」，不走下面的收尾
       return await rollbackAndRestart(taskId, String((action.payload as { to: string }).to));
+    } else if (action.type === "discard_changes") {
+      const { discardClosedDefect } = await import("./reproject.js");
+      return await discardClosedDefect(taskId, String((action.payload as { status?: string }).status ?? "终态"));
     } else if (action.type === "okr_submit") {
       const { submitRows, SubmitPartialError, OKR_SUBMIT_LABEL, submittable } = await import("./weekly/submit.js");
       try {
