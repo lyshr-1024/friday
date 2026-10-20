@@ -11,15 +11,19 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
-import { autonomousPrompt, jobLog } from "./runner.js";
-import { baseBranchOf, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession } from "./sessions.js";
+import { autonomousPrompt, jobLog, storyBugPrompt } from "./runner.js";
+import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession, sayToSession } from "./sessions.js";
+import { hasSession } from "./tmux.js";
+import { state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
+import { sessionCost } from "./transcript.js";
+import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
-import { closeRun, fillRunCost } from "./runLog.js";
+import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
 import { createRun, pendingRunsForTask, runByJob, runsForTask, setRunOutcome } from "../memory/runs.js";
 
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
@@ -47,6 +51,7 @@ const execFileP = promisify(execFile);
  * 所以去本地主干里找交付时的那个提交。找不到不等于没合（squash、还没 pull），记成「没确认」而不是「白干」。
  */
 function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: string): void {
+  if (t.source.handedAt) return void setRunOutcome(r.id, status === "ignored" ? "abandoned" : "merged_as_is", "在需求分支上交付，由测试环境验收");
   if (status === "ignored") return void setRunOutcome(r.id, "abandoned", why);
   const repo = t.source.repoDir || getJob(r.jobId)?.dir;
   if (!r.tipSha || !repo || !isMergedSync(repo, r.tipSha)) return void setRunOutcome(r.id, "closed_unverified", why);
@@ -57,7 +62,7 @@ function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: strin
 
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
   const t = updateTask(id, { status, pending: [], attention: undefined });
-  if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous") settleRun(r, t, status, why);
+  if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
 }
@@ -68,10 +73,14 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
  * `fresh`（定时任务重开长期卡）：上一轮是真收工了，结局不改记 reopened（会污染收下率和学手册的证据）；
  * 不接回会话、回待办等开工入口写新 jobId，分支 / worktree 清掉，新一轮从主干起。
  */
+export class ReopenBusyError extends Error {}
+
 export async function reopenTask(id: string, opts: { revive?: boolean; why?: string; fresh?: boolean } = {}): Promise<{ task: Task; terminal: boolean } | undefined> {
   const t = getTask(id);
   if (!t) return undefined;
   if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
+  // 清掉 jobId 后那一轮退出时就找不到卡、迟到的交付还会把旧 jobId 挂回来
+  if (t.source.handedAt && t.source.jobId && getJob(t.source.jobId)?.status === "running") throw new ReopenBusyError("上一轮还在需求会话里跑，等它退出再重开");
   const before = getTermSession(id);
   // 阶段拖到「已上线」会标 done 却不关终端，不关的话开工入口会接进旧 worktree
   if (opts.fresh && before && before.status !== "closed") {
@@ -83,16 +92,22 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   const was = t.source.priorWorktrees ?? [];
   const kept = was.filter((w) => existsSync(w.path));
   const prior = tree && repo && !kept.some((w) => w.path === tree) ? [...kept, { path: tree, repoDir: repo }] : kept;
+  // 交给需求会话修过的缺陷：旧 jobId 是需求会话里早退了的一次 -p，回待办让门禁重新交代
+  const handed = Boolean(t.source.handedAt) && !opts.fresh;
+  const story = handed ? resolveRoot(t) : undefined;
+  const rehand = story && story.id !== t.id && story.stage === "testing";
   const task = updateTask(id, {
-    status: t.source.jobId && !opts.fresh ? "processing" : "understood",
+    status: t.source.jobId && !opts.fresh && !handed ? "processing" : "understood",
     attention: undefined,
     releasedAt: undefined,
     ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(prior.length !== was.length || prior.some((w, i) => w !== was[i]) ? { priorWorktrees: prior } : {}) } } : {}),
+    ...(handed ? { source: { ...clearHanded(t).source, ...(rehand ? { handBackNote: "你在 Friday 里重新打开了它" } : {}) } } : {}),
+    ...(rehand ? { stage: "todo" as const } : {}),
   })!;
   if (!opts.fresh) for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
   record({ taskId: id, action: "task_reopened", why: opts.why ?? "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });
   const s = getTermSession(id);
-  const terminal = Boolean(opts.revive !== false && !opts.fresh && s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
+  const terminal = Boolean(opts.revive !== false && !opts.fresh && !handed && s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
   return { task: getTask(id)!, terminal };
 }
 
@@ -156,6 +171,7 @@ const exitText = (code: number) => (code === -1 ? "会话已不在" : `退出码
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (job.task.report && job.task.status === "review") {
     fillRunCost(jobId);
     if (!job.task.report.screenshots.length) {
@@ -173,6 +189,14 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (!job.task.source.autonomous && !job.task.source.headless) {
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端会话结束", how: `退出码 ${exitCode}，任务仍由用户决定是否完成`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
     return updateTask(job.task.id, { progress: `终端会话已结束（${exitText(exitCode)}）`, ...(exitBranch ? { source: { branch: exitBranch } } : {}) })!;
+  }
+  if (job.task.source.handedAt) {
+    closeRun(jobId, exitCode === -1 ? "window_closed" : "no_report");
+    fillRunCost(jobId);
+    if (job.task.status === "done" || job.task.status === "ignored") return job.task;
+    const t = updateTask(job.task.id, { status: "blocked", progress: "需求会话退出了，这条没交付" })!;
+    state.notices.push({ title: "缺陷没交付", body: t.title, taskId: t.id });
+    return t;
   }
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
@@ -302,7 +326,23 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
   if (!t) return undefined;
   record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
-  return updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
+  const updated = updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
+  const root = t.source.handedAt && t.source.rootId ? getTask(t.source.rootId) : undefined;
+  if (updated && root) {
+    closeRunForTask(t.id, "report");
+    void handToStorySession(updated, root, { rejected: reason ?? "无说明", trigger: "retry" })
+      .then((h) => {
+        if (h === "handed") return;
+        const why = { busy: "打回了，但需求会话里的 Claude 还在跑，没能重交，点「交给 Friday 改」再试", asking: "打回了，但需求终端在等你回答，没能重交，答完点「交给 Friday 改」", "no-session": "打回了，但需求会话已不在，没能重交，先给需求开终端" }[h];
+        updateTask(t.id, { status: "blocked", progress: why });
+      })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.warn(`[story-bug] 打回后重交失败：${message}`);
+        updateTask(t.id, { status: "blocked", progress: `打回了，但重交时出错：${message}` });
+      });
+  }
+  return updated;
 }
 
 /** 审核通过一条待审动作：按钮和会话里的「合并吧 / 发」走同一条路。text 是改过的要发原文 */
@@ -443,4 +483,58 @@ export async function executePending(
   const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
   await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
+}
+
+/** 需求在测试中：缺陷交代进需求自己的会话，Claude 活着就敲进去，退出了就在同一个 worktree 里 -p --resume 接回后台跑 */
+export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "asking" | "no-session"> {
+  const trigger = opts.trigger ?? "autostart";
+  const gone = (why: string) => {
+    record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
+    return "no-session" as const;
+  };
+  const s = getTermSession(root.id);
+  if (!s || s.status === "closed" || !s.worktree || !(await hasSession(s.tmuxName))) return gone(`需求「${root.title.slice(0, 24)}」的会话已不在`);
+  const project = s.project;
+  const prompt = storyBugPrompt(task, root, project, opts.rejected ?? task.source.handBackNote);
+  const alive = s.status === "running" && !(await claudeGone(s));
+  if (alive && s.kind !== "interactive") {
+    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 还在跑，等它退出`);
+    return "busy";
+  }
+  // 敲字带回车，会替你选中弹窗里高亮的那个选项
+  if (alive && root.attention === "question") {
+    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求终端在等你回答，不往里敲`);
+    return "asking";
+  }
+  let run: { id: string; jobId: string };
+  let costBase: number | undefined;
+  if (alive) {
+    if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
+    run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
+  } else {
+    const id = randomUUID();
+    const job = s.jobId ? getJob(s.jobId) : undefined;
+    // --fork-session 的 transcript 带着需求会话的累计成本
+    costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
+    const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, allowMerge: true, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId, forkSession: true } : {}) }, task.id);
+    if (!ok) return gone("需求会话里起不了新的运行");
+    run = { id, jobId: id };
+  }
+  updateTask(task.id, {
+    status: "processing",
+    attention: undefined,
+    progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
+    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
+  });
+  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger, ...(costBase !== undefined ? { costBase } : {}) });
+  record({
+    taskId: task.id,
+    action: trigger === "autostart" ? "autostart" : "retry",
+    why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
+    how: "交代进需求的会话（敲进去 / 接回后台跑）",
+    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "headless" },
+    risk: "reversible",
+  });
+  if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
+  return "handed";
 }

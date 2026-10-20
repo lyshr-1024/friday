@@ -269,3 +269,16 @@ describe("会话记着在跑、窗口里 Claude 其实不在", () => {
     expect(alive.has(getTermSession(t.id)!.tmuxName)).toBe(true);
   });
 });
+
+describe("关会话时没交付的 handed 缺陷", () => {
+  it("需求收工 / 手动关会话：say 路的 handed 缺陷标 blocked", async () => {
+    for (const close of ["finish", "close"] as const) {
+      const { t, jobId } = await running(`需求-${close}`);
+      const bug = createTask({ title: "缺陷", kind: "meegle", source: { rootId: t.id, autonomous: true, handedAt: new Date().toISOString() }, status: "processing", project: "app" });
+      if (close === "finish") await finishTask(t.id, "done", "收工");
+      else await closeJobTerminal(jobId, "手动关", t.id);
+      expect(getTask(bug.id)!.status).toBe("blocked");
+      expect(getTask(bug.id)!.progress).toBe("需求会话关了，这条没交付");
+    }
+  });
+});

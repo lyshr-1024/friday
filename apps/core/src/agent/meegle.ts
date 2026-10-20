@@ -12,6 +12,9 @@ import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 import { runsForTask, setRunOutcome } from "../memory/runs.js";
 import { isFridayWork } from "./reproject.js";
+import { clearHanded } from "./handedBugs.js";
+import { getJob } from "../memory/jobs.js";
+import { resolveRoot } from "./sessions.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
@@ -227,14 +230,14 @@ export async function listTaskTransitions(t: Task, connector = new MeegleConnect
   return connector.listTransitions(projectKey, workItemId);
 }
 
-export async function applyTransition(t: Task, to: StateTransition, connector = new MeegleConnector()): Promise<Task> {
+export async function applyTransition(t: Task, to: StateTransition, connector = new MeegleConnector(), why = `你在 Friday 里点了「${to.label}」`): Promise<Task> {
   const { projectKey, workItemId } = meegleRef(t);
   const from = t.source.statusKey ?? "";
   await connector.transitionState(projectKey, workItemId, to.id);
   record({
     taskId: t.id,
     action: "meegle_transition",
-    why: `你在 Friday 里点了「${to.label}」`,
+    why,
     how: `workflow transition-state → ${to.stateKey}`,
     evidence: { meegleId: workItemId, from, to: to.stateKey },
     risk: "reversible",
@@ -242,6 +245,19 @@ export async function applyTransition(t: Task, to: StateTransition, connector = 
   });
   const moved = updateTask(t.id, { source: { statusKey: to.stateKey } })!;
   return to.stateKey === DONE_STATE ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`, { keepTerminal: true }))! : moved;
+}
+
+export async function transitionToInProgress(t: Task, connector = new MeegleConnector()): Promise<{ moved: true; label: string } | { moved: false; why: string }> {
+  try {
+    const to = (await listTaskTransitions(t, connector)).find((x) => x.stateKey === "IN PROGRESS");
+    if (!to) return { moved: false, why: `当前 ${t.source.statusKey ?? "未知"}，没有「开始处理」可走` };
+    await applyTransition(t, to, connector, "Friday 在需求分支上修完并发到测试环境");
+    return { moved: true, label: to.label };
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    record({ taskId: t.id, action: "meegle_transition", why: "Friday 在需求分支上修完并发到测试环境", how: "workflow transition-state → IN PROGRESS", evidence: { meegleId: t.source.meegleId, error: why }, risk: "read", status: "failed" });
+    return { moved: false, why };
+  }
 }
 
 function nodeRef(t: Task): { projectKey: string; workItemId: string; nodeKey: string } {
@@ -330,10 +346,15 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
       } else if ((existing.status === "done" || existing.status === "ignored") && /reopen/i.test(item.status)) {
         // Friday 里已经收工，Meegle 里却被 Reopen 又分派回来：拉回待办并提醒。
         // 只认 Reopen 状态——用户在 Friday 里主动标完成而 Meegle 还挂着的，不能每 15 分钟翻回来。
+        // 交给需求会话修的那一轮 -p 还在跑：这轮不动，它退出后卡片仍是收工的，下一轮同步再处理
+        if (existing.source.handedAt && existing.source.jobId && getJob(existing.source.jobId)?.status === "running") continue;
         const { status: _s, ...patch } = input;
-        // 阶段也得跟着回退：Friday 里标着「已上线」的活又被打回来了，
-        // 留着旧阶段会让卡片显示一个早就不成立的结论。回到「进行中」等你重新判。
-        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source, stage: "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
+        // 阶段也得跟着回退，留着「已上线」这类旧阶段是个早就不成立的结论：一般回「进行中」等你重新判；
+        // 交给需求会话修过、需求还在测试中的回「未开始」，门禁下一轮把它重新交代进去，带上这句没过的原因
+        const story = existing.source.handedAt ? resolveRoot(existing) : undefined;
+        const rehand = story && story.id !== existing.id && story.stage === "testing";
+        const source = { ...input.source, ...clearHanded(existing).source, ...(rehand ? { handBackNote: `测试在 Meegle 里把它 Reopen 了（${item.status}），上一轮的修法没过` } : {}) };
+        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source, stage: rehand ? "todo" : "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         // 合进去的改动被打回来了：这是比「被你改过」更强的负信号
         for (const r of runsForTask(existing.id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified") setRunOutcome(r.id, "reopened", `Meegle ${item.status}`);

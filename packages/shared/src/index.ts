@@ -463,6 +463,10 @@ export interface TaskDoc {
   kind?: "link";
 }
 
+export type AutostartPlan =
+  | { kind: "gate"; at: string; behind: number }
+  | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string };
+
 export interface TaskSource {
   threadId?: string;
   /** 这条任务对应的 Slack 对话键（channelId:ts） */
@@ -562,6 +566,10 @@ export interface TaskSource {
   projectBy?: "friday" | "user";
   /** 你说了「先别做 / 这条我来」：Friday 不再自己开工 */
   autostartOff?: boolean;
+  /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */
+  handedAt?: string;
+  /** 重开后下一次交代进需求会话时告诉 Claude 上一轮为什么没过，交代完清掉 */
+  handBackNote?: string;
 }
 
 export interface IntakeVerdict {
@@ -721,7 +729,7 @@ export interface Task {
   /** 只在 GET /tasks 里有：这条任务牵着的 Slack 对话 */
   conversations?: SlackConversation[];
   /** 只在 GET /tasks 里有：Friday 判成能自己做、会自己开工。at 是预计开工时刻，behind 是前面还有几条自主任务在跑 */
-  autostart?: { at: string; behind: number };
+  autostart?: AutostartPlan;
   createdAt: string;
   updatedAt: string;
 }
@@ -888,7 +896,7 @@ export interface Rule {
 
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
-export type RunKind = "autonomous" | "query" | "interactive_round";
+export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug";
 export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user" | "schedule";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
@@ -922,6 +930,8 @@ export interface RunRecord {
   /** 比的是哪个主干（main / master） */
   diffBase?: string;
   costUsd?: number;
+  /** headless 接回需求会话时 fork 出来的 transcript 带着需求会话的累计成本，记下当时的值，本行只记增量 */
+  costBase?: number;
   model?: string;
   outcome: RunOutcome;
   outcomeAt?: string;

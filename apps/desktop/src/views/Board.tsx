@@ -74,7 +74,9 @@ function dueLabel(iso: string): string {
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
-const canStart = (t: Task) => !isClosed(t) && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+const canStart = (t: Task) => !isClosed(t) && !(t.source.handedAt && t.status === "processing") && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+/** 交代进需求会话的缺陷：只能再交代一次，不能自己开工（会另开会话、卡住需求的串行名额） */
+const canRehand = (t: Task) => Boolean(t.source.handedAt) && (t.status === "review" || t.status === "blocked");
 /** 还没开工、也不归 Friday 自己做：主区是空态，统筹信息在「详情」弹窗里。周报和手册卡有自己的编辑面，照旧 */
 const notStarted = (t: Task) => (t.status === "collected" || t.status === "understood") && !t.session?.name;
 /** Friday 自主干过活的：改项目要整体回退，不走「关终端、改动留着」那套 */
@@ -179,7 +181,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
           />
           {reproject ? (
             <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在会话里说「撤掉」执行</span>
-          ) : !t.project && <span className="fx__meta-dim">{t.autostart && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
+          ) : !t.project && <span className="fx__meta-dim">{t.autostart?.kind === "gate" && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -302,10 +304,23 @@ function dueBits(t: Task): string[] {
 }
 
 /** 列表行的灰字：你在做的写状态位，Friday 自主的写交付，缺陷写它在哪个会话里改 */
-function anchorLine(t: Task, kids = 0): string {
+function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
   const s = t.session;
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
-  if (t.autostart) return ["Friday 会自己开工", hhmm(t.autostart.at), t.autostart.behind ? `前面 ${t.autostart.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  const a = t.autostart;
+  if (a?.kind === "story") return `跟着需求「${a.root.title.slice(0, 16)}」修 · ${a.waiting ?? "等它会话空闲"}`;
+  if (a) return ["Friday 会自己开工", hhmm(a.at), a.behind ? `前面 ${a.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  if (t.source.handedAt && t.status === "processing") {
+    const root = all.find((x) => x.id === t.source.rootId);
+    return root ? `在需求「${root.title.slice(0, 16)}」的会话里修` : "在需求的会话里改";
+  }
+  if (t.source.handedAt && t.status === "blocked") {
+    const root = all.find((x) => x.id === t.source.rootId);
+    const first = t.progress?.replace(/^卡住：/, "").split(/[。；;，\n]/)[0];
+    const why = first && (first.length > 24 ? `${first.slice(0, 24)}…` : first);
+    return ["卡住了", root ? `在需求「${root.title.slice(0, 16)}」的会话里` : "在需求的会话里", why].filter(Boolean).join(" · ");
+  }
+  if (t.source.handedAt && t.status === "review" && t.report) return ["交付了", "等你核验", t.report.verify.length ? `${t.report.verify.length} 个验收点` : ""].filter(Boolean).join(" · ");
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
@@ -552,7 +567,8 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const close = () => setDialogFor(null);
     const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
     return [
-      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }, { label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
+      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }] : []),
+      ...(canStart(t) || canRehand(t) ? [{ label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
       ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
       ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
       ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : [{ label: "重新打开", run: run(() => taskReopen(t.id)) }]),
@@ -741,7 +757,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
                               </span>
                             ) : (
                               <span className="an__sub">
-                                {anchorLine(t, kids)}
+                                {anchorLine(t, kids, board?.tasks)}
                                 {!child && canResume(t) && <>{" · "}<button className="an__act" onClick={(e) => { e.stopPropagation(); void act(t, () => jobReopen(t.source.jobId!)); }}>接着聊</button></>}
                               </span>
                             )}
@@ -820,7 +836,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
     convs: (t.conversations ?? []).length,
   };
   // Friday 自主的（含排队要自己开工的）：详情直接铺在面板上，交付看会话
-  const panel = autonomous || Boolean(t.autostart);
+  const panel = autonomous || Boolean(t.autostart) || Boolean(t.source.handedAt);
   const termVisible = hasTerm && (!panel || showTerm);
   // 开过工、终端已经关了（你关的或收工后清掉的）：还要能在这里接着说话、继续做
   const idle = !termVisible && !panel && !notStarted(t) && !isClosed(t);
@@ -898,7 +914,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
       {canStart(t) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
-      {canStart(t) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
+      {(canStart(t) || canRehand(t)) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
       {canResume(t) && <button role="menuitem" onClick={() => run(() => jobReopen(t.source.jobId!))}>接着聊</button>}
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
@@ -1176,8 +1192,10 @@ const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发"
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
+  if (t.autostart?.kind === "story") return "先别做 / 这条我来";
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
+  if (t.source.handedAt) return "标记完成 / 打回：原因";
   return "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行";
 }
 
@@ -1202,11 +1220,15 @@ function FridayTop({ t }: { t: Task }) {
         <div className="ftop__queued">
           <div className="ftop__row"><span className="ac__k">什么时候开</span>
             <span className="ac__text">
-              {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
-              {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+              {a.kind === "story"
+                ? `需求在测试中，Friday 直接在它的分支上修，不走把握分${a.waiting ? `。${a.waiting}` : ""}`
+                : <>
+                    {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
+                    {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
+                  </>}
             </span>
           </div>
-          {v && (
+          {v && a.kind === "gate" && (
             <div className="qc__rows">
               <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} />{v.confidence !== undefined && <span className="qc__dim">把握 {v.confidence}</span>}</span></div>
               {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span></div>}

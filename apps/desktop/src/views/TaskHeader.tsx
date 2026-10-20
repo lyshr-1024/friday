@@ -20,6 +20,7 @@ export function shownState(t: Task): string {
 
 export function stateLabel(t: Task): string {
   const s = t.session;
+  if (t.autostart?.kind === "story") return "排队中 · 跟着需求修";
   if (t.autostart && (s?.state ?? "none") === "none") return `排队中 · ${hhmm(t.autostart.at)} 开工`;
   if (!s) return "";
   const label = SESSION_STATE_LABEL[s.state];
@@ -49,7 +50,9 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, project ?? (noProject ? "项目没定" : ""), t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
   const hint = [counts.defects ? `${counts.defects} 条缺陷` : "", counts.docs ? `${counts.docs} 份资料` : "", counts.convs ? `${counts.convs} 段 Slack 讨论` : ""].filter(Boolean).join(" · ");
   const d = s?.delivery;
-  const branchLine = waiting && !s?.worktree
+  const branchLine = t.autostart?.kind === "story"
+    ? `在需求「${t.autostart.root.title.slice(0, 16)}」的分支上修，不另建 worktree`
+    : waiting && !s?.worktree
     ? ["还没有 worktree · 开工时按项目规则建", t.autostart ? "模型 opus" : ""].filter(Boolean).join(" · ")
     : [s?.worktree ? `../${s.worktree.replace(/\/+$/, "").split("/").pop()}` : "", s?.branch, t.source.autonomous ? "Friday 自主" : t.source.headless ? "Friday 查代码" : "", d?.model, d?.costUsd !== undefined ? `$${d.costUsd.toFixed(2)}` : "", d?.minutes ? `${d.minutes} 分钟` : "", d?.files ? `${d.files} 个文件 +${d.insertions ?? 0} −${d.deletions ?? 0}` : ""].filter(Boolean).join(" · ");
   return (

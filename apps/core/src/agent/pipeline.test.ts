@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startAutonomousJob, reportBackToOrigin } from "./pipeline.js";
+import { startAutonomousJob, reportBackToOrigin, onJobExit, finishTask } from "./pipeline.js";
+import { createJob } from "../memory/jobs.js";
+import { createRun, finishRun, openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
+import { state } from "../scheduler/index.js";
 import { createTask, getTask, listTasks, updateTask, findTaskBySource } from "../memory/tasks.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { initMemory } from "../memory/db.js";
@@ -72,5 +75,94 @@ describe("两条需求合并成一条", () => {
     updateTask(into.id, { source: { mergedMeegleIds: ["S2"] } });
     const found = findTaskBySource((s) => s.meegleId === "S2" || (s.mergedMeegleIds ?? []).includes("S2"), true);
     expect(found?.id).toBe(into.id);
+  });
+});
+
+describe("测试阶段缺陷交给需求会话后的收尾", () => {
+  const mkJob = (id: string, taskId: string) => createJob({ id, project: "app", dir: process.cwd(), logPath: join(tmpdir(), `${id}.log`), taskId });
+  const handed = (rootId: string, extra: Record<string, unknown> = {}) =>
+    createTask({ title: "缺陷", kind: "meegle", source: { rootId, autonomous: true, handedAt: new Date().toISOString(), ...extra }, status: "processing", project: "app" });
+
+  it("headless 缺陷退出没交付：blocked、runs no_report、不挂 git_merge", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj1" });
+    mkJob("hj1", bug.id);
+    createRun({ id: "hj1", jobId: "hj1", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
+    onJobExit("hj1", 0);
+    const t = getTask(bug.id)!;
+    expect(t.status).toBe("blocked");
+    expect(t.progress).toBe("需求会话退出了，这条没交付");
+    expect(t.pending ?? []).toHaveLength(0);
+    expect(runByJob("hj1")!.exit).toBe("no_report");
+  });
+
+  it("headless 缺陷会话已不在（-1）：run 记 window_closed", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj2" });
+    mkJob("hj2", bug.id);
+    createRun({ id: "hj2", jobId: "hj2", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
+    onJobExit("hj2", -1);
+    expect(runByJob("hj2")!.exit).toBe("window_closed");
+  });
+
+  it("需求的交互式 Claude 退出：say 路的 handed 缺陷标 blocked，有自己 job 的不动", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: { jobId: "sj1" }, status: "processing", project: "app" });
+    mkJob("sj1", story.id);
+    const bug = handed(story.id);
+    createRun({ id: "sj1#x", jobId: "sj1#x", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
+    const own = handed(story.id, { jobId: "other" });
+    const n = state.notices.length;
+    onJobExit("sj1", 0);
+    expect(getTask(bug.id)!.status).toBe("blocked");
+    expect(getTask(bug.id)!.progress).toBe("需求会话退出了，这条没交付");
+    expect(openRunForTask(bug.id)).toBeUndefined();
+    expect(getTask(own.id)!.status).toBe("processing");
+    expect(state.notices.length).toBe(n + 1);
+  });
+
+  it("headless 缺陷已用 friday_done 交付（review）后退出：留在 review", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj3" });
+    mkJob("hj3", bug.id);
+    updateTask(bug.id, { status: "review", report: { summary: "修好了", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
+    onJobExit("hj3", 0);
+    expect(getTask(bug.id)!.status).toBe("review");
+  });
+
+  it("headless 缺陷用户已标完成后退出：仍是 done、不发通知、run 收尾", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const bug = handed(story.id, { jobId: "hj4" });
+    mkJob("hj4", bug.id);
+    createRun({ id: "hj4", jobId: "hj4", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
+    updateTask(bug.id, { status: "done" });
+    const n = state.notices.length;
+    onJobExit("hj4", 0);
+    expect(getTask(bug.id)!.status).toBe("done");
+    expect(state.notices.length).toBe(n);
+    expect(runByJob("hj4")!.endedAt).toBeTruthy();
+  });
+
+  it("需求停在 review（交付过）时它的 Claude 退出：say 路的 handed 缺陷照样标 blocked", () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: { jobId: "sj2" }, status: "processing", project: "app" });
+    updateTask(story.id, { status: "review", report: { summary: "做完", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
+    mkJob("sj2", story.id);
+    const bug = handed(story.id);
+    onJobExit("sj2", 0);
+    expect(getTask(story.id)!.status).toBe("review");
+    expect(getTask(bug.id)!.status).toBe("blocked");
+  });
+
+  it("用户标完成：story_bug 的 run 记 merged_as_is；忽略记 abandoned", async () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const a = handed(story.id);
+    const b = handed(story.id);
+    for (const [i, t] of [a, b].entries()) {
+      createRun({ id: `r${i}-${t.id}`, jobId: `r${i}-${t.id}`, taskId: t.id, project: "app", kind: "story_bug", trigger: "autostart" });
+      finishRun(`r${i}-${t.id}`, { exit: "report" });
+    }
+    await finishTask(a.id, "done", "完成");
+    await finishTask(b.id, "ignored", "不用了");
+    expect(runsForTask(a.id)[0]).toMatchObject({ outcome: "merged_as_is", outcomeWhy: "在需求分支上交付，由测试环境验收" });
+    expect(runsForTask(b.id)[0]?.outcome).toBe("abandoned");
   });
 });

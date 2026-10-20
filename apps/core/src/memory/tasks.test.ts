@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addPending, createTask, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, updateTask } from "./tasks.js";
+import { addPending, createTask, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, tasksByIdPrefix, updateTask } from "./tasks.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
@@ -48,4 +48,14 @@ describe("账本", () => {
   });
 });
 
-
+describe("按 id 前缀找任务", () => {
+  it("前缀匹配；带非十六进制字符的不查", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "前缀", kind: "verbal", source: {} });
+    expect(tasksByIdPrefix(t.id.slice(0, 8)).map((x) => x.id)).toEqual([t.id]);
+    expect(tasksByIdPrefix(t.id)).toHaveLength(1);
+    expect(tasksByIdPrefix("%")).toEqual([]);
+    expect(tasksByIdPrefix(`${t.id.slice(0, 4)}_`)).toEqual([]);
+    expect(tasksByIdPrefix("")).toEqual([]);
+  });
+});

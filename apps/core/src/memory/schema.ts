@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS runs (
   diff_files TEXT,
   diff_base TEXT,
   cost_usd REAL,
+  cost_base REAL,
   model TEXT,
   outcome TEXT NOT NULL DEFAULT 'pending',
   outcome_at TEXT,
