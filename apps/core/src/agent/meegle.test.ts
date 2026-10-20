@@ -348,7 +348,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
   const gone = (feDone: boolean) =>
     ({
       fetchWorkItems: async () => [],
-      getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing", roles: [] }),
+      getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing" }),
       feReleased: async () => feDone,
     }) as never;
 
@@ -373,9 +373,8 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     const bug = mkTask({ title: "缺陷 b4", kind: "meegle", source: { meegleId: "b4", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s4" }, status: "understood" });
     const conn = {
       fetchWorkItems: async () => [],
-      getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed", roles: [] }),
+      getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed" }),
       feReleased: async () => false,
-      myKey: async () => "me",
     } as never;
     await syncOnce(conn);
     expect(readTask(bug.id)!.status).toBe("done");
@@ -390,10 +389,23 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
 
   const testing = {
     fetchWorkItems: async () => [],
-    getWorkItem: async () => ({ name: "缺陷", statusKey: "F1y9rIHhh", status: "In Testing", roles: [] }),
+    getWorkItem: async () => ({ name: "缺陷", statusKey: "F1y9rIHhh", status: "In Testing" }),
     feReleased: async () => false,
-    myKey: async () => "me",
   } as never;
+
+  it("缺陷挂的需求不在板上：不管我在需求里有没有角色，都拉进来当容器", async () => {
+    mkTask({ title: "缺陷 b8", kind: "meegle", source: { meegleId: "b8", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s8", linkedStoryName: "清结算需求" }, status: "understood" });
+    const conn = {
+      fetchWorkItems: async () => [],
+      getWorkItem: async (_p: string, id: string) => ({ name: id === "s8" ? "清结算需求" : "缺陷", statusKey: "0PVM21sG5", status: "In Technical Solution Confirmation" }),
+      feReleased: async () => false,
+    } as never;
+    await syncOnce(conn);
+    const story = findTaskBySource((s) => s.meegleId === "s8");
+    expect(story?.source.storyContainer).toBe(true);
+    expect(story?.title).toBe("清结算需求");
+    expect(story?.status).toBe("understood");
+  });
 
   it("需求容器是你自己标完成的：当时还开着的缺陷不再把它拉回来", async () => {
     const bug = mkTask({ title: "缺陷 b5", kind: "meegle", source: { meegleId: "b5", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s5" }, status: "understood" });
@@ -468,7 +480,7 @@ describe("缺陷掉出分派列表之后：按你视图的终态收工，测试�
   const now = (statusKey: string, status: string) =>
     ({
       fetchWorkItems: async () => [],
-      getWorkItem: async () => ({ name: "缺陷", statusKey, status, roles: [] }),
+      getWorkItem: async () => ({ name: "缺陷", statusKey, status }),
       feReleased: async () => false,
     }) as never;
   const defect = (id: string) =>
@@ -534,7 +546,7 @@ describe("关掉「拉 Meegle 缺陷」", () => {
 describe("同步时缺陷跟着需求的项目走", () => {
   const bug = (id: string, storyId: string) => ({ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Open", statusKey: "OPEN", projectName: "demo", projectKey: "p1", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z", linkedStory: { id: storyId, name: "需求" } });
   const conn = (items: unknown[]) =>
-    ({ fetchWorkItems: async () => items, getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing", roles: [] }), feReleased: async () => false }) as never;
+    ({ fetchWorkItems: async () => items, getWorkItem: async () => ({ name: "需求", statusKey: "Testing", status: "Testing" }), feReleased: async () => false }) as never;
 
   it("没项目的补上；你单独给缺陷指定过的不覆盖", async () => {
     mkTask({ title: "需求 ps1", kind: "meegle", project: "app-a", source: { meegleId: "ps1", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "understood" });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { alreadyAsking, containerDone, myRoles } from "./meegle.js";
+import { alreadyAsking, containerDone } from "./meegle.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,21 +26,6 @@ beforeEach(() => {
     return "";
   });
   setLauncher(async (_req, name) => { alive.add(name); });
-});
-
-describe("需求里我担哪些角色", () => {
-  const roles = [
-    { role: "QA", memberKeys: ["k-qa"] },
-    { role: "Admin Frontend", memberKeys: ["k-me"] },
-    { role: "Server developer", memberKeys: ["k-be", "k-me"] },
-  ];
-
-  it("按 user_key 精确匹配，不靠名字", async () => {
-    expect(myRoles(roles, "k-me")).toEqual(["Admin Frontend", "Server developer"]);
-    expect(myRoles(roles, "k-qa")).toEqual(["QA"]);
-    expect(myRoles(roles, "k-nobody")).toEqual([]);
-    expect(myRoles([], "k-me")).toEqual([]);
-  });
 });
 
 describe("同需求共用一个会话", () => {

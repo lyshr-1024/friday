@@ -37,15 +37,6 @@ export function projectOfStory(story: { id: string; name: string }, projects: Pr
   return parent?.project ?? matchProject(story.name, projects);
 }
 
-/**
- * 需求里我担着哪些角色。判据是 user_key，不靠名字。
- * 一个角色可以有多个成员（真实数据里 Business owner 常常两人），只要包含我就算。
- * 不按角色类型过滤：用户明确要求任何角色里有自己都算这需求归他。
- */
-export function myRoles(roles: Array<{ role: string; memberKeys: string[] }>, me: string): string[] {
-  return roles.filter((r) => r.memberKeys.includes(me)).map((r) => r.role);
-}
-
 /** Meegle 里的终态：关了的需求不必再拉进来当容器，关了的工单直接收工。 */
 /**
  * 终态，跟你 Meegle 视图里勾掉的那几个一致（2026-09-29：已解决 / 已关闭 / 已终止 / WON'T FIX）。
@@ -78,9 +69,9 @@ export function containerDone(kids: Array<Pick<Task, "status">>): boolean {
 }
 
 /**
- * 缺陷关联的需求不在任务板里（当前节点不在我手上，所以不在 mywork todo），
- * 但只要需求的角色成员里有我，它就是我的活——拉进来建一条任务当容器，
- * 名下的缺陷挂在它下面，列表里不再各自占一行。
+ * 缺陷关联的需求不在任务板里（当前节点不在我手上，所以不在 mywork todo）：拉进来建一条任务当容器，
+ * 名下的缺陷挂在它下面，列表里不再各自占一行。不看我在需求里有没有角色——缺陷分派给我就是我的活，
+ * 「清结算需求」那种角色里只有产品、服务端、QA 的，缺陷照样一条条散在列表里（2026-10-20）。
  */
 export async function ensureStoryContainers(connector = new MeegleConnector()): Promise<number> {
   const orphans = new Map<string, { projectKey: string; name: string; newest: string }>();
@@ -97,11 +88,6 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     orphans.set(linkedStoryId, { projectKey: meegleProject, name: linkedStoryName ?? "", newest: t.createdAt > prev ? t.createdAt : prev });
   }
   if (!orphans.size) return 0;
-  const me = await connector.myKey();
-  if (!me) {
-    console.log("[meegle] 拿不到当前用户 key，跳过需求容器");
-    return 0;
-  }
 
   let made = 0;
   for (const [storyId, { projectKey, name, newest }] of orphans) {
@@ -120,8 +106,6 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
     const story = await connector.getWorkItem(projectKey, storyId);
     if (!story) continue;
     if (isDoneStatus(story.statusKey, story.status)) continue;
-    const roles = myRoles(story.roles, me);
-    if (!roles.length) continue;
     const projects = loadProjects();
     // 项目由用户手动指定，不按标题猜
     const project = undefined;
@@ -130,16 +114,16 @@ export async function ensureStoryContainers(connector = new MeegleConnector()): 
       kind: "meegle",
       status: "understood",
       stage: "todo",
-      understanding: `Meegle 需求 #${storyId}，我在这个需求里担 ${roles.join("、")}。当前节点不在我手上（状态 ${story.statusKey}），但名下的缺陷要我改。`,
+      understanding: `Meegle 需求 #${storyId}，当前节点不在我手上（状态 ${story.status}），但名下有缺陷分派给我。`,
       source: { meegleId: storyId, meegleProject: projectKey, meegleType: "story", statusKey: story.statusKey, storyContainer: true },
       ...(project ? { project } : {}),
     });
     record({
       taskId: t.id,
       action: "story_container_created",
-      why: `名下有分派给我的缺陷，而我在这个需求里担 ${roles.join("、")}`,
+      why: "名下有分派给我的缺陷",
       how: "把需求拉进任务板当容器，缺陷挂在它下面",
-      evidence: { meegleId: storyId, roles, statusKey: story.statusKey },
+      evidence: { meegleId: storyId, statusKey: story.statusKey },
       risk: "read",
     });
     made += 1;
