@@ -277,10 +277,12 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(meegle.calls).toHaveLength(1);
   });
 
-  it("不带 taskId、两条 handed 缺陷：归需求，缺陷不动", async () => {
+  it("不带 taskId、两条 handed 缺陷在处理中：回错列出两条，需求和缺陷都不动", async () => {
     const { root, bs, job } = setup("c", 2);
-    await call(job, "friday_done", { summary: "好了", testResult: "过" });
-    expect(getTask(root.id)!.report?.summary).toBe("好了");
+    const r = (await (await rpc(job, "tools/call", { name: "friday_done", arguments: { summary: "好了", testResult: "过" } })).json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+    expect(r.result.isError).toBe(true);
+    for (const b of bs) expect(r.result.content[0]!.text).toContain(b.id.slice(0, 8));
+    expect(getTask(root.id)!.report).toBeUndefined();
     for (const b of bs) expect(getTask(b.id)!.status).toBe("processing");
     expect(meegle.calls).toEqual([]);
   });
@@ -410,5 +412,14 @@ describe("需求会话里的交付归到缺陷", () => {
     } finally {
       process.env.HOME = realHome;
     }
+  });
+
+  it("缺陷自己的后台 job 填了需求 id：仍归缺陷，不落到需求卡", async () => {
+    const { root, bs } = setup("o");
+    createJob({ id: "job-bg-o", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: bs[0]!.id, sessionId: root.id });
+    updateTask(bs[0]!.id, { source: { jobId: "job-bg-o" } });
+    await call("job-bg-o", "friday_done", { taskId: root.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(getTask(bs[0]!.id)!.status).toBe("review");
+    expect(getTask(root.id)!.report).toBeUndefined();
   });
 });

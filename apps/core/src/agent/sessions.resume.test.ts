@@ -9,6 +9,7 @@ import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { updateSettings } from "../settings.js";
 import { config } from "../config.js";
 import { db } from "../memory/db.js";
+import { app } from "../api/index.js";
 import { setPsRunner, setTmuxRunner } from "./tmux.js";
 import { setClaudeFinder } from "./runner.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
@@ -425,7 +426,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     setJobSession(rootJobId, "sess-root");
     updateTermSession(root.id, { status: "exited" });
     expect(await handToStorySession(bug, root)).toBe("handed");
-    expect(getTask(bug.id)!.source.jobId).toBeTruthy();
+    finishJob(getTask(bug.id)!.source.jobId!, 0);
     updateTask(bug.id, { status: "done", stage: "testing" });
     calls = [];
     launched = [];
@@ -534,3 +535,78 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     for (const t of [a, b]) updateTask(t.id, { status: "ignored" });
   });
 });
+
+describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
+  const reopened = (id: string) =>
+    ({ fetchWorkItems: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" }] }) as never;
+  const headless = async (name: string) => {
+    const { root, rootJobId, bug: mk } = await testingStory(name);
+    setJobSession(rootJobId, "sess-root");
+    updateTermSession(root.id, { status: "exited" });
+    const bug = mk();
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    const jobId = getTask(bug.id)!.source.jobId!;
+    expect(getJob(jobId)!.status).toBe("running");
+    return { root, bug, jobId };
+  };
+
+  it("上一轮的 -p 还在跑：重新打开回 409，卡片和交接标记都不动；它退出后能重开", async () => {
+    const { bug, jobId } = await headless("sbreopenrun");
+    updateTask(bug.id, { status: "done" });
+    const res = await app.request(`/tasks/${bug.id}/reopen`, { method: "POST" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("上一轮还在需求会话里跑，等它退出再重开");
+    expect(getTask(bug.id)).toMatchObject({ status: "done", source: { jobId } });
+    expect(getTask(bug.id)!.source.handedAt).toBeTruthy();
+    finishJob(jobId, 0);
+    expect((await app.request(`/tasks/${bug.id}/reopen`, { method: "POST" })).status).toBe(200);
+    expect(getTask(bug.id)!.source.handedAt).toBeUndefined();
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("上一轮的 -p 还在跑：Meegle Reopen 这一轮跳过，退出后下一轮再处理", async () => {
+    const { bug, jobId } = await headless("sbmreopenrun");
+    updateTask(bug.id, { status: "done", stage: "testing" });
+    expect((await syncMeegleOnce(reopened(bug.source.meegleId!))).reopened).toBe(0);
+    expect(getTask(bug.id)).toMatchObject({ status: "done", stage: "testing", source: { jobId } });
+    expect(getTask(bug.id)!.source.handBackNote).toBeUndefined();
+    finishJob(jobId, 0);
+    expect((await syncMeegleOnce(reopened(bug.source.meegleId!))).reopened).toBe(1);
+    expect(getTask(bug.id)).toMatchObject({ status: "understood", stage: "todo" });
+    expect(getTask(bug.id)!.source.jobId).toBeUndefined();
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("从待审重交但需求会话在忙：上一轮仍是待定、没收尾", async () => {
+    const dir = repo("sbrehbusy");
+    writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## sbrehbusy\n- 目录：${dir}\n`);
+    const { root, bug: mk } = await testingStory("sbrehbusy");
+    const bug = mk();
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    const first = openRunForTask(bug.id)!;
+    updateTask(bug.id, { status: "review" });
+    updateTermSession(root.id, { kind: "autonomous" });
+    expect(await handToFriday(getTask(bug.id)!)).toMatchObject({ status: 409 });
+    const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
+    expect(old.outcome).toBe("pending");
+    expect(old.endedAt).toBeFalsy();
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("卡住的重交：上一轮只收尾，不记打回", async () => {
+    const dir = repo("sbrehblk");
+    writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## sbrehblk\n- 目录：${dir}\n`);
+    const { root, bug: mk } = await testingStory("sbrehblk");
+    const bug = mk();
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    const first = openRunForTask(bug.id)!;
+    updateTask(bug.id, { status: "blocked" });
+    expect("task" in (await handToFriday(getTask(bug.id)!))).toBe(true);
+    const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
+    expect(old.outcome).toBe("pending");
+    expect(old.endedAt).toBeTruthy();
+    expect(openRunForTask(bug.id)!.id).not.toBe(first.id);
+    updateTask(bug.id, { status: "ignored" });
+  });
+});
+

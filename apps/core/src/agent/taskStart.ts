@@ -3,9 +3,8 @@ import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { getTask, updateTask } from "../memory/tasks.js";
-import { pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
+import { finishRun, openRunForTask, pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
 import { clearHanded } from "./handedBugs.js";
-import { closeRunForTask } from "./runLog.js";
 import { handToStorySession, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
@@ -49,12 +48,15 @@ export async function handToFriday(t: Task): Promise<StartResult> {
   if (running?.status === "running") return { error: "这条任务已经在跑了，先关掉那个终端再重新开工", status: 409 };
   const root = resolveRoot(t);
   if (root.id !== t.id && root.stage === "testing") {
-    if (t.source.handedAt) {
-      for (const run of pendingRunsForTask(t.id)) setRunOutcome(run.id, "rejected", "你让它重新修");
-      closeRunForTask(t.id, "report");
-    }
+    const prev = t.source.handedAt ? openRunForTask(t.id) : undefined;
+    const pending = t.source.handedAt && t.status === "review" ? pendingRunsForTask(t.id) : [];
     const h = await handToStorySession(t, root, { trigger: "retry" });
-    if (h === "handed") return { task: getTask(t.id)! };
+    if (h === "handed") {
+      // 卡住的那轮不算被你打回，不进学手册的证据
+      for (const run of pending) setRunOutcome(run.id, "rejected", "你让它重新修");
+      if (prev) finishRun(prev.id, { exit: "report" });
+      return { task: getTask(t.id)! };
+    }
     return { error: { busy: "需求会话里的 Claude 还在跑，等它退出", asking: "需求终端在等你回答它的问题，答完再交", "no-session": "需求会话已不在，先给需求开终端" }[h], status: 409 };
   }
   // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，拿它当任务描述等于什么都没说；

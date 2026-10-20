@@ -7,7 +7,7 @@ import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects, projectDetail } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, tasksUnderRoot, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
 import { state } from "../scheduler/index.js";
@@ -109,14 +109,15 @@ function targetTask(job: Job, args: Record<string, unknown>, strict = false): Ta
   const root = job.sessionId;
   const id = String(args.taskId ?? "").trim();
   if (id) {
-    const hit = tasksByIdPrefix(id).filter((t) => t.source.rootId === root || t.id === root);
+    const own = !job.taskId || job.taskId === root;
+    const hit = tasksByIdPrefix(id).filter((t) => t.source.rootId === root || (own && t.id === root));
     if (hit.length === 1) return hit[0]!;
   }
   if (job.taskId && job.taskId !== root) return taskFor(job);
   const handed = listTasks("processing").filter((t) => t.source.rootId === root && t.source.handedAt);
   if (handed.length === 1) return handed[0]!;
-  // 缺陷收工后迟到的交付不能落到需求卡上
-  const recent = handed.length || !strict ? [] : tasksUnderRoot(root).filter((t) => t.source.handedAt && Date.now() - Date.parse(t.source.handedAt) < RECENT_HANDED_MS);
+  // 认不出是哪条缺陷的交付（缺陷收工后迟到的、同时有几条在修的）不能落到需求卡上
+  const recent = strict ? handedUnderRoot(root).filter((t) => t.source.handedAt && (t.status === "processing" || Date.now() - Date.parse(t.source.handedAt) < RECENT_HANDED_MS)) : [];
   if (recent.length) {
     const list = recent.map((t) => `${t.id.slice(0, 8)}（${t.title.slice(0, 20)}）`).join("、");
     return `没带 taskId，Friday 认不出这次交付是哪条。是需求本身的就填 taskId=${root.slice(0, 8)}；是缺陷的填那条缺陷的 id（最近 24 小时交代过的缺陷：${list}）`;

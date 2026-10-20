@@ -72,10 +72,14 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
  * `fresh`（定时任务重开长期卡）：上一轮是真收工了，结局不改记 reopened（会污染收下率和学手册的证据）；
  * 不接回会话、回待办等开工入口写新 jobId，分支 / worktree 清掉，新一轮从主干起。
  */
+export class ReopenBusyError extends Error {}
+
 export async function reopenTask(id: string, opts: { revive?: boolean; why?: string; fresh?: boolean } = {}): Promise<{ task: Task; terminal: boolean } | undefined> {
   const t = getTask(id);
   if (!t) return undefined;
   if (t.status !== "done" && t.status !== "ignored") return { task: t, terminal: false };
+  // 清掉 jobId 后那一轮退出时就找不到卡、迟到的交付还会把旧 jobId 挂回来
+  if (t.source.handedAt && t.source.jobId && getJob(t.source.jobId)?.status === "running") throw new ReopenBusyError("上一轮还在需求会话里跑，等它退出再重开");
   const before = getTermSession(id);
   // 阶段拖到「已上线」会标 done 却不关终端，不关的话开工入口会接进旧 worktree
   if (opts.fresh && before && before.status !== "closed") {

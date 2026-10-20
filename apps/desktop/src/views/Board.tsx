@@ -316,7 +316,8 @@ function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
   }
   if (t.source.handedAt && t.status === "blocked") {
     const root = all.find((x) => x.id === t.source.rootId);
-    const why = t.progress?.replace(/^卡住：/, "").split(/[。；;\n]/)[0]!.slice(0, 24);
+    const first = t.progress?.replace(/^卡住：/, "").split(/[。；;，\n]/)[0];
+    const why = first && (first.length > 24 ? `${first.slice(0, 24)}…` : first);
     return ["卡住了", root ? `在需求「${root.title.slice(0, 16)}」的会话里` : "在需求的会话里", why].filter(Boolean).join(" · ");
   }
   if (t.source.handedAt && t.status === "review" && t.report) return ["交付了", "等你核验", t.report.verify.length ? `${t.report.verify.length} 个验收点` : ""].filter(Boolean).join(" · ");

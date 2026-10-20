@@ -184,11 +184,11 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
 
 export function tasksByIdPrefix(prefix: string): Task[] {
   if (!/^[0-9a-f-]+$/.test(prefix)) return [];
-  return (db().prepare("SELECT * FROM tasks WHERE id LIKE ? || '%'").all(prefix) as unknown as Row[]).map(toTask);
+  return (db().prepare("SELECT * FROM tasks WHERE id GLOB ? || '*'").all(prefix) as unknown as Row[]).map(toTask);
 }
 
-export function tasksUnderRoot(rootId: string): Task[] {
-  return (db().prepare("SELECT * FROM tasks WHERE json_extract(source, '$.rootId') = ?").all(rootId) as unknown as Row[]).map(toTask);
+export function handedUnderRoot(rootId: string): Task[] {
+  return (db().prepare("SELECT * FROM tasks WHERE source LIKE '%\"handedAt\"%' AND json_extract(source, '$.rootId') = ?").all(rootId) as unknown as Row[]).map(toTask);
 }
 
 export function listTasksWithPriorWorktrees(): Task[] {

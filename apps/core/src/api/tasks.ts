@@ -14,7 +14,7 @@ import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { handToFriday, startTask } from "../agent/taskStart.js";
-import { approvePending, finishTask, rejectTask, reopenTask } from "../agent/pipeline.js";
+import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
@@ -497,8 +497,13 @@ export const tasks = new Hono()
   })
   /** 收工了的任务重新打开；会话被关了但 worktree 还在就接回原来的对话 */
   .post("/tasks/:id/reopen", async (c) => {
-    const r = await reopenTask(c.req.param("id"));
-    return r ? c.json(r) : c.json({ error: "任务不存在" }, 404);
+    try {
+      const r = await reopenTask(c.req.param("id"));
+      return r ? c.json(r) : c.json({ error: "任务不存在" }, 404);
+    } catch (e) {
+      if (e instanceof ReopenBusyError) return c.json({ error: e.message }, 409);
+      throw e;
+    }
   })
   .patch("/tasks/:id", async (c) => {
     const parsed = z
