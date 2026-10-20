@@ -74,7 +74,7 @@ function dueLabel(iso: string): string {
 const isIssue = (t: Task) => taskCategory(t.source) === "defect";
 const isStory = (t: Task) => taskCategory(t.source) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
-const canStart = (t: Task) => !isClosed(t) && !t.source.handedAt && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
+const canStart = (t: Task) => !isClosed(t) && !(t.source.handedAt && t.status === "processing") && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
 /** 交代进需求会话的缺陷：只能再交代一次，不能自己开工（会另开会话、卡住需求的串行名额） */
 const canRehand = (t: Task) => Boolean(t.source.handedAt) && (t.status === "review" || t.status === "blocked");
 /** 还没开工、也不归 Friday 自己做：主区是空态，统筹信息在「详情」弹窗里。周报和手册卡有自己的编辑面，照旧 */
@@ -181,7 +181,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
           />
           {reproject ? (
             <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在会话里说「撤掉」执行</span>
-          ) : !t.project && <span className="fx__meta-dim">{t.autostart && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
+          ) : !t.project && <span className="fx__meta-dim">{t.autostart?.kind === "gate" && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -313,6 +313,11 @@ function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
   if (t.source.handedAt && t.status === "processing") {
     const root = all.find((x) => x.id === t.source.rootId);
     return root ? `在需求「${root.title.slice(0, 16)}」的会话里修` : "在需求的会话里改";
+  }
+  if (t.source.handedAt && t.status === "blocked") {
+    const root = all.find((x) => x.id === t.source.rootId);
+    const why = t.progress?.replace(/^卡住：/, "").split(/[。；;\n]/)[0]!.slice(0, 24);
+    return ["卡住了", root ? `在需求「${root.title.slice(0, 16)}」的会话里` : "在需求的会话里", why].filter(Boolean).join(" · ");
   }
   if (t.source.handedAt && t.status === "review" && t.report) return ["交付了", "等你核验", t.report.verify.length ? `${t.report.verify.length} 个验收点` : ""].filter(Boolean).join(" · ");
   if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
@@ -1186,6 +1191,7 @@ const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发"
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
+  if (t.autostart?.kind === "story") return "先别做 / 这条我来";
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
   if (t.source.handedAt) return "标记完成 / 打回：原因";
