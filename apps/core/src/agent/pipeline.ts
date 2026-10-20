@@ -19,7 +19,7 @@ import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
-import { settleHandedBugs } from "./handedBugs.js";
+import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
 import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
@@ -87,16 +87,22 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   const was = t.source.priorWorktrees ?? [];
   const kept = was.filter((w) => existsSync(w.path));
   const prior = tree && repo && !kept.some((w) => w.path === tree) ? [...kept, { path: tree, repoDir: repo }] : kept;
+  // 交给需求会话修过的缺陷：旧 jobId 是需求会话里早退了的一次 -p，回待办让门禁重新交代
+  const handed = Boolean(t.source.handedAt) && !opts.fresh;
+  const story = handed ? resolveRoot(t) : undefined;
+  const rehand = story && story.id !== t.id && story.stage === "testing";
   const task = updateTask(id, {
-    status: t.source.jobId && !opts.fresh ? "processing" : "understood",
+    status: t.source.jobId && !opts.fresh && !handed ? "processing" : "understood",
     attention: undefined,
     releasedAt: undefined,
     ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(prior.length !== was.length || prior.some((w, i) => w !== was[i]) ? { priorWorktrees: prior } : {}) } } : {}),
+    ...(handed ? { source: { ...clearHanded(t).source, ...(rehand ? { handBackNote: "你在 Friday 里重新打开了它" } : {}) } } : {}),
+    ...(rehand ? { stage: "todo" as const } : {}),
   })!;
   if (!opts.fresh) for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");
   record({ taskId: id, action: "task_reopened", why: opts.why ?? "你重新打开了这条任务", how: `从${t.status === "done" ? "已完成" : "已忽略"}回到${task.status === "processing" ? "进行中" : "待办"}`, evidence: { from: t.status }, risk: "reversible" });
   const s = getTermSession(id);
-  const terminal = Boolean(opts.revive !== false && !opts.fresh && s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
+  const terminal = Boolean(opts.revive !== false && !opts.fresh && !handed && s && s.status === "closed" && t.source.jobId && (await reviveSession(id, t.source.jobId).catch(() => false)));
   return { task: getTask(id)!, terminal };
 }
 
@@ -322,7 +328,8 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
     void handToStorySession(updated, root, { rejected: reason ?? "无说明", trigger: "retry" })
       .then((h) => {
         if (h === "handed") return;
-        updateTask(t.id, { status: "blocked", progress: h === "busy" ? "打回了，但需求会话里的 Claude 还在跑，没能重交，点「交给 Friday 改」再试" : "打回了，但需求会话已不在，没能重交，先给需求开终端" });
+        const why = { busy: "打回了，但需求会话里的 Claude 还在跑，没能重交，点「交给 Friday 改」再试", asking: "打回了，但需求终端在等你回答，没能重交，答完点「交给 Friday 改」", "no-session": "打回了，但需求会话已不在，没能重交，先给需求开终端" }[h];
+        updateTask(t.id, { status: "blocked", progress: why });
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : String(e);
@@ -474,7 +481,7 @@ export async function executePending(
 }
 
 /** 需求在测试中：缺陷交代进需求自己的会话，Claude 活着就敲进去，退出了就在同一个 worktree 里 -p --resume 接回后台跑 */
-export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "no-session"> {
+export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "asking" | "no-session"> {
   const trigger = opts.trigger ?? "autostart";
   const gone = (why: string) => {
     record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
@@ -483,7 +490,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
   const s = getTermSession(root.id);
   if (!s || s.status === "closed" || !s.worktree || !(await hasSession(s.tmuxName))) return gone(`需求「${root.title.slice(0, 24)}」的会话已不在`);
   const project = s.project;
-  const prompt = storyBugPrompt(task, root, project, opts.rejected);
+  const prompt = storyBugPrompt(task, root, project, opts.rejected ?? task.source.handBackNote);
   const alive = s.status === "running" && !(await claudeGone(s));
   if (alive && s.kind !== "interactive") {
     console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 还在跑，等它退出`);
@@ -492,7 +499,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
   // 敲字带回车，会替你选中弹窗里高亮的那个选项
   if (alive && root.attention === "question") {
     console.log(`[story-bug] ${task.title.slice(0, 40)}：需求终端在等你回答，不往里敲`);
-    return "busy";
+    return "asking";
   }
   let run: { id: string; jobId: string };
   if (alive) {
@@ -509,7 +516,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     status: "processing",
     attention: undefined,
     progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
-    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
+    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
   });
   createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger });
   record({
@@ -520,6 +527,6 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "headless" },
     risk: "reversible",
   });
-  state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
+  if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
   return "handed";
 }

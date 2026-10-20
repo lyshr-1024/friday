@@ -12,6 +12,8 @@ import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 import { runsForTask, setRunOutcome } from "../memory/runs.js";
 import { isFridayWork } from "./reproject.js";
+import { clearHanded } from "./handedBugs.js";
+import { resolveRoot } from "./sessions.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
@@ -362,7 +364,11 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
         const { status: _s, ...patch } = input;
         // 阶段也得跟着回退：Friday 里标着「已上线」的活又被打回来了，
         // 留着旧阶段会让卡片显示一个早就不成立的结论。回到「进行中」等你重新判。
-        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source: input.source, stage: "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
+        // 交给需求会话修过的：需求还在测试中就回「未开始」，门禁下一轮把它重新交代进去，带上这句没过的原因
+        const story = existing.source.handedAt ? resolveRoot(existing) : undefined;
+        const rehand = story && story.id !== existing.id && story.stage === "testing";
+        const source = { ...input.source, ...clearHanded(existing).source, ...(rehand ? { handBackNote: `测试在 Meegle 里把它 Reopen 了（${item.status}），上一轮的修法没过` } : {}) };
+        updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source, stage: rehand ? "todo" : "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         // 合进去的改动被打回来了：这是比「被你改过」更强的负信号
         for (const r of runsForTask(existing.id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified") setRunOutcome(r.id, "reopened", `Meegle ${item.status}`);

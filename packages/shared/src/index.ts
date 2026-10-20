@@ -568,6 +568,8 @@ export interface TaskSource {
   autostartOff?: boolean;
   /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */
   handedAt?: string;
+  /** 重开后下一次交代进需求会话时告诉 Claude 上一轮为什么没过，交代完清掉 */
+  handBackNote?: string;
 }
 
 export interface IntakeVerdict {

@@ -2,7 +2,10 @@ import type { Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { getTask } from "../memory/tasks.js";
+import { getTask, updateTask } from "../memory/tasks.js";
+import { pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
+import { clearHanded } from "./handedBugs.js";
+import { closeRunForTask } from "./runLog.js";
 import { handToStorySession, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
@@ -11,7 +14,7 @@ export type StartResult = { task: Task } | { error: string; status: 400 | 409 };
 
 /** 「开始做」：在这条任务的会话里开交互式终端，你自己驱动。任务卡菜单和会话里的 task_start 共用 */
 export async function startTask(t: Task): Promise<StartResult> {
-  if (t.source.handedAt) return { error: "这条缺陷在需求会话里由 Friday 修，要接手就在需求终端里说", status: 409 };
+  if (t.source.handedAt && t.status === "processing") return { error: "这条缺陷在需求会话里由 Friday 修，要接手就在需求终端里说", status: 409 };
   const project = t.project ?? (t.source.rootId ? getTask(t.source.rootId)?.project : undefined);
   if (!project) return { error: "任务没有关联项目，先选个项目", status: 400 };
   const r = resolveProject(project);
@@ -26,8 +29,10 @@ export async function startTask(t: Task): Promise<StartResult> {
     "",
     "先把需求和相关代码读一遍，跟我说你打算怎么改，别急着动手。",
   ].filter(Boolean).join("\n");
+  // 交付过 / 卡住的缺陷你点了开始做：你接手，不再算交给需求会话的
+  const mine = t.source.handedAt ? updateTask(t.id, clearHanded(t))! : t;
   try {
-    return { task: await startInteractiveJob(t, r.project.name, r.project.dir, detail) };
+    return { task: await startInteractiveJob(mine, r.project.name, r.project.dir, detail) };
   } catch (e) {
     if (e instanceof TmuxMissingError) return { error: e.message, status: 400 };
     throw e;
@@ -44,8 +49,13 @@ export async function handToFriday(t: Task): Promise<StartResult> {
   if (running?.status === "running") return { error: "这条任务已经在跑了，先关掉那个终端再重新开工", status: 409 };
   const root = resolveRoot(t);
   if (root.id !== t.id && root.stage === "testing") {
+    if (t.source.handedAt) {
+      for (const run of pendingRunsForTask(t.id)) setRunOutcome(run.id, "rejected", "你让它重新修");
+      closeRunForTask(t.id, "report");
+    }
     const h = await handToStorySession(t, root, { trigger: "retry" });
-    return h === "handed" ? { task: getTask(t.id)! } : { error: h === "busy" ? "需求会话里的 Claude 还在跑，等它退出" : "需求会话已不在，先给需求开终端", status: 409 };
+    if (h === "handed") return { task: getTask(t.id)! };
+    return { error: { busy: "需求会话里的 Claude 还在跑，等它退出", asking: "需求终端在等你回答它的问题，答完再交", "no-session": "需求会话已不在，先给需求开终端" }[h], status: 409 };
   }
   // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，拿它当任务描述等于什么都没说；
   // intake 判过就用它写的描述，其次方案第一行，最后才是标题
