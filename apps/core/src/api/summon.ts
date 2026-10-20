@@ -177,7 +177,7 @@ export const summonApi = new Hono()
       }
       case "mark_done": {
         if (!getTask(action.taskId)) return c.json({ error: "任务不存在" }, 404);
-        await finishTask(action.taskId, "done", "在呼出模式里标记完成");
+        await finishTask(action.taskId, "done", "在呼出模式里标记完成", { withDefects: true });
         return c.json({ ok: true, taskId: action.taskId, message: "已标完成" });
       }
       case "note": {

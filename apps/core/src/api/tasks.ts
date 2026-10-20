@@ -488,11 +488,11 @@ export const tasks = new Hono()
     }
   })
   .post("/tasks/:id/done", async (c) => {
-    const t = await finishTask(c.req.param("id"), "done", "你把任务标记完成");
+    const t = await finishTask(c.req.param("id"), "done", "你把任务标记完成", { withDefects: true });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/:id/ignore", async (c) => {
-    const t = await finishTask(c.req.param("id"), "ignored", "你忽略了这条任务");
+    const t = await finishTask(c.req.param("id"), "ignored", "你忽略了这条任务", { withDefects: true });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
   /** 收工了的任务重新打开；会话被关了但 worktree 还在就接回原来的对话 */

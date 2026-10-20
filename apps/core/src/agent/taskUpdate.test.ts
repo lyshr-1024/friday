@@ -134,3 +134,14 @@ describe("会话里纠正这条任务在哪条分支上做", () => {
     expect(getTask(t.id)!.source.branch).toBeUndefined();
   });
 });
+
+describe("会话里说需求做完了", () => {
+  it("名下缺陷一起标完成，changed 里说清几条", async () => {
+    const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "cs-1" }, status: "understood" });
+    const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "cd-1", linkedStoryId: "cs-1" }, status: "review" });
+    const r = updateTaskFromChat(story.id, { status: "done" })!;
+    expect(r.changed).toContain("名下 1 条缺陷一起标完成");
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(getTask(bug.id)!.status).toBe("done");
+  });
+});

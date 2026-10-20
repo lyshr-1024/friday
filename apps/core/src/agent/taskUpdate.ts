@@ -10,6 +10,7 @@ import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
 import { requestProjectChange } from "./reproject.js";
+import { finishDefectsOf, openDefectsOf } from "./pipeline.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -160,8 +161,11 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
     if (closing) {
-      // 即发即忘：关窗口失败不该挡住任务状态更新（这个函数是同步的）
-      void closeTaskTerminal(task, "用户在会话里说这条任务收工了");
+      const kids = openDefectsOf(task).length;
+      if (kids) changed.push(`名下 ${kids} 条缺陷一起${patch.status === "done" ? "标完成" : "忽略"}`);
+      // 即发即忘：关窗口失败不该挡住任务状态更新（这个函数是同步的）；缺陷先收，见 finishDefectsOf
+      const closed = task;
+      void finishDefectsOf(closed, patch.status as "done" | "ignored").then(() => closeTaskTerminal(closed, "用户在会话里说这条任务收工了"));
     }
   }
 

@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { addPending, findTaskBySource, getTask, updatePending, updateTask } from "../memory/tasks.js";
+import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, jobLog, storyBugPrompt } from "./runner.js";
@@ -60,7 +60,30 @@ function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: strin
   else setRunOutcome(r.id, "merged_as_is", extra === undefined ? "分支已不在，只确认了交付的提交进了主干" : undefined);
 }
 
-export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false } = {}): Promise<Task | undefined> {
+/**
+ * 需求名下还没收工的缺陷。需求一收工 liveRootId 就认不出它，缺陷各自散回列表，
+ * 所以你收需求时要把它们一起收（2026-10-20，用户定）。
+ */
+export function openDefectsOf(story: Task): Task[] {
+  const ids = new Set([...(story.source.meegleId ? [story.source.meegleId] : []), ...(story.source.mergedMeegleIds ?? [])]);
+  return listTasks(["collected", "understood", "processing", "review", "blocked"], 2000).filter(
+    (t) => t.id !== story.id && (t.source.rootId === story.id || Boolean(t.source.linkedStoryId && ids.has(t.source.linkedStoryId))),
+  );
+}
+
+/** 你收需求时名下缺陷跟着收；缺陷先收，否则关需求终端时 settleHandedBugs 会把交代进去的缺陷标成卡住 */
+export async function finishDefectsOf(story: Task, status: "done" | "ignored"): Promise<number> {
+  const kids = openDefectsOf(story);
+  if (!kids.length) return 0;
+  const why = status === "done" ? `你把所属需求「${story.title}」标了完成，名下缺陷一起收` : `你忽略了所属需求「${story.title}」，名下缺陷一起收`;
+  for (const d of kids) await finishTask(d.id, status, why);
+  record({ taskId: story.id, action: "story_defects_finished", why, how: `${kids.length} 条缺陷一起标${status === "done" ? "完成" : "忽略"}，要接着改的单独重新打开`, evidence: { taskIds: kids.map((d) => d.id) }, risk: "reversible" });
+  return kids.length;
+}
+
+export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false, withDefects = false } = {}): Promise<Task | undefined> {
+  const story = withDefects ? getTask(id) : undefined;
+  if (story) await finishDefectsOf(story, status);
   const t = updateTask(id, { status, pending: [], attention: undefined });
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);

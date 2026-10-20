@@ -166,3 +166,24 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
     expect(runsForTask(b.id)[0]?.outcome).toBe("abandoned");
   });
 });
+
+describe("你收需求，名下缺陷跟着收", () => {
+  it("挂在需求下的、交代进需求会话的一起标完成；别的需求的、已收工的不动；Meegle 自动收不级联", async () => {
+    const story = createTask({ title: "新WBO", kind: "meegle", source: { meegleId: "s-100", mergedMeegleIds: ["s-101"], storyContainer: true }, status: "understood" });
+    const a = createTask({ title: "缺陷 A", kind: "meegle", source: { meegleId: "d-1", linkedStoryId: "s-100" }, status: "review" });
+    const b = createTask({ title: "缺陷 B", kind: "meegle", source: { meegleId: "d-2", linkedStoryId: "s-101" }, status: "blocked" });
+    const c = createTask({ title: "缺陷 C", kind: "meegle", source: { meegleId: "d-3", rootId: story.id }, status: "understood" });
+    const other = createTask({ title: "别的需求的缺陷", kind: "meegle", source: { meegleId: "d-4", linkedStoryId: "s-999" }, status: "understood" });
+    const gone = createTask({ title: "早忽略了", kind: "meegle", source: { meegleId: "d-5", linkedStoryId: "s-100" }, status: "ignored" });
+    await finishTask(story.id, "done", "你把任务标记完成", { withDefects: true });
+    expect([a, b, c].map((t) => getTask(t.id)!.status)).toEqual(["done", "done", "done"]);
+    expect(getTask(other.id)!.status).toBe("understood");
+    expect(getTask(gone.id)!.status).toBe("ignored");
+    expect(listAudit({ taskId: story.id }).find((e) => e.action === "story_defects_finished")?.how).toContain("3 条缺陷");
+
+    const story2 = createTask({ title: "需求 2", kind: "meegle", source: { meegleId: "s-200" }, status: "understood" });
+    const d = createTask({ title: "缺陷 D", kind: "meegle", source: { meegleId: "d-6", linkedStoryId: "s-200" }, status: "understood" });
+    await finishTask(story2.id, "done", "「FE 发布」节点已经走完", { keepTerminal: true });
+    expect(getTask(d.id)!.status).toBe("understood");
+  });
+});
