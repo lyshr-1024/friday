@@ -1,6 +1,7 @@
 import { Icon } from "./Icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import type { Attachment, Job, Message, RunResponse } from "@friday/shared";
 import { attachmentUrl, type MentionItem } from "../lib/core";
 
@@ -111,16 +112,18 @@ const isImage = (mime: string) => /^image\/(png|jpe?g|gif|webp)$/.test(mime);
 
 export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRemove?: (id: string) => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState<number>();
   useEffect(() => {
     void Promise.all(items.map(async (a) => [a.id, await attachmentUrl(a.id)] as const)).then((pairs) => setUrls(Object.fromEntries(pairs)));
   }, [items.map((a) => a.id).join(",")]);
   if (!items.length) return null;
+  const images = items.filter((a) => isImage(a.mime) && urls[a.id]).map((a) => ({ name: a.name, url: urls[a.id]! }));
   return (
     <div className="attach">
       {items.map((a) => (
         <div key={a.id} className="attach__item" title={a.name}>
           {isImage(a.mime) && urls[a.id] ? (
-            <a href={urls[a.id]} onClick={(e) => { e.preventDefault(); void openUrl(urls[a.id]!); }}>
+            <a href={urls[a.id]} onClick={(e) => { e.preventDefault(); setOpen(images.findIndex((x) => x.url === urls[a.id])); }}>
               <img className="attach__img" src={urls[a.id]} alt={a.name} />
             </a>
           ) : (
@@ -129,7 +132,58 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
           {onRemove && <button className="attach__x" onClick={() => onRemove(a.id)} aria-label="移除"><Icon name="cross" /></button>}
         </div>
       ))}
+      {open !== undefined && images.length > 0 && <Lightbox images={images} start={open} onClose={() => setOpen(undefined)} />}
     </div>
+  );
+}
+
+function Lightbox({ images, start, onClose }: { images: Array<{ name: string; url: string }>; start: number; onClose: () => void }) {
+  const [i, setI] = useState(start);
+  const [full, setFull] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const go = (d: number) => { setI((x) => (x + d + images.length) % images.length); setFull(false); };
+  const cur = images[i]!;
+
+  useEffect(() => {
+    const opener = document.activeElement;
+    box.current?.focus();
+    return () => { if (opener instanceof HTMLElement) opener.focus(); };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+      if (e.key !== "Escape" && step === undefined && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      // 吞掉方向键：不然底下的任务列表会跟着切
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") onClose();
+      else if (step !== undefined) go(step);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose, images.length]);
+
+  return createPortal(
+    <div className="lbox" role="dialog" aria-modal="true" aria-label="图片预览" tabIndex={-1} ref={box} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="lbox__bar">
+        <span className="lbox__name">{cur.name}</span>
+        <span className="lbox__count mono">{i + 1} / {images.length}</span>
+        <span className="th__sp" />
+        <button className="lbox__btn" onClick={() => void openUrl(cur.url)}>在浏览器打开</button>
+        <button className="lbox__btn" aria-label="关闭" onClick={onClose}><Icon name="cross" /></button>
+      </div>
+      <div className={`lbox__stage${full ? " lbox__stage--full" : ""}`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+        <img key={cur.url} className="lbox__img" src={cur.url} alt={cur.name} title={full ? "点一下缩回窗口大小" : "点一下看原尺寸"} onClick={() => setFull((f) => !f)} />
+      </div>
+      {images.length > 1 && (
+        <>
+          <button className="lbox__nav lbox__nav--prev" aria-label="上一张" onClick={() => go(-1)}><Icon name="chevronRight" /></button>
+          <button className="lbox__nav lbox__nav--next" aria-label="下一张" onClick={() => go(1)}><Icon name="chevronRight" /></button>
+        </>
+      )}
+    </div>,
+    document.body,
   );
 }
 

@@ -144,6 +144,8 @@ export function Modal({ label, title, sub, actions, onClose, className = "", chi
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 弹窗里点开了图片预览：Esc / Tab 归预览（两个都在 window 捕获阶段，弹窗先注册先收到）
+      if (document.querySelector(".lbox")) return;
       if (e.key === "Escape") {
         if (e.isComposing || e.keyCode === 229 || menu.current) return;
         const el = e.target as HTMLElement;
