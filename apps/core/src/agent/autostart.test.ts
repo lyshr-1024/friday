@@ -185,7 +185,6 @@ describe("runningAutonomous", () => {
   });
 });
 
-
 const story = (over: Partial<Task> = {}): Task => ({ id: "root-1", title: "养牛1.2", kind: "meegle", status: "processing", stage: "testing", priority: "normal", createdAt: settled, updatedAt: settled, source: { meegleType: "story", meegleId: "24642659" }, ...over }) as Task;
 const sess = (over: Partial<TermSession> = {}): TermSession => ({ id: "root-1", project: "x", repoDir: "/r", tmuxName: "x", kind: "interactive", status: "running", worktree: "/r-wt", createdAt: settled, updatedAt: settled, ...over }) as TermSession;
 const senv = (root?: Task, s?: TermSession, occupied = false): StoryEnv => ({ root: () => root, session: () => s, occupied: () => occupied });
@@ -208,7 +207,7 @@ describe("testingStoryBug", () => {
     expect(pickStoryBugs([a, b], senv(story(), sess())).map((x) => x.task.id)).toEqual(["b"]);
   });
   it("storyPlan：通过给 kind story；等前一条给 waiting；旧路不受影响", () => {
-    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: true })).toMatchObject({ kind: "story", root: { id: "root-1", title: "养牛1.2" } });
+    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: true }, NOW)).toEqual({ kind: "story", at: new Date(NOW).toISOString(), root: { id: "root-1", title: "养牛1.2" } });
     expect(storyPlan(fresh, { ...senv(story(), sess(), true), enabled: true })).toMatchObject({ kind: "story", waiting: "等前一条修完" });
     expect(storyPlan(fresh, { ...senv(story({ stage: "dev" }), sess()), enabled: true })).toBeUndefined();
     expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: false })).toBeUndefined();

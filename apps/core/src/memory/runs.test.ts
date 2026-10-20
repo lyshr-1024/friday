@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRun, finishRun, openRunForTask, pendingRunsForTask, runByJob, runsForTask, runsSummary, setRunOutcome } from "./runs.js";
 import { closeRunForTask } from "../agent/runLog.js";
+import { db } from "./db.js";
 
 describe("runs 账本", () => {
   it("开工 → 退出 → 结局，一行走完", () => {
@@ -54,5 +55,12 @@ describe("runs 账本", () => {
     closeRunForTask("t1x", "blocked");
     expect(openRunForTask("t1x")).toBeUndefined();
     expect(runsForTask("t1x").find((r) => r.id === "r2")?.exit).toBe("blocked");
+  });
+
+  it("openRunForTask：开工时间相同取后插入的", () => {
+    createRun({ id: "same-a", jobId: "same-a", taskId: "t-same", project: "demo", kind: "story_bug", trigger: "autostart" });
+    createRun({ id: "same-b", jobId: "same-b", taskId: "t-same", project: "demo", kind: "story_bug", trigger: "retry" });
+    db().prepare("UPDATE runs SET started_at = ? WHERE task_id = ?").run("2026-10-20T00:00:00.000Z", "t-same");
+    expect(openRunForTask("t-same")!.id).toBe("same-b");
   });
 });

@@ -74,11 +74,11 @@ const STORY_WAITING: Record<string, string> = {
   "需求会话没有 worktree": SESSION_GONE,
 };
 
-export function storyPlan(t: Task, env: StoryEnv & { enabled: boolean; now?: number }): AutostartPlan | undefined {
+export function storyPlan(t: Task, env: StoryEnv & { enabled: boolean }, now = Date.now()): AutostartPlan | undefined {
   if (!env.enabled) return undefined;
   const root = env.root(t);
   const r = testingStoryBug(t, { ...env, root: () => root });
-  const at = new Date(env.now ?? Date.now()).toISOString();
+  const at = new Date(now).toISOString();
   if (typeof r !== "string") return { kind: "story", at, root: { id: r.root.id, title: r.root.title } };
   const waiting = STORY_WAITING[r];
   return waiting && root ? { kind: "story", at, root: { id: root.id, title: root.title }, waiting } : undefined;
@@ -124,7 +124,7 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
  */
 export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }): AutostartPlan | undefined {
   if (!env.enabled) return undefined;
-  const story = storyPlan(t, { ...defaultStoryEnv, enabled: true, now: env.now });
+  const story = storyPlan(t, { ...defaultStoryEnv, enabled: true }, env.now);
   if (story) return story;
   if (eligible(t, { ...env, now: Number.MAX_SAFE_INTEGER })) return undefined;
   const at = Math.max(env.now, Date.parse(t.createdAt) + AUTOSTART_SETTLE_MS);
@@ -167,7 +167,7 @@ export async function autostartTick(now = Date.now()): Promise<number> {
     try {
       const r = await handToStorySession(task, root);
       if (r === "handed") started++;
-      else console.log(`[autostart] ${task.title.slice(0, 40)}：需求会话${r === "busy" ? "在忙" : "不可用"}，本轮不转交`);
+      else console.log(`[autostart] ${task.title.slice(0, 40)}：需求会话${r === "busy" ? "在忙" : r === "asking" ? "在等你回答" : "不可用"}，本轮不转交`);
     } catch (e) {
       console.warn(`[autostart] ${task.title.slice(0, 40)}：交代进需求会话出错：${e instanceof Error ? e.message : String(e)}`);
     }

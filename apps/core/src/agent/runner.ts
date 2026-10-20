@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
-import { FORBIDDEN, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
+import { FORBIDDEN, MERGE_RULE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
 
@@ -178,7 +178,7 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
 export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, allowMerge = false): string {
-  const rules = allowMerge ? FORBIDDEN.filter(([, why]) => !why.startsWith("合并由")) : FORBIDDEN;
+  const rules = allowMerge ? FORBIDDEN.filter((r) => r !== MERGE_RULE) : FORBIDDEN;
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`

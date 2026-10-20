@@ -94,7 +94,6 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
     expect(t.progress).toBe("需求会话退出了，这条没交付");
     expect(t.pending ?? []).toHaveLength(0);
     expect(runByJob("hj1")!.exit).toBe("no_report");
-    onJobExit("hj1", -1);
   });
 
   it("headless 缺陷会话已不在（-1）：run 记 window_closed", () => {

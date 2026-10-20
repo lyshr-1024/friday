@@ -10,9 +10,11 @@ const gitCmd = (sub: string) => `\\bgit\\s+(?:${GIT_OPT}\\s+)*${sub}`;
 // --dangerously-skip-permissions 会让 settings 里的 permissions.deny 失效，所以走 PreToolUse hook。
 export const PUSH_WHY = "只能推当前功能分支：不许强推（除非用户在 Friday 里授权）、删远端分支、推主干 / 受保护分支或 tag";
 
+export const MERGE_RULE: [pattern: string, why: string] = [`${gitCmd("merge")}\\b`, "合并由 Friday 在你审核通过后执行"];
+
 export const FORBIDDEN: Array<[pattern: string, why: string]> = [
   [`${gitCmd("push")}\\b`, PUSH_WHY],
-  [`${gitCmd("merge")}\\b`, "合并由 Friday 在你审核通过后执行"],
+  MERGE_RULE,
   [`${gitCmd("rebase")}\\b`, "变基会改写历史"],
   [`${gitCmd("reset")}\\s+--hard\\b`, "会丢掉未提交的改动"],
   [`${gitCmd("checkout")}\\s+(main|master)\\b`, "自主任务只在自己的分支上改"],
