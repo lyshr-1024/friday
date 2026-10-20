@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +7,9 @@ import type { StateTransition } from "@friday/shared";
 import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
-import { createJob, getJob } from "../memory/jobs.js";
+import { createJob, getJob, setJobSession } from "../memory/jobs.js";
+import { createRun, openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
+import { transcriptPath } from "./runner.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
@@ -337,5 +339,76 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(getTask(bs[0]!.id)!.status).toBe("blocked");
     expect(getTask(root.id)!.attention).toBeUndefined();
     expect(meegle.calls).toEqual([]);
+  });
+
+  const raw = async (job: string, name: string, args: Record<string, unknown>) =>
+    ((await (await rpc(job, "tools/call", { name, arguments: args })).json()) as { result: { content: Array<{ text: string }>; isError?: boolean } }).result;
+
+  it("用户已收掉的缺陷又收到 friday_progress：卡片进展不动", async () => {
+    const { bs, job } = setup("j");
+    updateTask(bs[0]!.id, { status: "done", progress: "你标完成了" });
+    const text = await call(job, "friday_progress", { taskId: bs[0]!.id.slice(0, 8), text: "还在改" });
+    expect(getTask(bs[0]!.id)!.progress).toBe("你标完成了");
+    expect(text).toContain("用户已经收掉了这条");
+  });
+
+  it("say 路的缺陷进展不写到需求 job 的最后消息上", async () => {
+    const { bs, job } = setup("k");
+    await call(job, "friday_progress", { taskId: bs[0]!.id.slice(0, 8), text: "缺陷的进展" });
+    expect(getTask(bs[0]!.id)!.progress).toBe("缺陷的进展");
+    expect(getJob(job)!.lastMessage).toBeUndefined();
+  });
+
+  it("24 小时内交代过的缺陷都收工了，又来不带 taskId 的交付：回错让 Claude 补 id；补上需求 id 就落到需求", async () => {
+    const { root, bs, job } = setup("l");
+    updateTask(bs[0]!.id, { status: "done" });
+    const r = await raw(job, "friday_done", { summary: "好了", testResult: "过" });
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain(`taskId=${root.id.slice(0, 8)}`);
+    expect(r.content[0]!.text).toContain(bs[0]!.id.slice(0, 8));
+    expect(getTask(root.id)!.report).toBeUndefined();
+    expect(getTask(bs[0]!.id)!.status).toBe("done");
+    await call(job, "friday_done", { taskId: root.id.slice(0, 8), summary: "需求的", testResult: "过" });
+    expect(getTask(root.id)!.report?.summary).toBe("需求的");
+  });
+
+  it("交代已过 24 小时：不带 taskId 的交付照旧落到需求", async () => {
+    const { root, bs, job } = setup("m");
+    updateTask(bs[0]!.id, { status: "done", source: { handedAt: new Date(Date.now() - 25 * 3600_000).toISOString() } });
+    await call(job, "friday_done", { summary: "需求的", testResult: "过" });
+    expect(getTask(root.id)!.report?.summary).toBe("需求的");
+  });
+
+  it("成本：后台那轮收 run 时带它自己的 session，say 路不拿需求的", async () => {
+    const home = mkdtempSync(join(tmpdir(), "friday-home-"));
+    const realHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const wt = mkdtempSync(join(tmpdir(), "friday-wt-"));
+      const cost = (sid: string, usd: number) => {
+        const p = transcriptPath(wt, sid);
+        mkdirSync(join(p, ".."), { recursive: true });
+        writeFile(p, JSON.stringify({ type: "cost-state", totalCostUSD: usd, modelUsage: { "claude-opus-5": { costUSD: usd } } }) + "\n");
+      };
+      const { root, bs, job } = setup("n", 2);
+      setJobSession(job, "sess-root-n");
+      cost("sess-root-n", 9);
+      const [say, bg] = bs as [typeof bs[0], typeof bs[0]];
+      updateTask(say.id, { source: { worktree: wt } });
+      createRun({ id: "say-n", jobId: `${job}#x`, taskId: say.id, project: "demo", kind: "story_bug", trigger: "autostart" });
+      await call(job, "friday_done", { taskId: say.id.slice(0, 8), summary: "好了", testResult: "过" });
+      expect(runsForTask(say.id)[0]!.costUsd).toBeUndefined();
+
+      createJob({ id: "job-bg-n", project: "demo", dir: wt, task: "x", logPath: "/tmp/x.log", taskId: bg.id, sessionId: root.id });
+      setJobSession("job-bg-n", "sess-bg-n");
+      cost("sess-bg-n", 1.5);
+      updateTask(bg.id, { source: { worktree: wt, jobId: "job-bg-n" } });
+      createRun({ id: "job-bg-n", jobId: "job-bg-n", taskId: bg.id, project: "demo", kind: "story_bug", trigger: "autostart" });
+      await call("job-bg-n", "friday_done", { summary: "好了", testResult: "过" });
+      expect(runByJob("job-bg-n")).toMatchObject({ costUsd: 1.5, exit: "report" });
+      expect(openRunForTask(bg.id)).toBeUndefined();
+    } finally {
+      process.env.HOME = realHome;
+    }
   });
 });

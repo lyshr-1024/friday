@@ -7,7 +7,7 @@ import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
 import { loadProjects, projectDetail } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, tasksUnderRoot, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
 import { state } from "../scheduler/index.js";
@@ -101,16 +101,27 @@ function taskFor(job: Job): Task {
 
 const closed = (t: Task) => t.status === "done" || t.status === "ignored";
 
-function targetTask(job: Job, args: Record<string, unknown>): Task {
+const RECENT_HANDED_MS = 24 * 3600_000;
+
+/** 需求会话里的交付归给哪条任务。返回字符串 = 认不出，原样回给 Claude 让它补 taskId */
+function targetTask(job: Job, args: Record<string, unknown>, strict = false): Task | string {
   if (!job.sessionId) return taskFor(job);
+  const root = job.sessionId;
   const id = String(args.taskId ?? "").trim();
   if (id) {
-    const hit = listTasks(undefined, 1000).filter((t) => t.source.rootId === job.sessionId && t.id.startsWith(id));
+    const hit = tasksByIdPrefix(id).filter((t) => t.source.rootId === root || t.id === root);
     if (hit.length === 1) return hit[0]!;
   }
-  if (job.taskId && job.taskId !== job.sessionId) return taskFor(job);
-  const handed = listTasks("processing").filter((t) => t.source.rootId === job.sessionId && t.source.handedAt);
-  return handed.length === 1 ? handed[0]! : taskFor(job);
+  if (job.taskId && job.taskId !== root) return taskFor(job);
+  const handed = listTasks("processing").filter((t) => t.source.rootId === root && t.source.handedAt);
+  if (handed.length === 1) return handed[0]!;
+  // 缺陷收工后迟到的交付不能落到需求卡上
+  const recent = handed.length || !strict ? [] : tasksUnderRoot(root).filter((t) => t.source.handedAt && Date.now() - Date.parse(t.source.handedAt) < RECENT_HANDED_MS);
+  if (recent.length) {
+    const list = recent.map((t) => `${t.id.slice(0, 8)}（${t.title.slice(0, 20)}）`).join("、");
+    return `没带 taskId，Friday 认不出这次交付是哪条。是需求本身的就填 taskId=${root.slice(0, 8)}；是缺陷的填那条缺陷的 id（最近 24 小时交代过的缺陷：${list}）`;
+  }
+  return taskFor(job);
 }
 
 function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress", message = true): void {
@@ -276,13 +287,16 @@ export function terminalAnswered(jobId: string): void {
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };
-  const task = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args) : taskFor(job);
+  const target = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args, name !== "friday_progress") : taskFor(job);
+  if (typeof target === "string") return { text: target, isError: true };
+  const task = target;
 
   if (name === "friday_context") return { text: contextFor(task, job) };
 
   if (name === "friday_progress") {
     const text = String(args.text ?? "").trim().slice(0, 300);
     if (!text) return { text: "text 不能为空", isError: true };
+    if (task.source.handedAt && closed(task)) return { text: `用户已经收掉了这条，不用再做。${lang()}` };
     // 分支是关联 Meegle / Slack / 浏览器的钥匙，它没报就自己去读
     const dir = task.source.worktree ?? task.source.repoDir ?? job.dir;
     const branch = task.source.handedAt ? "" : String(args.branch ?? "").trim() || (dir ? currentBranchSync(dir) : "");
@@ -290,7 +304,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     updateTask(task.id, { progress: text, attention: undefined, ...(branch ? { source: { branch } } : {}) });
     // 分支起好了就是真的动手了，这条信号本机可查，直接推到「进行中」
     if (branch) onSignal(task.id, { signal: "branch_commit", to: "dev", ask: "开始动手了？", why: `终端在 ${branch} 上干活` });
-    setJobMessage(jobId, text);
+    // say 路的缺陷借的是需求的 job，进展别写到需求的最后消息上
+    if (!(task.source.handedAt && job.taskId !== task.id)) setJobMessage(jobId, text);
     return { text: `记下了，用户能在任务卡上看到。${lang()}` };
   }
 
