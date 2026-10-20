@@ -82,6 +82,7 @@ export function migrate(d: DatabaseSync): void {
   const runCols = (d.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!runCols.includes("diff_files")) d.exec("ALTER TABLE runs ADD COLUMN diff_files TEXT");
   if (!runCols.includes("diff_base")) d.exec("ALTER TABLE runs ADD COLUMN diff_base TEXT");
+  if (!runCols.includes("cost_base")) d.exec("ALTER TABLE runs ADD COLUMN cost_base REAL");
   const taskCols = (d.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!taskCols.includes("attention")) d.exec("ALTER TABLE tasks ADD COLUMN attention TEXT");
   if (!taskCols.includes("pinned")) d.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");

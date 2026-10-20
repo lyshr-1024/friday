@@ -930,6 +930,8 @@ export interface RunRecord {
   /** 比的是哪个主干（main / master） */
   diffBase?: string;
   costUsd?: number;
+  /** headless 接回需求会话时 fork 出来的 transcript 带着需求会话的累计成本，记下当时的值，本行只记增量 */
+  costBase?: number;
   model?: string;
   outcome: RunOutcome;
   outcomeAt?: string;

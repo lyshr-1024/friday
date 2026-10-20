@@ -26,6 +26,7 @@ interface Row {
   diff_files: string | null;
   diff_base: string | null;
   cost_usd: number | null;
+  cost_base: number | null;
   model: string | null;
   outcome: RunOutcome;
   outcome_at: string | null;
@@ -51,6 +52,7 @@ const toRun = (r: Row): RunRecord => ({
   ...(r.diff_files ? { diffFiles: JSON.parse(r.diff_files) as DiffFile[] } : {}),
   ...(r.diff_base ? { diffBase: r.diff_base } : {}),
   ...(r.cost_usd !== null ? { costUsd: r.cost_usd } : {}),
+  ...(r.cost_base !== null ? { costBase: r.cost_base } : {}),
   ...(r.model ? { model: r.model } : {}),
   outcome: r.outcome,
   ...(r.outcome_at ? { outcomeAt: r.outcome_at } : {}),
@@ -63,11 +65,11 @@ const getRun = (id: string): RunRecord | undefined => {
 };
 
 export function createRun(
-  r: Pick<RunRecord, "id" | "jobId" | "taskId" | "project" | "kind" | "trigger"> & { intakeConfidence?: number; at?: string },
+  r: Pick<RunRecord, "id" | "jobId" | "taskId" | "project" | "kind" | "trigger"> & { intakeConfidence?: number; at?: string; costBase?: number },
 ): RunRecord {
   db()
-    .prepare("INSERT INTO runs (id, job_id, task_id, project, kind, trigger, intake_confidence, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(r.id, r.jobId, r.taskId, r.project, r.kind, r.trigger, r.intakeConfidence ?? null, r.at ?? new Date().toISOString());
+    .prepare("INSERT INTO runs (id, job_id, task_id, project, kind, trigger, intake_confidence, started_at, cost_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(r.id, r.jobId, r.taskId, r.project, r.kind, r.trigger, r.intakeConfidence ?? null, r.at ?? new Date().toISOString(), r.costBase ?? null);
   return getRun(r.id)!;
 }
 

@@ -19,6 +19,7 @@ import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
+import { sessionCost } from "./transcript.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -506,12 +507,15 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     return "asking";
   }
   let run: { id: string; jobId: string };
+  let costBase: number | undefined;
   if (alive) {
     if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
     run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
   } else {
     const id = randomUUID();
     const job = s.jobId ? getJob(s.jobId) : undefined;
+    // --fork-session 的 transcript 带着需求会话的累计成本
+    costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
     const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, allowMerge: true, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId, forkSession: true } : {}) }, task.id);
     if (!ok) return gone("需求会话里起不了新的运行");
     run = { id, jobId: id };
@@ -522,7 +526,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
     source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
   });
-  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger });
+  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger, ...(costBase !== undefined ? { costBase } : {}) });
   record({
     taskId: task.id,
     action: trigger === "autostart" ? "autostart" : "retry",

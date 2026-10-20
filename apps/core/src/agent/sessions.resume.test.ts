@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
@@ -11,7 +12,9 @@ import { config } from "../config.js";
 import { db } from "../memory/db.js";
 import { app } from "../api/index.js";
 import { setPsRunner, setTmuxRunner } from "./tmux.js";
-import { setClaudeFinder } from "./runner.js";
+import { setClaudeFinder, transcriptPath } from "./runner.js";
+import { closeRunForTask, fillRunCost } from "./runLog.js";
+import { createRun } from "../memory/runs.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
 import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "./pipeline.js";
 import { syncMeegleOnce } from "./meegle.js";
@@ -607,6 +610,67 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     expect(old.endedAt).toBeTruthy();
     expect(openRunForTask(bug.id)!.id).not.toBe(first.id);
     updateTask(bug.id, { status: "ignored" });
+  });
+});
+
+describe("headless 交接的成本只记本轮增量", () => {
+  const costLine = (usd: number, model = "claude-opus-5") => JSON.stringify({ type: "cost-state", totalCostUSD: usd, modelUsage: { [model]: { costUSD: usd } } });
+  const transcript = (dir: string, sid: string, lines: string[]) => {
+    const p = transcriptPath(dir, sid);
+    mkdirSync(join(p, ".."), { recursive: true });
+    writeFileSync(p, lines.join("\n") + "\n");
+  };
+
+  it("fork 出来的 transcript 带着需求会话的累计成本：缺陷那行只记差额；没有基线的照旧记全额", async () => {
+    const realHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "friday-home-"));
+    try {
+      const { root, rootJobId, bug: mk, wt } = await testingStory("sbcost");
+      setJobSession(rootJobId, "sess-story");
+      updateTermSession(root.id, { status: "exited" });
+      const story = costLine(2, "claude-haiku-4-5");
+      transcript(wt, "sess-story", [story]);
+      const bug = mk();
+      expect(await handToStorySession(bug, root)).toBe("handed");
+      const jobId = getTask(bug.id)!.source.jobId!;
+      expect(runByJob(jobId)!.costBase).toBe(2);
+      setJobSession(jobId, "sess-fork");
+      transcript(wt, "sess-fork", [story, costLine(2.75)]);
+      closeRunForTask(bug.id, "report", wt, "sess-fork");
+      expect(runByJob(jobId)!.costUsd).toBeCloseTo(0.75);
+
+      const plain = createTask({ title: "普通", kind: "verbal", source: {}, status: "processing" });
+      createRun({ id: "plain-cost", jobId: "plain-cost", taskId: plain.id, project: "sbcost", kind: "autonomous", trigger: "retry" });
+      closeRunForTask(plain.id, "report", wt, "sess-fork");
+      expect(runByJob("plain-cost")!.costUsd).toBeCloseTo(2.75);
+      updateTask(bug.id, { status: "ignored" });
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("交付时成本还没落盘：退出后补的那次也减掉基线", async () => {
+    const realHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "friday-home-"));
+    try {
+      const { root, rootJobId, bug: mk, wt } = await testingStory("sbcost2");
+      setJobSession(rootJobId, "sess-story2");
+      updateTermSession(root.id, { status: "exited" });
+      const story = costLine(1.5);
+      transcript(wt, "sess-story2", [story]);
+      const bug = mk();
+      expect(await handToStorySession(bug, root)).toBe("handed");
+      const jobId = getTask(bug.id)!.source.jobId!;
+      setJobSession(jobId, "sess-fork2");
+      closeRunForTask(bug.id, "report", wt, "sess-fork2");
+      expect(runByJob(jobId)!.costUsd).toBeUndefined();
+      transcript(getJob(jobId)!.dir, "sess-fork2", [story, costLine(1.9)]);
+      fillRunCost(jobId);
+      expect(runByJob(jobId)!.costUsd).toBeCloseTo(0.4);
+      updateTask(bug.id, { status: "ignored" });
+    } finally {
+      process.env.HOME = realHome;
+    }
   });
 });
 

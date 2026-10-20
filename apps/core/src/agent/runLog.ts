@@ -5,20 +5,20 @@ import { createRun, finishRun, openRunForTask, roundCostSoFar, runByJob, setRunC
 import { currentBranchSync, diffStatSync, headShaSync } from "./git.js";
 import { sessionCost } from "./transcript.js";
 
-function snapshot(dir: string, sessionId: string | undefined) {
+function snapshot(dir: string, sessionId: string | undefined, costBase = 0) {
   const cost = sessionCost(dir, sessionId);
   return {
     branch: currentBranchSync(dir) || undefined,
     tipSha: headShaSync(dir) || undefined,
     ...(diffStatSync(dir) ?? {}),
-    ...(cost ? { costUsd: cost.costUsd, model: cost.model } : {}),
+    ...(cost ? { costUsd: Math.max(0, cost.costUsd - costBase), model: cost.model } : {}),
   };
 }
 
 export function closeRunForTask(taskId: string, exit: RunExit, dir?: string, claudeSessionId?: string): void {
   const run = openRunForTask(taskId);
   if (!run) return;
-  finishRun(run.id, { exit, ...(dir ? snapshot(dir, claudeSessionId) : {}) });
+  finishRun(run.id, { exit, ...(dir ? snapshot(dir, claudeSessionId, run.costBase) : {}) });
 }
 
 /** 自主任务 / 后台查询收尾：一个 job 只收一次，先到的那个口径算数（friday_done 之后的进程退出不覆盖）。 */
@@ -26,7 +26,7 @@ export function closeRun(jobId: string, exit: RunExit): void {
   const run = runByJob(jobId);
   const job = getJob(jobId);
   if (!run || run.endedAt || !job) return;
-  finishRun(run.id, { exit, ...snapshot(job.dir, job.claudeSessionId) });
+  finishRun(run.id, { exit, ...snapshot(job.dir, job.claudeSessionId, run.costBase) });
 }
 
 /** 交互式终端的一轮交付。transcript 里的成本是整段会话累计的，这里只记这一轮新增的那部分。 */
@@ -46,5 +46,5 @@ export function fillRunCost(jobId: string): void {
   const job = getJob(jobId);
   if (!run || run.costUsd !== undefined || !job) return;
   const cost = sessionCost(job.dir, job.claudeSessionId);
-  if (cost) setRunCost(run.id, cost.costUsd, cost.model);
+  if (cost) setRunCost(run.id, Math.max(0, cost.costUsd - (run.costBase ?? 0)), cost.model);
 }
