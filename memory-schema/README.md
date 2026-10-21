@@ -7,6 +7,7 @@
 ├── projects.md      # 项目注册表：名称、代码目录、当前状态
 ├── decisions.md     # 决策记录：日期 + 一句话结论
 ├── people.md        # 人物：谁负责什么、怎么联系
+├── knowledge/       # 生成物：每个项目一份功能知识库（数据在 todos.db 的 features 表，手改会被覆盖）
 ├── todos.db         # SQLite：待办、同步状态、会话日志（schema 见 todos.sql）
 └── logs/            # 运行日志，按天滚动
 ```
