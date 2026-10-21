@@ -1,3 +1,4 @@
+import { restoreFeatures, writeKnowledge } from "../memory/features.js";
 import { Hono } from "hono";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -600,6 +601,11 @@ export const tasks = new Hono()
     }
     if (plan.kind === "delete_research") {
       if (!deleteResearchNote(plan.file)) return c.json({ error: "笔记已经不在了" }, 409);
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_features") {
+      for (const project of restoreFeatures(plan.snapshot)) writeKnowledge(project);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

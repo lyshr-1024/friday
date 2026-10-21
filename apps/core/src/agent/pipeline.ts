@@ -20,6 +20,7 @@ import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { sessionCost } from "./transcript.js";
+import { learnFromTask } from "./knowledge.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -85,6 +86,7 @@ export async function finishTask(id: string, status: "done" | "ignored", why: st
   const story = withDefects ? getTask(id) : undefined;
   if (story) await finishDefectsOf(story, status);
   const t = updateTask(id, { status, pending: [], attention: undefined });
+  if (t && status === "done") void learnFromTask(t).catch((e) => console.warn("[knowledge]", e));
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
