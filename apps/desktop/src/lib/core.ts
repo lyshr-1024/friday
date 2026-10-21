@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -580,6 +580,25 @@ export async function projectOverview(name: string): Promise<ProjectOverview> {
   const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/overview`);
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `读不到项目概览（${res.status}）`);
   return res.json();
+}
+
+const errOf = async (res: Response, fallback: string): Promise<Error> => new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${fallback}（${res.status}）`);
+
+export async function projectKnowledge(name: string): Promise<ProjectKnowledge> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/knowledge`);
+  if (!res.ok) throw await errOf(res, "读不到知识库");
+  return res.json();
+}
+
+export async function bootstrapKnowledge(name: string): Promise<{ taskId: string; jobId: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/projects/${encodeURIComponent(name)}/knowledge/bootstrap`, { method: "POST" });
+  if (!res.ok) throw await errOf(res, "开不了扫描");
+  return res.json();
+}
+
+export async function removeFeature(id: string): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/features/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw await errOf(res, "删不掉");
 }
 
 export async function projectList(): Promise<Array<{ name: string; dir: string }>> {

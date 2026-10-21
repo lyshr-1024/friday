@@ -5385,6 +5385,30 @@ label.hbr__item { cursor: default; }
 .pj__bar { flex: none; display: flex; align-items: center; gap: var(--s-2); padding: 0 2px 6px; font-size: var(--t-xs); color: var(--fg-2); }
 .pj__termbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
+.kb { display: flex; flex-direction: column; gap: var(--s-1); }
+.kb__head { display: flex; align-items: center; gap: var(--s-2); min-height: 24px; }
+.kb__head .b { height: 24px; font-size: var(--t-xs); }
+.kb__scan { display: inline-flex; align-items: center; gap: var(--s-2); padding: 0 6px; font-size: var(--t-xs); color: var(--live); }
+.kb__spin { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--live-dim); border-top-color: var(--live); animation: spin 0.8s linear infinite; }
+.kb__row { display: flex; align-items: center; gap: var(--s-3); padding: 5px 8px; border-radius: var(--r-sm); font-size: var(--t-sm); color: var(--fg-2); cursor: default; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.kb__row:hover, .kb__row[aria-expanded="true"] { background: var(--bg-4); color: var(--fg-1); }
+.kb__row:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.kb__name { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb__where { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: var(--t-xs); }
+.kb__paths { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-4); font-size: var(--t-xs); }
+.kb__n { flex: none; color: var(--fg-4); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.kb__del { flex: none; padding: 0 6px; height: 20px; border: none; border-radius: var(--r-sm); background: none; color: var(--fg-3); font: inherit; font-size: var(--t-xs); cursor: default; opacity: 0; transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease); }
+.kb__row:hover .kb__del, .kb__del:focus-visible, .kb__del.is-armed { opacity: 1; }
+.kb__del:hover, .kb__del.is-armed { color: var(--bad); }
+.kb__del:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.kb__detail { display: flex; flex-direction: column; gap: var(--s-1); margin: 2px 0 var(--s-2); padding: var(--s-2) 8px; border-left: 1px solid var(--line-2); font-size: var(--t-xs); color: var(--fg-2); line-height: 1.6; }
+.kb__k { display: inline-block; min-width: 4em; margin-right: var(--s-2); color: var(--fg-4); }
+.kb__hist { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s-1); padding-top: var(--s-2); border-top: 1px solid var(--line-1); }
+.kb__h { display: flex; gap: var(--s-3); align-items: baseline; }
+.kb__h-at { flex: none; color: var(--fg-4); font-variant-numeric: tabular-nums; }
+.kb__h-what { min-width: 0; text-align: left; }
+button.kb__h-what { padding: 0; border: none; background: none; font: inherit; cursor: default; }
+
 /* ---------- 顶栏「N 个终端」点开的列表 ---------- */
 .tlist__wrap { position: relative; }
 .tlist { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px; border-radius: 10px; border: 1px solid rgba(56, 214, 255, 0.22); background: rgba(10, 16, 24, 0.98); box-shadow: var(--shadow-pop); }
