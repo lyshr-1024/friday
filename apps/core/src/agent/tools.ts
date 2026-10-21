@@ -64,7 +64,10 @@ export const fridayToolList = (conversationId?: string) => [
         const hb = /^handbook:(.+)$/.exec(file);
         if (hb) return text(readHandbook(hb[1]!) || `（没有 ${hb[1]} 的手册，现有：${listHandbooks().join("、") || "一份都没有"}）`);
         const kb = /^knowledge:(.+)$/.exec(file);
-        if (kb) return text(readKnowledge(kb[1]!) || `（没有 ${kb[1]} 的知识库，现有：${listKnowledge().join("、") || "一份都没有"}；项目页可以点「建知识库」）`);
+        if (kb) {
+          const body = readKnowledge(kb[1]!);
+          return text(body ? untrusted("knowledge", body) : `（没有 ${kb[1]} 的知识库，现有：${listKnowledge().join("、") || "一份都没有"}；项目页可以点「建知识库」）`);
+        }
         if (file === "research") return text(listResearchNotes().join("\n") || "（还没存过笔记）");
         const rs = /^research:(.+)$/.exec(file);
         if (rs) return text(readResearchByName(rs[1]!) || `（没有这份笔记，用 memory_read research 看有哪些）`);

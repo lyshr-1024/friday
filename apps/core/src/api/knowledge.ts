@@ -25,7 +25,7 @@ export const knowledge = new Hono()
     if (!f) return c.json({ error: "没有这个功能" }, 404);
     const history = featureHistory(f.id);
     deleteFeature(f.id);
-    writeKnowledge(f.project);
     record({ action: "feature_deleted", why: "你在项目页的知识库里删了它", how: `${f.project} · ${f.name}`, evidence: { feature: f, history }, risk: "irreversible" });
+    writeKnowledge(f.project);
     return c.json({ ok: true });
   });

@@ -162,11 +162,9 @@ export function restoreFeatures(s: FeaturesSnapshot): string[] {
   }
   d.exec("BEGIN");
   try {
-    for (const id of s.added) {
-      d.prepare("DELETE FROM feature_history WHERE feature_id = ?").run(id);
-      d.prepare("DELETE FROM features WHERE id = ?").run(id);
-    }
     for (const id of s.historyIds) d.prepare("DELETE FROM feature_history WHERE id = ?").run(id);
+    // 之后别的任务往这个功能上记过历史，功能就留着
+    for (const id of s.added) d.prepare("DELETE FROM features WHERE id = ? AND NOT EXISTS (SELECT 1 FROM feature_history WHERE feature_id = ?)").run(id, id);
     const up = d.prepare("INSERT OR REPLACE INTO features (id, project, name, aliases, where_, paths, routes, owners, summary, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (const f of s.features) up.run(f.id, f.project, f.name, f.aliases, f.where_, f.paths, f.routes, f.owners, f.summary, f.origin, f.created_at, f.updated_at);
     d.exec("COMMIT");

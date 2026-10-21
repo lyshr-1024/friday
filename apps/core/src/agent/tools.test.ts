@@ -24,7 +24,7 @@ describe("Friday MCP server", () => {
   it("memory_read knowledge:<项目> 读整份，没有时列出有知识库的项目", async () => {
     const f = createFeature("p-tk", { name: "对账单", where: "资金 › 对账" }, "task");
     writeKnowledge("p-tk");
-    expect(await call("memory_read", { file: "knowledge:p-tk" })).toContain("## 对账单");
+    expect(await call("memory_read", { file: "knowledge:p-tk" })).toMatch(/^<untrusted source="knowledge">[\s\S]*## 对账单[\s\S]*<\/untrusted>$/);
     const none = await call("memory_read", { file: "knowledge:p-none" });
     expect(none).toContain("没有 p-none 的知识库");
     expect(none).toContain("p-tk");

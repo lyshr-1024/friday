@@ -8,6 +8,11 @@ import { listAudit } from "../memory/audit.js";
 import { addFeatureHistory, createFeature, listFeatures, readKnowledge, writeKnowledge } from "../memory/features.js";
 import { knowledge } from "./knowledge.js";
 
+vi.mock("../memory/features.js", async (orig) => {
+  const m = await orig<typeof import("../memory/features.js")>();
+  return { ...m, writeKnowledge: vi.fn(m.writeKnowledge) };
+});
+
 vi.mock("../agent/knowledgeBootstrap.js", async (orig) => ({
   ...(await orig<typeof import("../agent/knowledgeBootstrap.js")>()),
   startKnowledgeBootstrap: vi.fn(async (name: string) => {
@@ -67,5 +72,14 @@ describe("/features/:id", () => {
     expect(ev).toMatchObject({ risk: "irreversible", reversible: false });
     expect((ev!.evidence as { history: unknown[] }).history).toHaveLength(1);
     expect((await knowledge.request(`/features/${f.id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("DELETE 渲染文件出错也先把证据记下（删掉的内容只剩账上这一份）", async () => {
+    const f = createFeature("kb-del2", { name: "资金流水" }, "task");
+    vi.mocked(writeKnowledge).mockImplementationOnce(() => {
+      throw new Error("磁盘满了");
+    });
+    expect((await knowledge.request(`/features/${f.id}`, { method: "DELETE" })).status).toBe(500);
+    expect(listAudit({ limit: 20 }).find((e) => e.action === "feature_deleted" && (e.evidence as { feature?: { id: string } }).feature?.id === f.id)).toBeTruthy();
   });
 });

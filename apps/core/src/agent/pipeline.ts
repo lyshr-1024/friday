@@ -21,7 +21,7 @@ import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { sessionCost } from "./transcript.js";
-import { learnFromTask } from "./knowledge.js";
+import { onTaskDone } from "./knowledge.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -84,10 +84,10 @@ export async function finishDefectsOf(story: Task, status: "done" | "ignored"): 
 }
 
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false, withDefects = false } = {}): Promise<Task | undefined> {
-  const story = withDefects ? getTask(id) : undefined;
-  if (story) await finishDefectsOf(story, status);
+  const before = getTask(id);
+  if (before && withDefects) await finishDefectsOf(before, status);
   const t = updateTask(id, { status, pending: [], attention: undefined });
-  if (t && status === "done") void learnFromTask(t).catch((e) => console.warn("[knowledge]", e));
+  if (before && t) onTaskDone(before, t);
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
@@ -514,6 +514,7 @@ export async function executePending(
   const t = getTask(taskId)!;
   if (t.pending?.length) return t;
   const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  onTaskDone(t, done);
   await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
 }

@@ -1,4 +1,4 @@
-import type { Feature, Task } from "@friday/shared";
+import { isQueryTask, type Feature, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { addFeatureHistory, createFeature, findFeatureByName, hasHistoryFor, listFeatures, matchFeatures, mergeFeature, writeKnowledge } from "../memory/features.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
@@ -80,20 +80,24 @@ export async function finishBootstrap(task: Task, jobId: string, exitCode: numbe
   const since = new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString();
   let filled = 0;
   for (const t of listTasks("done", 5000)) {
-    if (t.project !== project || t.kind === "project" || t.updatedAt < since) continue;
+    if (t.project !== project || t.kind === "project" || isQueryTask(t.source) || t.updatedAt < since) continue;
     const f = matchFeatures(project, t.title, 1)[0];
     if (!f || hasHistoryFor(f.id, t.id)) continue;
     addFeatureHistory({ featureId: f.id, taskId: t.id, at: t.updatedAt, what: t.title, files: [] });
     filled++;
   }
-  setCursor(BOOTSTRAP_KEY(project), new Date().toISOString());
+  const features = listFeatures(project);
+  const startedAt = getJob(jobId)?.startedAt;
+  const ingested = !!startedAt && features.some((f) => f.updatedAt >= startedAt);
+  // 异常退出又一条没报上来，算没扫过，项目页照旧给「建知识库」
+  if (exitCode === 0 || ingested) setCursor(BOOTSTRAP_KEY(project), new Date().toISOString());
   writeKnowledge(project);
-  const total = listFeatures(project).length;
+  const total = features.length;
   record({
     taskId: task.id,
     action: "knowledge_bootstrapped",
     why: `${project} 的知识库扫完了`,
-    how: `共 ${total} 条功能，补了 ${filled} 条历史${exitCode === 0 ? "" : "；会话异常退出，已入库的照留"}`,
+    how: `共 ${total} 条功能，补了 ${filled} 条历史${exitCode === 0 ? "" : ingested ? "；会话异常退出，已入库的照留" : "；会话异常退出，一条都没报上来，没记成扫过"}`,
     evidence: { jobId, project, exitCode, features: total, history: filled },
     risk: "reversible",
     status: exitCode === 0 ? "done" : "failed",

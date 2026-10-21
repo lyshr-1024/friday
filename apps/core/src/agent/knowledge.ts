@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
-import type { Feature, FeatureOwners, Task } from "@friday/shared";
+import { isQueryTask, type Feature, type FeatureOwners, type Task } from "@friday/shared";
 import { config } from "../config.js";
 import { record } from "../memory/audit.js";
 import { addFeatureHistory, createFeature, findFeatureByName, getFeature, listFeatures, mergeFeature, snapshotFeatures, writeKnowledge, type FeatureInput, type FeaturesSnapshot } from "../memory/features.js";
@@ -63,7 +63,7 @@ export function learnPrompt(task: Task, files: string[], candidates: Feature[]):
     .filter(Boolean)
     .join("\n");
   const cand = candidates.length ? candidates.map((f) => `${f.id} · ${f.name} · ${f.aliases.join("/")} · ${f.paths.join("、")}`).join("\n") : "（还没有）";
-  const prompt = [untrusted("task", body), `改动文件：\n${files.join("\n") || "（无）"}`, `候选功能：\n${cand}`].join("\n\n");
+  const prompt = [untrusted("task", body), `改动文件：\n${untrusted("files", files.join("\n") || "（无）")}`, `候选功能：\n${untrusted("knowledge", cand)}`].join("\n\n");
   return { system, prompt };
 }
 
@@ -134,7 +134,7 @@ async function defaultAsk(system: string, prompt: string): Promise<string> {
 }
 
 export async function learnFromTask(task: Task, ask = defaultAsk): Promise<FeaturesSnapshot | undefined> {
-  if (task.status !== "done" || !task.project) return undefined;
+  if (task.status !== "done" || !task.project || task.kind === "project" || isQueryTask(task.source)) return undefined;
   const project = loadProjects().find((p) => p.name === task.project);
   if (!project || !(task.source.branch || task.report)) return undefined;
   const files = changedFiles(task);
@@ -153,4 +153,9 @@ export async function learnFromTask(task: Task, ask = defaultAsk): Promise<Featu
     undo: { kind: "restore_features", snapshot },
   });
   return snapshot;
+}
+
+export function onTaskDone(before: Task, after: Task): void {
+  if (before.status === "done" || after.status !== "done") return;
+  void learnFromTask(after).catch((e) => console.warn("[knowledge]", e));
 }

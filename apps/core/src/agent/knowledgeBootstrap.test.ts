@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { config } from "../config.js";
+import { listAudit } from "../memory/audit.js";
 import { getCursor } from "../memory/inbox.js";
 import { db } from "../memory/db.js";
-import { createFeature, featureHistory, findFeatureByName, listFeatures } from "../memory/features.js";
+import { createFeature, featureHistory, findFeatureByName, hasHistoryFor, listFeatures } from "../memory/features.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
@@ -154,5 +155,33 @@ describe("知识库冷启动", () => {
     updateTask(anchor.id, { status: "processing" });
     await finishBootstrap(getTask(anchor.id)!, "job-fb", 1);
     expect(featureHistory(f.id)).toHaveLength(1);
+  });
+
+  it("finishBootstrap：只读查询任务不补进历史", async () => {
+    ingestBootstrap("p-q", repo, { features: [{ name: "基金筛选" }] });
+    const q = createTask({ title: "基金筛选怎么排序的", kind: "slack", project: "p-q", status: "done", source: { headless: true, conversation: "C1:1.0" } });
+    const anchor = createTask({ title: "知识库冷启动：p-q", kind: "project", status: "processing", project: "p-q", source: { knowledgeBootstrap: "p-q", repoDir: repo, headless: true, jobId: "job-q" } });
+    createJob({ id: "job-q", project: "p-q", dir: repo, logPath: "/tmp/job-q.log", taskId: anchor.id });
+    await finishBootstrap(anchor, "job-q", 0);
+    expect(hasHistoryFor(findFeatureByName("p-q", "基金筛选")!.id, q.id)).toBe(false);
+  });
+
+  it("finishBootstrap：异常退出且这次一条都没入库，不记水位，账记失败、锚点照样收", async () => {
+    ingestBootstrap("p-nf", repo, { features: [{ name: "老功能" }] });
+    const anchor = createTask({ title: "知识库冷启动：p-nf", kind: "project", status: "processing", project: "p-nf", source: { knowledgeBootstrap: "p-nf", repoDir: repo, headless: true, jobId: "job-nf" } });
+    db().prepare("UPDATE features SET updated_at = ? WHERE project = ?").run(daysAgo(1), "p-nf");
+    createJob({ id: "job-nf", project: "p-nf", dir: repo, logPath: "/tmp/job-nf.log", taskId: anchor.id });
+    await finishBootstrap(anchor, "job-nf", 1);
+    expect(getCursor("knowledge:bootstrapped:p-nf")).toBeUndefined();
+    expect(listAudit({ taskId: anchor.id }).find((e) => e.action === "knowledge_bootstrapped")).toMatchObject({ status: "failed" });
+    expect(getTask(anchor.id)!.status).toBe("done");
+  });
+
+  it("finishBootstrap：异常退出但这次入了库，照记水位", async () => {
+    const anchor = createTask({ title: "知识库冷启动：p-pf", kind: "project", status: "processing", project: "p-pf", source: { knowledgeBootstrap: "p-pf", repoDir: repo, headless: true, jobId: "job-pf" } });
+    createJob({ id: "job-pf", project: "p-pf", dir: repo, logPath: "/tmp/job-pf.log", taskId: anchor.id });
+    ingestBootstrap("p-pf", repo, { features: [{ name: "订单列表" }] });
+    await finishBootstrap(anchor, "job-pf", 1);
+    expect(getCursor("knowledge:bootstrapped:p-pf")).toBeTruthy();
   });
 });
