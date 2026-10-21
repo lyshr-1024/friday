@@ -11,6 +11,7 @@ import { GLOBAL, handbookSlug, writeHandbook } from "../memory/handbooks.js";
 import { lessonsSince } from "../memory/runs.js";
 import { activeRules, addRule, confirmRule, getRule, renderHandbook, restoreRules, retireRule, reviseRule, snapshotRules, staleRules, type RulesSnapshot } from "../memory/rules.js";
 import { FORBIDDEN } from "./guard.js";
+import { protectedBranches } from "../memory/projects.js";
 import { BRANCH_RULE } from "./prompt.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { addPending, createTask, getTask } from "../memory/tasks.js";
@@ -180,8 +181,12 @@ export function parseOps(
 }
 
 /** Friday 自己的硬约束：提炼时一并给模型，让它标出和这些打架的规则 */
-function hardConstraints(): string[] {
-  return [...FORBIDDEN.map(([, why]) => `自主任务：${why}（守卫直接拦）`), `分支名：${BRANCH_RULE}`];
+function hardConstraints(project: string): string[] {
+  return [
+    ...FORBIDDEN.map(([, why]) => `自主任务：${why}（守卫直接拦）`),
+    `自主任务：保护分支（${protectedBranches(project).join("、")}）不许推、切过去、删或改名，也不许推 tag；其他开发分支的 push / 强推 / rebase / merge 都放（守卫直接拦）`,
+    `分支名：${BRANCH_RULE}`,
+  ];
 }
 
 export function distillPrompt(project: string, candidates: Candidate[], current: Rule[], stale: ReadonlySet<string>): { system: string; prompt: string } {
@@ -207,7 +212,7 @@ export function distillPrompt(project: string, candidates: Candidate[], current:
     global ? "aliases 恒为空数组。" : "",
     "",
     "Friday 的硬约束：",
-    ...hardConstraints().map((c) => `- ${c}`),
+    ...hardConstraints(project).map((c) => `- ${c}`),
     UNTRUSTED_NOTE,
   ]
     .filter((l) => l !== "")

@@ -6,7 +6,7 @@ import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
-import { loadProjects, projectDetail } from "../memory/projects.js";
+import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
@@ -16,7 +16,6 @@ import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
 import { commitsAheadSync, currentBranchSync, defaultBranchSync } from "./git.js";
 import { pushVerdict, type PushVerdict } from "./guard.js";
-import { hasForcePush, takeForcePush } from "./pushGrant.js";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
 
@@ -250,28 +249,18 @@ export function terminalAsking(jobId: string, question: string, weak = false): v
 }
 
 /**
- * 自主任务的守卫遇到 git push 时来问：推当前功能分支放行（建 MR 要用），推主干 / 受保护分支这些拦下；强推只在用户授权过（push_force_grant）时放一次。
+ * 自主任务的守卫遇到 git push 时来问：目标是开发分支就放（强推、删远端都行），目标是项目的保护分支或仓库默认分支拦下。
  * 守卫等这里的答复再决定，连不上 core 就照拦。
  */
 export function checkPush(jobId: string, command: string, cwd?: string): PushVerdict {
   const job = getJob(jobId);
   const task = job && ((job.taskId && getTask(job.taskId)) || findTaskBySource((s) => s.jobId === jobId));
   if (!job || !task) return { allow: false, why: "Friday 不认识这次运行" };
-  let v = pushVerdict(command, cwd || task.source.worktree || job.dir, { currentBranch: currentBranchSync, defaultBranch: defaultBranchSync });
-  let why = "推的是功能分支，放行";
-  const f = !v.allow ? v.force : undefined;
-  if (f && f.branches.length === 1 && hasForcePush(task.id, f.branches[0]!)) {
-    if (f.kind === "bare") v = { allow: false, why: `用户授权的是带保护的强推，改用 git push --force-with-lease origin ${f.branches[0]}` };
-    else {
-      takeForcePush(task.id, f.branches[0]!);
-      v = { allow: true, dir: f.dir, branches: f.branches };
-      why = "用户在会话里授权了这次强推（--force-with-lease，用完作废）";
-    }
-  }
+  const v = pushVerdict(command, cwd || task.source.worktree || job.dir, { currentBranch: currentBranchSync, defaultBranch: defaultBranchSync }, protectedBranches(task.project ?? job.project));
   record({
     taskId: task.id,
     action: v.allow ? "push_allowed" : "push_denied",
-    why: v.allow ? why : v.why,
+    why: v.allow ? "推的是开发分支，放行" : v.why,
     how: command.slice(0, 300),
     evidence: { jobId, ...(v.allow ? { dir: v.dir, branches: v.branches } : {}) },
     risk: v.allow ? "reversible" : "read",

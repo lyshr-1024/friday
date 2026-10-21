@@ -31,14 +31,14 @@ describe("终端环境与会话恢复", () => {
   });
 });
 
-describe("buildGuardScript allowMerge", () => {
-  it("allowMerge 的守卫不含 merge 规则，rebase / reset --hard / push 照旧在", () => {
-    const s = buildGuardScript("/bin/node", "http://127.0.0.1:1/x", true);
+describe("buildGuardScript 带项目的保护分支", () => {
+  it("名单写进脚本，merge / rebase 不再有规则", () => {
+    const s = buildGuardScript("/bin/node", "http://127.0.0.1:1/x", ["trunk", "canary*"]);
+    expect(s).toContain("trunk");
+    expect(s).toContain("canary");
     expect(s).not.toContain("合并由 Friday");
-    expect(s).toContain("变基会改写历史");
-    expect(s).toContain("会丢掉未提交的改动");
+    expect(s).not.toContain("变基会改写历史");
     expect(s).toContain(PUSH_WHY);
-    expect(buildGuardScript("/bin/node", "http://127.0.0.1:1/x")).toContain("合并由 Friday");
   });
 });
 

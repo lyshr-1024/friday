@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
-import { matchEnv, parseEnvs, parseProjects, projectDetail, resolveProject } from "./projects.js";
+import { DEFAULT_PROTECTED, matchEnv, parseEnvs, parseProjects, projectDetail, protectedBranches, resolveProject } from "./projects.js";
 
 const md = `# 项目注册表
 
@@ -14,6 +14,7 @@ const md = `# 项目注册表
 - 目录: ~/workspace/whale-console
 - 别名: 后台, console
 - 频道: team-fe-bo, #proj-whale-console
+- 保护分支：main, master、release/*  sit
 
 ## whale-console-crypto
 - 目录：~/workspace/whale-console-crypto
@@ -59,6 +60,15 @@ describe("项目注册表", () => {
   it("同名的自定义字段多行累加", () => {
     const ps = parseProjects("## p\n- 目录：/p\n- 备注：一\n- 备注：二\n");
     expect(ps[0]!.extra["备注"]).toBe("一\n二");
+  });
+
+  it("保护分支按逗号顿号空格拆，没写的项目和没登记的项目用默认名单", () => {
+    expect(projects[1]!.protected).toEqual(["main", "master", "release/*", "sit"]);
+    expect(projects[0]!.protected).toEqual([]);
+    expect(protectedBranches("whale-console", projects)).toEqual(["main", "master", "release/*", "sit"]);
+    expect(protectedBranches("friday", projects)).toEqual(DEFAULT_PROTECTED);
+    expect(protectedBranches(undefined, projects)).toEqual(DEFAULT_PROTECTED);
+    expect(DEFAULT_PROTECTED).toEqual(expect.arrayContaining(["main", "master", "release"]));
   });
 
   it("projectDetail 把说明、环境、自定义字段一起给出去", () => {

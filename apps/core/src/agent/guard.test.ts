@@ -1,27 +1,49 @@
 import { describe, expect, it } from "vitest";
 import { buildHookSettings } from "./runner.js";
-import { forbidden, forbiddenTool } from "./guard.js";
+import { forbidden, forbiddenTool, isProtected } from "./guard.js";
 
-describe("自主任务禁止的命令", () => {
-  it("拦下不可逆或越权的操作", () => {
-    expect(forbidden("git push origin HEAD")).toBeTruthy();
-    expect(forbidden("pnpm test && git push -u origin friday/ab")).toBeTruthy();
-    expect(forbidden("git merge main")).toBeTruthy();
-    expect(forbidden("git rebase -i HEAD~2")).toBeTruthy();
-    expect(forbidden("git reset --hard HEAD~1")).toBeTruthy();
+describe("自主任务禁止的命令：只守保护分支，其余 git 操作全放", () => {
+  it("切到、删掉、改名保护分支都拦，默认名单含主干和环境分支", () => {
     expect(forbidden("git checkout main")).toBeTruthy();
+    expect(forbidden("git switch master")).toBeTruthy();
+    expect(forbidden("git checkout release/saas")).toBeTruthy();
+    expect(forbidden("git branch -D main")).toBeTruthy();
+    expect(forbidden("git branch -m master old-master")).toBeTruthy();
+    expect(forbidden("pnpm test && git switch sit")).toBeTruthy();
     expect(forbidden("sudo rm /etc/hosts")).toBeTruthy();
     expect(forbidden("rm -rf ~")).toBeTruthy();
   });
 
-  it("git 全局选项插在子命令前面也拦得住", () => {
-    expect(forbidden("git -C /tmp/x push")).toBeTruthy();
-    expect(forbidden("git --no-pager push")).toBeTruthy();
-    expect(forbidden("git -c user.email=x merge main")).toBeTruthy();
+  it("项目自己的名单整体替换默认名单，* 通配，裸名盖住子路径", () => {
+    const own = ["trunk", "canary*"];
+    expect(forbidden("git checkout canary-3", own)).toBeTruthy();
+    expect(forbidden("git switch trunk", own)).toBeTruthy();
+    expect(forbidden("git checkout main", own)).toBeUndefined();
+    expect(isProtected("release/saas", ["release"])).toBe(true);
+    expect(isProtected("released", ["release"])).toBe(false);
+    expect(isProtected("canary-3", ["canary*"])).toBe(true);
   });
 
-  it("放行干活需要的命令", () => {
-    for (const ok of ["pnpm test", "pnpm typecheck", "git status --short", "git diff", "git add -A", 'git commit -m "修登录报错"', "git checkout -b friday/ab12cd34", "npx vitest run", "rm -rf node_modules/.cache"]) {
+  it("git 全局选项插在子命令前面也拦得住", () => {
+    expect(forbidden("git -C /tmp/x checkout main")).toBeTruthy();
+    expect(forbidden("git --no-pager switch master")).toBeTruthy();
+  });
+
+  it("开发分支上的 rebase / merge / reset --hard / 删分支都放；push 不在这里判（问 core）", () => {
+    for (const ok of [
+      "git rebase -i HEAD~2",
+      "git rebase --onto origin/main abc feat/x",
+      "git merge main",
+      "git reset --hard HEAD~1",
+      "git branch -D feat/old",
+      "git checkout -b feat/x main",
+      "git switch -c feat/y origin/main",
+      "git push origin HEAD",
+      "git push --force-with-lease origin feat/x",
+      "pnpm test",
+      "git status --short",
+      "rm -rf node_modules/.cache",
+    ]) {
       expect(forbidden(ok), ok).toBeUndefined();
     }
   });

@@ -21,13 +21,16 @@ describe("交互式终端的 system prompt 带项目手册", () => {
   });
 });
 
-describe("强推的口径按终端归谁分开", () => {
-  it("交互终端不说要 Friday 转达授权，自主任务照旧要", () => {
+describe("git 的口径按终端归谁分开", () => {
+  it("交互终端说 Friday 不拦，自主任务说清只拦保护分支", () => {
     const sys = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
     const mine = sys(claudeArgs(files, false));
     expect(mine).toContain("Friday 不拦这里的 git 操作");
-    expect(mine).not.toContain("用户授权强推");
-    expect(sys(claudeArgs(files, true))).toContain("用户授权强推");
+    expect(mine).not.toContain("保护分支");
+    const theirs = sys(claudeArgs(files, true));
+    expect(theirs).toContain("只拦保护分支");
+    expect(theirs).toContain("main");
+    expect(theirs).not.toContain("授权");
   });
 });
 

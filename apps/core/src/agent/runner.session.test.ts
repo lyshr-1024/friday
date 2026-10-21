@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionScript, prepPrompt, workCommand, worktreeFile } from "./runner.js";
-import { FORBIDDEN } from "./guard.js";
+import { buildGuardScript, buildSessionScript, prepPrompt, workCommand, worktreeFile } from "./runner.js";
+import { forbidden, PUSH_RE, PUSH_WHY } from "./guard.js";
 
 const files = { settings: "/d/runs/j.settings.json", mcp: "/d/runs/j.mcp.json" };
 const prep = "/d/runs/j.prep.settings.json";
@@ -106,10 +106,10 @@ describe("两段式启动脚本", () => {
     expect(s).not.toMatch(/curl -sf/);
   });
 
-  it("准备段要用的 git 命令不被守卫拦，push 照样拦", () => {
-    const blocked = (cmd: string) => FORBIDDEN.some(([p]) => new RegExp(p).test(cmd));
-    expect(blocked("git fetch origin")).toBe(false);
-    expect(blocked("git worktree add ../app-feat-x -b feat/x origin/main")).toBe(false);
-    expect(blocked("git push origin feat/x")).toBe(true);
+  it("准备段要用的 git 命令不被守卫拦，push 没有回报地址时照样拦", () => {
+    expect(forbidden("git fetch origin")).toBeUndefined();
+    expect(forbidden("git worktree add ../app-feat-x -b feat/x origin/main")).toBeUndefined();
+    expect(new RegExp(PUSH_RE).test("git push origin feat/x")).toBe(true);
+    expect(buildGuardScript()).toContain(PUSH_WHY);
   });
 });

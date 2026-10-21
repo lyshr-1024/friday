@@ -14,6 +14,8 @@ export interface Project {
   envs: ProjectEnv[];
   status?: string;
   note?: string;
+  /** 守卫不许 Friday 碰的分支（推 / 切过去 / 删），`*` 通配，裸名也盖住 `名/…`；没写用 DEFAULT_PROTECTED */
+  protected: string[];
   /** 白名单外的自定义字段原样收着，用户写什么都读得到 */
   extra: Record<string, string>;
 }
@@ -34,7 +36,7 @@ export function parseProjects(markdown: string): Project[] {
   for (const line of markdown.split("\n")) {
     const heading = /^##\s+(.+?)\s*$/.exec(line);
     if (heading) {
-      current = { name: heading[1]!, dir: "", aliases: [], channels: [], urls: [], envs: [], extra: {} };
+      current = { name: heading[1]!, dir: "", aliases: [], channels: [], urls: [], envs: [], protected: [], extra: {} };
       projects.push(current);
       continue;
     }
@@ -48,6 +50,7 @@ export function parseProjects(markdown: string): Project[] {
       else if (key === "频道") current.channels = value.split(/[,，、\s]+/).filter(Boolean).map((c) => (c.startsWith("#") ? c : `#${c}`));
       else if (key === "地址") current.urls = value.split(/[,，、\s]+/).filter(Boolean).map(normalizeUrlPrefix);
       else if (key === "环境") current.envs = parseEnvs(value);
+      else if (key === "保护分支") current.protected = value.split(/[,，、\s]+/).filter(Boolean);
       else if (key === "状态") current.status = value;
       else if (key === "说明") current.note = value;
       else current.extra[key] = current.extra[key] ? `${current.extra[key]}\n${value}` : value;
@@ -141,6 +144,14 @@ export function matchProjectByUrl(urls: string[], projects: Project[]): Project 
   return best?.project;
 }
 
+/** 主干和常见的环境分支；项目在 projects.md 里写了「保护分支」就整体换成它的 */
+export const DEFAULT_PROTECTED = ["main", "master", "develop", "dev", "sit", "uat", "test", "staging", "prod", "production", "release"];
+
+export function protectedBranches(project?: string, projects = loadProjects()): string[] {
+  const p = project ? projects.find((x) => x.name === project) : undefined;
+  return p?.protected.length ? p.protected : DEFAULT_PROTECTED;
+}
+
 export function loadProjects(): Project[] {
   const file = join(config.dataDir, "projects.md");
   return existsSync(file) ? parseProjects(readFileSync(file, "utf8")) : [];
@@ -161,7 +172,7 @@ export function resolveProject(query: string, projects = loadProjects()): Resolu
 
   const asPath = expandHome(query.trim());
   if ((asPath.startsWith("/") || query.startsWith("~")) && existsSync(asPath) && statSync(asPath).isDirectory()) {
-    return { kind: "match", project: { name: basename(asPath), dir: asPath, aliases: [], channels: [], urls: [], envs: [], extra: {} } };
+    return { kind: "match", project: { name: basename(asPath), dir: asPath, aliases: [], channels: [], urls: [], envs: [], protected: [], extra: {} } };
   }
   return { kind: "none" };
 }

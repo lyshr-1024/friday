@@ -239,7 +239,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
     const guard = readFileSync(guardPathOf(script), "utf8");
     expect(guard).not.toContain("合并由 Friday");
-    expect(guard).toContain("变基会改写历史");
+    expect(guard).toContain("保护分支");
     const jobId = getTask(bug.id)!.source.jobId!;
     expect(jobId).toBeTruthy();
     expect(getJob(jobId)).toMatchObject({ sessionId: root.id, taskId: bug.id, status: "running" });

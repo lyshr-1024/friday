@@ -542,7 +542,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     const job = s.jobId ? getJob(s.jobId) : undefined;
     // --fork-session 的 transcript 带着需求会话的累计成本
     costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
-    const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, allowMerge: true, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId, forkSession: true } : {}) }, task.id);
+    const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId, forkSession: true } : {}) }, task.id);
     if (!ok) return gone("需求会话里起不了新的运行");
     run = { id, jobId: id };
   }

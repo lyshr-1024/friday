@@ -3,8 +3,8 @@ import { intakePrompt, parseIntake, plainBody, tooThin } from "./intake.js";
 import type { Project } from "../memory/projects.js";
 
 const projects: Project[] = [
-  { name: "whale-console", dir: "/w", aliases: ["后台", "BO"], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], extra: {} },
-  { name: "fe-wealth-admin", dir: "/f", aliases: ["财富后台"], channels: [], urls: [], envs: [], extra: {} },
+  { name: "whale-console", dir: "/w", aliases: ["后台", "BO"], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], protected: [], extra: {} },
+  { name: "fe-wealth-admin", dir: "/f", aliases: ["财富后台"], channels: [], urls: [], envs: [], protected: [], extra: {} },
 ];
 
 describe("工单进来判断能不能直接做", () => {

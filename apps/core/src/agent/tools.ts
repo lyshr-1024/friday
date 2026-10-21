@@ -7,8 +7,6 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { STAGE_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
 import { currentBranchSync, gitInspect } from "./git.js";
-import { isProtectedBranch } from "./guard.js";
-import { FORCE_GRANT_MS, grantForcePush } from "./pushGrant.js";
 import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
@@ -488,31 +486,6 @@ export const fridayToolList = (conversationId?: string) => [
       },
     ),
     tool(
-      "push_force_grant",
-      "用户在会话里明确说「强推 / 强推吧 / force push」时调：给这条任务终端所在的功能分支记一次强推授权（只放 --force-with-lease，10 分钟内、用一次就作废），并转给终端里的 Claude 去推。自主任务的守卫平时一律拦强推，只认这个授权。没有这句原话不要调；他要的是合并就用 task_approve。",
-      {},
-      async () => {
-        const t = boundTask(conversationId);
-        if (!t) return text("这条会话没有绑定任务。");
-        const said = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
-        if (!consents(said, FORCE_PUSH)) return text(`用户还没明确授权强推，不执行。请他单独回一句${FORCE_PUSH.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算。`);
-        const bound = boundJob(conversationId);
-        const dir = (bound && getJob(bound.jobId)?.dir) || t.source.worktree;
-        const branch = (dir && currentBranchSync(dir)) || t.source.branch;
-        if (!branch) return text("看不出这条任务在哪个分支上，不知道强推哪条。");
-        if (isProtectedBranch(branch)) return text(`${branch} 是主干 / 受保护分支，授权了也不推。`);
-        grantForcePush(t.id, branch);
-        record({ taskId: t.id, action: "push_force_granted", why: `你在会话里说「${said}」`, how: `授权 ${branch} 强推一次（--force-with-lease），${FORCE_GRANT_MS / 60_000} 分钟内有效`, evidence: { branch, said }, risk: "irreversible" });
-        const msg = `用户授权强推这一次：用 git push --force-with-lease origin ${branch} 推上去（只放这一次、${FORCE_GRANT_MS / 60_000} 分钟内有效，不带 lease 的 --force 会被拦）。推完把结果告诉用户。`;
-        if (!bound || (await say(bound.jobId, msg)) === "no-terminal") return text(`已授权 ${branch} 强推一次，但这条任务的终端已经关了，转达不进去。用户可以自己在 worktree 里跑 git push --force-with-lease origin ${branch}。`);
-        clearAttention(bound.jobId);
-        if (conversationId && conversationExists(conversationId)) {
-          addMessage(conversationId, { role: "assistant", kind: "run", content: `→ 已转达给终端：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
-        }
-        return text(`已授权并转给终端：${branch} 强推一次（--force-with-lease）。推的结果它会回报到任务卡。`);
-      },
-    ),
-    tool(
       "task_reject",
       "用户在会话里说「打回，原因是…」时，把这条任务打回：作废待审动作，退回处理中，原因记下来（会进 Friday 的学习）。reason 用用户的原话。",
       { reason: z.string().min(1).max(500) },
@@ -631,8 +604,6 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   reproject: ["撤掉", "撤掉吧", "回退", "回退吧", "通过"],
   discard_changes: ["撤掉", "撤掉吧", "撤", "删掉", "通过"],
 };
-
-const FORCE_PUSH = ["强推", "强推吧", "可以强推", "强推上去", "强制推送", "force push"];
 
 function consents(said: string, forms: string[]): boolean {
   if (/[？?]/.test(said)) return false;

@@ -8,7 +8,8 @@ import { config } from "../config.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
-import { FORBIDDEN, MERGE_RULE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
+import { FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
+import { protectedBranches } from "../memory/projects.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
 
@@ -28,7 +29,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "规则：",
     "1. 你已经在为这次任务准备好的 git worktree 里、在新分支上，直接开工；不要再建分支，不要回主仓操作。",
     "   开工先调 friday_progress 把当前分支名告诉 Friday（写成「在分支 xxx 上开工」）。",
-    "   merge、rebase、reset --hard 会被 Friday 的守卫直接拒绝，不用试。push 只放行当前功能分支，推主干 / 受保护分支 / tag 都会被拦；强推默认也拦，只有 Friday 转达「用户授权强推」时用 git push --force-with-lease 推当前功能分支，一次有效。",
+    `   守卫只拦保护分支（${protectedBranches(project).join("、")}）：不许推、切过去、删或改名它们，也不许推 tag；开发分支上 rebase / merge / reset --hard / 强推 / 删远端随你，不用问。`,
     "2. 改完必须跑该项目的类型检查和测试（看 package.json / Makefile 决定命令），失败就修到通过；实在修不了在报告里写明。",
     `3. 如果改动涉及界面，用 agent-browser skill 打开对应页面截图，保存到目录 ${shotsDir(id)}/（png，文件名写清楚是哪个页面哪个状态），至少一张改动前后的对比。不是界面改动就不截图。`,
     `4. 最后把交付报告写到 ${reportPath(id)}，严格用下面的 Markdown 结构：`,
@@ -46,7 +47,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "- 文件名 — 说明（没有就写 无）",
     "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
     "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
-    "7. 提交后要建 MR 就先 git push 当前分支：守卫会拦下并挂一条推送待审，你不用等，在交付报告的「概要」里写明「推送待批准，批准后再建 MR」照常收尾。分支已经在远端的，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge，不要推主分支。",
+    "7. 提交后 git push 当前分支，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge 进保护分支、不要推保护分支，合进主干由用户在 Friday 里审核。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
@@ -177,12 +178,13 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * 自主任务的 PreToolUse 守卫：每条 Bash 命令过一遍 guard.ts 的黑名单，命中就 deny。
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
-export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, allowMerge = false): string {
-  const rules = allowMerge ? FORBIDDEN.filter((r) => r !== MERGE_RULE) : FORBIDDEN;
+export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, patterns: string[] = protectedBranches()): string {
+  const rules = [...FORBIDDEN, ...protectedRules(patterns)];
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`
 const rules = ${JSON.stringify(rules)};
+const pushRe = new RegExp(${JSON.stringify(PUSH_RE)});
 const pushUrl = ${JSON.stringify(pushUrl ?? "")};
 const PUSH_WHY = ${JSON.stringify(PUSH_WHY)};
 let input = "";
@@ -194,14 +196,14 @@ const decide = async () => {
   let cmd = "";
   let cwd = "";
   try { const j = JSON.parse(input); cmd = String((j.tool_input || {}).command || ""); cwd = String(j.cwd || ""); } catch {}
-  const hits = rules.filter(([p]) => new RegExp(p).test(cmd));
-  if (!hits.length) return out("");
-  const other = hits.find(([, why]) => why !== PUSH_WHY);
-  if (other || !pushUrl) return out("Friday 自主任务禁止这条命令（" + (other || hits[0])[1] + "）。换个做法，或在交付报告里写明卡在这里。");
+  const hit = rules.find(([p]) => new RegExp(p).test(cmd));
+  if (hit) return out("Friday 自主任务禁止这条命令（" + hit[1] + "）。换个做法，或在交付报告里写明卡在这里。");
+  if (!pushRe.test(cmd)) return out("");
+  if (!pushUrl) return out("Friday 自主任务禁止这条命令（" + PUSH_WHY + "）。换个做法，或在交付报告里写明卡在这里。");
   try {
     const r = await fetch(pushUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: cmd, cwd }), signal: AbortSignal.timeout(5000) });
     const v = await r.json();
-    out(v.allow ? "" : "Friday 拦下了这次推送：" + v.why + "。只推当前功能分支（git push -u origin 分支名）；要强推得用户在 Friday 里授权，不要自己绕。确实推不了就在交付报告里写明。");
+    out(v.allow ? "" : "Friday 拦下了这次推送：" + v.why + "。开发分支随便推，保护分支不要碰也不要绕。确实推不了就在交付报告里写明。");
   } catch {
     out("连不上 Friday，推送先拦下。稍后再试，或在交付报告里写明「推送没做」。");
   }
@@ -222,7 +224,7 @@ export function buildMcpConfig(id: string, port: number): string {
   return JSON.stringify({ mcpServers: { friday: { type: "http", url: `http://127.0.0.1:${port}/mcp/${id}` } } }, null, 2);
 }
 
-export function writeHookFiles(id: string, autonomous = false, readOnly = false, allowMerge = false): ClaudeFiles {
+export function writeHookFiles(id: string, autonomous = false, readOnly = false, project?: string): ClaudeFiles {
   mkdirSync(runsDir(), { recursive: true });
   const hook = join(runsDir(), `${id}.hook.sh`);
   writeFileSync(hook, buildHookScript(id, config.port));
@@ -231,7 +233,7 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false,
   if (autonomous || readOnly) {
     guard = join(runsDir(), `${id}.guard.sh`);
     // 只读查询不该推送，拦下就完了；自主任务的 push 问 core 放不放
-    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-check`, allowMerge));
+    writeFileSync(guard, buildGuardScript(process.execPath, readOnly ? undefined : `http://127.0.0.1:${config.port}/jobs/${id}/push-check`, protectedBranches(project)));
     chmodSync(guard, 0o755);
   }
   const settings = join(runsDir(), `${id}.settings.json`);
@@ -277,7 +279,6 @@ export interface SessionLaunch {
   inRepo?: boolean;
   /** 项目页的普通 shell：只开 zsh，不起 Claude */
   shell?: boolean;
-  allowMerge?: boolean;
   forkSession?: boolean;
 }
 
@@ -361,10 +362,10 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
   ].join("\n");
 }
 
-export function writePrepSettings(id: string): string {
+export function writePrepSettings(id: string, project?: string): string {
   mkdirSync(runsDir(), { recursive: true });
   const guard = join(runsDir(), `${id}.prep.guard.sh`);
-  writeFileSync(guard, buildGuardScript());
+  writeFileSync(guard, buildGuardScript(process.execPath, undefined, protectedBranches(project)));
   chmodSync(guard, 0o755);
   const settings = join(runsDir(), `${id}.prep.settings.json`);
   writeFileSync(settings, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: shellQuote(guard), timeout: 10 }] }] } }, null, 2));
@@ -387,8 +388,8 @@ export async function launchInSession(req: SessionLaunch, tmuxName: string): Pro
     return;
   }
   const claudePath = await claudeFinder();
-  const files = writeHookFiles(req.id, req.kind === "autonomous", req.kind === "query");
-  const prep = req.kind === "query" ? undefined : writePrepSettings(req.id);
+  const files = writeHookFiles(req.id, req.kind === "autonomous", req.kind === "query", req.project);
+  const prep = req.kind === "query" ? undefined : writePrepSettings(req.id, req.project);
   const script = join(runsDir(), `${req.id}.sh`);
   writeFileSync(script, buildSessionScript(req, claudePath, config.port, files, prep));
   chmodSync(script, 0o755);
@@ -397,7 +398,7 @@ export async function launchInSession(req: SessionLaunch, tmuxName: string): Pro
 
 export async function writeResumeScript(req: SessionLaunch, cwd: string, hooks: TermSessionKind = req.kind, keepShell = false): Promise<string> {
   const claudePath = await claudeFinder();
-  const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query", req.allowMerge);
+  const files = writeHookFiles(req.id, hooks === "autonomous", hooks === "query", req.project);
   const script = join(runsDir(), `${req.id}.resume.sh`);
   writeFileSync(script, ["#!/bin/zsh", `cd ${shellQuote(cwd)} || exit 1`, UNSET_CLAUDE_ENV, ...workCommand(req, claudePath, config.port, files), ...(keepShell ? ["exec /bin/zsh -il"] : []), ""].join("\n"));
   chmodSync(script, 0o755);

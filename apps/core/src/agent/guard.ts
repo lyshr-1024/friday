@@ -1,29 +1,46 @@
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import { DEFAULT_PROTECTED } from "../memory/projects.js";
 
 // git 全局选项（-C <dir>、--no-pager、-c key=value…）可以插在 git 和子命令之间，是常见写法不是对抗行为，
 // 正则得把它们跳过去，不然 "git -C /path push" 这种就绕过了下面所有拦截。
 const GIT_OPT = "(?:-[a-zA-Z](?:\\s+\\S+)?|--[\\w-]+(?:=\\S+)?)";
 const gitCmd = (sub: string) => `\\bgit\\s+(?:${GIT_OPT}\\s+)*${sub}`;
 
-// 自主任务无人看着，这些命令一律拦下：要么不可逆，要么该由用户审核后 Friday 自己执行。
+export const PUSH_RE = `${gitCmd("push")}\\b`;
+export const PUSH_WHY = "推送只拦保护分支和 tag，开发分支怎么推都行；准备段和只读任务不推送";
+
+// 自主任务无人看着，守卫只守两样：保护分支（推 / 切过去 / 删 / 改名）和非 git 的危险命令。
+// 开发分支上 rebase / merge / reset --hard / 强推 / 删远端全放——用户 2026-10-21 定的：那些都是开发分支，他不关心。
 // --dangerously-skip-permissions 会让 settings 里的 permissions.deny 失效，所以走 PreToolUse hook。
-export const PUSH_WHY = "只能推当前功能分支：不许强推（除非用户在 Friday 里授权）、删远端分支、推主干 / 受保护分支或 tag";
-
-export const MERGE_RULE: [pattern: string, why: string] = [`${gitCmd("merge")}\\b`, "合并由 Friday 在你审核通过后执行"];
-
 export const FORBIDDEN: Array<[pattern: string, why: string]> = [
-  [`${gitCmd("push")}\\b`, PUSH_WHY],
-  MERGE_RULE,
-  [`${gitCmd("rebase")}\\b`, "变基会改写历史"],
-  [`${gitCmd("reset")}\\s+--hard\\b`, "会丢掉未提交的改动"],
-  [`${gitCmd("checkout")}\\s+(main|master)\\b`, "自主任务只在自己的分支上改"],
   ["\\bsudo\\b", "自主任务不提权"],
   ["\\brm\\s+-[a-zA-Z]*[rf][a-zA-Z]*\\s+(/|~)(\\s|$)", "危险的递归删除"],
 ];
 
-export function forbidden(command: string): string | undefined {
-  for (const [pattern, why] of FORBIDDEN) if (new RegExp(pattern).test(command)) return why;
+/** 名单里一项变正则源：`*` 通配，裸名也盖住 `名/…`（release 盖住 release/saas） */
+export function branchPattern(p: string): string {
+  const esc = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return p.includes("*") ? esc : `${esc}(?:/.*)?`;
+}
+
+export function isProtected(branch: string, patterns: string[]): boolean {
+  return patterns.some((p) => new RegExp(`^${branchPattern(p)}$`).test(branch));
+}
+
+/** 本地就能判的保护分支规则：切过去、删掉、改名。推送要看目标分支和仓库默认分支，由 core 判（pushVerdict）。 */
+export function protectedRules(patterns: string[]): Array<[pattern: string, why: string]> {
+  if (!patterns.length) return [];
+  const alt = `(?:${patterns.map(branchPattern).join("|")})`;
+  const why = `保护分支（${patterns.join("、")}）不许切过去、删掉或改名`;
+  return [
+    [`${gitCmd("(?:checkout|switch)")}\\s+${alt}(?=\\s|$)`, why],
+    [`${gitCmd("branch")}\\s+-[a-zA-Z]*[dDmM][a-zA-Z]*\\s+${alt}(?=\\s|$)`, why],
+  ];
+}
+
+export function forbidden(command: string, patterns: string[] = DEFAULT_PROTECTED): string | undefined {
+  for (const [pattern, why] of [...FORBIDDEN, ...protectedRules(patterns)]) if (new RegExp(pattern).test(command)) return why;
   return undefined;
 }
 
@@ -53,67 +70,58 @@ export function pushDir(command: string, cwd?: string): string | undefined {
   return cds.length ? abs(cds.at(-1)![1]!) : cwd;
 }
 
-/** 主干和常见的环境分支；仓库自己的默认分支（origin/HEAD）另外算 */
-const PROTECTED = /^(main|master|develop|dev|sit|uat|test|staging|prod|production|release)(\/.*)?$/;
-export const isProtectedBranch = (b: string): boolean => PROTECTED.test(b);
-
-export type ForceKind = "lease" | "bare";
-/** force：只因为是强推才拦的，带上推哪个分支、哪种强推，用户授权过就能放 */
-export type PushVerdict = { allow: true; dir: string; branches: string[] } | { allow: false; why: string; force?: { kind: ForceKind; dir: string; branches: string[] } };
+export type PushVerdict = { allow: true; dir: string; branches: string[] } | { allow: false; why: string };
 
 /**
- * 自主任务的 git push 放不放：推当前功能分支（或显式写的功能分支）放行，建 MR 要用；
- * 强推、删远端分支、推 tag、--all / --mirror、推主干和受保护分支一律拦。判断不了的也拦。
- * 强推是唯一能被用户授权放行的：只因强推被拦时 verdict 带 force，由调用方查授权。
+ * 自主任务的 git push 放不放：目标是开发分支就放（强推、删远端、一条命令推几个都行）；
+ * 目标是保护分支（项目名单或默认名单，外加仓库自己的默认分支 origin/HEAD）、推 tag、--all / --mirror 拦。判断不了的也拦。
  * git 查询从外面传进来：currentBranch(dir) 当前分支（游离 HEAD 给空），defaultBranch(dir) origin/HEAD 指向的分支。
  */
-export function pushVerdict(command: string, cwd: string | undefined, git: { currentBranch: (dir: string) => string; defaultBranch: (dir: string) => string | undefined }): PushVerdict {
+export function pushVerdict(
+  command: string,
+  cwd: string | undefined,
+  git: { currentBranch: (dir: string) => string; defaultBranch: (dir: string) => string | undefined },
+  patterns: string[] = DEFAULT_PROTECTED,
+): PushVerdict {
   const segs = command.split(/&&|\|\||;|\|/).filter((s) => /\bgit\b[^]*\bpush\b/.test(s));
-  if (segs.length !== 1) return { allow: false, why: segs.length ? "一条命令里推了好几次，拆开来一次推一个分支" : "看不懂这条 push" };
+  if (!segs.length) return { allow: false, why: "看不懂这条 push" };
   const dir = pushDir(command, cwd);
   if (!dir) return { allow: false, why: "看不出在哪个仓库推" };
-  const words = segs[0]!.trim().match(/'[^']*'|"[^"]*"|\S+/g)!.map((w) => w.replace(/^(['"])(.*)\1$/, "$2"));
-  const args = words.slice(words.indexOf("push") + 1);
-  const positional: string[] = [];
-  let force: ForceKind | undefined;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (/^--force(=|$)/.test(a)) { force = "bare"; continue; }
-    if (/^--(force-with-lease|force-if-includes)(=|$)/.test(a)) { force ??= "lease"; continue; }
-    if (/^--(delete|prune)$/.test(a)) return { allow: false, why: "不许删远端分支" };
-    if (/^--(all|mirror|branches)$/.test(a)) return { allow: false, why: "不许一次推所有分支" };
-    if (/^--(tags|follow-tags)$/.test(a)) return { allow: false, why: "不许推 tag（可能触发发布）" };
-    if (/^-[a-zA-Z]+$/.test(a)) {
-      if (a.includes("d")) return { allow: false, why: "不许删远端分支" };
-      if (a.includes("f")) force = "bare";
-      if (a.includes("o")) i++;
-      continue;
-    }
-    if (/^--(push-option|repo|receive-pack|exec)$/.test(a)) { i++; continue; }
-    if (a.startsWith("-")) continue;
-    // 重定向不是 refspec：`2>&1`、`>/dev/null`；`2> log` 这种分开写的连目标一起跳过
-    if (/^(\d*|&)[<>]/.test(a)) {
-      if (/^(\d*|&)[<>]{1,2}$/.test(a)) i++;
-      continue;
-    }
-    positional.push(a);
-  }
   const current = git.currentBranch(dir);
-  const refspecs = positional.slice(1);
-  const branches: string[] = [];
-  for (const r of refspecs.length ? refspecs : ["HEAD"]) {
-    if (r.startsWith("+")) force = "bare";
-    const spec = r.replace(/^\+/, "");
-    const [src, dst] = spec.includes(":") ? spec.split(":", 2) as [string, string] : [spec, spec];
-    if (!src) return { allow: false, why: "不许删远端分支" };
-    if (/^refs\/tags\//.test(dst) || /^refs\/tags\//.test(src)) return { allow: false, why: "不许推 tag（可能触发发布）" };
-    const name = (dst === "HEAD" || dst === "@" ? current : dst).replace(/^refs\/heads\//, "");
-    if (!name) return { allow: false, why: "当前不在分支上（游离 HEAD），不知道推到哪" };
-    branches.push(name);
-  }
   const main = git.defaultBranch(dir);
-  const guarded = branches.find((b) => PROTECTED.test(b) || b === main);
-  if (guarded) return { allow: false, why: `不许推 ${guarded}（主干 / 受保护分支），要进主干走 MR` };
-  if (force) return { allow: false, why: "不许强推：要用户在 Friday 里明确授权", force: { kind: force, dir, branches } };
+  const guarded = (b: string) => isProtected(b, patterns) || b === main;
+  const branches: string[] = [];
+  for (const seg of segs) {
+    const words = seg.trim().match(/'[^']*'|"[^"]*"|\S+/g)!.map((w) => w.replace(/^(['"])(.*)\1$/, "$2"));
+    const args = words.slice(words.indexOf("push") + 1);
+    const positional: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]!;
+      if (/^--(all|mirror|branches)$/.test(a)) return { allow: false, why: "不许一次推所有分支，里面有保护分支" };
+      if (/^--(tags|follow-tags)$/.test(a)) return { allow: false, why: "不许推 tag（可能触发发布）" };
+      if (/^-[a-zA-Z]+$/.test(a)) {
+        if (a.includes("o")) i++;
+        continue;
+      }
+      if (/^--(push-option|repo|receive-pack|exec)$/.test(a)) { i++; continue; }
+      if (a.startsWith("-")) continue;
+      // 重定向不是 refspec：`2>&1`、`>/dev/null`；`2> log` 这种分开写的连目标一起跳过
+      if (/^(\d*|&)[<>]/.test(a)) {
+        if (/^(\d*|&)[<>]{1,2}$/.test(a)) i++;
+        continue;
+      }
+      positional.push(a);
+    }
+    const refspecs = positional.slice(1);
+    for (const r of refspecs.length ? refspecs : ["HEAD"]) {
+      const spec = r.replace(/^\+/, "");
+      const [src, dst] = spec.includes(":") ? (spec.split(":", 2) as [string, string]) : [spec, spec];
+      if (/^refs\/tags\//.test(dst) || /^refs\/tags\//.test(src)) return { allow: false, why: "不许推 tag（可能触发发布）" };
+      const name = (dst === "HEAD" || dst === "@" ? current : dst).replace(/^refs\/heads\//, "");
+      if (!name) return { allow: false, why: "当前不在分支上（游离 HEAD），不知道推到哪" };
+      if (guarded(name)) return { allow: false, why: `不许推 ${name}（保护分支），要进它走 MR` };
+      branches.push(name);
+    }
+  }
   return { allow: true, dir, branches };
 }
