@@ -198,8 +198,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
   if (job.task.source.knowledgeBootstrap) {
-    void finishBootstrap(job.task, jobId, exitCode);
-    return job.task;
+    finishBootstrap(job.task, jobId, exitCode).catch((e) => console.error("[knowledge] finishBootstrap", e));
+    return undefined;
   }
   settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (job.task.report && job.task.status === "review") {

@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { config } from "../config.js";
+import { getCursor } from "../memory/inbox.js";
 import { db } from "../memory/db.js";
 import { createFeature, featureHistory, findFeatureByName, listFeatures } from "../memory/features.js";
 import { createJob } from "../memory/jobs.js";
-import { createTask, getTask, updateTask } from "../memory/tasks.js";
+import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
+import { onJobExit } from "./pipeline.js";
 import { bootstrapPrompt, bootstrapState, finishBootstrap, ingestBootstrap, startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
 import { openSession } from "./sessions.js";
 
@@ -21,6 +23,7 @@ beforeAll(() => {
 });
 
 const writeProjects = (...names: string[]) => writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n${names.map((n) => `## ${n}\n- 目录：${repo}\n`).join("\n")}`);
+const listTasksBy = (p: string) => [findTaskBySource((s) => s.knowledgeBootstrap === p, true)].filter((t) => !!t);
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
 const setUpdatedAt = (id: string, at: string) => db().prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(at, id);
 
@@ -66,6 +69,22 @@ describe("知识库冷启动", () => {
     expect(await startKnowledgeBootstrap("p-busy")).toMatchObject({ status: 409 });
   });
 
+  it("openSession 失败：锚点状态不动、不记水位", async () => {
+    writeProjects("p-fail");
+    const anchor = createTask({ title: "知识库冷启动：p-fail", kind: "project", status: "done", project: "p-fail", source: { knowledgeBootstrap: "p-fail", repoDir: repo, headless: true, jobId: "job-old" } });
+    vi.mocked(openSession).mockRejectedValueOnce(new Error("内嵌终端需要 tmux"));
+    await expect(startKnowledgeBootstrap("p-fail")).rejects.toThrow("tmux");
+    expect(getTask(anchor.id)).toMatchObject({ status: "done", source: { jobId: "job-old" } });
+    expect(getCursor("knowledge:bootstrapped:p-fail")).toBeUndefined();
+  });
+
+  it("openSession 失败：新建的锚点也不是 processing", async () => {
+    writeProjects("p-fail2");
+    vi.mocked(openSession).mockRejectedValueOnce(new Error("内嵌终端需要 tmux"));
+    await expect(startKnowledgeBootstrap("p-fail2")).rejects.toThrow("tmux");
+    expect(listTasksBy("p-fail2").every((t) => t.status !== "processing")).toBe(true);
+  });
+
   it("注册表里没有的项目回 404", async () => {
     writeProjects("p-busy");
     expect(await startKnowledgeBootstrap("nope")).toMatchObject({ status: 404 });
@@ -91,6 +110,28 @@ describe("知识库冷启动", () => {
     expect(r.text).toContain("新建 1");
     expect(r.text).toContain("丢弃 1");
     expect(findFeatureByName("p-cb", "基金筛选")).toBeTruthy();
+  });
+
+  it("冷启动 job 调 friday_done / progress / blocked / finish：只回一句，不碰锚点", async () => {
+    const boot = createTask({ title: "知识库冷启动：p-dn", kind: "project", status: "processing", project: "p-dn", source: { knowledgeBootstrap: "p-dn", repoDir: repo, headless: true } });
+    createJob({ id: "job-dn", project: "p-dn", dir: repo, logPath: "/tmp/dn.log", taskId: boot.id });
+    for (const name of ["friday_done", "friday_progress", "friday_blocked", "friday_finish"]) {
+      const r = await callBridge("job-dn", name, { summary: "列完了", testResult: "无", text: "进展", reason: "卡住" });
+      expect(r).toEqual({ text: "冷启动不用调这个，报完直接退出" });
+    }
+    const t = getTask(boot.id)!;
+    expect(t.report).toBeUndefined();
+    expect(t).toMatchObject({ status: "processing" });
+    expect(t.progress).toBeFalsy();
+    expect(t.attention).toBeUndefined();
+  });
+
+  it("onJobExit：冷启动 job 退出走收尾、不返回任务（不发交付通知）", async () => {
+    const anchor = createTask({ title: "知识库冷启动：p-ex", kind: "project", status: "processing", project: "p-ex", source: { knowledgeBootstrap: "p-ex", repoDir: repo, headless: true, jobId: "job-ex" } });
+    createJob({ id: "job-ex", project: "p-ex", dir: repo, logPath: "/tmp/ex.log", taskId: anchor.id });
+    expect(onJobExit("job-ex", 0)).toBeUndefined();
+    await vi.waitFor(() => expect(getTask(anchor.id)!.status).toBe("done"));
+    expect(getCursor("knowledge:bootstrapped:p-ex")).toBeTruthy();
   });
 
   it("finishBootstrap：按标题把近一年收工的任务补进历史、记水位、锚点收工", async () => {

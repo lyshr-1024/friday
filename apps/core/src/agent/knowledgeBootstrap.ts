@@ -65,12 +65,12 @@ export function ingestBootstrap(project: string, repoDir: string, raw: unknown):
 export async function startKnowledgeBootstrap(name: string): Promise<{ taskId: string; jobId: string } | { error: string; status: 404 | 409 }> {
   const p = loadProjects().find((x) => x.name === name);
   if (!p) return { error: `注册表里没有项目「${name}」`, status: 404 };
-  let anchor = anchorOf(name);
-  if (running(anchor)) return { error: "这个项目的知识库正在扫", status: 409 };
-  if (!anchor) anchor = createTask({ title: `知识库冷启动：${name}`, kind: "project", status: "processing", project: name, source: { knowledgeBootstrap: name, repoDir: p.dir, headless: true } });
-  else if (anchor.status !== "processing") anchor = updateTask(anchor.id, { status: "processing" })!;
+  const found = anchorOf(name);
+  if (running(found)) return { error: "这个项目的知识库正在扫", status: 409 };
+  const anchor = found ?? createTask({ title: `知识库冷启动：${name}`, kind: "project", project: name, source: { knowledgeBootstrap: name, repoDir: p.dir, headless: true } });
   const jobId = await openSession(anchor, anchor, { kind: "query", project: name, repoDir: p.dir, task: bootstrapPrompt(p, listFeatures(name)) });
-  updateTask(anchor.id, { source: { jobId } });
+  // 开起来了才拉回 processing：先拉回而 openSession 失败，对账会拿旧 job 当卡住的收尾，记一次没扫过的冷启动
+  updateTask(anchor.id, { status: "processing", source: { jobId } });
   record({ taskId: anchor.id, action: "knowledge_bootstrap_start", why: `给 ${name} 建功能知识库`, how: `在 ${p.dir} 里起只读后台会话，按界面上叫得出名字的功能列一遍`, evidence: { jobId, project: name }, risk: "read" });
   return { taskId: anchor.id, jobId };
 }
