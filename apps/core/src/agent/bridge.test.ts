@@ -12,6 +12,7 @@ import { createRun, openRunForTask, runByJob, runsForTask } from "../memory/runs
 import { transcriptPath } from "./runner.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
+import { createFeature } from "../memory/features.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
 
 const meegle = vi.hoisted(() => ({ transitions: [] as unknown[], calls: [] as string[][], failWith: "" }));
@@ -208,6 +209,14 @@ describe("项目明确之后只做决定和转发", () => {
     const toFriday = contextFor(getTask(task.id)!, undefined, "friday");
     expect(toFriday).toContain("ExportPanel.tsx");
     expect(toFriday).not.toContain("没读过这个项目的代码");
+  });
+
+  it("contextFor 带上命中的知识库条目，且过围栏", () => {
+    createFeature("p-ctx", { name: "订单列表", where: "交易 › 订单", paths: ["src/orders"] }, "task");
+    const task = createTask({ title: "订单列表加导出", kind: "code", source: {}, project: "p-ctx", status: "processing" });
+    const text = contextFor(getTask(task.id)!);
+    expect(text).toContain("订单列表 — 交易 › 订单 — src/orders");
+    expect(text).toContain('<untrusted source="knowledge">');
   });
 
   it("资料标题截 200 字，整段资料过围栏", () => {

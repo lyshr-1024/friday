@@ -3,6 +3,8 @@ import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { listResearchNotes, readResearchByName, saveResearchNote } from "../memory/research.js";
 import { readChunk } from "./web.js";
 import { untrusted } from "./fence.js";
+import { featureHistory, listKnowledge, matchFeatures, readKnowledge } from "../memory/features.js";
+import { startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { STAGE_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
@@ -56,17 +58,55 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
 export const fridayToolList = (conversationId?: string) => [
     tool(
       "memory_read",
-      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册；传 research 列出存过的学习笔记，research:<文件名> 读其中一份。",
+      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册；传 research 列出存过的学习笔记，research:<文件名> 读其中一份；传 knowledge:<项目名> 读该项目的知识库（功能在哪、哪个目录、谁负责）。",
       { file: z.string().min(1).max(120) },
       async ({ file }) => {
         const hb = /^handbook:(.+)$/.exec(file);
         if (hb) return text(readHandbook(hb[1]!) || `（没有 ${hb[1]} 的手册，现有：${listHandbooks().join("、") || "一份都没有"}）`);
+        const kb = /^knowledge:(.+)$/.exec(file);
+        if (kb) return text(readKnowledge(kb[1]!) || `（没有 ${kb[1]} 的知识库，现有：${listKnowledge().join("、") || "一份都没有"}；项目页可以点「建知识库」）`);
         if (file === "research") return text(listResearchNotes().join("\n") || "（还没存过笔记）");
         const rs = /^research:(.+)$/.exec(file);
         if (rs) return text(readResearchByName(rs[1]!) || `（没有这份笔记，用 memory_read research 看有哪些）`);
         const parsed = MEMORY_NAMES.safeParse(file);
         if (!parsed.success) return text(`没有这个文件。可读：projects / decisions / people${listHandbooks().length ? `，以及 ${listHandbooks().map((h) => `handbook:${h}`).join("、")}` : ""}`);
         return text(readMemoryFile(parsed.data) || "（空文件）");
+      },
+    ),
+    tool(
+      "knowledge_search",
+      "在某个项目的知识库里按关键词找功能：返回名字、在哪、目录、路由、负责人、说明和最近一次改动。用户问「X 功能在哪 / 谁做的 / 改过什么」时用。",
+      { project: z.string().min(1).max(120), query: z.string().min(1).max(500) },
+      async ({ project, query }) => {
+        const hits = matchFeatures(project, query, 10);
+        if (!hits.length) return text(`（${project} 的知识库里没有跟「${query}」对得上的功能；memory_read knowledge:${project} 看整份）`);
+        const body = hits.map((f) => {
+          const owners = Object.entries(f.owners).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" / ");
+          const last = featureHistory(f.id)[0];
+          return [
+            `## ${f.name}`,
+            f.where && `在哪：${f.where}`,
+            f.paths.length && `目录：${f.paths.join("、")}`,
+            f.routes.length && `路由：${f.routes.join("、")}`,
+            owners && `负责人：${owners}`,
+            f.summary && `说明：${f.summary}`,
+            last && `最近一次：${last.at.slice(0, 10)} ${last.what}`,
+          ].filter(Boolean).join("\n");
+        });
+        return text(untrusted("knowledge", body.join("\n\n")));
+      },
+    ),
+    tool(
+      "knowledge_bootstrap",
+      "给一个项目建知识库：起一个后台会话扫整个仓库，提炼出功能清单。一项目一次，要读整个仓库、花几毛到几块钱，用户说了再调。",
+      { project: z.string().min(1).max(120) },
+      async ({ project }) => {
+        try {
+          const r = await startKnowledgeBootstrap(project);
+          return text("error" in r ? r.error : "已经在后台扫了，扫完项目页能看到");
+        } catch (e) {
+          return text(e instanceof Error ? e.message : String(e));
+        }
       },
     ),
     tool(

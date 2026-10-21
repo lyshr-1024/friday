@@ -249,3 +249,16 @@ export function listKnowledge(): string[] {
     .map((f) => f.slice(0, -".md".length))
     .sort();
 }
+
+export function knowledgeBlock(project: string, text: string, limit = 1500): string {
+  const head = `项目 ${project} 里跟这件事相关的功能（Friday 的知识库，可能不全；memory_read knowledge:${project} 看整份）：`;
+  const lines: string[] = [];
+  let used = head.length + 1;
+  for (const f of matchFeatures(project, text)) {
+    const line = `- ${[f.name, f.where, f.paths.join("、")].filter(Boolean).join(" — ")}`;
+    if (used + line.length + 1 > limit) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return lines.length ? [head, ...lines].join("\n") : "";
+}

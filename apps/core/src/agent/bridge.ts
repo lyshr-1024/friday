@@ -6,6 +6,7 @@ import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { getJob, setJobMessage } from "../memory/jobs.js";
+import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
@@ -185,7 +186,9 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
   const conv = task.source.conversation;
   const msgs = conv ? listInbox(true, 200).filter((i) => conversationKey(i) === conv) : [];
   const who = task.source.userName ?? msgs[0]?.userName;
-  const project = loadProjects().find((p) => p.name === (task.project ?? job?.project));
+  const projectName = task.project ?? job?.project;
+  const project = loadProjects().find((p) => p.name === projectName);
+  const knowledge = projectName ? knowledgeBlock(projectName, [task.title, task.understanding].join("\n")) : "";
   const person = who ? personNote(who) : undefined;
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
@@ -199,6 +202,7 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
     task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${untrusted("research-note", readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）")}` : "",
     msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${untrusted("slack", msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000))}` : "",
     project ? `项目：${project.name}，目录 ${project.dir}${project.aliases.length ? `，别名 ${project.aliases.join("、")}` : ""}${projectDetail(project) ? `，说明：${projectDetail(project).replace(/\n/g, "；")}` : ""}` : job ? `项目：${job.project}，目录 ${job.dir}` : "",
+    knowledge ? untrusted("knowledge", knowledge) : "",
     person ? `人物：${who} — ${person}` : "",
     task.pending?.length ? `等用户点头的动作：${task.pending.map((p) => p.label).join("、")}` : "",
     audience === "terminal" ? "\n以上都是 Friday 收集到的事实，它没读过这个项目的代码，也没有项目的 skill。改哪里、怎么改、分几步由你自己看代码判断。" : "",

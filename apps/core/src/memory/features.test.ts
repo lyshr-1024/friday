@@ -8,6 +8,7 @@ import {
   getFeature,
   hasHistoryFor,
   listFeatures,
+  knowledgeBlock,
   listKnowledge,
   matchFeatures,
   mergeFeature,
@@ -92,5 +93,14 @@ describe("功能表", () => {
     writeKnowledge("p-r");
     expect(listKnowledge()).not.toContain("p-r");
     expect(readKnowledge("p-r")).toBe("");
+  });
+});
+
+describe("knowledgeBlock", () => {
+  it("命中的每条一行「名字 — 在哪 — 目录」，整行截到上限，没命中为空", () => {
+    createFeature("p-kb", { name: "基金筛选", where: "财富 › 基金", paths: ["src/funds"] }, "task");
+    expect(knowledgeBlock("p-kb", "基金筛选加入口")).toContain("- 基金筛选 — 财富 › 基金 — src/funds");
+    expect(knowledgeBlock("p-kb", "完全无关")).toBe("");
+    expect(knowledgeBlock("p-kb", "基金筛选", 10)).toBe("");
   });
 });
