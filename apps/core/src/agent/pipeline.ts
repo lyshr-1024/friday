@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
+import { finishBootstrap } from "./knowledgeBootstrap.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -20,6 +21,7 @@ import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { sessionCost } from "./transcript.js";
+import { onTaskDone } from "./knowledge.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -82,9 +84,10 @@ export async function finishDefectsOf(story: Task, status: "done" | "ignored"): 
 }
 
 export async function finishTask(id: string, status: "done" | "ignored", why: string, { keepTerminal = false, withDefects = false } = {}): Promise<Task | undefined> {
-  const story = withDefects ? getTask(id) : undefined;
-  if (story) await finishDefectsOf(story, status);
+  const before = getTask(id);
+  if (before && withDefects) await finishDefectsOf(before, status);
   const t = updateTask(id, { status, pending: [], attention: undefined });
+  if (before && t) onTaskDone(before, t);
   if (t) for (const r of pendingRunsForTask(id)) if (r.kind === "autonomous" || r.kind === "story_bug") settleRun(r, t, status, why);
   if (t && !keepTerminal) await closeTaskTerminal(t, why);
   return t;
@@ -194,6 +197,10 @@ const exitText = (code: number) => (code === -1 ? "会话已不在" : `退出码
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  if (job.task.source.knowledgeBootstrap) {
+    finishBootstrap(job.task, jobId, exitCode).catch((e) => console.error("[knowledge] finishBootstrap", e));
+    return undefined;
+  }
   settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (job.task.report && job.task.status === "review") {
     fillRunCost(jobId);
@@ -507,6 +514,7 @@ export async function executePending(
   const t = getTask(taskId)!;
   if (t.pending?.length) return t;
   const done = updateTask(taskId, { status: "done", progress: "全部动作已执行" })!;
+  onTaskDone(t, done);
   await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
 }

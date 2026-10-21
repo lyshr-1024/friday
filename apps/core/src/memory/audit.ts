@@ -1,3 +1,4 @@
+import type { FeaturesSnapshot } from "./features.js";
 import { randomUUID } from "node:crypto";
 import type { RulesSnapshot } from "./rules.js";
 import type { AuditEvent, AuditStatus, Risk } from "@friday/shared";
@@ -31,6 +32,7 @@ export type Undo =
   | { kind: "delete_okr_reports"; ids: number[] }
   | { kind: "reopen_task"; id: string; status: string }
   | { kind: "delete_research"; file: string }
+  | { kind: "restore_features"; snapshot: FeaturesSnapshot }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

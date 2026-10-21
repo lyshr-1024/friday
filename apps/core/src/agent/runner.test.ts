@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { cleanEnv } from "./env.js";
 import type { Task } from "@friday/shared";
-import { buildGuardScript, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
+import { createFeature } from "../memory/features.js";
+import { autonomousPrompt, buildGuardScript, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
 import { PUSH_WHY } from "./guard.js";
 
 describe("终端环境与会话恢复", () => {
@@ -60,5 +61,15 @@ describe("storyBugPrompt", () => {
     expect(p).toContain("不受");
     expect(p).toContain("合进主干");
     expect(p).toContain("不要调 friday_finish");
+  });
+});
+
+describe("autonomousPrompt 知识库", () => {
+  it("命中功能时在手册之前带上知识库块，没命中不带", () => {
+    createFeature("p-ap", { name: "对账单", where: "资金 › 对账", paths: ["src/bill"] }, "task");
+    const hit = autonomousPrompt("j1", "对账单加导出", "p-ap");
+    expect(hit).toContain("对账单 — 资金 › 对账 — src/bill");
+    expect(hit).toContain('<untrusted source="knowledge">');
+    expect(autonomousPrompt("j2", "别的事", "p-ap")).not.toContain("knowledge");
   });
 });

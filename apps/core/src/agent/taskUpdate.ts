@@ -11,6 +11,7 @@ import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
 import { requestProjectChange } from "./reproject.js";
 import { finishDefectsOf, openDefectsOf } from "./pipeline.js";
+import { onTaskDone } from "./knowledge.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -158,7 +159,9 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
   if (patch.status && patch.status !== task.status) {
     // 收工 / 忽略时把"等你看"标记和没发出去的待审动作一起清掉，不然列表里还挂着
     const closing = patch.status === "done" || patch.status === "ignored";
+    const before = task;
     task = updateTask(taskId, { status: patch.status, attention: undefined, ...(closing ? { pending: [] } : {}) })!;
+    onTaskDone(before, task);
     changed.push(`状态 → ${STATUS_LABEL[patch.status]}`);
     if (closing) {
       const kids = openDefectsOf(task).length;

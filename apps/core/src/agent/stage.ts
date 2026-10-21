@@ -3,6 +3,7 @@ import { STAGE_ORDER, STAGE_LABEL } from "@friday/shared";
 import { getTask, updateTask } from "../memory/tasks.js";
 import { listAudit, record } from "../memory/audit.js";
 import { signalScore, bumpSignal } from "../memory/stageSignals.js";
+import { onTaskDone } from "./knowledge.js";
 
 /** 弱信号问够这么多次、且从没被否过，就升级成强信号直接推 */
 export const PROMOTE_AFTER = 3;
@@ -69,6 +70,7 @@ function advance(t: Task, to: Stage, by: "auto" | "user", why: string, signal?: 
     // released 是终态：上线了这条就算完，从板上收走
     ...(to === "released" ? { status: "done" as const, releasedAt: at } : {}),
   })!;
+  onTaskDone(t, next);
   record({
     taskId: t.id,
     action: "stage_advance",

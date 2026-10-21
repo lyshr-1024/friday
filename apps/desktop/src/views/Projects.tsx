@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, type ProjectOverview, type ProjectTaskLine, type ProjectTerminal, type Stage } from "@friday/shared";
-import { closeProjectTerminal, openProjectTerminal, projectOverview, projectShell, projectTerminals } from "../lib/core";
+import { SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, type FeatureOwners, type FeatureView, type ProjectKnowledge, type ProjectOverview, type ProjectTaskLine, type ProjectTerminal, type Stage } from "@friday/shared";
+import { bootstrapKnowledge, closeProjectTerminal, openProjectTerminal, projectKnowledge, projectOverview, projectShell, projectTerminals, removeFeature } from "../lib/core";
 import { Terminal } from "./Terminal";
 
 const PICK_KEY = "friday:project";
@@ -34,6 +34,119 @@ function TaskRow({ t, onOpen }: { t: ProjectTaskLine; onOpen: (id: string) => vo
       <span className="pj__task-t">{t.title}</span>
       <span className="pj__task-m mono">{[state, t.branch].filter(Boolean).join(" · ")}</span>
     </button>
+  );
+}
+
+const ago = (iso: string) => {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`;
+};
+const day = (iso: string) => new Date(iso).toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" });
+const OWNER_LABEL: Record<keyof FeatureOwners, string> = { backend: "后端", pm: "产品", design: "设计", qa: "测试" };
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function FeatureDetail({ f, onOpenTask }: { f: FeatureView; onOpenTask: (id: string) => void }) {
+  const owners = (Object.keys(OWNER_LABEL) as Array<keyof FeatureOwners>).filter((k) => f.owners[k]).map((k) => `${OWNER_LABEL[k]} ${f.owners[k]}`);
+  return (
+    <div className="kb__detail">
+      {f.aliases.length > 0 && <div><span className="kb__k">别名</span>{f.aliases.join("、")}</div>}
+      {f.paths.length > 0 && <div><span className="kb__k">目录</span><span className="mono">{f.paths.join("  ")}</span></div>}
+      {f.routes.length > 0 && <div><span className="kb__k">路由</span><span className="mono">{f.routes.join("  ")}</span></div>}
+      {owners.length > 0 && <div><span className="kb__k">负责人</span>{owners.join(" / ")}</div>}
+      {f.summary && <div><span className="kb__k">说明</span>{f.summary}</div>}
+      {f.history.length > 0 && (
+        <div className="kb__hist">
+          {f.history.map((h) => (
+            <div key={h.id} className="kb__h">
+              <span className="kb__h-at mono">{day(h.at)}</span>
+              {h.taskId ? <button className="link kb__h-what" onClick={() => onOpenTask(h.taskId!)}>{h.what}</button> : <span className="kb__h-what">{h.what}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 知识库：这个项目里每个功能在哪、动过什么。冷启动扫一遍，之后每条任务收工时 Friday 自己补 */
+function KnowledgeSection({ name, onOpenTask }: { name: string; onOpenTask: (id: string) => void }) {
+  const [k, setK] = useState<ProjectKnowledge | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [arm, setArm] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const pull = useCallback(() => projectKnowledge(name).then(setK).catch((e: unknown) => setErr(errText(e))), [name]);
+  useEffect(() => { void pull(); }, [pull]);
+  useEffect(() => {
+    if (!k?.bootstrapping) return;
+    const t = window.setInterval(() => void pull(), 10_000);
+    return () => window.clearInterval(t);
+  }, [k?.bootstrapping, pull]);
+  // WebKit 点按钮不给焦点，onBlur 可能永远不来
+  useEffect(() => {
+    if (!arm) return;
+    const t = window.setTimeout(() => setArm(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [arm]);
+
+  async function act(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setErr("");
+    try {
+      await fn();
+      await pull();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function del(id: string) {
+    if (arm !== id) return setArm(id);
+    setArm(null);
+    void act(() => removeFeature(id));
+  }
+
+  if (!k) return err ? <div className="pj__dim">{err}</div> : null;
+  return (
+    <div className="kb">
+      <div className="kb__head">
+        <span className="tdlg__k">知识库 · {k.features.length} 个功能</span>
+        <span className="th__sp" />
+        {k.bootstrapping ? (
+          <span className="kb__scan"><span className="kb__spin" />正在扫…</span>
+        ) : (
+          <button className="b b--text" disabled={busy} onClick={() => void act(() => bootstrapKnowledge(name))}>
+            {k.bootstrappedAt ? `重扫 · 上次 ${ago(k.bootstrappedAt)}` : "建知识库"}
+          </button>
+        )}
+      </div>
+      {err && <div className="okr__err">{err}</div>}
+      {!k.features.length && !k.bootstrapping && <div className="pj__dim">还没有知识库。点「建知识库」让 Friday 扫一遍这个仓库，之后每条任务收工时它会自己补。</div>}
+      {k.features.map((f) => {
+        const toggle = () => setOpen(open === f.id ? null : f.id);
+        return (
+          <div key={f.id} className="kb__item">
+            <div className="kb__row" role="button" tabIndex={0} aria-expanded={open === f.id} onClick={toggle} onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) toggle(); }}>
+              <span className="kb__name" title={f.name}>{f.name}</span>
+              <span className="kb__where" title={f.where}>{f.where}</span>
+              <span className="kb__paths mono" title={f.paths.join("\n")}>{f.paths.join("  ")}</span>
+              <span className="kb__n">{f.history.length ? `动过 ${f.history.length} 次` : ""}</span>
+              <button
+                className={`kb__del ${arm === f.id ? "is-armed" : ""}`}
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); del(f.id); }}
+                onBlur={() => setArm(null)}
+              >
+                {arm === f.id ? "再点一次删除" : "删除"}
+              </button>
+            </div>
+            {open === f.id && <FeatureDetail f={f} onOpenTask={onOpenTask} />}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -72,6 +185,7 @@ function Overview({ o, compact, onOpenTask }: { o: ProjectOverview; compact: boo
         )}
         {o.leftover > 0 && <div className="pj__dim">还有 {o.leftover} 个收工任务留下的 worktree 没删，在设置页「终端」里清理。</div>}
       </div>
+      <KnowledgeSection key={o.name} name={o.name} onOpenTask={onOpenTask} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 import type { Task, TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
+import { knowledgeBlock } from "../memory/features.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
@@ -21,6 +22,7 @@ export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 /** 自主任务的提示词：分支、测试、交付报告、截图，全部落在约定路径，Friday 事后解析进审核。 */
 export function autonomousPrompt(id: string, task: string, project: string): string {
   const handbook = handbookBlock(project);
+  const knowledge = knowledgeBlock(project, task);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
     `用户的诉求（Friday 转达的原话，它没读过这个项目的代码，也没有项目的 skill）：${task}`,
@@ -48,6 +50,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "5. 全程不要问用户问题——用户不在终端前，问了没人答，会一直卡着。拿不准就按最保守的方式做并在报告里写明，让用户看报告时再定。",
     "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
     "7. 提交后 git push 当前分支，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge 进保护分支、不要推保护分支，合进主干由用户在 Friday 里审核。",
+    ...(knowledge ? ["", untrusted("knowledge", knowledge)] : []),
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
