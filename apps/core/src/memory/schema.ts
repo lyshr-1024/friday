@@ -193,6 +193,31 @@ CREATE TABLE IF NOT EXISTS rule_evidence (
 );
 CREATE INDEX IF NOT EXISTS rule_evidence_rule ON rule_evidence (rule_id);
 
+CREATE TABLE IF NOT EXISTS features (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',
+  where_ TEXT NOT NULL DEFAULT '',
+  paths TEXT NOT NULL DEFAULT '[]',
+  routes TEXT NOT NULL DEFAULT '[]',
+  owners TEXT NOT NULL DEFAULT '{}',
+  summary TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS features_project ON features (project);
+CREATE TABLE IF NOT EXISTS feature_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  feature_id TEXT NOT NULL,
+  task_id TEXT,
+  at TEXT NOT NULL,
+  what TEXT NOT NULL,
+  files TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS feature_history_feature ON feature_history (feature_id);
+
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,
   ts TEXT NOT NULL,

@@ -468,6 +468,8 @@ export type AutostartPlan =
   | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string };
 
 export interface TaskSource {
+  /** 知识库冷启动的锚点卡，值是项目名 */
+  knowledgeBootstrap?: string;
   threadId?: string;
   /** 这条任务对应的 Slack 对话键（channelId:ts） */
   conversation?: string;
@@ -850,6 +852,7 @@ export const USAGE_LABELS: Record<string, string> = {
   hot: "AI 热点",
   desk: "首屏建议",
   okr_weekly: "OKR 周报",
+  knowledge: "收工记知识库",
 };
 
 export interface UsageEntry {
@@ -894,6 +897,46 @@ export interface Rule {
   retiredAt?: string;
   retiredWhy?: string;
   evidence: RuleEvidence[];
+}
+
+/* ---------- 知识库：项目里每个功能在哪、谁负责、动过什么 ---------- */
+
+export type FeatureOrigin = "bootstrap" | "task";
+export interface FeatureOwners {
+  backend?: string;
+  pm?: string;
+  design?: string;
+  qa?: string;
+}
+export interface Feature {
+  id: string;
+  project: string;
+  name: string;
+  aliases: string[];
+  where: string;
+  paths: string[];
+  routes: string[];
+  owners: FeatureOwners;
+  summary: string;
+  origin: FeatureOrigin;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface FeatureHistory {
+  id: number;
+  featureId: string;
+  taskId?: string;
+  at: string;
+  what: string;
+  files: string[];
+}
+export interface FeatureView extends Feature {
+  history: FeatureHistory[];
+}
+export interface ProjectKnowledge {
+  features: FeatureView[];
+  bootstrappedAt?: string;
+  bootstrapping: boolean;
 }
 
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
