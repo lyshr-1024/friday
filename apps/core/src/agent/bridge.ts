@@ -25,6 +25,7 @@ const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, closeRunForTask, recordRound } from "./runLog.js";
 import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
+import { ingestBootstrap } from "./knowledgeBootstrap.js";
 
 const execFileP = promisify(execFile);
 
@@ -78,6 +79,40 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
     inputSchema: { type: "object", properties: { reason: str("卡在哪、需要用户做什么"), taskId: TASK_ID }, required: ["reason"] },
   },
 ];
+
+export const KNOWLEDGE_TOOL: BridgeTool = {
+  name: "friday_knowledge",
+  description: "知识库冷启动专用：把扫出来的功能报给 Friday 直接入库。可以分批调，每批不超过 200 条；同名的 Friday 会合并。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      features: {
+        type: "array",
+        description: "功能列表",
+        items: {
+          type: "object",
+          properties: {
+            name: str("功能名，界面上怎么叫就怎么写"),
+            aliases: list("别的叫法"),
+            where: str("在界面上哪里"),
+            paths: list("相关目录或文件，相对主仓"),
+            routes: list("路由"),
+            summary: str("一句话说这个功能是干什么的"),
+          },
+          required: ["name"],
+        },
+      },
+    },
+    required: ["features"],
+  },
+};
+
+const ownerOf = (job: Job): Task | undefined => (job.taskId ? getTask(job.taskId) : findTaskBySource((s) => s.jobId === job.id, true));
+
+export function bridgeToolsFor(jobId: string): BridgeTool[] {
+  const job = getJob(jobId);
+  return job && ownerOf(job)?.source.knowledgeBootstrap ? [...BRIDGE_TOOLS, KNOWLEDGE_TOOL] : BRIDGE_TOOLS;
+}
 
 function taskFor(job: Job): Task {
   const existing = findTaskBySource((s) => s.jobId === job.id, true);
@@ -288,6 +323,13 @@ export function terminalAnswered(jobId: string): void {
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };
+  if (name === "friday_knowledge") {
+    const owner = ownerOf(job);
+    const project = owner?.source.knowledgeBootstrap;
+    if (!project) return { text: "这个工具只给知识库冷启动用", isError: true };
+    const r = ingestBootstrap(project, owner.source.repoDir ?? job.dir, args);
+    return { text: `新建 ${r.added}、合并 ${r.updated}、丢弃 ${r.dropped}。${lang()}` };
+  }
   const target = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args, name !== "friday_progress") : taskFor(job);
   if (typeof target === "string") return { text: target, isError: true };
   const task = target;

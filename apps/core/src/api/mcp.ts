@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { BRIDGE_TOOLS, callBridge } from "../agent/bridge.js";
+import { bridgeToolsFor, callBridge } from "../agent/bridge.js";
 import { getJob } from "../memory/jobs.js";
 
 interface Rpc {
@@ -25,7 +25,7 @@ export async function handleRpc(jobId: string, msg: Rpc): Promise<unknown> {
     case "ping":
       return ok(msg.id, {});
     case "tools/list":
-      return ok(msg.id, { tools: BRIDGE_TOOLS });
+      return ok(msg.id, { tools: bridgeToolsFor(jobId) });
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
       const args = (msg.params?.arguments as Record<string, unknown> | undefined) ?? {};

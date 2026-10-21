@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
+import { finishBootstrap } from "./knowledgeBootstrap.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -196,6 +197,10 @@ const exitText = (code: number) => (code === -1 ? "会话已不在" : `退出码
 export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const job = getTaskByJob(jobId);
   if (!job) return undefined;
+  if (job.task.source.knowledgeBootstrap) {
+    void finishBootstrap(job.task, jobId, exitCode);
+    return job.task;
+  }
   settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
   if (job.task.report && job.task.status === "review") {
     fillRunCost(jobId);
