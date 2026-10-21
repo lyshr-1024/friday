@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize } from "node:path";
 import type { Feature, FeatureOwners, Task } from "@friday/shared";
 import { config } from "../config.js";
 import { record } from "../memory/audit.js";
-import { addFeatureHistory, createFeature, listFeatures, mergeFeature, snapshotFeatures, writeKnowledge, type FeatureInput, type FeaturesSnapshot } from "../memory/features.js";
+import { addFeatureHistory, createFeature, findFeatureByName, getFeature, listFeatures, mergeFeature, snapshotFeatures, writeKnowledge, type FeatureInput, type FeaturesSnapshot } from "../memory/features.js";
 import { loadProjects } from "../memory/projects.js";
 import { askStream, SONNET_MODEL } from "./claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
@@ -91,7 +91,7 @@ export function parseLearn(text: string, candidates: Feature[], repoDir: string)
   return out.slice(0, MAX_ITEMS);
 }
 
-export function changedFiles(task: Task, _repoDir: string): string[] {
+export function changedFiles(task: Task): string[] {
   const wt = task.source.worktree;
   if (wt && existsSync(wt) && statSync(wt).isDirectory()) {
     const d = diffStatSync(wt);
@@ -104,16 +104,21 @@ export function changedFiles(task: Task, _repoDir: string): string[] {
 }
 
 export function applyLearn(project: string, taskId: string, items: LearnItem[], files: string[], at = new Date().toISOString()): FeaturesSnapshot {
-  const snap = snapshotFeatures(items.flatMap((i) => (i.match ? [i.match] : [])));
-  for (const { match, what, ...input } of items) {
+  const targets = items.map((i) => i.match ?? findFeatureByName(project, i.name)?.id);
+  const snap = snapshotFeatures([...new Set(targets.filter((t): t is string => !!t))]);
+  items.forEach(({ match, what, ...input }, n) => {
+    const target = targets[n];
     let id: string;
-    if (match) id = mergeFeature(match, input, at).id;
-    else {
+    if (target) {
+      const cur = getFeature(target)!;
+      const renamed = input.name !== cur.name ? [input.name] : [];
+      id = mergeFeature(target, { ...input, name: cur.name, aliases: [...(input.aliases ?? []), ...renamed] }, at).id;
+    } else {
       id = createFeature(project, input, "task", at).id;
       snap.added.push(id);
     }
     snap.historyIds.push(addFeatureHistory({ featureId: id, taskId, at, what, files }));
-  }
+  });
   writeKnowledge(project);
   return snap;
 }
@@ -132,7 +137,7 @@ export async function learnFromTask(task: Task, ask = defaultAsk): Promise<Featu
   if (task.status !== "done" || !task.project) return undefined;
   const project = loadProjects().find((p) => p.name === task.project);
   if (!project || !(task.source.branch || task.report)) return undefined;
-  const files = changedFiles(task, project.dir);
+  const files = changedFiles(task);
   const candidates = listFeatures(project.name);
   const { system, prompt } = learnPrompt(task, files, candidates);
   const items = parseLearn(await ask(system, prompt), candidates, project.dir);

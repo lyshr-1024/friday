@@ -72,9 +72,26 @@ describe("知识库收工记账", () => {
     expect(featureHistory(f.id).map((h) => h.what)).toEqual(["第二次"]);
   });
 
+  it("match 命中但模型换了名字：保留原名，新名进别名", () => {
+    const f = createFeature("p-rn", { name: "基金筛选" }, "task");
+    applyLearn("p-rn", "t-1", [{ match: f.id, name: "基金过滤", what: "w" }], []);
+    expect(getFeature(f.id)).toMatchObject({ name: "基金筛选", aliases: ["基金过滤"] });
+  });
+
+  it("没写 match 但名字或别名对得上：合并进已有的，不新建，撤销能还原", () => {
+    const f = createFeature("p-dup", { name: "基金筛选", aliases: ["筛选入口"], summary: "旧" }, "task");
+    const snap = applyLearn("p-dup", "t-1", [{ name: "筛选入口", summary: "新", what: "w" }], []);
+    expect(listFeatures("p-dup")).toHaveLength(1);
+    expect(snap.added).toEqual([]);
+    expect(getFeature(f.id)).toMatchObject({ name: "基金筛选", summary: "新" });
+    restoreFeatures(snap);
+    expect(getFeature(f.id)).toMatchObject({ summary: "旧", aliases: ["筛选入口"] });
+    expect(featureHistory(f.id)).toEqual([]);
+  });
+
   it("changedFiles 没有 worktree 时用报告", () => {
     const t = { ...mkTask(), report: reportWith(["src/funds/a.tsx — 加入口", "src/orders/b.ts — 改列宽"]) };
-    expect(changedFiles(t, "/not/a/repo")).toEqual(["src/funds/a.tsx", "src/orders/b.ts"]);
+    expect(changedFiles(t)).toEqual(["src/funds/a.tsx", "src/orders/b.ts"]);
   });
 
   it("learnFromTask：项目不在注册表里、没有分支也没有报告，都不调模型", async () => {
