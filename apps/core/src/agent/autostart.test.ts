@@ -286,6 +286,10 @@ describe("storyEligible：需求要有理解卡、没变、依赖齐才自己开
 });
 
 describe("storyEligible：终审修正", () => {
+  it("friday 项目的不用审旧卡：拒绝文案说方案一律要审", () => {
+    register("friday");
+    expect(storyEligible(req({ project: "friday" }, { review: "none" }))).toBe("friday 项目的方案一律要你审");
+  });
   it("不用审的卡，项目后来改成要审：不开", () => {
     register("whale-console");
     expect(storyEligible(req({}, { review: "none" }))).toBe("项目改成要审了");

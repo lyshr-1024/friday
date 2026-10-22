@@ -736,6 +736,17 @@ describe("终审修正", () => {
     expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_review_required")).toHaveLength(1);
   });
 
+  it("4b：friday 项目的不用审旧卡：checkBasis 改待审，账写 friday 的说法", async () => {
+    idle();
+    writeProjects({ name: "friday" });
+    const t = story("friday");
+    updateTask(t.id, { source: { brief: card(briefBasis(getTask(t.id)!), "none") } });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief?.review).toBe("pending");
+    const ev = listAudit({ taskId: t.id }).find((e) => e.action === "brief_review_required")!;
+    expect(ev.why).toBe("friday 项目的方案一律要你审");
+  });
+
   it("6：建卡记一行 runs（kind brief、算在需求名下），收尾关掉；之后打回交付不把它记成打回", async () => {
     idle();
     writeProjects({ name: "f6" });

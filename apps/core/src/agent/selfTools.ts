@@ -7,7 +7,7 @@ import { listMessages } from "../memory/conversations.js";
 import { record } from "../memory/audit.js";
 import { existsSync, statSync } from "node:fs";
 import type { Feature } from "@friday/shared";
-import { expandHome, loadProjects, projectSection, resolveProject, setProjectField, type ProjectFieldKey } from "../memory/projects.js";
+import { expandHome, isFridayProject, loadProjects, projectSection, resolveProject, setProjectField, type ProjectFieldKey } from "../memory/projects.js";
 import { correctFeature, deleteFeature, findFeatureByName, getFeature, getFeatureHistory, mergeFeatures, moveHistory, snapshotFeatures, writeKnowledge } from "../memory/features.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { activeRules, editRule, getRule, snapshotRules } from "../memory/rules.js";
@@ -27,6 +27,9 @@ const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s
 
 const SCHEDULED_CONFIG = "定时任务里不能改 Friday 的配置，等用户回来。";
 const inSchedule = (conversationId?: string) => Boolean(conversationId && scheduleByConversation(conversationId));
+
+const byYou = (conversationId: string | undefined, what: string): string =>
+  conversationId && !scheduleByConversation(conversationId) ? `你在对话里让 Friday ${what}` : `Friday 自己调用工具${what}`;
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
@@ -97,7 +100,7 @@ export const selfToolList = (conversationId?: string) => [
       const how = keys.map((k) => `${k}：${show(cur[k])} → ${show(after[k])}`).join("；");
       record({
         action: "settings_changed",
-        why: "你在对话里让 Friday 改设置",
+        why: byYou(conversationId, "改设置"),
         how,
         evidence: { quote: saidLast(conversationId), before, after: afterPicked },
         risk: "reversible",
@@ -148,24 +151,28 @@ export const selfToolList = (conversationId?: string) => [
       }
       const level = fields.方案送审?.trim();
       if (level && !REVIEW_LEVELS.includes(level)) return text(`方案送审只认：${REVIEW_LEVELS.join(" / ")}。`);
+      const skipped = isFridayProject(name) && fields.方案送审 !== undefined;
+      const writes = skipped ? entries.filter(([k]) => k !== "方案送审") : entries;
+      const skipNote = "friday 项目的方案一律要你审，「方案送审」对它不生效";
+      if (skipped && !writes.length) return text(`${skipNote}，没改。`);
       const current = readMemoryFile("projects");
       const before = projectSection(current, name);
       let next = current;
       try {
-        for (const [k, v] of entries) next = setProjectField(next, name, k, v);
+        for (const [k, v] of writes) next = setProjectField(next, name, k, v);
       } catch (e) {
         return text(e instanceof Error ? e.message : String(e));
       }
       writeMemoryFile("projects", next);
       record({
         action: "project_updated",
-        why: "你在对话里让 Friday 改项目登记",
-        how: `${name}：${entries.map(([k, v]) => `${k}=${v || "（删除）"}`).join("；")}`,
-        evidence: { quote: saidLast(conversationId), project: name, fields },
+        why: byYou(conversationId, "改项目登记"),
+        how: `${name}：${writes.map(([k, v]) => `${k}=${v || "（删除）"}`).join("；")}`,
+        evidence: { quote: saidLast(conversationId), project: name, fields: Object.fromEntries(writes) },
         risk: "reversible",
         undo: { kind: "restore_project", name, before },
       });
-      return text(`改好了（可在操作记录里撤销）：\n${projectSection(next, name) ?? ""}`);
+      return text(`改好了（可在操作记录里撤销）${skipped ? `；${skipNote}` : ""}：\n${projectSection(next, name) ?? ""}`);
     },
   ),
   tool(
@@ -188,6 +195,7 @@ export const selfToolList = (conversationId?: string) => [
       const before = getRule(id);
       if (!before) return text("没有这条规则");
       if (before.status === "retired") return text("这条已经退役了");
+      if (t.trim() === before.text.trim()) return text("没有变化");
       const snapshot = snapshotRules([id]);
       let after;
       try {
@@ -197,7 +205,7 @@ export const selfToolList = (conversationId?: string) => [
       }
       record({
         action: "rule_changed",
-        why: "你在对话里让 Friday 改手册规则",
+        why: byYou(conversationId, "改手册规则"),
         how: `${before.project} · ${id}：${before.text} → ${after.text}`,
         evidence: { quote: saidLast(conversationId), before: before.text, after: after.text },
         risk: "reversible",
@@ -223,7 +231,7 @@ export const selfToolList = (conversationId?: string) => [
       }
       record({
         action: "rule_retired",
-        why: "你在对话里让 Friday 退役手册规则",
+        why: byYou(conversationId, "退役手册规则"),
         how: `${before.project} · ${id}：${before.text}（${why.trim()}）`,
         evidence: { quote: saidLast(conversationId), before: before.text, after: `已退役：${why.trim()}` },
         risk: "reversible",
@@ -310,7 +318,7 @@ export const selfToolList = (conversationId?: string) => [
       try {
         record({
           action: "knowledge_corrected",
-          why: "你在对话里让 Friday 纠正知识库",
+          why: byYou(conversationId, "纠正知识库"),
           how,
           evidence: { quote: saidLast(conversationId), op: a.op, features: involved.map((f) => f.id) },
           risk: "reversible",
@@ -369,7 +377,7 @@ export const selfToolList = (conversationId?: string) => [
       const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
       record({
         action: r.removed ? "worktree_removed" : "worktree_kept",
-        why: entry.dirty ? "你在对话里让 Friday 删遗留的 worktree，连没提交的改动一起丢" : "你在对话里让 Friday 删遗留的 worktree",
+        why: byYou(conversationId, entry.dirty ? "删遗留的 worktree，连没提交的改动一起丢" : "删遗留的 worktree"),
         how: r.removed ? `删了 ${entry.path}${branchNote}` : `没删：${r.kept ?? "未知原因"}`,
         evidence: { quote: said, path: entry.path, repoDir: entry.repoDir, branch: r.branch ?? null },
         risk: entry.dirty ? "irreversible" : "reversible",

@@ -1,7 +1,7 @@
 import { STAGE_LABEL, briefRefusal, taskCategory, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
-import { loadProjects, resolveProject } from "../memory/projects.js";
+import { isFridayProject, loadProjects, resolveProject } from "../memory/projects.js";
 import { listTasks, updateTask } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
@@ -135,7 +135,7 @@ export function storyEligible(t: Task): string | undefined {
   if (b.stale || b.basis !== briefBasis(t)) return "需求变了，理解卡要重看";
   if (briefBuilding(t.id)) return "理解卡在重写";
   if (t.source.briefFailed) return "理解卡重建失败";
-  if (b.review === "none" && reviewFor(b.size, briefPolicy(loadProjects().find((x) => x.name === t.project))) === "pending") return "项目改成要审了";
+  if (b.review === "none" && reviewFor(b.size, briefPolicy(loadProjects().find((x) => x.name === t.project))) === "pending") return isFridayProject(t.project) ? "friday 项目的方案一律要你审" : "项目改成要审了";
   const waiting = b.deps.find((d) => d.status !== "ready");
   if (waiting) return `等 ${waiting.from ?? "别人"} 给 ${waiting.what}`;
   if (t.attention) return "卡上还挂着要你回答的问题";

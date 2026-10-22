@@ -21,7 +21,7 @@ import { startTask } from "../agent/taskStart.js";
 import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
 import { readMemoryFile, undoWrite, writeMemoryFile } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
-import { loadProjects, replaceProjectSection, resolveProject } from "../memory/projects.js";
+import { loadProjects, projectSection, replaceProjectSection, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
 import { needOf } from "../agent/needs.js";
 import { autostartEnv, autostartPlan, runningAutonomous } from "../agent/autostart.js";
@@ -540,6 +540,7 @@ export const tasks = new Hono()
   .post("/audit/:id/undo", async (c) => {
     const plan = undoPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "这笔不可撤销" }, 400);
+    if (getEvent(c.req.param("id"))?.status === "undone") return c.json({ error: "这条已经撤销过了" }, 409);
     if (plan.kind === "delete_slack_message") {
       const creds = await loadSlackCreds();
       if (!creds) return c.json({ error: "Slack 未接入" }, 400);
@@ -622,7 +623,9 @@ export const tasks = new Hono()
       return c.json({ ok: true });
     }
     if (plan.kind === "restore_project") {
-      writeMemoryFile("projects", replaceProjectSection(readMemoryFile("projects"), plan.name, plan.before));
+      const md = readMemoryFile("projects");
+      if (plan.before !== null && projectSection(md, plan.name) === null) return c.json({ error: `项目「${plan.name}」已经不在登记里（可能改了名），没法撤销这次改动` }, 409);
+      writeMemoryFile("projects", replaceProjectSection(md, plan.name, plan.before));
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

@@ -129,6 +129,24 @@ describe("project_update", () => {
     expect(readFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "utf8")).toBe(seed);
   });
 
+  it("friday 项目改方案送审：不写、不记账、回话说不生效", async () => {
+    const fseed = `# 项目\n\n## friday\n- 目录：${dir}\n- 说明：旧\n`;
+    writeMemoryFile("projects", fseed);
+    const n = listAudit({}).filter((x) => x.action === "project_updated").length;
+    const out = await callIn(undefined, "project_update", { project: "friday", fields: { 方案送审: "不用" } });
+    expect(out).toContain("friday 项目的方案一律要你审，「方案送审」对它不生效");
+    expect(readMemoryFile("projects")).toBe(fseed);
+    expect(listAudit({}).filter((x) => x.action === "project_updated")).toHaveLength(n);
+  });
+
+  it("friday 项目方案送审 + 说明：说明写了、方案送审没写、回话带不生效那句", async () => {
+    writeMemoryFile("projects", `# 项目\n\n## friday\n- 目录：${dir}\n`);
+    const out = await callIn(undefined, "project_update", { project: "friday", fields: { 方案送审: "不用", 说明: "助理" } });
+    expect(out).toContain("不生效");
+    expect(readMemoryFile("projects")).toContain("- 说明：助理");
+    expect(readMemoryFile("projects")).not.toContain("方案送审");
+  });
+
   it("不许清空目录", async () => {
     writeMemoryFile("projects", seed);
     expect(await callIn(undefined, "project_update", { project: "app", fields: { 目录: "" } })).toContain("目录不能清空");
@@ -549,5 +567,24 @@ describe("遗留 worktree 工具", () => {
     addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
     await callIn(conv, "worktree_remove", { path: tree });
     expect(existsSync(tree)).toBe(false);
+  });
+});
+
+describe("自管工具的小修", () => {
+  it("rule_update 文字没变：不调 editRule、不记账、origin 不变", async () => {
+    const r = addRule({ project: "_global", section: "约定", text: "一律用中文", origin: "history", evidence: [{ quote: "q", at: "2026-10-01T00:00:00.000Z", kind: "utterance" }] });
+    const n = listAudit({}).filter((x) => x.action === "rule_changed").length;
+    const out = await callIn(undefined, "rule_update", { id: r.id, text: "  一律用中文 " });
+    expect(out).toContain("没有变化");
+    expect(listAudit({}).filter((x) => x.action === "rule_changed")).toHaveLength(n);
+    expect(getRule(r.id)!.origin).toBe("history");
+  });
+
+  it("无 conversationId 记账：why 不说「你在对话里」", async () => {
+    updateSettings({ autonomousConcurrency: 3 });
+    await callIn(undefined, "settings_update", { patch: { autonomousConcurrency: 4 } });
+    const e = listAudit({}).find((x) => x.action === "settings_changed")!;
+    expect(e.why).not.toContain("你在对话里");
+    expect(e.why).toContain("Friday 自己调用");
   });
 });

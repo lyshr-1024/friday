@@ -6,7 +6,7 @@ import { taskNode } from "../memory/infer.js";
 import { getJob } from "../memory/jobs.js";
 import { neighbors } from "../memory/links.js";
 import { createRun } from "../memory/runs.js";
-import { loadProjects, projectDetail, type Project } from "../memory/projects.js";
+import { isFridayProject, loadProjects, projectDetail, type Project } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, listTasksByKind, updateTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
@@ -271,9 +271,10 @@ function checkBasis(): void {
 }
 
 function requireReview(t: Task, b: Brief): void {
+  const friday = isFridayProject(t.project);
   const updated = saveBrief(t, { ...b, review: "pending" });
   if (!t.pending?.some((a) => a.type === "brief_approve")) addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: updated.plan!, payload: {} }, { keepStatus: true });
-  record({ taskId: t.id, action: "brief_review_required", why: "项目的「方案送审」改成要审了", how: "原来按规则不用审的理解卡改成等你审，挂「方案看过，开工」", evidence: { size: b.size }, risk: "reversible" });
+  record({ taskId: t.id, action: "brief_review_required", why: friday ? "friday 项目的方案一律要你审" : "项目的「方案送审」改成要审了", how: "原来按规则不用审的理解卡改成等你审，挂「方案看过，开工」", evidence: { size: b.size }, risk: "reversible" });
 }
 
 export async function briefTick(): Promise<"started" | "busy" | "idle"> {

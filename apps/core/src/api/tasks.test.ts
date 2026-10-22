@@ -12,7 +12,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { fridayToolList } from "../agent/tools.js";
-import { updateSettings } from "../settings.js";
+import { updateSettings, userSettings } from "../settings.js";
 import { subscribe } from "../bus.js";
 import { join } from "node:path";
 import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
@@ -287,6 +287,33 @@ describe("撤销项目登记、设置", () => {
     const ev = lastEvent("project_updated");
     expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
     expect(readMemoryFile("projects")).toBe(seed);
+  });
+
+  it("改名后撤销：409、文件不变、不多出重复段", async () => {
+    writeMemoryFile("projects", seed);
+    await callTool("project_update", { project: "A", fields: { 说明: "改了" } });
+    const ev = lastEvent("project_updated");
+    writeMemoryFile("projects", readMemoryFile("projects").replace("## A\n", "## A2\n"));
+    const before = readMemoryFile("projects");
+    const res = await post(`/audit/${ev.id}/undo`);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("项目「A」已经不在登记里（可能改了名），没法撤销这次改动");
+    expect(readMemoryFile("projects")).toBe(before);
+    expect(readMemoryFile("projects").match(/^## /gm)).toHaveLength(2);
+    expect(getEvent(ev.id)!.status).not.toBe("undone");
+  });
+
+  it("撤销只能执行一次：第二次 409，中间改过的设置不被覆盖", async () => {
+    updateSettings({ model: "" });
+    await callTool("settings_update", { patch: { model: "opus" } });
+    const ev = lastEvent("settings_changed");
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    expect(userSettings().model).toBe("");
+    updateSettings({ model: "sonnet" });
+    const res = await post(`/audit/${ev.id}/undo`);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("这条已经撤销过了");
+    expect(userSettings().model).toBe("sonnet");
   });
 
   it("设置撤销发 settings 事件", async () => {
