@@ -89,7 +89,7 @@ export function BriefCard({ t, onAct }: { t: Task; onAct: Act }) {
       {building && buildingLine}
       {failedLine}
       {errLine}
-      {b.stale && <div className="brief__note">需求变了，这张卡写在变之前，重建或在会话里说「按这个做」</div>}
+      {b.stale && <div className="brief__note">需求变了，这张卡写在变之前，{b.review === "rejected" ? "点重建" : "重建或在会话里说「按这个做」"}</div>}
       {b.review === "rejected" && b.reviewNote && <div className="brief__note">打回原因：{b.reviewNote}</div>}
       <div className="brief__why">{b.sizeWhy}</div>
 

@@ -600,6 +600,10 @@ export interface TaskSource {
   /** 建理解卡的锚点，值是需求任务 id */
   briefFor?: string;
   briefFailed?: { at: string; why: string; log?: string };
+  /** 锚点上记的这次建卡开工时的需求指纹和带进提示词的原话：交上来的卡按它算过期，不按交卡那一刻 */
+  briefBuild?: { basis: string; note?: string };
+  /** 你让重建时说的原话，下一次建卡带进提示词，带上它的那次交卡后清掉 */
+  briefNote?: string;
   /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */
   handedAt?: string;
   /** 重开后下一次交代进需求会话时告诉 Claude 上一轮为什么没过，交代完清掉 */
@@ -694,6 +698,7 @@ export function briefRefusal(t: Task): string | undefined {
   if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
   if (!t.project) return "还没定项目，先定项目再建理解卡";
   if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
+  if (t.source.scheduleId) return "定时任务的卡不建理解卡";
   if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
   if (taskCategory(t.source) === "defect") return "缺陷不建理解卡，直接修";
   if (t.source.jobId) return "已经开过工了，不建理解卡";
@@ -898,7 +903,6 @@ export const USAGE_LABELS: Record<string, string> = {
   desk: "首屏建议",
   okr_weekly: "OKR 周报",
   knowledge: "收工记知识库",
-  brief: "建理解卡",
 };
 
 export interface UsageEntry {
@@ -987,7 +991,7 @@ export interface ProjectKnowledge {
 
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
-export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug";
+export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug" | "brief";
 export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user" | "schedule";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */

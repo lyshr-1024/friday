@@ -398,10 +398,11 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     return { text: `新建 ${r.added}、合并 ${r.updated}、丢弃 ${r.dropped}。${lang()}` };
   }
   if (name === "friday_brief" || name === "friday_web_read") {
-    const taskId = ownerOf(job)?.source.briefFor;
+    const anchor = ownerOf(job);
+    const taskId = anchor?.source.briefFor;
     if (!taskId) return { text: "这个工具只给建理解卡用", isError: true };
     if (name === "friday_web_read") return webRead(args);
-    const r = storeBrief(taskId, args);
+    const r = storeBrief(taskId, args, anchor!.source.briefBuild!);
     if (!r.ok) return { text: `${r.error}。照这个改了再调一次 friday_brief。`, isError: true };
     return { text: `收到了，理解卡已挂到需求上（${r.review === "pending" ? "等用户审" : "按项目规则不用审"}）。直接退出，不用调 friday_done。` };
   }

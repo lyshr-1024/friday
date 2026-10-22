@@ -47,6 +47,7 @@ const story = (project: string, extra: Partial<Parameters<typeof createTask>[0]>
 const anchorOf = (id: string) => findTaskBySource((s) => s.briefFor === id, true);
 
 const goodBrief = { todo: "基金筛选加按收益率排序", acceptance: { source: "own", cases: ["点表头按收益率降序"] }, size: "small", sizeWhy: "只改一个列表", release: "跟版本发", plan: "改列表组件" };
+const store = (id: string, raw: unknown) => storeBrief(id, raw, { basis: briefBasis(getTask(id)!) });
 
 describe("建卡会话", () => {
   it("startBriefJob：开锚点卡、起只读会话，锚点会话开起来才标处理中", async () => {
@@ -125,7 +126,7 @@ describe("建卡会话", () => {
   it("storeBrief：方案送审 全部 → pending 并挂 brief_approve；不用 → none 不挂", () => {
     writeProjects({ name: "p-all" }, { name: "p-none", extra: ["方案送审：不用"] });
     const a = story("p-all");
-    const r = storeBrief(a.id, goodBrief);
+    const r = store(a.id, goodBrief);
     expect(r).toEqual({ ok: true, review: "pending" });
     const ta = getTask(a.id)!;
     expect(ta.source.brief).toMatchObject({ review: "pending", todo: goodBrief.todo });
@@ -133,7 +134,7 @@ describe("建卡会话", () => {
     expect(ta.status).toBe("understood");
 
     const b = story("p-none");
-    expect(storeBrief(b.id, goodBrief)).toEqual({ ok: true, review: "none" });
+    expect(store(b.id, goodBrief)).toEqual({ ok: true, review: "none" });
     const tb = getTask(b.id)!;
     expect(tb.source.brief?.review).toBe("none");
     expect(tb.pending ?? []).toEqual([]);
@@ -144,7 +145,7 @@ describe("建卡会话", () => {
     const t = story("p-re", { source: { description: "按收益率排序", briefFailed: { at: "2026-10-01T00:00:00.000Z", why: "会话异常退出" } } });
     addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: "旧的", payload: {} }, { keepStatus: true });
     addPending(t.id, { type: "slack_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
-    storeBrief(t.id, goodBrief);
+    store(t.id, goodBrief);
     const after = getTask(t.id)!;
     expect(after.pending!.filter((p) => p.type === "brief_approve")).toHaveLength(1);
     expect(after.pending!.find((p) => p.type === "brief_approve")!.detail).not.toBe("旧的");
@@ -156,7 +157,7 @@ describe("建卡会话", () => {
   it("storeBrief：字段不合法回错误，卡不动", () => {
     writeProjects({ name: "p-bad" });
     const t = story("p-bad");
-    const r = storeBrief(t.id, { ...goodBrief, acceptance: { source: "own", cases: [] } });
+    const r = store(t.id, { ...goodBrief, acceptance: { source: "own", cases: [] } });
     expect(r).toMatchObject({ ok: false, error: expect.stringContaining("至少") });
     expect(getTask(t.id)!.source.brief).toBeUndefined();
   });
@@ -165,14 +166,14 @@ describe("建卡会话", () => {
     writeProjects({ name: "p-late" });
     const started = story("p-late");
     updateTask(started.id, { status: "processing", progress: "你在终端里做", source: { jobId: "job-user" } });
-    expect(storeBrief(started.id, goodBrief)).toEqual({ ok: false, error: "需求已经开工或收工，理解卡不挂了" });
+    expect(store(started.id, goodBrief)).toEqual({ ok: false, error: "需求已经开工或收工，理解卡不挂了" });
     const s1 = getTask(started.id)!;
     expect(s1.source.brief).toBeUndefined();
     expect(s1.progress).toBe("你在终端里做");
     expect(s1.pending ?? []).toEqual([]);
     const closed = story("p-late");
     updateTask(closed.id, { status: "done" });
-    expect(storeBrief(closed.id, goodBrief)).toMatchObject({ ok: false });
+    expect(store(closed.id, goodBrief)).toMatchObject({ ok: false });
     expect(getTask(closed.id)!.plan).toBeUndefined();
   });
 
@@ -192,7 +193,7 @@ describe("建卡会话", () => {
   it("callBridge friday_brief：建卡 job 能调、别的 job 回错；friday_done 对建卡 job 只回一句", async () => {
     writeProjects({ name: "p-cb" });
     const t = story("p-cb");
-    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-cb", source: { briefFor: t.id, repoDir: repo, headless: true } });
+    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-cb", source: { briefFor: t.id, repoDir: repo, headless: true, briefBuild: { basis: briefBasis(t) } } });
     const other = createTask({ title: "改列宽", kind: "code", source: {} });
     createJob({ id: "job-cb", project: "p-cb", dir: repo, logPath: "/tmp/cb.log", taskId: anchor.id });
     createJob({ id: "job-cb-other", project: "p-cb", dir: repo, logPath: "/tmp/cbo.log", taskId: other.id });
@@ -268,7 +269,7 @@ describe("建卡会话", () => {
     const u = story("p-fin");
     const a2 = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-fin", source: { briefFor: u.id, repoDir: repo, headless: true, jobId: "job-fin2" } });
     createJob({ id: "job-fin2", project: "p-fin", dir: repo, logPath: "/tmp/fin2.log", taskId: a2.id });
-    storeBrief(u.id, goodBrief);
+    store(u.id, goodBrief);
     await finishBriefJob(a2, "job-fin2", 0);
     expect(getTask(u.id)!.source.briefFailed).toBeUndefined();
     expect(getTask(a2.id)!.status).toBe("done");
@@ -428,7 +429,7 @@ describe("建卡队列", () => {
 describe("审核、打回、改档、依赖", () => {
   const withApprove = (project: string, extra: object = {}) => {
     const t = story(project);
-    storeBrief(t.id, { ...goodBrief, ...extra });
+    store(t.id, { ...goodBrief, ...extra });
     return getTask(t.id)!;
   };
   const approveAction = (id: string) => getTask(id)!.pending?.find((p) => p.type === "brief_approve");
@@ -460,7 +461,7 @@ describe("审核、打回、改档、依赖", () => {
     expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("接口不对");
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "brief_rejected")).toBe(true);
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "review_rejected")).toBe(false);
-    storeBrief(t.id, goodBrief);
+    store(t.id, goodBrief);
     expect(getTask(t.id)!.source.brief?.rejections).toBe(1);
   });
 
@@ -634,5 +635,184 @@ describe("审核、打回、改档、依赖", () => {
     const again = markDepReady(t.id, "行情") as Task;
     expect(again.source.brief!.deps[0]!.evidence!.at).toBe(at);
     expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_dep_ready")).toHaveLength(1);
+  });
+});
+
+describe("终审修正", () => {
+  const idle = () => {
+    db().prepare("UPDATE jobs SET status = 'done'").run();
+    db().prepare("UPDATE tasks SET status = 'ignored' WHERE kind != 'project'").run();
+    updateSettings({ autonomous: false });
+  };
+  const card = (basis: string, review: "pending" | "approved" | "rejected" | "none", extra: object = {}) =>
+    ({ ...goodBrief, deps: [], acceptance: { source: "own", cases: ["x"] }, features: [], review, basis, at: "2026-10-01T00:00:00.000Z", ...extra }) as unknown as NonNullable<Task["source"]["brief"]>;
+  const approves = (id: string) => (getTask(id)!.pending ?? []).filter((p) => p.type === "brief_approve");
+  const tool = async (conv: string, name: string, args: Record<string, unknown>) =>
+    ((await fridayToolList(conv).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
+
+  it("1：过期卡打回后重建期间 checkBasis 不碰，重建交上来再打回一次就停下，原因和次数都在", async () => {
+    idle();
+    writeProjects({ name: "f1" });
+    const t = story("f1");
+    updateTask(t.id, { source: { brief: card("old", "approved") } });
+    await briefTick();
+    expect(approves(t.id)).toHaveLength(1);
+    vi.mocked(openSession).mockResolvedValueOnce("job-f1");
+    rejectTask(t.id, "接口不对");
+    await vi.waitFor(() => expect(anchorOf(t.id)?.source.jobId).toBe("job-f1"));
+    createJob({ id: "job-f1", project: "f1", dir: repo, logPath: "/tmp/f1.log", taskId: anchorOf(t.id)!.id });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "rejected", reviewNote: "接口不对", rejections: 1 });
+    expect((await callBridge("job-f1", "friday_brief", goodBrief)).isError).toBeUndefined();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "pending", rejections: 1 });
+    const calls = vi.mocked(openSession).mock.calls.length;
+    rejectTask(t.id, "还是不对");
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "rejected", reviewNote: "还是不对", rejections: 2 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(vi.mocked(openSession).mock.calls.length).toBe(calls);
+  });
+
+  it("1：被打回的卡需求变了只标过期，原因和次数留着，不挂批准", async () => {
+    idle();
+    writeProjects({ name: "f1b" });
+    const t = story("f1b");
+    updateTask(t.id, { source: { brief: card("old", "rejected", { reviewNote: "范围不对", rejections: 2 }) } });
+    await briefTick();
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "rejected", reviewNote: "范围不对", rejections: 2, stale: true });
+    expect(approves(t.id)).toHaveLength(0);
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_stale")).toHaveLength(1);
+  });
+
+  it("2：建卡期间需求变了，卡上记的是开工时的指纹，下一轮 checkBasis 认出来", async () => {
+    idle();
+    writeProjects({ name: "f2" });
+    const build = async (jobId: string) => {
+      const t = story("f2");
+      vi.mocked(openSession).mockResolvedValueOnce(jobId);
+      await startBriefJob(t.id);
+      createJob({ id: jobId, project: "f2", dir: repo, logPath: `/tmp/${jobId}.log`, taskId: anchorOf(t.id)!.id });
+      const before = briefBasis(getTask(t.id)!);
+      updateTask(t.id, { source: { description: "按收益率和规模排序" } });
+      expect((await callBridge(jobId, "friday_brief", goodBrief)).isError).toBeUndefined();
+      expect(getTask(t.id)!.source.brief?.basis).toBe(before);
+      return t;
+    };
+    const pending = await build("job-f2a");
+    const approved = await build("job-f2b");
+    await executePending(approved.id, approves(approved.id)[0]!.id, { slackPost: vi.fn() });
+    db().prepare("UPDATE jobs SET status = 'done' WHERE id IN ('job-f2a', 'job-f2b')").run();
+    await briefTick();
+    expect(getTask(pending.id)!.source.brief).toBeUndefined();
+    expect(getTask(approved.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
+    expect(approves(approved.id)).toHaveLength(1);
+  });
+
+  it("3：待审期间需求变了、checkBasis 还没跑就批了：指纹不跟着刷，下一轮标过期并重新挂批准", async () => {
+    idle();
+    writeProjects({ name: "f3" });
+    const t = story("f3");
+    store(t.id, goodBrief);
+    const basis = getTask(t.id)!.source.brief!.basis;
+    updateTask(t.id, { source: { description: "改成按规模排序" } });
+    const done = await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    expect(done.source.brief).toMatchObject({ review: "approved", basis });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
+    expect(approves(t.id)).toHaveLength(1);
+  });
+
+  it("4：不用审的卡，项目改成要审：checkBasis 改成待审、挂一次批准", async () => {
+    idle();
+    writeProjects({ name: "f4", extra: ["方案送审：不用"] });
+    const t = story("f4");
+    expect(store(t.id, goodBrief)).toEqual({ ok: true, review: "none" });
+    writeProjects({ name: "f4" });
+    await briefTick();
+    await briefTick();
+    expect(getTask(t.id)!.source.brief?.review).toBe("pending");
+    expect(approves(t.id)).toHaveLength(1);
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_review_required")).toHaveLength(1);
+  });
+
+  it("6：建卡记一行 runs（kind brief、算在需求名下），收尾关掉；之后打回交付不把它记成打回", async () => {
+    idle();
+    writeProjects({ name: "f6" });
+    const t = story("f6");
+    vi.mocked(openSession).mockResolvedValueOnce("job-f6");
+    await startBriefJob(t.id);
+    expect(runsForTask(t.id)).toEqual([expect.objectContaining({ id: "job-f6", jobId: "job-f6", taskId: t.id, project: "f6", kind: "brief", trigger: "user" })]);
+    const anchor = anchorOf(t.id)!;
+    createJob({ id: "job-f6", project: "f6", dir: repo, logPath: "/tmp/f6.log", taskId: anchor.id });
+    await finishBriefJob(anchor, "job-f6", 0);
+    expect(runsForTask(t.id)[0]).toMatchObject({ exit: "no_report", endedAt: expect.any(String) });
+
+    updateTask(t.id, { status: "review", source: { jobId: "job-f6-dev" } });
+    createRun({ id: "job-f6-dev", jobId: "job-f6-dev", taskId: t.id, project: "f6", kind: "autonomous", trigger: "autostart" });
+    rejectTask(t.id, "改错了");
+    const runs = runsForTask(t.id);
+    expect(runs.find((r) => r.kind === "brief")!.outcome).toBe("pending");
+    expect(runs.find((r) => r.kind === "autonomous")!.outcome).toBe("rejected");
+  });
+
+  it("6：队列建卡记 trigger autostart，打回自动重建记 retry", async () => {
+    idle();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "f6b" });
+    const q = story("f6b", { due: "1990-01-01" });
+    vi.mocked(openSession).mockResolvedValueOnce("job-f6q");
+    expect(await briefTick()).toBe("started");
+    expect(runsForTask(q.id)[0]).toMatchObject({ kind: "brief", trigger: "autostart" });
+    idle();
+    const r = story("f6b");
+    store(r.id, goodBrief);
+    vi.mocked(openSession).mockResolvedValueOnce("job-f6r");
+    rejectTask(r.id, "不对");
+    await vi.waitFor(() => expect(runsForTask(r.id)[0]).toMatchObject({ kind: "brief", trigger: "retry" }));
+  });
+
+  it("8：定时任务的卡不建理解卡", () => {
+    const base = { id: "x", title: "t", kind: "code", project: "p", status: "understood", priority: "normal", source: { scheduleId: "s-1" }, createdAt: "", updatedAt: "" } as unknown as Task;
+    expect(briefRefusal(base)).toContain("定时");
+  });
+
+  it("9：brief_approve 执行时卡上没有理解卡：撤掉动作，不写半张卡", async () => {
+    const t = story("f9");
+    addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: "x", payload: {} }, { keepStatus: true });
+    const after = await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    expect(after.source.brief).toBeUndefined();
+    expect(getTask(t.id)!.source.brief).toBeUndefined();
+    expect(approves(t.id)).toHaveLength(0);
+  });
+
+  it("10：正在建时说重建带原话：原话留着，照实说没重建；这次交卡不清掉，下次建卡带上，带上的那次交卡才清", async () => {
+    idle();
+    writeProjects({ name: "f10" });
+    const t = story("f10");
+    vi.mocked(openSession).mockResolvedValueOnce("job-f10a");
+    await startBriefJob(t.id);
+    createJob({ id: "job-f10a", project: "f10", dir: repo, logPath: "/tmp/f10a.log", taskId: anchorOf(t.id)!.id });
+    const said = await tool(t.source.conversationId!, "task_update", { rebuildBrief: "接口改用 v2" });
+    expect(said).toContain("正在建");
+    expect(said).toContain("记下");
+    expect(getTask(t.id)!.source.briefNote).toBe("接口改用 v2");
+    await callBridge("job-f10a", "friday_brief", goodBrief);
+    expect(getTask(t.id)!.source.briefNote).toBe("接口改用 v2");
+    db().prepare("UPDATE jobs SET status = 'done' WHERE id = 'job-f10a'").run();
+    vi.mocked(openSession).mockResolvedValueOnce("job-f10b");
+    await startBriefJob(t.id);
+    expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("接口改用 v2");
+    createJob({ id: "job-f10b", project: "f10", dir: repo, logPath: "/tmp/f10b.log", taskId: anchorOf(t.id)!.id });
+    await callBridge("job-f10b", "friday_brief", goodBrief);
+    expect(getTask(t.id)!.source.briefNote).toBeUndefined();
+  });
+
+  it("10：没有理解卡（上次建失败）也能带原话重建", async () => {
+    idle();
+    writeProjects({ name: "f10c" });
+    const t = story("f10c", { source: { description: "按收益率排序", briefFailed: { at: "2026-10-01T00:00:00.000Z", why: "会话异常退出" } } });
+    vi.mocked(openSession).mockResolvedValueOnce("job-f10c");
+    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: "PRD 在第二个链接" })).toContain("在后台重建");
+    expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("PRD 在第二个链接");
   });
 });

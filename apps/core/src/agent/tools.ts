@@ -489,8 +489,9 @@ export const fridayToolList = (conversationId?: string) => [
         let rebuilt = "";
         if (rebuildBrief) {
           try {
-            const s = await rebuildBriefJob(t.id, typeof rebuildBrief === "string" ? rebuildBrief.trim() || undefined : undefined);
-            rebuilt = "error" in s ? `理解卡没重建：${s.error}。` : "理解卡在后台重建，建好了卡上会换成新的。";
+            const note = typeof rebuildBrief === "string" ? rebuildBrief.trim() || undefined : undefined;
+            const s = await rebuildBriefJob(t.id, note);
+            rebuilt = "error" in s ? `理解卡没重建：${s.error}。${note && s.status === 409 ? "你的话记下了，这次建完后再说一次「重建」就会带上。" : ""}` : "理解卡在后台重建，建好了卡上会换成新的。";
           } catch (e) {
             rebuilt = `理解卡没重建：${e instanceof Error ? e.message : String(e)}。`;
           }
