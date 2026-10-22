@@ -72,12 +72,25 @@ export function migrate(d: DatabaseSync): void {
   if (!msgCols.includes("task_ids")) d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
   const msgSql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'").get() as { sql?: string } | undefined)?.sql ?? "";
   if (msgSql && !msgSql.includes("'notice'")) {
-    d.exec("DROP INDEX IF EXISTS messages_conv");
-    d.exec("ALTER TABLE messages RENAME TO messages_old");
-    d.exec(SCHEMA);
-    d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
-    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, payload, created_at, task_ids) SELECT id, conversation_id, role, kind, content, payload, created_at, task_ids FROM messages_old");
-    d.exec("DROP TABLE messages_old");
+    // 外键开关在事务里改不动；关掉才能把孤儿消息也搬过去，一行不丢
+    d.exec("PRAGMA foreign_keys = OFF");
+    try {
+      d.exec("BEGIN");
+      try {
+        d.exec("DROP INDEX IF EXISTS messages_conv");
+        d.exec("ALTER TABLE messages RENAME TO messages_old");
+        d.exec(SCHEMA);
+        d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
+        d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, payload, created_at, task_ids) SELECT id, conversation_id, role, kind, content, payload, created_at, task_ids FROM messages_old");
+        d.exec("DROP TABLE messages_old");
+        d.exec("COMMIT");
+      } catch (e) {
+        d.exec("ROLLBACK");
+        throw e;
+      }
+    } finally {
+      d.exec("PRAGMA foreign_keys = ON");
+    }
   }
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!inboxCols.includes("thread_ts")) d.exec("ALTER TABLE inbox ADD COLUMN thread_ts TEXT");

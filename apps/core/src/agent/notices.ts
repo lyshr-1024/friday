@@ -46,6 +46,11 @@ export function postNotices(): number {
 
 export function startNoticeWatcher(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    postNotices();
+  } catch (e) {
+    console.error(`[notices] ${e instanceof Error ? e.message : e}`);
+  }
   const off = subscribe((ev) => {
     if (ev.type !== "tasks" || timer) return;
     timer = setTimeout(() => {

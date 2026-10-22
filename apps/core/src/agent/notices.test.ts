@@ -4,7 +4,7 @@ import { publish } from "../bus.js";
 import { db } from "../memory/db.js";
 import { listMessages } from "../memory/conversations.js";
 import { mainConversationId } from "../memory/mainConversation.js";
-import { addPending, createTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
 import { noticeText, postNotices, startNoticeWatcher } from "./notices.js";
 import { needOf } from "./needs.js";
 
@@ -74,16 +74,21 @@ describe("postNotices", () => {
     expect((last().payload as { attachments: unknown[] }).attachments).toHaveLength(1);
   });
 
-  it("noticeText 按模板拼", () => {
-    const t = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
-    updateTask(t.id, { progress: "没权限" });
-    const full = (await_(t.id));
-    expect(noticeText(full, needOf(full)!)).toBe(`#${full.seq} 卡 · 卡住\n没权限`);
+  it("noticeText 三种模板原样", () => {
+    const b = createTask({ title: "方案", kind: "code", status: "review", plan: "先改 A", source: {} });
+    addPending(b.id, { type: "brief_approve", label: "批方案", detail: "d", payload: {} } as never);
+    const bt = getTask(b.id)!;
+    expect(noticeText(bt, needOf(bt)!)).toBe(`#${bt.seq} 方案 · 方案待审\n先改 A\n说「#${bt.seq} 按这个做」开工，或说哪里要改。`);
+    const r = createTask({ title: "验收", kind: "code", status: "review", source: {} });
+    updateTask(r.id, { report: report("R1") });
+    const rt = getTask(r.id)!;
+    expect(noticeText(rt, needOf(rt)!)).toBe(`#${rt.seq} 验收 · 待验收\n交付了：改好了\n测试结果：ok`);
+    const k = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
+    updateTask(k.id, { progress: "没权限" });
+    const kt = getTask(k.id)!;
+    expect(noticeText(kt, needOf(kt)!)).toBe(`#${kt.seq} 卡 · 卡住\n没权限`);
   });
 });
-
-import { getTask } from "../memory/tasks.js";
-const await_ = (id: string) => getTask(id)!;
 
 describe("startNoticeWatcher", () => {
   it("tasks 事件 500ms 合并后只跑一次", () => {
@@ -102,5 +107,20 @@ describe("startNoticeWatcher", () => {
     publish({ type: "tasks" });
     vi.advanceTimersByTime(1000);
     expect(notices()).toHaveLength(before + 1);
+  });
+
+  it("启动时先跑一遍：存量只记不发，之后第一个 tasks 事件照常发", () => {
+    vi.useFakeTimers();
+    const t = createTask({ title: "旧验收", kind: "code", status: "review", source: {} });
+    updateTask(t.id, { report: report() });
+    const before = notices().length;
+    const stop = startNoticeWatcher();
+    expect(notices()).toHaveLength(before);
+    updateTask(t.id, { status: "blocked", progress: "卡了" });
+    publish({ type: "tasks" });
+    vi.advanceTimersByTime(500);
+    expect(notices()).toHaveLength(before + 1);
+    expect(last().content).toContain("· 卡住");
+    stop();
   });
 });

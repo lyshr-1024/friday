@@ -24,6 +24,38 @@ const SLACK_LINKS = OLD_LINKS
   .replace(/'project'\)\)/g, "'project', 'slack'))");
 
 describe("老库迁移", () => {
+  const oldMessages = () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA.replace(", 'notice'", ""));
+    d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
+    d.exec("INSERT INTO conversations (id, created_at, updated_at) VALUES ('c', 'a', 'a')");
+    return d;
+  };
+
+  it("孤儿消息（会话已不在）迁移后原样保留，八列都在", () => {
+    const d = oldMessages();
+    d.exec("PRAGMA foreign_keys = OFF");
+    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, payload, created_at, task_ids) VALUES ('o', 'gone', 'user', 'ask', 'hi', '{\"a\":1}', 'a', '[\"t\"]')");
+    d.exec("PRAGMA foreign_keys = ON");
+    migrate(d);
+    expect(d.prepare("SELECT * FROM messages WHERE id = 'o'").get()).toMatchObject({ conversation_id: "gone", role: "user", kind: "ask", content: "hi", payload: '{"a":1}', created_at: "a", task_ids: '["t"]' });
+    expect(d.prepare("PRAGMA foreign_keys").get()).toMatchObject({ foreign_keys: 1 });
+  });
+
+  it("迁移中途失败整体回滚：messages 还是旧表、数据都在、没有 messages_old", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    d.exec("DROP TABLE messages");
+    d.exec("CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL, payload TEXT, created_at TEXT NOT NULL, task_ids TEXT)");
+    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, created_at) VALUES ('ok', 'c', 'user', 'ask', 'a', 'a'), ('bad', 'c', 'user', 'bogus', 'b', 'a')");
+    expect(() => migrate(d)).toThrow();
+    const names = (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'messages%'").all() as Array<{ name: string }>).map((r) => r.name);
+    expect(names).toEqual(["messages"]);
+    expect((d.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(2);
+    expect((d.prepare("SELECT sql FROM sqlite_master WHERE name = 'messages'").get() as { sql: string }).sql).not.toContain("'notice'");
+    expect(d.prepare("PRAGMA foreign_keys").get()).toMatchObject({ foreign_keys: 1 });
+  });
+
   it("messages 的 kind 约束补上 notice，旧消息原样搬过去", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA.replace(", 'notice'", ""));
@@ -33,6 +65,7 @@ describe("老库迁移", () => {
     migrate(d);
     d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, created_at) VALUES ('n', 'c', 'assistant', 'notice', 'x', 'b')");
     expect(d.prepare("SELECT content, task_ids FROM messages WHERE id = 'm'").get()).toMatchObject({ content: "hi", task_ids: '["t"]' });
+    expect(d.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'messages_conv'").get()).toBeTruthy();
   });
 
   it("补 seq 不撞已有号：空号接在 MAX 之后，同 created_at 按 rowid", () => {
