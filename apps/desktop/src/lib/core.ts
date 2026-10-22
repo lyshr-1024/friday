@@ -450,6 +450,30 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
   return res.json();
 }
 
+export async function taskReject(id: string, reason: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
+  if (!res.ok) throw await errOf(res, "打回失败");
+  return res.json();
+}
+
+export async function briefBuild(id: string): Promise<{ jobId: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/brief`, { method: "POST" });
+  if (!res.ok) throw await errOf(res, "建不了理解卡");
+  return res.json();
+}
+
+export async function briefSize(id: string, size: "small" | "large"): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/brief`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ size }) });
+  if (!res.ok) throw await errOf(res, "改不了规模");
+  return res.json();
+}
+
+export async function briefDepReady(id: string, index: number): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/brief/deps/${index}/ready`, { method: "POST" });
+  if (!res.ok) throw await errOf(res, "标不了");
+  return res.json();
+}
+
 /** 立刻同步一次 Meegle 工单 */
 export async function syncMeegle(): Promise<{ added: number; closed: number; reopened: number; error?: string }> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/sync-meegle`, { method: "POST" });
