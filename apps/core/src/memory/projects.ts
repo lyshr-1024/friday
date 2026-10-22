@@ -179,10 +179,12 @@ export function setProjectField(markdown: string, project: string, key: ProjectF
     const m = /^-\s*([^:：]{1,40}?)\s*[:：]/.exec(l);
     return !!m && m[1]!.replace(/\*/g, "") === key;
   };
-  const at = lines.findIndex((l, i) => i > start && i < end && isKey(l));
-  if (at >= 0) {
-    if (v) lines[at] = `- ${key}：${v}`;
-    else lines.splice(at, 1);
+  const hits: number[] = [];
+  for (let i = start + 1; i < end; i++) if (isKey(lines[i]!)) hits.push(i);
+  if (hits.length) {
+    // parseProjects 取最后一行的值（别名 / 频道则各行累加不了），同键多行只留一行才保证改动生效
+    if (v) lines[hits[0]!] = `- ${key}：${v}`;
+    for (const i of hits.slice(v ? 1 : 0).reverse()) lines.splice(i, 1);
   } else if (v) {
     let last = start;
     for (let i = start + 1; i < end; i++) if (lines[i]!.startsWith("- ")) last = i;

@@ -75,6 +75,11 @@ export const selfToolList = (conversationId?: string) => [
     async ({ project, fields, create }) => {
       const entries = Object.entries(fields).filter(([, v]) => v !== undefined) as [ProjectFieldKey, string][];
       if (!entries.length && !create) return text("没有要改的字段。");
+      if (create) {
+        const n = project.trim();
+        if (!n || /[\r\n]/.test(n) || n.startsWith("#")) return text("项目名不能为空、不能换行、不能以 # 开头。");
+      }
+      if (fields.目录 !== undefined && !fields.目录.trim()) return text("目录不能清空，项目会从注册表里消失。");
       const res = resolveProject(project);
       let name: string;
       if (res.kind === "match") name = res.project.name;

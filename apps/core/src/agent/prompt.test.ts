@@ -44,3 +44,12 @@ describe("系统提示", () => {
     expect(friday(undefined, false)).toBe(a);
   });
 });
+
+describe("项目登记提示", () => {
+  it("memory_write 只写 decisions / people，项目登记指向 project_update", () => {
+    const s = friday(undefined, false);
+    expect(s).toContain("project_update");
+    expect(s).not.toContain("memory_read / memory_write 读写");
+    expect(s).toContain("memory_write 整篇写 decisions / people");
+  });
+});

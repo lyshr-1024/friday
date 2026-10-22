@@ -139,3 +139,13 @@ describe("setProjectField", () => {
     expect(setProjectField(md, "app", "说明", "第一行\n第二行")).toContain("- 说明：第一行 第二行");
   });
 });
+
+describe("setProjectField 重复键", () => {
+  it("同段多行同键只留一行新值，parseProjects 读到它", () => {
+    const md = "## app\n- 目录：/r/app\n- 别名：甲\n- 别名：乙\n";
+    const out = setProjectField(md, "app", "别名", "丙");
+    expect(out.match(/- 别名：/g)).toHaveLength(1);
+    expect(parseProjects(out)[0]!.aliases).toEqual(["丙"]);
+    expect(setProjectField(md, "app", "别名", "")).not.toContain("别名");
+  });
+});

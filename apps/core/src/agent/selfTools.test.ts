@@ -119,4 +119,18 @@ describe("project_update", () => {
     expect(out).toContain("project_update");
     expect(readFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "utf8")).toBe(seed);
   });
+
+  it("不许清空目录", async () => {
+    writeMemoryFile("projects", seed);
+    expect(await callIn(undefined, "project_update", { project: "app", fields: { 目录: "" } })).toContain("目录不能清空");
+    expect(readMemoryFile("projects")).toBe(seed);
+  });
+
+  it("新建项目名要干净", async () => {
+    writeMemoryFile("projects", seed);
+    for (const bad of ["", "  ", "a\nb", "# x"]) {
+      expect(await callIn(undefined, "project_update", { project: bad, create: true, fields: { 目录: dir } })).toContain("项目名");
+    }
+    expect(readMemoryFile("projects")).toBe(seed);
+  });
 });
