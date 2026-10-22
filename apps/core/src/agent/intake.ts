@@ -77,7 +77,7 @@ export function parseIntake(text: string, projects: Project[]): Intake {
       const hit = projects.find((p) => p.name === r.project);
       if (!hit) return { kind: "queue", why: `说是 ${r.project ?? "?"} 但注册表里没有这个项目` };
       if (!r.detail?.trim()) return { kind: "queue", why: "没给出能交给终端的任务描述" };
-      // 没给置信度当 0：没给置信度当 0，别把缺字段显示成高把握
+      // 没给置信度当 0，别把缺字段显示成高把握
       const confidence = typeof r.confidence === "number" && Number.isFinite(r.confidence) ? Math.max(0, Math.min(100, Math.round(r.confidence))) : 0;
       return { kind: "start", project: hit.name, detail: r.detail.trim().slice(0, 4000), why, confidence };
     }
