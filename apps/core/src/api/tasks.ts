@@ -21,7 +21,7 @@ import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
 import { needOf } from "../agent/needs.js";
-import { autostartPlan, runningAutonomous } from "../agent/autostart.js";
+import { autostartEnv, autostartPlan, runningAutonomous } from "../agent/autostart.js";
 import { userSettings } from "../settings.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
@@ -128,7 +128,7 @@ export const tasks = new Hono()
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
-    const plan = { now: Date.now(), running: runningAutonomous(), max: userSettings().autonomousConcurrency, minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
+    const plan = autostartEnv();
     const withSession = (t: Task): Task => {
       const autostart = autostartPlan(t, plan);
       return { ...t, session: taskSession(t), ...(needOf(t) ? { need: needOf(t)!.kind } : {}), ...(autostart ? { autostart } : {}) };

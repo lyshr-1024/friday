@@ -1,9 +1,8 @@
 import { NEED_LABEL, STAGE_LABEL, TASK_STATUS_LABEL, type NeedKind, type Task } from "@friday/shared";
-import { userSettings } from "../settings.js";
 import { listMessages } from "../memory/conversations.js";
 import { getJob } from "../memory/jobs.js";
 import { getTask, listOpenBoardTasks } from "../memory/tasks.js";
-import { autostartPlan, runningAutonomous } from "./autostart.js";
+import { autostartEnv, autostartPlan } from "./autostart.js";
 import { contextFor } from "./bridge.js";
 import { jobStateLabel } from "./sessionState.js";
 
@@ -54,7 +53,7 @@ function fullBlock(task: Task): string {
 
 /** 每轮注入主对话系统提示的任务板：开着的任务各一行，刚聊过的给全文 */
 export function boardBlock(conversationId: string, now = Date.now()): string {
-  const env = { now, running: runningAutonomous(), max: userSettings().autonomousConcurrency, minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
+  const env = autostartEnv(now);
   const rows = listOpenBoardTasks().map((t) => {
     const need = needOf(t)?.kind;
     const rank = need ? 0 : t.status === "processing" ? 1 : autostartPlan(t, env) ? 2 : 3;

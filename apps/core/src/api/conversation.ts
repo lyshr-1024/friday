@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { mainNeeds, presence } from "../agent/notices.js";
 import { isRunning, partialAnswer, runningIds } from "../agent/runs.js";
 import { mainConversationId } from "../memory/mainConversation.js";
 import { z } from "zod";
@@ -10,6 +11,12 @@ export const conversation = new Hono()
     return c.json(listConversations().map((conv) => ({ ...conv, running: running.has(conv.id) })));
   })
   .get("/main", (c) => c.json({ id: mainConversationId() }))
+  .post("/main/presence", async (c) => {
+    const parsed = z.object({ active: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "active 需为布尔值" }, 400);
+    return c.json({ digest: presence(parsed.data.active) });
+  })
+  .get("/main/needs", (c) => c.json(mainNeeds()))
   .get("/conversation", (c) => {
     const conv = currentConversation();
     return c.json({ ...conv, running: isRunning(conv.id), partial: partialAnswer(conv.id) ?? "" });

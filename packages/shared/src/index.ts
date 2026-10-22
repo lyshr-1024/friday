@@ -426,6 +426,8 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
 export type NeedKind = "brief" | "review" | "blocked";
 export const NEED_LABEL: Record<NeedKind, string> = { brief: "方案待审", review: "待验收", blocked: "卡住" };
 
+export type MainNeeds = Record<NeedKind | "working" | "queued", Array<{ id: string; seq: number; title: string; reason?: string; since: string }>>;
+
 export type Risk = "read" | "reversible" | "irreversible";
 
 /**

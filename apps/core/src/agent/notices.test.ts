@@ -5,7 +5,7 @@ import { db } from "../memory/db.js";
 import { listMessages } from "../memory/conversations.js";
 import { mainConversationId } from "../memory/mainConversation.js";
 import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
-import { noticeText, postNotices, startNoticeWatcher } from "./notices.js";
+import { mainNeeds, noticeText, postNotices, presence, startNoticeWatcher } from "./notices.js";
 import { needOf } from "./needs.js";
 
 const report = (at = "R1", over: Partial<DeliveryReport> = {}): DeliveryReport =>
@@ -122,5 +122,61 @@ describe("startNoticeWatcher", () => {
     expect(notices()).toHaveLength(before + 1);
     expect(last().content).toContain("· 卡住");
     stop();
+  });
+});
+
+describe("presence", () => {
+  let T0 = Date.now();
+  const min = (n: number) => T0 + n * 60_000;
+  beforeEach(() => {
+    T0 += 3 * 3600_000;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    db().exec("DELETE FROM sync_state WHERE source = 'main:away'");
+    postNotices();
+  });
+
+  it("离开 20 分钟期间来了 notice：聚焦发汇总，并带上还在干的", () => {
+    presence(false, T0);
+    vi.setSystemTime(T0 + 1000);
+    const b = createTask({ title: "卡住的", kind: "code", status: "blocked", source: {} });
+    updateTask(b.id, { progress: "没权限" });
+    const w = createTask({ title: "自主在跑", kind: "code", status: "processing", source: { autonomous: true } });
+    postNotices();
+    const m = presence(true, min(20))!;
+    expect(m.kind).toBe("notice");
+    expect(m.content.split("\n")[0]).toBe("离开这 20 分钟，1 件要你：");
+    expect(m.content).toContain(`卡住      #${getTask(b.id)!.seq} 卡住的 · 没权限`);
+    expect(m.content).toContain(`还在干：#${getTask(w.id)!.seq} 自主在跑`);
+    expect(m.taskIds).toEqual([b.id]);
+    expect(presence(true, min(21))).toBeUndefined();
+  });
+
+  it("没有新 notice 不发；不足 15 分钟不发；没记离开不发", () => {
+    presence(false, T0);
+    expect(presence(true, min(20))).toBeUndefined();
+    presence(false, T0);
+    vi.setSystemTime(T0 + 1000);
+    const b = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
+    updateTask(b.id, { progress: "x" });
+    postNotices();
+    expect(presence(true, T0 + 10 * 60_000)).toBeUndefined();
+    expect(presence(true, min(30))).toBeUndefined();
+  });
+});
+
+describe("mainNeeds", () => {
+  it("按类分组，working 只含自主在跑的", () => {
+    const b = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
+    updateTask(b.id, { progress: "x" });
+    const w = createTask({ title: "手动", kind: "code", status: "processing", source: {} });
+    const a = createTask({ title: "自主", kind: "code", status: "processing", source: { autonomous: true } });
+    const n = mainNeeds();
+    expect(n.blocked.map((x) => x.id)).toEqual([b.id]);
+    expect(n.blocked[0]?.reason).toBe("x");
+    expect(n.working.map((x) => x.id)).toEqual([a.id]);
+    expect(n.working.some((x) => x.id === w.id)).toBe(false);
+    expect(n.brief).toEqual([]);
+    expect(n.queued).toEqual([]);
   });
 });

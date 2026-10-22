@@ -168,6 +168,11 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
     .slice(0, slots);
 }
 
+export function autostartEnv(now = Date.now()): AutostartEnv & { enabled: boolean } {
+  const s = userSettings();
+  return { now, running: runningAutonomous(), max: s.autonomousConcurrency, minConfidence: s.autonomousMinConfidence, enabled: s.autonomous };
+}
+
 export function runningAutonomous(): number {
   return listTasks("processing").filter((t) => t.source.autonomous && !t.source.scheduleId && !t.source.handedAt && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }

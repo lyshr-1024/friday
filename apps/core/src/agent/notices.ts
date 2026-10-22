@@ -1,10 +1,11 @@
-import type { Task } from "@friday/shared";
+import { isFridayRun, NEED_LABEL, type MainNeeds, type Message, type NeedKind, type Task } from "@friday/shared";
 import { publish, subscribe } from "../bus.js";
-import { addMessage } from "../memory/conversations.js";
+import { addMessage, listMessages } from "../memory/conversations.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { mainConversationId } from "../memory/mainConversation.js";
 import { listOpenBoardTasks, taskTag } from "../memory/tasks.js";
 import { deliveryText } from "./delivery.js";
+import { autostartEnv, autostartPlan } from "./autostart.js";
 import { needOf } from "./needs.js";
 
 export function noticeText(t: Task, need: NonNullable<ReturnType<typeof needOf>>): string {
@@ -67,4 +68,59 @@ export function startNoticeWatcher(): () => void {
     if (timer) clearTimeout(timer);
     timer = undefined;
   };
+}
+
+const AWAY_MIN_MS = 15 * 60_000;
+const NEED_ORDER: NeedKind[] = ["brief", "review", "blocked"];
+
+export function mainNeeds(): MainNeeds {
+  const out: MainNeeds = { brief: [], review: [], blocked: [], working: [], queued: [] };
+  const env = autostartEnv();
+  for (const t of listOpenBoardTasks()) {
+    const item = { id: t.id, seq: t.seq, title: t.title, since: t.updatedAt };
+    const need = needOf(t);
+    if (need) out[need.kind].push({ ...item, reason: need.reason });
+    else if (t.status === "processing" && isFridayRun(t.source)) out.working.push(item);
+    else if (t.status === "understood" && autostartPlan(t, env)) out.queued.push(item);
+  }
+  return out;
+}
+
+const cut = (s: string) => (s.length > 60 ? s.slice(0, 60) + "…" : s);
+
+function digestText(minutes: number, needs: MainNeeds): string {
+  const lines: string[] = [];
+  let n = 0;
+  for (const kind of NEED_ORDER) {
+    const label = NEED_LABEL[kind];
+    for (const i of needs[kind]) {
+      n++;
+      lines.push(`${label}${" ".repeat(label.length === 4 ? 2 : label.length === 3 ? 4 : 6)}#${i.seq} ${i.title.slice(0, 30)} · ${cut(i.reason ?? "")}`);
+    }
+  }
+  const doing = [...needs.working.map((i) => `#${i.seq} ${i.title.slice(0, 30)}`), ...needs.queued.map((i) => `#${i.seq} ${i.title.slice(0, 30)}（排队）`)];
+  if (doing.length) lines.push(`还在干：${doing.join("，")}`);
+  return [`离开这 ${minutes} 分钟，${n} 件要你：`, ...lines].join("\n");
+}
+
+export function presence(active: boolean, now = Date.now()): Message | undefined {
+  if (!active) {
+    setCursor("main:away", String(now));
+    return undefined;
+  }
+  const away = Number(getCursor("main:away") || 0);
+  if (!away) return undefined;
+  setCursor("main:away", "");
+  if (now - away < AWAY_MIN_MS) return undefined;
+  const id = mainConversationId();
+  if (!listMessages(id).some((m) => m.kind === "notice" && Date.parse(m.createdAt) > away)) return undefined;
+  const needs = mainNeeds();
+  const msg = addMessage(id, {
+    role: "assistant",
+    kind: "notice",
+    content: digestText(Math.floor((now - away) / 60_000), needs),
+    taskIds: NEED_ORDER.flatMap((k) => needs[k].map((i) => i.id)),
+  });
+  publish({ type: "conversation", id, running: false });
+  return msg;
 }
