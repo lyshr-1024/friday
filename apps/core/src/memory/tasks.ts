@@ -218,6 +218,11 @@ export function listTasksWithPriorWorktrees(): Task[] {
 
 const ROUTINE_KINDS = new Set<TaskKind>(["project", "okr_weekly", "handbook"]);
 
+/** 任务板上没收工的任务：不含例行卡，不设上限 */
+export function listOpenBoardTasks(): Task[] {
+  return (db().prepare("SELECT * FROM tasks WHERE status NOT IN ('done', 'ignored') ORDER BY updated_at DESC").all() as unknown as Row[]).map(toTask).filter((t) => !ROUTINE_KINDS.has(t.kind));
+}
+
 /** 周报、手册这类例行卡不进任务板，在各自的弹窗里看，连已忽略的一起列（那也是记录） */
 export function listTasksByKind(kind: TaskKind, limit = 100): Task[] {
   return (db().prepare("SELECT * FROM tasks WHERE kind = ? ORDER BY created_at DESC LIMIT ?").all(kind, limit) as unknown as Row[]).map(toTask);

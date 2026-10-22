@@ -11,7 +11,7 @@ import { linkUp } from "../memory/links.js";
 import { slackNode, taskNode } from "../memory/infer.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, taskTag, updateTask } from "../memory/tasks.js";
 import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
 import { ANCHOR_EXIT_GRACE_MS, briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
@@ -20,7 +20,7 @@ import { executePending, onJobExit, rejectTask, startAutonomousJob } from "./pip
 import { createRun, runByJob, runsForTask } from "../memory/runs.js";
 import { execFileSync } from "node:child_process";
 import { brief as briefApi } from "../api/brief.js";
-import { addMessage } from "../memory/conversations.js";
+import { addMessage, listMessages } from "../memory/conversations.js";
 import { fridayToolList } from "./tools.js";
 import { TmuxMissingError } from "./tmux.js";
 import { db } from "../memory/db.js";
@@ -548,6 +548,7 @@ describe("审核、打回、改档、依赖", () => {
     vi.mocked(openSession).mockResolvedValueOnce("job-tu");
     expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("在后台重建");
     expect(anchorOf(t.id)?.source.jobId).toBe("job-tu");
+    expect(listMessages(t.source.conversationId!).some((m) => m.kind === "run" && m.content === `→ ${taskTag(getTask(t.id)!)}：理解卡在后台重建` && m.taskIds?.[0] === t.id)).toBe(true);
     const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-tu", status: "understood", source: { meegleType: "defect" } });
     expect(await tool(defect.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("缺陷");
   });

@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { fridayToolList, fridayTools } from "./tools.js";
 import { addFeatureHistory, createFeature, writeKnowledge } from "../memory/features.js";
 import { addMessage, createConversation, listMessages } from "../memory/conversations.js";
-import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 
 const sayMock = vi.hoisted(() => vi.fn(async () => "sent"));
 const approveMock = vi.hoisted(() => vi.fn());
@@ -149,5 +149,35 @@ describe("会话工具点名任务", () => {
     await callIn(c, "task_add", { title: "新来的一条" });
     const t = (await import("../memory/tasks.js")).listTasks().find((x) => x.title === "新来的一条")!;
     expect(t.source.conversationId).not.toBe(c);
+  });
+
+  const clearWaiting = () => listTasks(["collected", "understood", "processing", "review", "blocked"], 1000).filter((x) => x.pending?.length).forEach((x) => updateTask(x.id, { status: "done" }));
+
+  it("只有这一条在等点头：裸「通过」直接批", async () => {
+    clearWaiting();
+    const c = open();
+    const a = pend("甲", "git_merge");
+    said(c, "通过");
+    expect(await callIn(c, "task_approve", { taskId: `#${a.seq}` })).toContain("已执行");
+    expect(approveMock).toHaveBeenCalledTimes(1);
+    closeAll(a);
+  });
+
+  it("手册卡也在等 handbook_apply：不算在内，裸「通过」照样批真任务", async () => {
+    clearWaiting();
+    const c = open();
+    const a = pend("甲", "git_merge");
+    const h = createTask({ title: "手册", kind: "handbook", source: {}, status: "review" });
+    addPending(h.id, { type: "handbook_apply", label: "应用手册", detail: "d", payload: {} });
+    said(c, "通过");
+    expect(await callIn(c, "task_approve", { taskId: `#${a.seq}` })).toContain("已执行");
+    closeAll(a, h);
+  });
+
+  it("terminal_say 终端已关：提示对该任务 task_start，不提 run_claude", async () => {
+    sayMock.mockResolvedValueOnce("no-terminal");
+    const t = mk("丁", { jobId: "job-gone" });
+    const out = await callIn(open(), "terminal_say", { taskId: `#${t.seq}`, text: "hi" });
+    expect(out).toBe(`这条任务的终端已经关掉了，转达不进去。要继续就对 #${t.seq} 丁 调 task_start 重开。`);
   });
 });

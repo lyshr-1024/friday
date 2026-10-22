@@ -22,7 +22,7 @@ import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskByRef, findTaskBySource, getTask, listTasks, taskTag } from "../memory/tasks.js";
+import { createTask, findTaskByRef, findTaskBySource, getTask, listOpenBoardTasks, listTasks, taskTag } from "../memory/tasks.js";
 import { touchTask } from "./runs.js";
 import { listAudit, record } from "../memory/audit.js";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, scheduleByConversation, updateSchedule } from "../memory/schedules.js";
@@ -337,7 +337,7 @@ export const fridayToolList = (conversationId?: string) => [
         const jobId = t.source.jobId;
         if (!jobId) return text(`${taskTag(t)} 没有终端，转达不了。要它干活先 task_start 开工。`);
         const r = await say(jobId, msg);
-        if (r === "no-terminal") return text("这条任务的终端窗口已经关掉了，转达不进去。要继续的话让用户用 run_claude 重新开一个。");
+        if (r === "no-terminal") return text(`这条任务的终端已经关掉了，转达不进去。要继续就对 ${taskTag(t)} 调 task_start 重开。`);
         clearAttention(jobId);
         trace(conversationId, t, `已转给终端：${msg.slice(0, 80)}`, { status: "relayed", jobId });
         record({ taskId: t.id, action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 tmux 会话", evidence: { jobId, text: msg }, risk: "reversible" });
@@ -498,7 +498,8 @@ export const fridayToolList = (conversationId?: string) => [
           }
         }
         const updated = r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "要发之前先把这段原文贴给用户，他说「发」再用 task_approve。" : ""}` : rebuilt ? "" : "和卡片上一样，没改。";
-        if (r.changed.length) trace(conversationId, t, `改了 ${r.changed.join("、")}`);
+        const did = [r.changed.length ? `改了 ${r.changed.join("、")}` : "", rebuilt.startsWith("理解卡在后台重建") ? "理解卡在后台重建" : ""].filter(Boolean);
+        if (did.length) trace(conversationId, t, did.join("，"));
         else if (conversationId) touchTask(conversationId, t.id);
         return text(updated + rebuilt);
       },
@@ -535,7 +536,7 @@ export const fridayToolList = (conversationId?: string) => [
         const named = raw.match(/^#(\d+)\s*/);
         if (named && Number(named[1]) !== t.seq) return text(`用户点名的是 #${named[1]}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
         if (!named) {
-          const waiting = listTasks(["collected", "understood", "processing", "review", "blocked"]).filter((x) => x.pending?.some((p) => APPROVAL[p.type]));
+          const waiting = listOpenBoardTasks().filter((x) => x.pending?.some((p) => APPROVAL[p.type]));
           if (waiting.length > 1) {
             const list = waiting.map((x) => `#${x.seq}「${x.pending!.find((p) => APPROVAL[p.type])!.label}」`).join("、");
             return text(`现在有 ${waiting.length} 条在等你点头（${list}），让用户说「#N 通过」这样点名`);
