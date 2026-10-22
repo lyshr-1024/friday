@@ -34,6 +34,7 @@ export function bootstrapPrompt(project: Project, existing: Feature[]): string {
     `用 friday_knowledge 工具分批报，参数 { features: [...] }，每批不超过 ${MAX_BATCH} 条。`,
     `已有的功能（名字一行一个）：同名的照报，Friday 会合并。\n${untrusted("knowledge", existing.map((f) => f.name).join("\n") || "（还没有）")}`,
     "",
+    "命令一律前台跑，不要放到后台（run_in_background 或末尾加 &）：会话要等后台命令结束才退出，放了就一直挂着。",
     "全部报完直接退出：不写报告文件、不调 friday_done，也不要问用户问题——没人在终端前。",
     UNTRUSTED_NOTE,
   ].join("\n");

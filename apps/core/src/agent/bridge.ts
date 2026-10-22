@@ -28,7 +28,7 @@ import { postDelivery } from "./delivery.js";
 import { collectShots } from "./report.js";
 import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
-import { storeBrief } from "./briefJob.js";
+import { closeAfterReport, storeBrief } from "./briefJob.js";
 import { renderBrief } from "./brief.js";
 import { readChunk } from "./web.js";
 
@@ -407,6 +407,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (name === "friday_web_read") return webRead(args);
     const r = storeBrief(taskId, args, anchor!.source.briefBuild!);
     if (!r.ok) return { text: `${r.error}。照这个改了再调一次 friday_brief。`, isError: true };
+    closeAfterReport(job.id, anchor!.id);
     return { text: `收到了，理解卡已挂到需求上（${r.review === "pending" ? "等用户审" : "按项目规则不用审"}）。直接退出，不用调 friday_done。` };
   }
   // 通用桥接提示词说 friday_done 必须调，冷启动和建卡的锚点是隐藏卡，不能写报告、发通知

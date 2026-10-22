@@ -58,7 +58,8 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     "2. 在仓库里 grep 定位要改哪里（页面、组件、接口、路由），方案落到具体文件。",
     "3. 用例：按上面「用例从哪来」导出；没有现成的就自己写，覆盖 golden path、边界、回归，至少一条。",
     `4. 规模 size：${SIZE_RULE}`,
-    "5. 依赖 deps：只列确定要别人给的（接口、设计稿、配置、数据）；已经给了的写 status: ready，并在 evidence 里带上出处（链接或原话）。",
+    "5. 依赖 deps：只列确定要别人给的（接口、设计稿、配置、数据）；已经给了的写 status: ready，并在 evidence 里带上出处（链接或原话）。没亲自验证能拿到的（链接打不开、还在申请权限、只听说给了）一律写 pending。",
+    "命令一律前台跑，不要放到后台（run_in_background 或末尾加 &）：会话要等后台命令结束才退出，放了就一直挂着。",
     "",
     "最后调一次 friday_brief 把理解卡报给 Friday：",
     "- todo：这条需求要做什么",
@@ -204,6 +205,16 @@ export function markDepReady(taskId: string, match: string | number): Task | str
   const updated = saveBrief(t, { ...b, deps });
   record({ taskId: t.id, action: "brief_dep_ready", why: "你标了依赖到了", how: dep.what, evidence: { index: i, what: dep.what }, risk: "reversible" });
   return updated;
+}
+
+/** 交卡后给会话自己退出的时间；还在跑多半是在等它自己放到后台的命令 */
+export const ANCHOR_EXIT_GRACE_MS = 30_000;
+
+export function closeAfterReport(jobId: string, anchorId: string): void {
+  setTimeout(() => {
+    if (getJob(jobId)?.status !== "running") return;
+    closeJobTerminal(jobId, "理解卡交了，会话没自己退出（多半在等后台命令）", anchorId).catch((e) => console.error("[brief] 关掉交完卡的会话失败", e));
+  }, ANCHOR_EXIT_GRACE_MS).unref();
 }
 
 export async function finishBriefJob(anchor: Task, jobId: string, exitCode: number): Promise<void> {

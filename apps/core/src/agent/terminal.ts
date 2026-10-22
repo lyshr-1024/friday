@@ -67,9 +67,16 @@ export async function closeJobTerminal(jobId: string, why: string, taskId?: stri
     detachSession(s.id);
     settleHandedBugs(s.id, "需求会话关了，这条没交付");
   }
-  if (job?.status === "running") finishJob(jobId, 0);
-  if (killed || job?.status === "running") {
+  const wasRunning = job?.status === "running";
+  if (wasRunning) finishJob(jobId, 0);
+  if (killed || wasRunning) {
     record({ ...(taskId ? { taskId } : {}), action: "terminal_closed", why, how: killed ? "关掉 tmux 会话，job 收尾" : "job 收尾（会话已不在）", evidence: { jobId, project: job?.project ?? null }, risk: "reversible" });
+  }
+  // 建卡 / 冷启动的收尾（记成本、锚点收工）挂在退出回调上，关掉会话不会有退出回调
+  const owner = wasRunning && job?.taskId ? getTask(job.taskId) : undefined;
+  if (owner?.source.briefFor || owner?.source.knowledgeBootstrap) {
+    const { onJobExit } = await import("./pipeline.js");
+    onJobExit(jobId, -1);
   }
   return killed;
 }

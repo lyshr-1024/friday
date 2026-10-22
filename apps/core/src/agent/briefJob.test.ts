@@ -9,14 +9,15 @@ import { createFeature } from "../memory/features.js";
 import { addInboxItems } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { slackNode, taskNode } from "../memory/infer.js";
-import { createJob } from "../memory/jobs.js";
+import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
-import { briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
+import { ANCHOR_EXIT_GRACE_MS, briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
+import { closeJobTerminal } from "./terminal.js";
 import { executePending, onJobExit, rejectTask, startAutonomousJob } from "./pipeline.js";
-import { createRun, runsForTask } from "../memory/runs.js";
+import { createRun, runByJob, runsForTask } from "../memory/runs.js";
 import { execFileSync } from "node:child_process";
 import { brief as briefApi } from "../api/brief.js";
 import { addMessage } from "../memory/conversations.js";
@@ -248,6 +249,7 @@ describe("建卡会话", () => {
     const t = story("p-ex");
     const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-ex", source: { briefFor: t.id, repoDir: repo, headless: true, jobId: "job-ex" } });
     createJob({ id: "job-ex", project: "p-ex", dir: repo, logPath: "/tmp/ex.log", taskId: anchor.id });
+    finishJob("job-ex", 0);
     expect(onJobExit("job-ex", 0)).toBeUndefined();
     await vi.waitFor(() => expect(getTask(anchor.id)!.status).toBe("done"));
     const after = getTask(t.id)!;
@@ -810,5 +812,65 @@ describe("终审修正", () => {
     vi.mocked(openSession).mockResolvedValueOnce("job-f10c");
     expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: "PRD 在第二个链接" })).toContain("在后台重建");
     expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("PRD 在第二个链接");
+  });
+});
+
+describe("建卡会话的收尾", () => {
+  it("手动关掉建卡会话也走收尾：运行记账结束、锚点收工", async () => {
+    writeProjects({ name: "p-mc" });
+    const t = story("p-mc");
+    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-mc", source: { briefFor: t.id, repoDir: repo, headless: true, jobId: "job-mc" } });
+    createJob({ id: "job-mc", project: "p-mc", dir: repo, logPath: "/tmp/mc.log", taskId: anchor.id });
+    createRun({ id: "job-mc", jobId: "job-mc", taskId: t.id, project: "p-mc", kind: "brief", trigger: "user" });
+    store(t.id, goodBrief);
+    await closeJobTerminal("job-mc", "你在顶栏的终端列表里关了它", anchor.id);
+    await vi.waitFor(() => expect(getTask(anchor.id)!.status).toBe("done"));
+    expect(runByJob("job-mc")).toMatchObject({ exit: "report" });
+    expect(runByJob("job-mc")!.endedAt).toBeTruthy();
+    expect(getTask(t.id)!.source.briefFailed).toBeUndefined();
+  });
+
+  it("交了理解卡会话还不退出（在等后台命令），宽限期过了 Friday 自己关掉", async () => {
+    writeProjects({ name: "p-hang" });
+    const t = story("p-hang");
+    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-hang", source: { briefFor: t.id, repoDir: repo, headless: true, jobId: "job-hang", briefBuild: { basis: briefBasis(t) } } });
+    createJob({ id: "job-hang", project: "p-hang", dir: repo, logPath: "/tmp/hang.log", taskId: anchor.id });
+    createRun({ id: "job-hang", jobId: "job-hang", taskId: t.id, project: "p-hang", kind: "brief", trigger: "user" });
+    vi.useFakeTimers();
+    try {
+      expect(await callBridge("job-hang", "friday_brief", goodBrief)).toMatchObject({ text: expect.stringContaining("收到了") });
+      await vi.advanceTimersByTimeAsync(ANCHOR_EXIT_GRACE_MS - 1000);
+      expect(getJob("job-hang")!.status).toBe("running");
+      await vi.advanceTimersByTimeAsync(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await vi.waitFor(() => expect(getTask(anchor.id)!.status).toBe("done"));
+    expect(getJob("job-hang")!.status).not.toBe("running");
+    expect(runByJob("job-hang")).toMatchObject({ exit: "report" });
+  });
+
+  it("宽限期内会话自己退了，就不再关", async () => {
+    writeProjects({ name: "p-self" });
+    const t = story("p-self");
+    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-self", source: { briefFor: t.id, repoDir: repo, headless: true, jobId: "job-self", briefBuild: { basis: briefBasis(t) } } });
+    createJob({ id: "job-self", project: "p-self", dir: repo, logPath: "/tmp/self.log", taskId: anchor.id });
+    vi.useFakeTimers();
+    try {
+      await callBridge("job-self", "friday_brief", goodBrief);
+      finishJob("job-self", 0);
+      await vi.advanceTimersByTimeAsync(ANCHOR_EXIT_GRACE_MS + 1000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(listAudit({}).filter((e) => e.action === "terminal_closed" && (e.evidence as { jobId?: string }).jobId === "job-self")).toHaveLength(0);
+  });
+
+  it("提示词：命令不许放后台；没验证拿到的依赖写 pending", () => {
+    writeProjects({ name: "p-pm" });
+    const t = story("p-pm");
+    const text = briefPrompt(t, loadProjects().find((p) => p.name === "p-pm")!);
+    expect(text).toContain("不要放到后台");
+    expect(text).toContain("没亲自验证");
   });
 });
