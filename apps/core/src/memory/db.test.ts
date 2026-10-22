@@ -24,6 +24,17 @@ const SLACK_LINKS = OLD_LINKS
   .replace(/'project'\)\)/g, "'project', 'slack'))");
 
 describe("老库迁移", () => {
+  it("messages 的 kind 约束补上 notice，旧消息原样搬过去", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA.replace(", 'notice'", ""));
+    d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
+    d.exec("INSERT INTO conversations (id, created_at, updated_at) VALUES ('c', 'a', 'a')");
+    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, created_at, task_ids) VALUES ('m', 'c', 'user', 'ask', 'hi', 'a', '[\"t\"]')");
+    migrate(d);
+    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, created_at) VALUES ('n', 'c', 'assistant', 'notice', 'x', 'b')");
+    expect(d.prepare("SELECT content, task_ids FROM messages WHERE id = 'm'").get()).toMatchObject({ content: "hi", task_ids: '["t"]' });
+  });
+
   it("补 seq 不撞已有号：空号接在 MAX 之后，同 created_at 按 rowid", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);

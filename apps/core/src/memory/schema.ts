@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-  kind TEXT NOT NULL CHECK (kind IN ('ask', 'today', 'note', 'run', 'error')),
+  kind TEXT NOT NULL CHECK (kind IN ('ask', 'today', 'note', 'run', 'error', 'notice')),
   content TEXT NOT NULL,
   payload TEXT,
   created_at TEXT NOT NULL

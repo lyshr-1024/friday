@@ -10,6 +10,7 @@ import { startScheduler } from "./scheduler/index.js";
 import { warmSlack } from "./connectors/slack.js";
 import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
+import { startNoticeWatcher } from "./agent/notices.js";
 
 initMemory();
 writeTmuxConf();
@@ -30,6 +31,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
 // 内嵌终端走 WebSocket：同一个端口，upgrade 时验来源
 const wss = terminalSockets();
 server.on("upgrade", (req, socket, head) => handleUpgrade(wss, req, socket, head));
+startNoticeWatcher();
 if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
   startScheduler();
   void fillMissingTitles().catch(() => {});

@@ -70,6 +70,15 @@ export function migrate(d: DatabaseSync): void {
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
   const msgCols = (d.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!msgCols.includes("task_ids")) d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
+  const msgSql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'").get() as { sql?: string } | undefined)?.sql ?? "";
+  if (msgSql && !msgSql.includes("'notice'")) {
+    d.exec("DROP INDEX IF EXISTS messages_conv");
+    d.exec("ALTER TABLE messages RENAME TO messages_old");
+    d.exec(SCHEMA);
+    d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
+    d.exec("INSERT INTO messages (id, conversation_id, role, kind, content, payload, created_at, task_ids) SELECT id, conversation_id, role, kind, content, payload, created_at, task_ids FROM messages_old");
+    d.exec("DROP TABLE messages_old");
+  }
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!inboxCols.includes("thread_ts")) d.exec("ALTER TABLE inbox ADD COLUMN thread_ts TEXT");
   if (!inboxCols.includes("prior")) d.exec("ALTER TABLE inbox ADD COLUMN prior TEXT");
