@@ -48,7 +48,7 @@ describe("queryJobPrompt", () => {
 describe("claudeArgs", () => {
   it("后台跑要带 -p，参数是数组不带引号（spawn 用）", async () => {
     const { claudeArgs } = await import("../runner.js");
-    const args = claudeArgs({ settings: "/tmp/a b.json", mcp: "/tmp/c.json" }, true);
+    const args = claudeArgs({ settings: "/tmp/a b.json", mcp: "/tmp/c.json" }, { kind: "query", print: true });
     expect(args[0]).toBe("-p");
     expect(args).toContain("/tmp/a b.json");
     expect(args.some((a) => a.startsWith("'"))).toBe(false);

@@ -16,18 +16,18 @@ describe("交互式终端的 system prompt 带项目手册", () => {
 
   it("自主任务（headless）不重复带：autonomousPrompt 里已经有一份", () => {
     const sys = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
-    expect(sys(claudeArgs(files, false, "demo-proj"))).toContain("ghost button");
-    expect(sys(claudeArgs(files, true, "demo-proj"))).not.toContain("ghost button");
+    expect(sys(claudeArgs(files, { kind: "interactive" }, "demo-proj"))).toContain("ghost button");
+    expect(sys(claudeArgs(files, { kind: "autonomous" }, "demo-proj"))).not.toContain("ghost button");
   });
 });
 
 describe("git 的口径按终端归谁分开", () => {
   it("交互终端说 Friday 不拦，自主任务说清只拦保护分支", () => {
     const sys = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
-    const mine = sys(claudeArgs(files, false));
+    const mine = sys(claudeArgs(files, { kind: "interactive" }));
     expect(mine).toContain("Friday 不拦这里的 git 操作");
     expect(mine).not.toContain("保护分支");
-    const theirs = sys(claudeArgs(files, true));
+    const theirs = sys(claudeArgs(files, { kind: "autonomous" }));
     expect(theirs).toContain("只拦保护分支");
     expect(theirs).toContain("main");
     expect(theirs).not.toContain("授权");

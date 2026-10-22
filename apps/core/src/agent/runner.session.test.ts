@@ -39,16 +39,18 @@ describe("两段式启动脚本", () => {
   });
 
   it("后台查询不建 worktree：没有准备段，直接在主仓只读跑 -p", () => {
-    const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "查一下", kind: "query" }, "/bin/claude", 7788, files);
+    const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "查一下", kind: "query", print: true }, "/bin/claude", 7788, files);
     expect(s).not.toContain("--model sonnet");
     expect(s).not.toContain(".worktree");
     expect(s).toMatch(/-p --model ['\\].*opus/);
   });
 
-  it("自主任务：准备段之后干活段用 -p --model opus", () => {
+  it("自主任务：准备段之后干活段跑交互式 claude --model opus，不带 -p", () => {
     const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "修 bug", kind: "autonomous", project: "app" }, "/bin/claude", 7788, files, prep);
     expect(s).toContain("--model sonnet");
-    expect(s).toMatch(/\/bin\/zsh -c .*-p --model ['\\].*opus/);
+    const work = s.split("\n").find((l) => l.startsWith("/bin/zsh -c"))!;
+    expect(work).toMatch(/--model ['\\].*opus/);
+    expect(work).not.toMatch(/ -p /);
   });
 
   it("接回：带 --resume，接不上就新开；追加写日志；带上要说的话", () => {

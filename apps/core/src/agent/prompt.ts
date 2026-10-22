@@ -80,7 +80,7 @@ export const BRANCH_RULE =
   "例如 feat/export-center、fix/withdrawal-rule-tabs。不要用 friday 开头，worktree 目录叫 friday-xxx 只是 Friday 的临时目录，不是分支名。";
 
 /** 注入到终端 Claude Code 的 --append-system-prompt：它在 Friday 派出的终端里干活，进展和结果要经 MCP 回给 Friday。 */
-export function terminalBridgePrompt(project?: string, headless = false): string {
+export function terminalBridgePrompt(project?: string, fridayDriven = false): string {
   // 交互式终端也要吃到手册：学了两周的约定原来只进自主任务的提示词，而活主要是在这儿干的
   const handbook = project ? handbookBlock(project) : "";
   return [
@@ -92,7 +92,7 @@ export function terminalBridgePrompt(project?: string, headless = false): string
     "friday_blocked：卡住需要用户介入时调，说明原因和需要用户做什么，然后停下等。",
     "不要推主干、不要 merge 主分支；在功能分支上干活时合并由用户在 Friday 里审核。",
     // 交互终端是用户自己的，没挂守卫；写成「强推要 Friday 转达授权」它会以为被拦、把推送推回给用户
-    headless
+    fridayDriven
       ? `Friday 的守卫只拦保护分支（${protectedBranches(project).join("、")}）和 tag：不许推、切过去、删它们；开发分支上 push / 强推 / rebase / merge 随你，不用问也不用绕。`
       : "这是用户自己的终端，Friday 不拦这里的 git 操作。要强推先跟用户说一声为什么，用户同意了就自己用 git push --force-with-lease 推，不要让用户去敲。",
     `${replyLanguageLine()}，调完 friday_* 工具之后给用户的汇报、等完后台任务之后的总结也一样——这两个时刻最容易不自觉换成英文。`,

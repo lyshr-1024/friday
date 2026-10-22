@@ -28,8 +28,9 @@ describe("交付报告", () => {
     expect(prompt).toContain("agent-browser");
     expect(prompt).toContain("只碰工单里给的造数数据");
     const script = workCommand({ id: "j", repoDir: "/w", task: prompt, kind: "autonomous" }, "/opt/claude", 7788, { settings: "/runs/j.settings.json", mcp: "/runs/j.mcp.json" }).join("\n");
-    expect(script).toContain("-p --model");
-    const args = claudeArgs({ settings: "/s", mcp: "/m" }, true);
+    expect(script).toContain("--model");
+    expect(script).not.toMatch(/ -p /);
+    const args = claudeArgs({ settings: "/s", mcp: "/m" }, { kind: "query", print: true });
     expect(args.slice(0, 3)).toEqual(["-p", "--model", "opus"]);
     const interactive = workCommand({ id: "k", repoDir: "/w", task: "聊聊", kind: "interactive" }, "/opt/claude", 7788, { settings: "/runs/k.settings.json", mcp: "/runs/k.mcp.json" }).join("\n");
     expect(interactive).not.toContain("--model");

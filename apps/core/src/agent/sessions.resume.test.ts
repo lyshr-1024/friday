@@ -69,6 +69,20 @@ async function exitedSession(kind: "autonomous" | "query" | "interactive", dir: 
   return { t, jobId };
 }
 
+describe("接回不丢模型", () => {
+  it("自主任务接回：带 --model、不带 -p；用户自己的交互式接回不带 --model", async () => {
+    const dir = repo("app");
+    const { t } = await exitedSession("autonomous", dir, addTestWorktree(dir, "app-resume-model-a"));
+    expect(await resumeInSession(t.id)).toBe(true);
+    const mine = scriptOf(typed().at(-1)!);
+    expect(mine).toContain("--model");
+    expect(mine).not.toMatch(/ -p /);
+    const { t: u } = await exitedSession("interactive", dir, addTestWorktree(dir, "app-resume-model-b"));
+    expect(await resumeInSession(u.id)).toBe(true);
+    expect(scriptOf(typed().at(-1)!)).not.toContain("--model");
+  });
+});
+
 describe("接回不丢守卫", () => {
   it("后台查询接回：还是只读 hook（改文件的工具被拒）", async () => {
     const { t } = await exitedSession("query", repo("app"));
@@ -98,7 +112,7 @@ describe("接回不丢守卫", () => {
 });
 
 describe("自主入口遇到已退出的根会话：在原会话里起一次新的自主运行", () => {
-  it("retry：不新建 tmux 会话，脚本是 -p --model + 守卫 settings，新 job 与 runs 记账", async () => {
+  it("retry：不新建 tmux 会话，脚本是交互式 --model opus + 守卫 settings，新 job 与 runs 记账", async () => {
     const dir = repo("app");
     const { t, jobId: old } = await exitedSession("autonomous", dir, addTestWorktree(dir, "app-fix-c"));
     launched = [];
@@ -106,7 +120,8 @@ describe("自主入口遇到已退出的根会话：在原会话里起一次新�
     expect(launched).toEqual([]);
     expect(clearedBeforeTyping()).toBe(true);
     const script = scriptOf(typed().at(-1)!);
-    expect(script).toMatch(/-p --model ['\\].*opus/);
+    expect(script).toMatch(/--model ['\\].*opus/);
+    expect(script).not.toMatch(/ -p /);
     expect(script).not.toContain("--resume");
     expect(settingsOf(script).hooks.PreToolUse!.some((h) => h.matcher === "Bash")).toBe(true);
     const jobId = after.source.jobId!;
@@ -235,7 +250,8 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     expect(launched).toEqual([]);
     const script = scriptOf(typed().at(-1)!);
-    expect(script).toMatch(/-p --model ['\\].*opus/);
+    expect(script).toMatch(/--model ['\\].*opus/);
+    expect(script).not.toMatch(/ -p /);
     expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
     const guard = readFileSync(guardPathOf(script), "utf8");
     expect(guard).not.toContain("合并由 Friday");
@@ -293,7 +309,8 @@ describe("测试阶段缺陷交代进需求会话", () => {
     await vi.waitFor(() => expect(getTask(bug.id)!.source.jobId).toBeTruthy());
     const script = scriptOf(typed().at(-1)!);
     expect(script).toContain("上一轮被打回：改错页面了");
-    expect(script).toMatch(/-p --model/);
+    expect(script).toMatch(/--model/);
+    expect(script).not.toMatch(/ -p /);
     const runs = runsForTask(bug.id);
     expect(runs.find((r) => r.id === first.id)).toMatchObject({ outcome: "rejected" });
     expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)).toMatchObject({ kind: "story_bug", outcome: "pending", trigger: "retry" });
@@ -517,7 +534,8 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     expect(await handToStorySession(bug, getTask(root.id)!)).toBe("handed");
     expect(launched).toEqual([]);
     const script = scriptOf(typed().at(-1)!);
-    expect(script).toMatch(/-p --model/);
+    expect(script).toMatch(/--model/);
+    expect(script).not.toMatch(/ -p /);
     expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
     expect(getTask(bug.id)!.source.jobId).toBeTruthy();
     updateTask(bug.id, { status: "ignored" });

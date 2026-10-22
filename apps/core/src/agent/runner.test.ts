@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { cleanEnv } from "./env.js";
 import type { Task } from "@friday/shared";
 import { createFeature } from "../memory/features.js";
-import { autonomousPrompt, buildGuardScript, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath } from "./runner.js";
+import { autonomousPrompt, buildGuardScript, claudeArgs, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath, workCommand } from "./runner.js";
 import { PUSH_WHY } from "./guard.js";
 
 describe("终端环境与会话恢复", () => {
@@ -71,5 +71,21 @@ describe("autonomousPrompt 知识库", () => {
     expect(hit).toContain("对账单 — 资金 › 对账 — src/bill");
     expect(hit).toContain('<untrusted source="knowledge">');
     expect(autonomousPrompt("j2", "别的事", "p-ap")).not.toContain("knowledge");
+  });
+});
+
+describe("Friday 驾驶的会话怎么拉起 claude", () => {
+  const files = { settings: "/s", mcp: "/m" };
+  it("Friday 驾驶的会话跑交互式：带 --model opus，不带 -p", () => {
+    const cmd = workCommand({ id: "j1", repoDir: "/r", kind: "autonomous", task: "改", project: "p" }, "/bin/claude", 7788, files).join("\n");
+    expect(cmd).toContain("--model");
+    expect(cmd).toContain("opus");
+    expect(cmd).not.toMatch(/ -p /);
+  });
+  it("只读查询仍是 -p --model opus；用户自己的交互式两样都不带", () => {
+    expect(claudeArgs(files, { kind: "query", print: true }).slice(0, 3)).toEqual(["-p", "--model", "opus"]);
+    const mine = claudeArgs(files, { kind: "interactive" });
+    expect(mine).not.toContain("-p");
+    expect(mine).not.toContain("--model");
   });
 });

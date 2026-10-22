@@ -81,7 +81,7 @@ export async function openSession(
   createJob({ id: jobId, project: o.project, dir: o.repoDir, task: o.task.slice(0, 500), logPath: jobLog(jobId), taskId: owner.id, sessionId: root.id, ...(o.conversationId ? { conversationId: o.conversationId } : {}) });
   createTermSession({ id: root.id, project: o.project, repoDir: o.repoDir, tmuxName: name, kind: o.kind, jobId });
   try {
-    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}), ...(o.shell ? { shell: true } : {}) }, name);
+    await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, ...(o.kind === "query" ? { print: true } : {}), project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}), ...(o.shell ? { shell: true } : {}) }, name);
     // 没有准备段，没有谁来报 worktree：直接算开好了
     if (o.inRepo) updateTermSession(root.id, { status: "running" });
   } catch (e) {
@@ -153,7 +153,7 @@ export async function resumeInSession(sessionId: string, prompt?: string, jobId?
   const win = await claudeWindowIndex(s.tmuxName);
   if (win === undefined) return false;
   const file = await writeResumeScript(
-    { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}), ...(prompt ? { task: prompt } : {}) },
+    { id: job.id, repoDir: s.repoDir, kind: jobKind(job, s.kind), project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}), ...(prompt ? { task: prompt } : {}) },
     s.worktree ?? s.repoDir,
     jobKind(job, s.kind),
   );
@@ -180,7 +180,7 @@ export async function reviveSession(sessionId: string, jobId?: string): Promise<
   if (!(await tmuxVersion())) throw new TmuxMissingError();
   writeTmuxConf();
   const file = await writeResumeScript(
-    { id: job.id, repoDir: s.repoDir, kind: "interactive", project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}) },
+    { id: job.id, repoDir: s.repoDir, kind: jobKind(job, s.kind), project: s.project, ...(job.claudeSessionId ? { resumeSessionId: job.claudeSessionId } : {}) },
     cwd,
     jobKind(job, s.kind),
     true,

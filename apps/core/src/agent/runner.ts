@@ -247,22 +247,25 @@ export function writeHookFiles(id: string, autonomous = false, readOnly = false,
 }
 
 /** 每次拉起 claude 都带：跳过权限（Friday 只透传用户指令）、hook、指回 Friday 的 MCP、怎么汇报的系统提示。 */
-export function claudeArgs(files: ClaudeFiles, headless = false, project?: string): string[] {
+export function claudeArgs(files: ClaudeFiles, launch: { kind: TermSessionKind; print?: boolean }, project?: string): string[] {
+  // Friday 驾驶的会话一律显式给模型：不传就继承用户在 Claude Code 里的默认值（曾经是 Fable，一次花 $4.46）
+  const fridayDriven = launch.kind !== "interactive";
   return [
-    ...(headless ? ["-p", "--model", HEADLESS_MODEL] : []),
+    ...(launch.print ? ["-p"] : []),
+    ...(fridayDriven ? ["--model", HEADLESS_MODEL] : []),
     "--dangerously-skip-permissions",
     "--settings",
     files.settings,
     "--mcp-config",
     files.mcp,
     "--append-system-prompt",
-    terminalBridgePrompt(headless ? undefined : project, headless),
+    terminalBridgePrompt(fridayDriven ? undefined : project, fridayDriven),
   ];
 }
 
 /** 选项本身不带引号，只有取值要 quote——脚本里那条命令的形状得跟以前一样 */
-export function claudeFlags(files: ClaudeFiles, headless = false, project?: string): string {
-  return claudeArgs(files, headless, project)
+export function claudeFlags(files: ClaudeFiles, launch: { kind: TermSessionKind; print?: boolean }, project?: string): string {
+  return claudeArgs(files, launch, project)
     .map((a) => (a.startsWith("-") ? a : shellQuote(a)))
     .join(" ");
 }
@@ -283,6 +286,8 @@ export interface SessionLaunch {
   /** 项目页的普通 shell：只开 zsh，不起 Claude */
   shell?: boolean;
   forkSession?: boolean;
+  /** 只读查询一次跑完就退：带 -p。Friday 驾驶的代码任务不带，进程交付后留着供插话 */
+  print?: boolean;
 }
 
 export const worktreeFile = (id: string) => join(runsDir(), `${id}.worktree`);
@@ -315,7 +320,7 @@ export function prepPrompt(id: string, repoDir: string, base?: string, info?: { 
 }
 
 export function workCommand(req: SessionLaunch, claudePath: string, port: number, files: ClaudeFiles): string[] {
-  const flags = claudeFlags(files, req.kind !== "interactive", req.project);
+  const flags = claudeFlags(files, { kind: req.kind, print: req.print }, req.project);
   const prompt = req.task ? ` ${shellQuote(req.task)}` : "";
   const claude = req.resumeSessionId
     ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${req.forkSession ? " --fork-session" : ""}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
