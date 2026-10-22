@@ -3,7 +3,7 @@ import { publish, subscribe } from "../bus.js";
 import { addMessage, listMessages } from "../memory/conversations.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { mainConversationId } from "../memory/mainConversation.js";
-import { listOpenBoardTasks, taskTag } from "../memory/tasks.js";
+import { listOpenBoardTasks, tagOf, taskTag } from "../memory/tasks.js";
 import { deliveryText } from "./delivery.js";
 import { autostartEnv, autostartPlan } from "./autostart.js";
 import { needOf } from "./needs.js";
@@ -19,7 +19,7 @@ export function noticeText(t: Task, need: NonNullable<ReturnType<typeof needOf>>
 
 /** 升级后第一次只记 key 不发，否则存量任务会一口气在主对话里刷出一排 */
 export function postNotices(): number {
-  const first = getCursor("notice:init") === undefined || getCursor("notice:init") === "";
+  const first = !getCursor("notice:init");
   let posted = 0;
   for (const t of listOpenBoardTasks()) {
     const need = needOf(t);
@@ -97,17 +97,17 @@ function digestText(minutes: number, needs: MainNeeds): string {
   for (const kind of NEED_ORDER) {
     for (const i of needs[kind]) {
       n++;
-      lines.push(`【${NEED_LABEL[kind]}】#${i.seq} ${i.title.slice(0, 30)} · ${cut(i.reason ?? "")}`);
+      lines.push(`【${NEED_LABEL[kind]}】${tagOf(i.seq, i.title)} · ${cut(i.reason ?? "")}`);
     }
   }
-  const doing = [...needs.working.map((i) => `#${i.seq} ${i.title.slice(0, 30)}`), ...needs.queued.map((i) => `#${i.seq} ${i.title.slice(0, 30)}（排队）`)];
+  const doing = [...needs.working.map((i) => tagOf(i.seq, i.title)), ...needs.queued.map((i) => `${tagOf(i.seq, i.title)}（排队）`)];
   if (doing.length) lines.push(`还在干：${doing.join("，")}`);
   return [`离开这 ${minutes} 分钟，${n} 件要你：`, ...lines].join("\n");
 }
 
 export function presence(active: boolean, now = Date.now()): Message | undefined {
   if (!active) {
-    setCursor("main:away", String(now));
+    if (!getCursor("main:away")) setCursor("main:away", String(now));
     return undefined;
   }
   const away = Number(getCursor("main:away") || 0);

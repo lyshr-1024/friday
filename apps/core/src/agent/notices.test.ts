@@ -194,6 +194,16 @@ describe("presence", () => {
     expect(presence(true, min(21))).toBeUndefined();
   });
 
+  it("连续两次失焦不覆盖第一次的离开时间", () => {
+    presence(false, T0);
+    presence(false, min(10));
+    vi.setSystemTime(T0 + 1000);
+    const b = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
+    updateTask(b.id, { progress: "x" });
+    postNotices();
+    expect(presence(true, min(20))?.kind).toBe("notice");
+  });
+
   it("要你的条数为 0（只有在干的）不发汇总，但清掉离开标记", () => {
     presence(false, T0);
     vi.setSystemTime(T0 + 1000);
