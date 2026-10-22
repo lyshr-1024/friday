@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { app } from "./index.js";
-import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { listAudit } from "../memory/audit.js";
 import { migrate } from "../memory/db.js";
@@ -50,7 +50,8 @@ function scratchRepo(): string {
 
 async function callTool(conversationId: string | undefined, name: string, args: Record<string, unknown>): Promise<string> {
   const t = fridayToolList(conversationId).find((x) => x.name === name)!;
-  const r = (await t.handler(args as never, {})) as { content: Array<{ text: string }> };
+  const bound = conversationId ? findTaskBySource((s) => s.conversationId === conversationId, true) : undefined;
+  const r = (await t.handler({ ...(bound ? { taskId: `#${bound.seq}` } : {}), ...args } as never, {})) as { content: Array<{ text: string }> };
   return r.content[0]!.text;
 }
 
@@ -126,12 +127,15 @@ describe("会话里批准和打回", () => {
     expect(listAudit({ taskId: t.id, limit: 20 }).some((e) => e.action === "review_rejected" && e.why === "中途关页面进度接不上")).toBe(true);
   });
 
-  it("会话没绑任务时不执行", async () => {
-    expect(await callTool(undefined, "task_approve", {})).toContain("没有绑定任务");
-    expect(await callTool("no-such-conv", "task_reject", { reason: "x" })).toContain("没有绑定任务");
+  it("点的任务不存在时不执行", async () => {
+    expect(await callTool(undefined, "task_approve", { taskId: "#99999" })).toContain("没有这条任务");
+    expect(await callTool("no-such-conv", "task_reject", { taskId: "#99999", reason: "x" })).toContain("没有这条任务");
   });
 
-  const say = (conv: string, role: "user" | "assistant", content: string) => addMessage(conv, { role, kind: "ask", content });
+  const say = (conv: string, role: "user" | "assistant", content: string) => {
+    const bound = role === "user" ? findTaskBySource((s) => s.conversationId === conv, true) : undefined;
+    return addMessage(conv, { role, kind: "ask", content: bound ? `#${bound.seq} ${content}` : content });
+  };
 
   function slackTask() {
     const t = createTask({ title: "回拂晓", kind: "verbal", source: {}, status: "review" });

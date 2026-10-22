@@ -436,7 +436,7 @@ describe("审核、打回、改档、依赖", () => {
   };
   const approveAction = (id: string) => getTask(id)!.pending?.find((p) => p.type === "brief_approve");
   const tool = async (conv: string, name: string, args: Record<string, unknown>) =>
-    ((await fridayToolList(conv).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
+    ((await fridayToolList(conv).find((x) => x.name === name)!.handler({ taskId: `#${findTaskBySource((s) => s.conversationId === conv, true)!.seq}`, ...args } as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
 
   it("brief_approve 执行：review approved、stale 清掉、任务不收工、记账", async () => {
     writeProjects({ name: "p-ap" });
@@ -556,9 +556,9 @@ describe("审核、打回、改档、依赖", () => {
     writeProjects({ name: "p-say" });
     const t = withApprove("p-say");
     const conv = t.source.conversationId!;
-    addMessage(conv, { role: "user", kind: "ask", content: "按这个做吗？" });
+    addMessage(conv, { role: "user", kind: "ask", content: `#${t.seq} 按这个做吗？` });
     expect(await tool(conv, "task_approve", {})).toContain("不执行");
-    addMessage(conv, { role: "user", kind: "ask", content: "按这个做" });
+    addMessage(conv, { role: "user", kind: "ask", content: `#${t.seq} 按这个做` });
     expect(await tool(conv, "task_approve", {})).toContain("已执行");
     expect(getTask(t.id)!.source.brief?.review).toBe("approved");
     expect(getTask(t.id)!.status).toBe("understood");
@@ -646,7 +646,7 @@ describe("终审修正", () => {
     ({ ...goodBrief, deps: [], acceptance: { source: "own", cases: ["x"] }, features: [], review, basis, at: "2026-10-01T00:00:00.000Z", ...extra }) as unknown as NonNullable<Task["source"]["brief"]>;
   const approves = (id: string) => (getTask(id)!.pending ?? []).filter((p) => p.type === "brief_approve");
   const tool = async (conv: string, name: string, args: Record<string, unknown>) =>
-    ((await fridayToolList(conv).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
+    ((await fridayToolList(conv).find((x) => x.name === name)!.handler({ taskId: `#${findTaskBySource((s) => s.conversationId === conv, true)!.seq}`, ...args } as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
 
   it("1：过期卡打回后重建期间 checkBasis 不碰，重建交上来再打回一次就停下，原因和次数都在", async () => {
     idle();

@@ -22,7 +22,8 @@ import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskByRef, findTaskBySource, getTask, listTasks } from "../memory/tasks.js";
+import { createTask, findTaskByRef, findTaskBySource, getTask, listTasks, taskTag } from "../memory/tasks.js";
+import { touchTask } from "./runs.js";
 import { listAudit, record } from "../memory/audit.js";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, scheduleByConversation, updateSchedule } from "../memory/schedules.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -164,7 +165,7 @@ export const fridayToolList = (conversationId?: string) => [
       "记一条待办。会建成一条任务，出现在工作台左栏的「待办」分组里。",
       { text: z.string().min(1).max(2000), due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("截止日期 YYYY-MM-DD") },
       async (input) => {
-        const task = addNoteTask({ text: input.text, ...(input.due ? { due: input.due } : {}), ...(freeConversation(conversationId) ? { source: { conversationId } } : {}) });
+        const task = addNoteTask({ text: input.text, ...(input.due ? { due: input.due } : {}) });
         return text(`已记到待办：${task.title}${task.due ? `（截止 ${task.due}）` : ""}`);
       },
     ),
@@ -188,7 +189,6 @@ export const fridayToolList = (conversationId?: string) => [
           ...(name ? { project: name } : {}),
           ...(input.stage ? { stage: input.stage, kind: "code" as const } : {}),
           ...(input.due ? { due: input.due } : {}),
-          ...(freeConversation(conversationId) ? { source: { conversationId } } : {}),
         });
         record({ taskId: task.id, action: "task_add", why: "用户在会话里让建一条任务", how: "建成工作台任务，未开工", evidence: { title: task.title, ...(name ? { project: name } : {}) }, risk: "reversible", undo: { kind: "drop_note_task", id: task.id } });
         return text(`已建任务（id ${task.id.slice(0, 8)}）：${task.title}${task.project ? `（${task.project}）` : ""}${task.due ? `，截止 ${task.due}` : ""}。要开工说一声。`);
@@ -310,25 +310,14 @@ export const fridayToolList = (conversationId?: string) => [
         if (!decide("reversible").allowed) return text("操作被拒绝");
         const dup = recentDuplicate(r.dir, task);
         if (dup) return text(`同一任务 10 秒内已经在终端启动过了（任务 id ${dup.id}），不再重复打开。`);
-        // 这个会话是从某条任务点「在会话里讨论」进来的：终端挂到那条任务上，而不是再建一条
-        const linked = conversationId ? findTaskBySource((src) => src.conversationId === conversationId) : undefined;
-        // 同一个会话里已有的任务（多半是那条 Slack 待办）就是这次干活的来源
-        const origin = linked ?? (conversationId ? findTaskBySource((src) => src.conversationId === conversationId, true) : undefined);
-        const t =
-          linked ??
-          createTask({
-            title: `${r.name}：${task}`.slice(0, 80),
-            kind: "code",
-            // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
-            source: {
-              repoDir: r.dir,
-              ...(conversationId ? { conversationId } : {}),
-              ...(origin ? { fromTaskId: origin.id, ...(origin.source.threadId ? { threadId: origin.source.threadId } : {}) } : {}),
-            },
-            project: r.name,
-            status: "understood",
-            understanding: task,
-          });
+        const t = createTask({
+          title: `${r.name}：${task}`.slice(0, 80),
+          kind: "code",
+          source: { repoDir: r.dir },
+          project: r.name,
+          status: "understood",
+          understanding: task,
+        });
         const started = await startAutonomousJob(t, r.name, r.dir, task, "user");
         if (started.status === "blocked") return text(`没开成：${started.progress ?? "开工前体检没过"}`);
         console.log(`[tool] run_claude ${r.name} ${task}`);
@@ -337,28 +326,38 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "terminal_say",
-      "往当前会话绑定的任务的终端窗口里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
-      { text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理") },
-      async ({ text: msg }) => {
-        const bound = boundJob(conversationId);
-        if (!bound) return text("这条会话没有绑定带终端的任务，转达不了。让用户从任务的「在会话里讨论」进来，或先用 run_claude 开一个。");
-        const r = await say(bound.jobId, msg);
+      "往点名任务的终端窗口里，对正在干活的 Claude Code 说一句话：转达用户的指令、补充要求、回答它的提问。用户说“让它…”“告诉它…”“接着把…也做了”时用。",
+      {
+        taskId: TASK_ID,
+        text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理"),
+      },
+      async ({ taskId, text: msg }) => {
+        const t = resolveTask(taskId);
+        if (typeof t === "string") return text(t);
+        const jobId = t.source.jobId;
+        if (!jobId) return text(`${taskTag(t)} 没有终端，转达不了。要它干活先 task_start 开工。`);
+        const r = await say(jobId, msg);
         if (r === "no-terminal") return text("这条任务的终端窗口已经关掉了，转达不进去。要继续的话让用户用 run_claude 重新开一个。");
-        clearAttention(bound.jobId);
-        if (conversationId && conversationExists(conversationId)) {
-          addMessage(conversationId, { role: "assistant", kind: "run", content: `→ 已转达给终端：${msg}`, payload: { status: "relayed", jobId: bound.jobId } });
-        }
-        record({ ...(bound.taskId ? { taskId: bound.taskId } : {}), action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 tmux 会话", evidence: { jobId: bound.jobId, text: msg }, risk: "reversible" });
+        clearAttention(jobId);
+        trace(conversationId, t, `已转给终端：${msg.slice(0, 80)}`, { status: "relayed", jobId });
+        record({ taskId: t.id, action: "terminal_say", why: "用户在会话里交代，转给终端里的 Claude Code", how: "写进 tmux 会话", evidence: { jobId, text: msg }, risk: "reversible" });
         return text("已敲进终端。它回话后会回报到任务卡，不用你复述。");
       },
     ),
     tool(
       "jobs_activity",
-      "看某个终端任务里 Claude Code 最近在做什么：读了/改了哪些文件、跑了什么命令、成败、说了什么。不给 jobId 就看当前会话绑定的任务。用户问“它做到哪了”“在干什么”时用。",
-      { jobId: z.string().optional(), limit: z.number().int().min(1).max(40).optional() },
-      async ({ jobId, limit }) => {
-        const id = jobId ?? boundJob(conversationId)?.jobId;
-        if (!id) return text("没有指定任务，这条会话也没绑定终端任务。");
+      "看某个终端任务里 Claude Code 最近在做什么：读了/改了哪些文件、跑了什么命令、成败、说了什么。给 taskId（任务短号）或 jobId，两个都没给会报错。用户问“它做到哪了”“在干什么”时用。",
+      { taskId: TASK_ID.optional(), jobId: z.string().optional(), limit: z.number().int().min(1).max(40).optional() },
+      async ({ taskId, jobId, limit }) => {
+        let id = jobId;
+        if (!id) {
+          if (!taskId) return text("要给 taskId（任务短号 #N）或 jobId，两个都没给。");
+          const t = resolveTask(taskId);
+          if (typeof t === "string") return text(t);
+          if (conversationId) touchTask(conversationId, t.id);
+          id = t.source.jobId;
+          if (!id) return text(`${taskTag(t)} 没有终端。`);
+        }
         const job = getJob(id);
         if (!job) return text("没有这个任务。");
         return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${jobStateLabel(id)}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);
@@ -455,8 +454,9 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "task_update",
-      "把会话里聊出来的结论写回当前任务卡：开发阶段 stage、状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展、待审的 Slack 回复草稿（用户要发之前你贴给他看的就是这段，讨论改了回复内容必须同步），以及「通过前请确认」的验收列表 verify。用户说不用回了就 dropReply。方案在会话里改过、卡片上那几条验收点已经对不上新方案时，用 verify 重写一遍（会清掉已勾状态，因为新条目还没人验过）。只对这条会话绑定的任务有效。",
+      "把会话里聊出来的结论写回点名的任务卡：开发阶段 stage、状态（用户说做完了 / 不用管了 / 先放着）、理解 / 方案 / 进展、待审的 Slack 回复草稿（用户要发之前你贴给他看的就是这段，讨论改了回复内容必须同步），以及「通过前请确认」的验收列表 verify。用户说不用回了就 dropReply。方案在会话里改过、卡片上那几条验收点已经对不上新方案时，用 verify 重写一遍（会清掉已勾状态，因为新条目还没人验过）。",
       {
+        taskId: TASK_ID,
         understanding: z.string().max(4000).optional().describe("对这件事的最新理解，整段覆盖"),
         plan: z.string().max(4000).optional().describe("最新方案，整段覆盖"),
         progress: z.string().max(300).optional().describe("一句话进展"),
@@ -481,9 +481,9 @@ export const fridayToolList = (conversationId?: string) => [
           .optional()
           .describe("用户让 Friday 重写理解卡时填：他说了怎么改就原样填他的原话（会放在重建提示词的最前面），没说就填 true（沿用最近一次打回的原因）"),
       },
-      async ({ rebuildBrief, ...patch }) => {
-        const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
-        if (!t) return text("这条会话没有绑定任务，没有卡片可更新。");
+      async ({ taskId, rebuildBrief, ...patch }) => {
+        const t = resolveTask(taskId);
+        if (typeof t === "string") return text(t);
         if (!decide("reversible").allowed) return text("操作被拒绝");
         const r = updateTaskFromChat(t.id, patch);
         if (!r) return text("任务不存在了。");
@@ -498,29 +498,32 @@ export const fridayToolList = (conversationId?: string) => [
           }
         }
         const updated = r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "要发之前先把这段原文贴给用户，他说「发」再用 task_approve。" : ""}` : rebuilt ? "" : "和卡片上一样，没改。";
+        if (r.changed.length) trace(conversationId, t, `改了 ${r.changed.join("、")}`);
+        else if (conversationId) touchTask(conversationId, t.id);
         return text(updated + rebuilt);
       },
     ),
     tool(
       "task_start",
-      "用户在这条任务的会话里说「开工 / 开始做 / 你来改」时调：Friday 在 worktree 里开工，做完交给他验收，中途他随时能在终端里插话。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。只对这条会话绑定的任务有效。",
-      {},
-      async () => {
-        const t = boundTask(conversationId);
-        if (!t) return text("这条会话没有绑定任务。");
+      "用户说「开工 / 开始做 / 你来改」时对点名的任务调：Friday 在 worktree 里开工，做完交给他验收，中途他随时能在终端里插话。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。",
+      { taskId: TASK_ID },
+      async ({ taskId }) => {
+        const t = resolveTask(taskId);
+        if (typeof t === "string") return text(t);
         const { startTask } = await import("./taskStart.js");
         const r = await startTask(t);
         if ("error" in r) return text(`没开成：${r.error}`);
+        trace(conversationId, t, "开工了");
         return text(`开工了：在 ${r.task.project} 上做，做完交给用户验收；用户在任务详情里能看到终端、随时插话。`);
       },
     ),
     tool(
       "task_approve",
-      "用户在会话里明确说「合并吧 / 就这么发 / 通过」时，执行这条任务上等他点头的动作。有多个待审动作时用 actionId 指定（先用 task_get 看）；是 Slack 回复时必须先把要发的原文完整贴给用户、他说「发」之后才调，text 填最终原文。没得到明确同意不要调。",
-      { actionId: z.string().max(80).optional(), text: z.string().max(4000).optional() },
-      async ({ actionId, text: override }) => {
-        const t = boundTask(conversationId);
-        if (!t) return text("这条会话没有绑定任务。");
+      "用户在会话里明确说「合并吧 / 就这么发 / 通过」时，执行点名任务上等他点头的动作。有多个待审动作时用 actionId 指定（先用 task_get 看）；是 Slack 回复时必须先把要发的原文完整贴给用户、他说「发」之后才调，text 填最终原文。没得到明确同意不要调。同时有几条任务在等点头时，用户得说「#N 通过」点名。",
+      { taskId: TASK_ID, actionId: z.string().max(80).optional(), text: z.string().max(4000).optional() },
+      async ({ taskId, actionId, text: override }) => {
+        const t = resolveTask(taskId);
+        if (typeof t === "string") return text(t);
         const pending = t.pending ?? [];
         if (!pending.length) return text("这条任务上没有等你点头的动作。");
         if (!actionId && pending.length > 1) return text(`这条任务挂着 ${pending.length} 个待审动作，先问清楚用户要执行哪一个，再带 actionId 调：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
@@ -528,7 +531,17 @@ export const fridayToolList = (conversationId?: string) => [
         if (!action) return text(`没有这个待审动作。现有的：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
         const forms = APPROVAL[action.type];
         if (!forms) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
-        const said = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
+        const raw = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
+        const named = raw.match(/^#(\d+)\s*/);
+        if (named && Number(named[1]) !== t.seq) return text(`用户点名的是 #${named[1]}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
+        if (!named) {
+          const waiting = listTasks(["collected", "understood", "processing", "review", "blocked"]).filter((x) => x.pending?.some((p) => APPROVAL[p.type]));
+          if (waiting.length > 1) {
+            const list = waiting.map((x) => `#${x.seq}「${x.pending!.find((p) => APPROVAL[p.type])!.label}」`).join("、");
+            return text(`现在有 ${waiting.length} 条在等你点头（${list}），让用户说「#N 通过」这样点名`);
+          }
+        }
+        const said = raw.replace(/^#\d+\s*/, "");
         if (!consents(said, forms))
           return text(
             `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
@@ -540,6 +553,7 @@ export const fridayToolList = (conversationId?: string) => [
         }
         try {
           const done = await approvePending(t.id, action.id, override);
+          trace(conversationId, t, `已执行「${action.label}」`);
           return text(`已执行「${action.label}」。任务现在是${STATUS_LABEL[done.status]}。`);
         } catch (e) {
           return text(`没执行成功：${e instanceof Error ? e.message : String(e)}。动作还挂在任务上。`);
@@ -548,12 +562,13 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "task_reject",
-      "用户在会话里说「打回，原因是…」时，把这条任务打回：作废待审动作，退回处理中，原因记下来（会进 Friday 的学习）。reason 用用户的原话。",
-      { reason: z.string().min(1).max(500) },
-      async ({ reason }) => {
-        const t = boundTask(conversationId);
-        if (!t) return text("这条会话没有绑定任务。");
+      "用户在会话里说「打回，原因是…」时，把点名的任务打回：作废待审动作，退回处理中，原因记下来（会进 Friday 的学习）。reason 用用户的原话。",
+      { taskId: TASK_ID, reason: z.string().min(1).max(500) },
+      async ({ taskId, reason }) => {
+        const t = resolveTask(taskId);
+        if (typeof t === "string") return text(t);
         rejectTask(t.id, reason);
+        trace(conversationId, t, `已打回：${reason}`);
         return text(`已打回：${reason}`);
       },
     ),
@@ -644,13 +659,17 @@ export const fridayToolList = (conversationId?: string) => [
     ),
   ];
 
-// 任务自己的会话里再建的任务要有自己的会话：同一段会话绑两条任务，打回 / 批准就可能落到另一条上
-function freeConversation(conversationId?: string): conversationId is string {
-  return Boolean(conversationId) && !findTaskBySource((s) => s.conversationId === conversationId, true);
+const TASK_ID = z.string().min(1).max(64).describe("任务短号 #N、id 前 8 位或完整 id");
+
+function resolveTask(ref: string): Task | string {
+  return findTaskByRef(ref) ?? `没有这条任务：${ref}。先用 tasks_list 找，或问用户是哪条`;
 }
 
-function boundTask(conversationId?: string): Task | undefined {
-  return conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
+function trace(conversationId: string | undefined, t: Task, what: string, payload?: unknown): void {
+  if (!conversationId) return;
+  touchTask(conversationId, t.id);
+  if (!conversationExists(conversationId)) return;
+  addMessage(conversationId, { role: "assistant", kind: "run", content: `→ ${taskTag(t)}：${what}`, ...(payload ? { payload } : {}), taskIds: [t.id] });
 }
 
 const squash = (s: string) => s.replace(/\s+/g, "");
@@ -692,15 +711,6 @@ function taskLine(t: Task): string {
 function auditLine(e: AuditEvent): string {
   const title = typeof e.evidence.title === "string" ? `「${e.evidence.title}」` : "";
   return `- ${localTime(e.ts)} ${e.action}${title}：${e.why}${e.taskId ? `（任务 ${e.taskId.slice(0, 8)}）` : ""}${e.status !== "done" ? ` [${e.status}]` : ""}`;
-}
-
-/** 这条会话正在讨论的任务的终端：先看任务绑定，再看 run_claude 从这条会话开的 job */
-function boundJob(conversationId?: string): { jobId: string; taskId?: string } | undefined {
-  if (!conversationId) return undefined;
-  const t = findTaskBySource((s) => s.conversationId === conversationId);
-  if (t?.source.jobId) return { jobId: t.source.jobId, taskId: t.id };
-  const j = listJobs().find((x) => x.conversationId === conversationId && x.status === "running");
-  return j ? { jobId: j.id } : undefined;
 }
 
 export const FRIDAY_TOOL_NAMES = fridayToolList().map((t) => `mcp__friday__${t.name}`);
