@@ -12,10 +12,13 @@ import { slackNode, taskNode } from "../memory/infer.js";
 import { createJob } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { pickBriefQueue } from "./brief.js";
+import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
-import { briefPrompt, finishBriefJob, startBriefJob, storeBrief } from "./briefJob.js";
+import { briefPrompt, briefTick, finishBriefJob, startBriefJob, storeBrief } from "./briefJob.js";
 import { onJobExit } from "./pipeline.js";
+import { TmuxMissingError } from "./tmux.js";
+import { db } from "../memory/db.js";
+import { updateSettings } from "../settings.js";
 import { openSession } from "./sessions.js";
 import { readChunk } from "./web.js";
 
@@ -297,5 +300,94 @@ describe("建卡会话", () => {
     const plain = briefPrompt(story("p-pr2"), p2!);
     expect(plain).toContain("没有，按 PRD 自己推");
     expect(plain).not.toContain("打回");
+  });
+});
+
+describe("建卡队列", () => {
+  const clearJobs = () => {
+    db().prepare("UPDATE jobs SET status = 'done'").run();
+    db().prepare("UPDATE tasks SET status = 'ignored' WHERE kind != 'project'").run();
+  };
+  const brief = (basis: string, review: "pending" | "approved" | "rejected" | "none", extra: object = {}) =>
+    ({ ...goodBrief, deps: [], acceptance: { source: "own", cases: ["x"] }, features: [], review, basis, at: "2026-10-01T00:00:00.000Z", ...extra }) as unknown as NonNullable<Task["source"]["brief"]>;
+
+  it("briefTick：开关关着什么都不做", async () => {
+    clearJobs();
+    updateSettings({ autonomous: false });
+    writeProjects({ name: "p-off" });
+    story("p-off", { due: "2000-01-01" });
+    const calls = vi.mocked(openSession).mock.calls.length;
+    expect(await briefTick()).toBe("idle");
+    expect(vi.mocked(openSession).mock.calls.length).toBe(calls);
+  });
+
+  it("briefTick：已有建卡会话在跑就不起新的（一次一条）", async () => {
+    clearJobs();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "p-one" });
+    const t = story("p-one", { due: "2000-01-01" });
+    const anchor = createTask({ title: "理解卡：别的", kind: "project", project: "p-one", status: "processing", source: { briefFor: "other", jobId: "job-tick-busy" } });
+    createJob({ id: "job-tick-busy", project: "p-one", dir: repo, logPath: "/tmp/job-tick-busy.log", taskId: anchor.id });
+    const calls = vi.mocked(openSession).mock.calls.length;
+    expect(await briefTick()).toBe("busy");
+    expect(vi.mocked(openSession).mock.calls.length).toBe(calls);
+    expect(anchorOf(t.id)).toBeUndefined();
+  });
+
+  it("briefTick：挑队首起会话", async () => {
+    clearJobs();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "p-q" });
+    story("p-q", { due: "2000-02-01" });
+    const early = story("p-q", { due: "2000-01-01" });
+    vi.mocked(openSession).mockResolvedValueOnce("job-tick-q");
+    expect(await briefTick()).toBe("started");
+    expect(anchorOf(early.id)?.source.jobId).toBe("job-tick-q");
+  });
+
+  it("briefTick：tmux 没装回 idle，别的错误抛出去", async () => {
+    clearJobs();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "p-tmux" });
+    story("p-tmux", { due: "1999-01-01" });
+    vi.mocked(openSession).mockRejectedValueOnce(new TmuxMissingError());
+    expect(await briefTick()).toBe("idle");
+    vi.mocked(openSession).mockRejectedValueOnce(new Error("别的错"));
+    await expect(briefTick()).rejects.toThrow("别的错");
+  });
+
+  it("正文变了：未审重建、已审标 stale", async () => {
+    clearJobs();
+    updateSettings({ autonomous: false });
+    writeProjects({ name: "p-st" });
+    const a = story("p-st");
+    updateTask(a.id, { source: { brief: brief("stale-basis", "pending") } });
+    addPending(a.id, { type: "brief_approve", label: "方案看过，开工", detail: "x", payload: {} }, { keepStatus: true });
+    addPending(a.id, { type: "slack_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
+    const b = story("p-st");
+    updateTask(b.id, { source: { brief: brief("stale-basis", "approved") } });
+    const c = story("p-st");
+    updateTask(c.id, { source: { brief: brief(briefBasis(c), "pending") } });
+
+    await briefTick();
+    const ta = getTask(a.id)!;
+    expect(ta.source.brief).toBeUndefined();
+    expect(ta.pending?.map((p) => p.type)).toEqual(["slack_reply"]);
+    expect(getTask(b.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
+    expect(getTask(c.id)!.source.brief).toMatchObject({ review: "pending" });
+    expect(getTask(c.id)!.source.brief?.stale).toBeUndefined();
+
+    await briefTick();
+    expect(listAudit({ taskId: b.id }).filter((e) => e.action === "brief_stale")).toHaveLength(1);
+    expect(listAudit({ taskId: a.id }).some((e) => e.action === "brief_stale_rebuild")).toBe(true);
+  });
+
+  it("briefTick：起不了会话的 404 标 briefFailed，队列往下走", async () => {
+    clearJobs();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "p-ok" });
+    const bad = story("p-gone", { due: "1998-01-01" });
+    expect(await briefTick()).toBe("busy");
+    expect(getTask(bad.id)!.source.briefFailed?.why).toContain("p-gone");
   });
 });

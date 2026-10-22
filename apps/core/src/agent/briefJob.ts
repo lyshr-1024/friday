@@ -6,13 +6,15 @@ import { taskNode } from "../memory/infer.js";
 import { getJob } from "../memory/jobs.js";
 import { neighbors } from "../memory/links.js";
 import { loadProjects, projectDetail, type Project } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, listTasksByKind, updateTask } from "../memory/tasks.js";
+import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
-import { briefable, briefBasis, briefPolicy, parseBrief, renderBrief, reviewFor } from "./brief.js";
+import { briefable, briefBasis, briefPolicy, parseBrief, pickBriefQueue, renderBrief, reviewFor } from "./brief.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { jobLog } from "./runner.js";
 import { openSession } from "./sessions.js";
 import { closeJobTerminal } from "./terminal.js";
+import { TmuxMissingError } from "./tmux.js";
 
 const SIZE_RULE = "新路由 / 新页面、接新接口、动公共组件（`components/` / `packages/` 这类目录）、预计改动文件 ≥ 5，任一命中就 `large`；把握不足也 `large`。";
 const NO_CASES = "没有，按 PRD 自己推";
@@ -148,4 +150,37 @@ export async function finishBriefJob(anchor: Task, jobId: string, exitCode: numb
   });
   await closeJobTerminal(jobId, "理解卡建完了", anchor.id);
   updateTask(anchor.id, { status: "done" });
+}
+
+function checkBasis(): void {
+  for (const t of listTasks(["collected", "understood"])) {
+    const b = t.source.brief;
+    if (!b || b.basis === briefBasis(t)) continue;
+    if (b.review === "approved") {
+      if (b.stale) continue;
+      updateTask(t.id, { source: { brief: { ...b, stale: true } } });
+      record({ taskId: t.id, action: "brief_stale", why: "需求正文在理解卡审过之后变了", how: "卡上标「已过期」，不自动重建，等你决定", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
+    } else {
+      updateTask(t.id, { pending: (t.pending ?? []).filter((a) => a.type !== "brief_approve"), source: { brief: undefined } });
+      record({ taskId: t.id, action: "brief_stale_rebuild", why: "需求正文在理解卡审过之前变了", how: "撤掉旧理解卡和待审动作，进队列重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "reversible" });
+    }
+  }
+}
+
+export async function briefTick(): Promise<"started" | "busy" | "idle"> {
+  checkBasis();
+  if (!userSettings().autonomous) return "idle";
+  if (listTasksByKind("project", 500).some((a) => a.source.briefFor && running(a))) return "busy";
+  const next = pickBriefQueue(listTasks(["collected", "understood"]));
+  if (!next) return "idle";
+  try {
+    const r = await startBriefJob(next.id);
+    if (!("error" in r)) return "started";
+    if (r.status === 404) updateTask(next.id, { source: { briefFailed: { at: new Date().toISOString(), why: r.error } } });
+    return "busy";
+  } catch (e) {
+    if (!(e instanceof TmuxMissingError)) throw e;
+    console.warn(`[brief] ${e.message}，本轮不再尝试`);
+    return "idle";
+  }
 }
