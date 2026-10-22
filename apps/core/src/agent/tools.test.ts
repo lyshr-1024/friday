@@ -10,6 +10,8 @@ import { mainConversationId } from "../memory/mainConversation.js";
 const sayMock = vi.hoisted(() => vi.fn(async () => "sent"));
 const approveMock = vi.hoisted(() => vi.fn());
 const startMock = vi.hoisted(() => vi.fn());
+const touchMock = vi.hoisted(() => vi.fn());
+vi.mock("./runs.js", async (orig) => ({ ...(await orig<typeof import("./runs.js")>()), touchTask: touchMock }));
 vi.mock("./terminal.js", async (orig) => ({ ...(await orig<typeof import("./terminal.js")>()), say: sayMock }));
 vi.mock("./pipeline.js", async (orig) => ({ ...(await orig<typeof import("./pipeline.js")>()), approvePending: approveMock, startAutonomousJob: startMock }));
 
@@ -95,6 +97,14 @@ describe("会话工具点名任务", () => {
 
   it("jobs_activity 两个都没给就报错", async () => {
     expect(await callIn(open(), "jobs_activity", {})).toContain("taskId");
+  });
+
+  it("jobs_activity 同时给 jobId 和 taskId 也算碰过这条任务", async () => {
+    const c = open();
+    const t = mk("看进度");
+    touchMock.mockClear();
+    await callIn(c, "jobs_activity", { taskId: `#${t.seq}`, jobId: "no-such-job" });
+    expect(touchMock).toHaveBeenCalledWith(c, t.id);
   });
 
   it("task_update 点名任务，留痕写改了什么", async () => {

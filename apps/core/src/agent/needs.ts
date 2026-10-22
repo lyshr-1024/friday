@@ -60,7 +60,7 @@ export function boardBlock(conversationId: string, now = Date.now()): string {
     const need = needOf(t)?.kind;
     const rank = need ? 0 : t.status === "processing" ? 1 : autostartPlan(t, env) ? 2 : 3;
     const state = need ? NEED_LABEL[need] : t.status === "processing" ? "在干" : rank === 2 ? "排队" : TASK_STATUS_LABEL[t.status];
-    const line = ["#" + t.seq, t.project ?? "未定项目", t.title, t.stage && STAGE_LABEL[t.stage], state, waited(now - Date.parse(t.updatedAt))].filter(Boolean).join(" · ");
+    const line = ["#" + t.seq, t.project ?? "未定项目", t.title.replace(/\s+/g, " ").trim(), t.stage && STAGE_LABEL[t.stage], state, waited(now - Date.parse(t.updatedAt))].filter(Boolean).join(" · ");
     return { rank, line };
   });
   rows.sort((a, b) => a.rank - b.rank);

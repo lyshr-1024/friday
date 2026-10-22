@@ -4,7 +4,8 @@ import { protectedBranches } from "../memory/projects.js";
 import { replyLanguageLine } from "./lang.js";
 import { UNTRUSTED_NOTE } from "./fence.js";
 
-const now = () => new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+// 只到分钟：精确到秒的话每轮系统提示都不同，提示缓存永远不中
+const now = () => new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 const MEMORY_TOOLS =
   "memory_read / memory_write 读写记忆库的三个文件（projects 项目注册表、decisions 决策记录、people 人物），memory_read 也能翻存过的学习笔记；web_read 读网页全文（内网要登录的也行）；research_save 把学到的东西存成笔记；WebSearch 搜公开资料；todo_add 添加待办；task_add 在工作台建一条任务（只建不开工）；tasks_list / task_get 查任务板上有哪些任务、某张卡的完整内容；audit_list 查你自己的操作记录（建过什么、开过什么、改过什么）；meegle_add 按链接把一条 Meegle 工单加进待办；git_inspect 只读查看某项目的 git 状态、worktree、提交、分支；slack_inbox 看 Slack 收件箱里已预处理的消息；jobs_list 看终端任务的状态与最后一轮输出；run_claude 在终端里打开某项目并启动 Claude Code 去干活；task_start 给点名的任务（taskId）开工（开始做 = 交互式终端，交给 Friday 改 = 自主改完交审）；terminal_say 往点名的任务的终端窗口里对正在干活的 Claude Code 说话（转达用户的指令、补充、回答它的提问）；jobs_activity 看终端里的 Claude Code 最近读了改了什么、跑了什么、说了什么；task_update 把会话里聊出来的结论写回点名的任务卡（理解 / 方案 / 进展 / 待审的 Slack 回复草稿）；task_approve 执行点名的任务上等用户点头的动作（合并分支、发 Slack 回复等）；task_reject 把点名的任务打回、作废待审动作；meegle_sync 立刻同步一次 Meegle 工单到任务板；slack_sync 立刻拉一次 Slack 新消息；close_terminals 关掉在跑的终端（默认只关已收工任务的，说「全部关掉」才全关）。";
@@ -58,7 +59,7 @@ export function friday(memory?: MemoryContext, skills = false, task?: string, re
   if (memory) {
     const blocks = [
       memory.projects && `【项目注册表】\n${memory.projects}`,
-      memory.todos && `【未完成待办】\n${memory.todos}`,
+      (task ? "" : memory.todos) && `【未完成待办】\n${memory.todos}`,
     ].filter(Boolean);
     if (blocks.length) sections.push("以下是用户的记忆库，回答涉及项目、待办时以此为准：", ...blocks);
     // people 和 decisions 太大又不常用，不每轮塞进来；需要时它自己去读

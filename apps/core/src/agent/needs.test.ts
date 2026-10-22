@@ -90,7 +90,33 @@ describe("boardBlock", () => {
     const out = boardBlock(conv);
     expect(out).toContain("这条工单是财富后台");
     expect(out).not.toContain("终端正停在");
+    expect(out).not.toContain("terminal_say");
     expect(out).toContain("task_update");
+  });
+
+  it("终端在问：完整块说明终端停在提问上，让用户选而不是自己选", () => {
+    const conv = createConversation().id;
+    const t = createTask({ title: "改弹窗", kind: "code", status: "processing", source: {} });
+    updateTask(t.id, { attention: "question", progress: "用 A 还是 B？" });
+    addMessage(conv, { role: "assistant", kind: "note", content: "问", taskIds: [t.id] });
+    const out = boardBlock(conv);
+    expect(out).toContain("终端正停在一个交互式提问上等用户回答（用 A 还是 B？）");
+    expect(out).toContain("terminal_say");
+  });
+
+  it("完整块带最近一次交付，验证点确认进度写在后面", () => {
+    const conv = createConversation().id;
+    const t = createTask({ title: "改列宽", kind: "code", status: "review", source: {} });
+    updateTask(t.id, { report: { ...report(), verify: ["看列宽", "看表头"], checked: [true, false] } as never });
+    addMessage(conv, { role: "assistant", kind: "note", content: "好", taskIds: [t.id] });
+    expect(boardBlock(conv)).toContain("最近一次交付：改好了（测试：ok）；验证点用户已确认 1/2");
+  });
+
+  it("标题里有换行不会把一行拆成多行", () => {
+    const conv = createConversation().id;
+    const t = createTask({ title: "第一行\n  第二行\r\n第三行", kind: "code", project: "demo", status: "processing", source: {} });
+    const line = boardBlock(conv).split("\n").find((l) => l.startsWith(`#${t.seq} `))!;
+    expect(line).toContain("第一行 第二行 第三行 ·");
   });
 
   it("完整块也算进 6000：单块超长被截断并带标记，三块都超长也不爆", () => {

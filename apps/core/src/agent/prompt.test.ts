@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { friday } from "./prompt.js";
+
+afterEach(() => vi.useRealTimers());
 
 describe("系统提示", () => {
   it("绑了任务的会话把卡片当第一上下文注入", () => {
@@ -24,5 +26,21 @@ describe("系统提示", () => {
     expect(s).toContain("不要说它还在跑");
     expect(s).toContain("task_start");
     expect(s).not.toContain("run_claude 重新开");
+  });
+
+  it("带任务板时不再注入【未完成待办】，不带时照旧", () => {
+    const memory = { projects: "p", todos: "- 写周报", hasPeople: false, hasDecisions: false, handbooks: [] };
+    expect(friday(memory, false, "任务板内容")).not.toContain("【未完成待办】");
+    expect(friday(memory, false, "任务板内容")).toContain("【项目注册表】");
+    expect(friday(memory, false)).toContain("【未完成待办】\n- 写周报");
+  });
+
+  it("时间只到分钟（上海时区），同一分钟内系统提示不变", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-22T08:37:42Z"));
+    const a = friday(undefined, false);
+    expect(a).toContain("现在是 2026-10-22 16:37。");
+    vi.setSystemTime(new Date("2026-10-22T08:37:59Z"));
+    expect(friday(undefined, false)).toBe(a);
   });
 });

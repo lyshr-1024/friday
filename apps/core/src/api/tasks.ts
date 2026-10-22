@@ -132,7 +132,8 @@ export const tasks = new Hono()
     const plan = autostartEnv();
     const withSession = (t: Task): Task => {
       const autostart = autostartPlan(t, plan);
-      return { ...t, session: taskSession(t), ...(needOf(t) ? { need: needOf(t)!.kind } : {}), ...(autostart ? { autostart } : {}) };
+      const need = needOf(t);
+      return { ...t, session: taskSession(t), ...(need ? { need: need.kind } : {}), ...(autostart ? { autostart } : {}) };
     };
     const withSlack = slackOf(listInbox(true, CONV_SCAN_LIMIT));
     return c.json({

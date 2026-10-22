@@ -19,7 +19,7 @@ import { attachedTasks, candidateTasks } from "../agent/slack/attach.js";
 import { conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
-import { listTasks, updateTask } from "../memory/tasks.js";
+import { listTasks, taskTag, updateTask } from "../memory/tasks.js";
 import { claudeSessionId, conversationExists, createConversation, addMessage, setClaudeSessionId } from "../memory/conversations.js";
 import { getAttachment } from "../memory/attachments.js";
 import { buildUserContent } from "../agent/content.js";
@@ -235,6 +235,7 @@ export const summonApi = new Hono()
       if (relayed) return finish(relayed);
 
       // ③ 落到通用对话。一次呼出算一段，对上任务就接那条任务的会话
+      const hudTask = taskId ? getTask(taskId) : undefined;
       const { id: conversationId, resume } = hudConversation(taskId);
       const startedAt = new Date().toISOString();
       const prompt = [scene ? untrusted("当前场景", scene) : "", said].filter(Boolean).join("\n\n");
@@ -242,7 +243,7 @@ export const summonApi = new Hono()
       addMessage(conversationId, { role: "user", kind: "ask", content: said, ...(attached.length ? { payload: { attachments: attached } } : {}) });
       let answer = "";
       for await (const ev of askStream(content, {
-        systemPrompt: friday(loadMemoryContext()),
+        systemPrompt: hudTask ? `${friday(loadMemoryContext())}\n\n当前在看的任务是 ${taskTag(hudTask)}；用户说『这条』『它』指它，调工具时 taskId 填 #${hudTask.seq}` : friday(loadMemoryContext()),
         cwd: config.dataDir,
         label: "ask",
         web: true,

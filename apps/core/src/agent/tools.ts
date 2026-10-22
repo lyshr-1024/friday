@@ -352,14 +352,17 @@ export const fridayToolList = (conversationId?: string) => [
       { taskId: TASK_ID.optional(), jobId: z.string().optional(), limit: z.number().int().min(1).max(40).optional() },
       async ({ taskId, jobId, limit }) => {
         let id = jobId;
-        if (!id) {
-          if (!taskId) return text("要给 taskId（任务短号 #N）或 jobId，两个都没给。");
+        if (!id && !taskId) return text("要给 taskId（任务短号 #N）或 jobId，两个都没给。");
+        if (taskId) {
           const t = resolveTask(taskId);
           if (typeof t === "string") return text(t);
           if (conversationId) touchTask(conversationId, t.id);
-          id = t.source.jobId;
-          if (!id) return text(`${taskTag(t)} 没有终端。`);
+          if (!id) {
+            id = t.source.jobId;
+            if (!id) return text(`${taskTag(t)} 没有终端。`);
+          }
         }
+        if (!id) return text("没有这个任务。");
         const job = getJob(id);
         if (!job) return text("没有这个任务。");
         return text(`${job.project} · ${job.status}${job.status === "running" ? ` · ${jobStateLabel(id)}` : ""}${job.lastMessage ? `\n最后一轮：${job.lastMessage.slice(0, 200)}` : ""}\n\n最近动作：\n${formatActivity(jobActivity(job.dir, job.claudeSessionId, limit ?? 12))}`);

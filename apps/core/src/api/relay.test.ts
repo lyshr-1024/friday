@@ -104,6 +104,18 @@ describe("POST /summon/relay", () => {
     expect(body).toContain(`"taskId":"${made}"`);
   });
 
+  it("HUD 点着任务进通用对话：系统提示里补一句当前在看哪条，工具 taskId 填它", async () => {
+    const task = createTask({ title: "改导出按钮颜色", kind: "code", source: {}, status: "understood" });
+    await relay({ text: "这条是不是该先沟通", taskId: task.id });
+    const sys = (askCalls[0]![1] as { systemPrompt: string }).systemPrompt;
+    expect(sys).toContain(`当前在看的任务是 #${task.seq} 改导出按钮颜色；用户说『这条』『它』指它，调工具时 taskId 填 #${task.seq}`);
+  });
+
+  it("HUD 没点任务就没有这句", async () => {
+    await relay({ text: "今天天气" });
+    expect((askCalls[0]![1] as { systemPrompt: string }).systemPrompt).not.toContain("当前在看的任务是");
+  });
+
   it("通用对话没建任务就不带 taskId", async () => {
     const body = await relay({ text: "今天天气怎么样" });
     expect(body).toContain('"kind":"asked"');
