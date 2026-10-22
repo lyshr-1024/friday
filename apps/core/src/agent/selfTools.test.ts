@@ -10,6 +10,7 @@ import { addMessage, createConversation } from "../memory/conversations.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { updateSettings, userSettings } from "../settings.js";
 import { subscribe } from "../bus.js";
+import { db } from "../memory/db.js";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -287,9 +288,33 @@ describe("knowledge_update", () => {
       throw new Error("磁盘满了");
     });
     const out = await callIn(undefined, "knowledge_update", { op: "delete", id: f.id });
-    expect(out).toContain("磁盘满了");
+    expect(out).toContain("已改并记账，但知识库文件没重新生成：磁盘满了");
+    expect(out).toContain("可在操作记录里撤销");
     restoreFeatures(undoOf(f.id).plan.snapshot);
     expect(getFeature(f.id)?.name).toBe("渲染炸了");
+  });
+
+  it("合并中途抛错：回「没改成」，没有账，两条功能和历史都没变", async () => {
+    writeMemoryFile("projects", seed);
+    const k = createFeature("KbApp", { name: "合并留" }, "task");
+    const d = createFeature("KbApp", { name: "合并丢" }, "task");
+    const hk = addFeatureHistory({ featureId: k.id, at: "2026-10-01T00:00:00Z", what: "k", files: [] });
+    const hd = addFeatureHistory({ featureId: d.id, at: "2026-10-02T00:00:00Z", what: "d", files: [] });
+    const before = listAudit({ limit: 500 }).filter((x) => x.action === "knowledge_corrected").length;
+    db().exec(`CREATE TRIGGER kb_boom BEFORE DELETE ON features WHEN OLD.id = '${d.id}' BEGIN SELECT RAISE(ABORT, 'boom'); END`);
+    try {
+      const out = await callIn(undefined, "knowledge_update", { op: "merge", keep: k.id, drop: d.id });
+      expect(out).toContain("没改成");
+      expect(out).toContain("boom");
+      expect(out).not.toContain("撤销");
+    } finally {
+      db().exec("DROP TRIGGER kb_boom");
+    }
+    expect(listAudit({ limit: 500 }).filter((x) => x.action === "knowledge_corrected").length).toBe(before);
+    expect(getFeature(d.id)?.name).toBe("合并丢");
+    expect(getFeature(k.id)?.aliases).toEqual([]);
+    expect(featureHistory(k.id).map((x) => x.id)).toEqual([hk]);
+    expect(featureHistory(d.id).map((x) => x.id)).toEqual([hd]);
   });
 
   it("edit 的撤销不动历史：先 edit、再把历史挪走、撤销 edit 后历史仍在目标上", async () => {

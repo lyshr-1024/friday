@@ -156,11 +156,17 @@ export function withoutCorrected(cur: Feature, input: Partial<FeatureInput>): Pa
 export function mergeFeatures(keepId: string, dropId: string, at = new Date().toISOString()): Feature {
   const keep = getFeature(keepId)!;
   const drop = getFeature(dropId)!;
-  db().prepare("UPDATE feature_history SET feature_id = ? WHERE feature_id = ?").run(keepId, dropId);
-  db().prepare("DELETE FROM features WHERE id = ?").run(dropId);
-  db()
-    .prepare("UPDATE features SET aliases = ?, updated_at = ? WHERE id = ?")
-    .run(JSON.stringify(union(keep.aliases, [drop.name, ...drop.aliases].filter((n) => norm(n) !== norm(keep.name)))), at, keepId);
+  const d = db();
+  d.exec("BEGIN");
+  try {
+    d.prepare("UPDATE feature_history SET feature_id = ? WHERE feature_id = ?").run(keepId, dropId);
+    d.prepare("DELETE FROM features WHERE id = ?").run(dropId);
+    d.prepare("UPDATE features SET aliases = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(union(keep.aliases, [drop.name, ...drop.aliases].filter((n) => norm(n) !== norm(keep.name)))), at, keepId);
+    d.exec("COMMIT");
+  } catch (e) {
+    d.exec("ROLLBACK");
+    throw e;
+  }
   return getFeature(keepId)!;
 }
 

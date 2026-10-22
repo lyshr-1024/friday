@@ -276,6 +276,10 @@ export const selfToolList = (conversationId?: string) => [
       const snapshot = snapshotFeatures(involved.map((f) => f.id), { withHistory: a.op !== "edit" });
       try {
         run();
+      } catch (e) {
+        return text(`${how}：没改成：${e instanceof Error ? e.message : String(e)}`);
+      }
+      try {
         record({
           action: "knowledge_corrected",
           why: "你在对话里让 Friday 纠正知识库",
@@ -284,9 +288,13 @@ export const selfToolList = (conversationId?: string) => [
           risk: "reversible",
           undo: { kind: "restore_features", snapshot },
         });
+      } catch (e) {
+        return text(`${how}：改了但没记上账，没法撤销：${e instanceof Error ? e.message : String(e)}`);
+      }
+      try {
         for (const p of new Set(involved.map((f) => f.project))) writeKnowledge(p);
       } catch (e) {
-        return text(`${how}：出错了：${e instanceof Error ? e.message : String(e)}（已改的部分可在操作记录里撤销）`);
+        return text(`${how}：已改并记账，但知识库文件没重新生成：${e instanceof Error ? e.message : String(e)}（可在操作记录里撤销）`);
       }
       return text(`改好了：${how}（可在操作记录里撤销）`);
     },
