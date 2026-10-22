@@ -79,6 +79,9 @@ export function migrate(d: DatabaseSync): void {
   // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
   if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
   if (!jobCols.includes("session_id")) d.exec("ALTER TABLE jobs ADD COLUMN session_id TEXT");
+  // Friday 驾驶的一轮还欠一次交付（friday_done / friday_blocked）；Stop 时据此催一次
+  if (!jobCols.includes("awaiting_delivery")) d.exec("ALTER TABLE jobs ADD COLUMN awaiting_delivery INTEGER NOT NULL DEFAULT 0");
+  if (!jobCols.includes("nudged_at")) d.exec("ALTER TABLE jobs ADD COLUMN nudged_at TEXT");
   const runCols = (d.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!runCols.includes("diff_files")) d.exec("ALTER TABLE runs ADD COLUMN diff_files TEXT");
   if (!runCols.includes("diff_base")) d.exec("ALTER TABLE runs ADD COLUMN diff_base TEXT");

@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import type { Job, Task, TermSession, TermSessionKind } from "@friday/shared";
 import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
-import { createJob, finishJob, getJob, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
+import { createJob, finishJob, getJob, latestRunningJob, markAwaiting, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
 import { branchExistsSync, branchesForIdSync, currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
@@ -84,6 +84,7 @@ export async function openSession(
     await launch({ id: jobId, repoDir: o.repoDir, task: o.task, kind: o.kind, ...(o.kind === "query" ? { print: true } : {}), project: o.project, title: root.title, ...(root.understanding ? { description: root.understanding.slice(0, 200) } : {}), ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}), ...(existingBranch ? { existingBranch } : {}), ...(o.inRepo ? { inRepo: true } : {}), ...(o.shell ? { shell: true } : {}) }, name);
     // 没有准备段，没有谁来报 worktree：直接算开好了
     if (o.inRepo) updateTermSession(root.id, { status: "running" });
+    if (o.kind === "autonomous") fridayRoundStarted(jobId, o.task);
   } catch (e) {
     finishJob(jobId, 1);
     updateTermSession(root.id, { status: "closed" });
@@ -91,6 +92,12 @@ export async function openSession(
   }
   publish({ type: "tasks" });
   return jobId;
+}
+
+/** Friday 起的一轮：开场那句记成 Friday 敲的（UserPromptSubmit 回来时认得出），并欠一次交付 */
+function fridayRoundStarted(jobId: string, prompt?: string): void {
+  if (prompt) recordTerminalInput(jobId, prompt);
+  markAwaiting(jobId);
 }
 
 const queued = new Map<string, string[]>();
@@ -111,7 +118,12 @@ export async function sayToSession(sessionId: string, text: string): Promise<"se
   }
   await sendText(s.tmuxName, text, win);
   markInput(sessionId);
-  if (s.jobId) recordTerminalInput(s.jobId, text);
+  const active = latestRunningJob(sessionId) ?? s.jobId;
+  if (active) {
+    recordTerminalInput(active, text);
+    // Friday 往自己驾驶的会话里说的每一句都开了新的一轮，欠一次交付
+    if (s.kind === "autonomous") markAwaiting(active);
+  }
   return "sent";
 }
 
@@ -161,6 +173,7 @@ export async function resumeInSession(sessionId: string, prompt?: string, jobId?
   reviveJob(job.id);
   updateTermSession(sessionId, { status: "running" });
   markInput(sessionId);
+  if (prompt && jobKind(job, s.kind) === "autonomous") fridayRoundStarted(job.id, prompt);
   record({ taskId: job.taskId, action: "terminal_reopened", why: "Claude 退出了但任务还没做完", how: job.claudeSessionId ? "在同一个会话里 --resume 接回" : "在同一个会话里开新 Claude", evidence: { jobId: job.id, session: s.tmuxName }, risk: "reversible" });
   publish({ type: "tasks" });
   return true;
@@ -212,6 +225,7 @@ export async function runInSession(sessionId: string, launch: SessionLaunch, own
   }
   updateTermSession(sessionId, { status: "running", ...(ownerId === sessionId ? { jobId: launch.id } : {}) });
   markInput(sessionId);
+  if (launch.kind === "autonomous") fridayRoundStarted(launch.id, launch.task);
   record({ taskId: ownerId, action: "terminal_run", why: "会话里的 Claude 已经退出，这次的活在同一个会话、同一个 worktree 里接着跑", how: `新起一次 ${launch.kind} 运行`, evidence: { jobId: launch.id, session: s.tmuxName }, risk: "reversible" });
   publish({ type: "tasks" });
   return true;

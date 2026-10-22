@@ -7,6 +7,7 @@ import { flushQueued, prepareFailed, resumeInSession, worktreeReady } from "../a
 import { jobActivity } from "../agent/transcript.js";
 import { trayStatus } from "../agent/tray.js";
 import { checkPush, describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
+import { roundStopped, userPrompted } from "../agent/rounds.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource, getTask } from "../memory/tasks.js";
 import { getTermSession, markInput, markStop } from "../memory/termSessions.js";
@@ -74,11 +75,12 @@ export const jobs = new Hono()
         message: z.string().max(1000).optional(),
         notificationType: z.string().max(40).optional(),
         cwd: z.string().max(1000).optional(),
+        prompt: z.string().max(4000).optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId && !parsed.data.toolName && !parsed.data.message)) return c.json({ error: "text / sessionId / toolName / message 至少一个" }, 400);
+    if (!parsed.success || (!parsed.data.text && !parsed.data.sessionId && !parsed.data.toolName && !parsed.data.message && !parsed.data.prompt)) return c.json({ error: "text / sessionId / toolName / message / prompt 至少一个" }, 400);
     const id = c.req.param("id");
-    const { text, sessionId, event, source, toolName, toolInput, message, notificationType, cwd } = parsed.data;
+    const { text, sessionId, event, source, toolName, toolInput, message, notificationType, cwd, prompt } = parsed.data;
     if (!getJob(id)) return c.json({ error: "任务不存在" }, 404);
     // 交互式提问：PreToolUse 进来就是阻塞，PostToolUse 说明答了
     if (event === "PreToolUse" && toolName && /^(AskUserQuestion|ExitPlanMode)$/.test(toolName)) terminalAsking(id, describeQuestion(toolName, toolInput));
@@ -94,6 +96,7 @@ export const jobs = new Hono()
       if (s?.status === "preparing" && cwd && cwd !== s.repoDir) await worktreeReady(id, cwd);
       await flushQueued(sid);
     }
+    if (event === "UserPromptSubmit") userPrompted(id, prompt);
     if (event === "UserPromptSubmit" && sid) {
       markInput(sid);
       publish({ type: "tasks" });
@@ -105,6 +108,7 @@ export const jobs = new Hono()
       if (sid) publish({ type: "tasks" });
     }
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
+    if (event === "Stop") void roundStopped(id).catch((e) => console.warn(`[rounds] ${id}：${e instanceof Error ? e.message : String(e)}`));
     return c.json({ ok: true });
   })
   // 终端脚本回报退出码

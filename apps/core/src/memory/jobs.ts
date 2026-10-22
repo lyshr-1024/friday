@@ -16,6 +16,8 @@ interface Row {
   task_id: string | null;
   session_id: string | null;
   log_path: string | null;
+  awaiting_delivery: number | null;
+  nudged_at: string | null;
   started_at: string;
   finished_at: string | null;
 }
@@ -33,6 +35,8 @@ const toJob = (r: Row): Job => ({
   ...(r.terminal ? { terminal: r.terminal } : {}),
   ...(r.task_id ? { taskId: r.task_id } : {}),
   ...(r.session_id ? { sessionId: r.session_id } : {}),
+  ...(r.awaiting_delivery ? { awaitingDelivery: true } : {}),
+  ...(r.nudged_at ? { nudgedAt: r.nudged_at } : {}),
   startedAt: r.started_at,
   ...(r.finished_at ? { finishedAt: r.finished_at } : {}),
 });
@@ -73,6 +77,31 @@ export function jobTasks(): Set<string> {
 /** Friday 敲进终端的每一句。从 Claude Code 历史学的时候按它精确排除，不靠正则猜 */
 export function recordTerminalInput(jobId: string, text: string): void {
   db().prepare("INSERT INTO terminal_inputs (job_id, text, at) VALUES (?, ?, ?)").run(jobId, text.trim(), new Date().toISOString());
+}
+
+/** hook 转发的 prompt 截过 4000 字，按前 500 字比 */
+export function isFridayInput(jobId: string, prompt: string): boolean {
+  const head = prompt.trim().slice(0, 500);
+  const rows = db().prepare("SELECT text FROM terminal_inputs WHERE job_id = ? ORDER BY id DESC LIMIT 50").all(jobId) as { text: string }[];
+  return rows.some((r) => r.text.slice(0, 500) === head);
+}
+
+export function markAwaiting(jobId: string): void {
+  db().prepare("UPDATE jobs SET awaiting_delivery = 1, nudged_at = NULL WHERE id = ?").run(jobId);
+}
+
+export function clearAwaiting(jobId: string): void {
+  db().prepare("UPDATE jobs SET awaiting_delivery = 0, nudged_at = NULL WHERE id = ?").run(jobId);
+}
+
+export function markNudged(jobId: string): void {
+  db().prepare("UPDATE jobs SET nudged_at = ? WHERE id = ?").run(new Date().toISOString(), jobId);
+}
+
+/** 会话里眼下在跑的那次 claude（runInSession 起的新 job 不会改会话记着的 jobId） */
+export function latestRunningJob(sessionId: string): string | undefined {
+  const r = db().prepare("SELECT id FROM jobs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC, rowid DESC LIMIT 1").get(sessionId) as { id: string } | undefined;
+  return r?.id;
 }
 
 export function terminalInputTexts(): Set<string> {

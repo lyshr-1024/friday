@@ -272,6 +272,10 @@ export interface Job {
   taskId?: string;
   /** 这个 job 对应的 tmux 会话 id */
   sessionId?: string;
+  /** Friday 发起的这一轮还没交付（friday_done / friday_blocked） */
+  awaitingDelivery?: boolean;
+  /** 停了没交付时催过的时间；再停就标卡住 */
+  nudgedAt?: string;
   status: JobStatus;
   exitCode?: number;
   lastMessage?: string;

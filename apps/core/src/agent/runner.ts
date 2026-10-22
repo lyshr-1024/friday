@@ -96,7 +96,7 @@ const fs = require("fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d)).on("end", () => {
   try {
-    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type, cwd } = JSON.parse(input);
+    const { transcript_path, last_assistant_message, session_id, hook_event_name, source, tool_name, tool_input, message, notification_type, cwd, prompt } = JSON.parse(input);
     // Claude Code 2.1 起 Stop 事件直接给 last_assistant_message；老版本再回退到读 transcript。
     let text = (last_assistant_message || "").trim();
     if (!text && (!hook_event_name || hook_event_name === "Stop") && transcript_path && fs.existsSync(transcript_path)) {
@@ -110,8 +110,8 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
         } catch {}
       }
     }
-    if (!text && !session_id && !tool_name && !message) { console.error("nothing to post"); return; }
-    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}), ...(cwd ? { cwd: String(cwd).slice(0, 1000) } : {}) }) })
+    if (!text && !session_id && !tool_name && !message && !prompt) { console.error("nothing to post"); return; }
+    fetch("http://127.0.0.1:${port}/jobs/${id}/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...(text ? { text } : {}), ...(session_id ? { sessionId: session_id } : {}), ...(hook_event_name ? { event: hook_event_name } : {}), ...(source ? { source } : {}), ...(tool_name ? { toolName: tool_name } : {}), ...(tool_input ? { toolInput: JSON.stringify(tool_input).slice(0, 4000) } : {}), ...(message ? { message: String(message).slice(0, 1000) } : {}), ...(notification_type ? { notificationType: notification_type } : {}), ...(cwd ? { cwd: String(cwd).slice(0, 1000) } : {}), ...(prompt ? { prompt: String(prompt).slice(0, 4000) } : {}) }) })
       .then((r) => console.error("posted", r.status))
       .catch((e) => console.error("post failed", e.message));
   } catch (e) { console.error("hook error", e.message); }

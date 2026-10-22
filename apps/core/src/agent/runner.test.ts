@@ -30,6 +30,12 @@ describe("终端环境与会话恢复", () => {
     expect(script).toContain("cwd");
     expect(script).toMatch(/hook_event_name === "Stop"/);
   });
+
+  it("hook 脚本转发 UserPromptSubmit 的 prompt，截到 4000 字", () => {
+    const script = buildHookScript("x", 7788, "/bin/node");
+    expect(script).toContain("prompt");
+    expect(script).toContain("slice(0, 4000)");
+  });
 });
 
 describe("buildGuardScript 带项目的保护分支", () => {

@@ -12,7 +12,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
-import { autonomousPrompt, jobLog, storyBugPrompt } from "./runner.js";
+import { autonomousPrompt, storyBugPrompt } from "./runner.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession, sayToSession } from "./sessions.js";
 import { hasSession } from "./tmux.js";
 import { state } from "../scheduler/index.js";
@@ -24,19 +24,9 @@ import { sessionCost } from "./transcript.js";
 import { onTaskDone } from "./knowledge.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
 import { createRun, pendingRunsForTask, runByJob, runsForTask, setRunOutcome } from "../memory/runs.js";
-
-const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|[\x00-\x08\x0b-\x1f]/g;
-
-/** 终端日志最后几百字（去掉控制字符），用来解释任务为什么没交付。 */
-export function logTail(jobId: string, chars = 300): string {
-  const p = jobLog(jobId);
-  if (!existsSync(p)) return "";
-  const raw = readFileSync(p, "latin1").replace(ANSI, "");
-  return Buffer.from(raw, "latin1").toString("utf8").replace(/\s+/g, " ").trim().slice(-chars);
-}
 
 const execFileP = promisify(execFile);
 
@@ -269,16 +259,11 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     risk: "read",
     status: exitCode === 0 ? "done" : "failed",
   });
-  // 自主任务必须有交付报告才算交付；交互式会话（你自己在终端里聊的）退出即完成。
-  const interactive = !job.task.plan && !report && !job.task.source.scheduleId;
-  const tail = !report && exitCode !== 0 ? logTail(jobId) : "";
+  // Friday 驾驶的 Claude 交付后不退出，走到这里就是没交付就没了（你 /exit、它崩了、会话被关）。
+  // 报告文件只给升级那一刻还在跑的老 -p 任务兜底
   let task = updateTask(job.task.id, {
-    status: report ? "review" : interactive && exitCode === 0 ? "done" : exitCode === 0 ? "review" : "blocked",
-    progress: report
-      ? "交付报告已生成，等你审核"
-      : interactive
-        ? `终端会话已结束（${exitText(exitCode)}）`
-        : `终端任务结束（${exitText(exitCode)}），未生成交付报告${tail ? `。终端最后输出：${tail}` : ""}`,
+    status: report ? "review" : "blocked",
+    progress: report ? "交付报告已生成，等你审核" : exitCode === -1 ? "会话已不在，这一轮没交付" : "Claude 退出了，这一轮没交付，看终端",
     ...(report ? { report } : {}),
     ...(exitBranch ? { source: { branch: exitBranch } } : {}),
   })!;
@@ -289,7 +274,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (report && branch && branch !== "main" && branch !== "master" && ahead > 0 && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
-  if (report && !interactive) postDelivery(task, jobId, report);
+  if (report) postDelivery(task, jobId, report);
   if (task.status === "review" || task.status === "done") reportBackToOrigin(task);
   return task;
 }

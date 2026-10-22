@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { reportPath, runsDir } from "./runner.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startAutonomousJob, reportBackToOrigin, onJobExit, finishTask } from "./pipeline.js";
@@ -185,5 +186,24 @@ describe("你收需求，名下缺陷跟着收", () => {
     const d = createTask({ title: "缺陷 D", kind: "meegle", source: { meegleId: "d-6", linkedStoryId: "s-200" }, status: "understood" });
     await finishTask(story2.id, "done", "「FE 发布」节点已经走完", { keepTerminal: true });
     expect(getTask(d.id)!.status).toBe("understood");
+  });
+});
+
+describe("Friday 驾驶的 Claude 退出了", () => {
+  it("没交付就退出（你 /exit 或它崩了）：标卡住，不算完成", () => {
+    const t = createTask({ title: "自主改", kind: "verbal", source: { autonomous: true, jobId: "fx1" }, status: "processing", project: "app" });
+    createJob({ id: "fx1", project: "app", dir: process.cwd(), logPath: join(tmpdir(), "fx1.log"), taskId: t.id });
+    createRun({ id: "fx1", jobId: "fx1", taskId: t.id, project: "app", kind: "autonomous", trigger: "retry" });
+    const out = onJobExit("fx1", 0)!;
+    expect(out.status).toBe("blocked");
+    expect(out.progress).toBe("Claude 退出了，这一轮没交付，看终端");
+  });
+
+  it("升级时还在跑的老 -p 任务写了报告文件：照旧进审核", () => {
+    const t = createTask({ title: "老任务", kind: "verbal", source: { autonomous: true, jobId: "fx2" }, status: "processing", project: "app" });
+    createJob({ id: "fx2", project: "app", dir: process.cwd(), logPath: join(tmpdir(), "fx2.log"), taskId: t.id });
+    mkdirSync(runsDir(), { recursive: true });
+    writeFileSync(reportPath("fx2"), "## 概要\n改好了\n## 测试结果\n通过\n");
+    expect(onJobExit("fx2", 0)!.status).toBe("review");
   });
 });

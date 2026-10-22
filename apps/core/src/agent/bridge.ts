@@ -5,7 +5,7 @@ import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { getJob, setJobMessage } from "../memory/jobs.js";
+import { clearAwaiting, getJob, setJobMessage } from "../memory/jobs.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
@@ -330,6 +330,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   const target = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args, name !== "friday_progress") : taskFor(job);
   if (typeof target === "string") return { text: target, isError: true };
   const task = target;
+  // 这一轮交付了 / 说卡住了：Stop 不用再催
+  if (name === "friday_done" || name === "friday_blocked") clearAwaiting(jobId);
 
   if (name === "friday_context") return { text: contextFor(task, job) };
 

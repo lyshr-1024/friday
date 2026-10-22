@@ -109,7 +109,7 @@ describe("查询任务收工", () => {
 
     const out = onJobExit(id, 0)!;
     expect(out.pending?.map((p) => p.type) ?? []).not.toContain("slack_reply");
-    expect(out.status).toBe("done");
+    expect(out.status).toBe("blocked");
   });
 });
 
