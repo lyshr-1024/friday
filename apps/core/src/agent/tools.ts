@@ -6,7 +6,7 @@ import { untrusted } from "./fence.js";
 import { featureHistory, listKnowledge, matchFeatures, readKnowledge } from "../memory/features.js";
 import { startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { STAGE_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
+import { STAGE_LABEL, TASK_STATUS_LABEL, type AuditEvent, type PendingActionType, type Task, type TaskStatus } from "@friday/shared";
 import { z } from "zod";
 import { currentBranchSync, gitInspect } from "./git.js";
 import { surfaceContext } from "./surface.js";
@@ -555,7 +555,7 @@ export const fridayToolList = (conversationId?: string) => [
         try {
           const done = await approvePending(t.id, action.id, override);
           trace(conversationId, t, `已执行「${action.label}」`);
-          return text(`已执行「${action.label}」。任务现在是${STATUS_LABEL[done.status]}。`);
+          return text(`已执行「${action.label}」。任务现在是${TASK_STATUS_LABEL[done.status]}。`);
         } catch (e) {
           return text(`没执行成功：${e instanceof Error ? e.message : String(e)}。动作还挂在任务上。`);
         }
@@ -692,20 +692,10 @@ function consents(said: string, forms: string[]): boolean {
   return forms.includes(said.replace(/[。！!～~\s]+$/, "").trim());
 }
 
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  collected: "刚收进来",
-  understood: "待办",
-  processing: "在做",
-  review: "等你决定",
-  blocked: "卡住",
-  done: "已完成",
-  ignored: "已忽略",
-};
-
 const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);
 
 function taskLine(t: Task): string {
-  const tags = [STATUS_LABEL[t.status], t.stage && STAGE_LABEL[t.stage], t.project, t.due && `截止 ${t.due}`, t.priority !== "normal" && t.priority].filter(Boolean);
+  const tags = [TASK_STATUS_LABEL[t.status], t.stage && STAGE_LABEL[t.stage], t.project, t.due && `截止 ${t.due}`, t.priority !== "normal" && t.priority].filter(Boolean);
   return `- #${t.seq} ${t.id.slice(0, 8)} ${t.title}（${tags.join(" · ")}）`;
 }
 

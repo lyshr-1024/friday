@@ -20,6 +20,7 @@ import { undoWrite } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
+import { needOf } from "../agent/needs.js";
 import { autostartPlan, runningAutonomous } from "../agent/autostart.js";
 import { userSettings } from "../settings.js";
 import { matchProject } from "../agent/meegle.js";
@@ -130,7 +131,7 @@ export const tasks = new Hono()
     const plan = { now: Date.now(), running: runningAutonomous(), max: userSettings().autonomousConcurrency, minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
     const withSession = (t: Task): Task => {
       const autostart = autostartPlan(t, plan);
-      return { ...t, session: taskSession(t), ...(autostart ? { autostart } : {}) };
+      return { ...t, session: taskSession(t), ...(needOf(t) ? { need: needOf(t)!.kind } : {}), ...(autostart ? { autostart } : {}) };
     };
     const withSlack = slackOf(listInbox(true, CONV_SCAN_LIMIT));
     return c.json({

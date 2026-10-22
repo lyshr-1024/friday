@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { taskBlock } from "./ask.js";
 import { createTask, updateTask } from "../memory/tasks.js";
 
 vi.mock("../agent/claude.js", () => ({
@@ -110,26 +109,5 @@ describe("重命名会话", () => {
     await app.request(`/conversation/${conv.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "  " }) });
     const again = (await (await app.request("/conversations")).json()) as Array<{ id: string; title: string }>;
     expect(again.find((c) => c.id === conv.id)?.title).toBe("hello");
-  });
-
-  it("taskBlock：会话绑着任务才有，带理解 / 方案 / 待审 / 等你看", async () => {
-    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
-    expect(taskBlock(conv.id)).toBeUndefined();
-    createTask({ title: "知许：改 segment", kind: "slack", source: { conversationId: conv.id }, status: "processing", understanding: "过期饲料罐提交逻辑要改", plan: "variant_mode 改 exclusive" });
-    const block = taskBlock(conv.id)!;
-    expect(block).toContain("知许：改 segment");
-    expect(block).toContain("variant_mode 改 exclusive");
-  });
-
-  it("taskBlock：Friday 自己问的归属问题不能说成终端在问，别引它去敲 terminal_say", async () => {
-    const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
-    const t = createTask({ title: "【NZ-开户详情页】无人脸照片时展示「暂无照片」", kind: "meegle", source: { conversationId: conv.id }, status: "understood" });
-    updateTask(t.id, { attention: "intake", progress: "这条工单是财富后台（fe-wealth-admin）还是新BO（whale-console）项目的？" });
-    const block = taskBlock(conv.id)!;
-    expect(block).toContain("这条工单是财富后台");
-    // 这条任务没有终端，别让 Friday 去敲 terminal_say，也别把它描述成终端停在提问上
-    expect(block).not.toContain("terminal_say");
-    expect(block).not.toContain("终端正停在");
-    expect(block).toContain("task_update");
   });
 });

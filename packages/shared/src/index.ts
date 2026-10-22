@@ -412,6 +412,20 @@ export interface TermSession {
 
 export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  collected: "刚收进来",
+  understood: "待办",
+  processing: "在做",
+  review: "等你决定",
+  blocked: "卡住",
+  done: "已完成",
+  ignored: "已忽略",
+};
+
+/** 要用户出手的三种情形；任务板按它排序、主对话每轮按它列「要你」 */
+export type NeedKind = "brief" | "review" | "blocked";
+export const NEED_LABEL: Record<NeedKind, string> = { brief: "方案待审", review: "待验收", blocked: "卡住" };
+
 export type Risk = "read" | "reversible" | "irreversible";
 
 /**
@@ -788,6 +802,8 @@ export interface Task {
   due?: string;
   /** 只在 GET /tasks 里有：状态位与会话信息 */
   session?: TaskSession;
+  /** 只在 GET /tasks 里有：这条任务现在要不要你出手、哪一种 */
+  need?: NeedKind;
   /** 终端最近一轮的结果；任务是否完成由用户说 */
   attention?: TaskAttention;
   /** 用户星标关注：列表最顶上单独一组 */
