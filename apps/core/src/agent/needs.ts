@@ -9,10 +9,20 @@ import { jobStateLabel } from "./sessionState.js";
 
 const ROUTINE = new Set(["okr_weekly", "handbook", "project"]);
 const BOARD_LIMIT = 6000;
+const ONE_BLOCK_LIMIT = 2000;
+const ALL_BLOCKS_LIMIT = 4000;
+
+function clip(text: string, seq: number): string {
+  if (text.length <= ONE_BLOCK_LIMIT) return text;
+  const mark = `\n…（截断，task_get #${seq} 看全文）`;
+  const cut = text.slice(0, ONE_BLOCK_LIMIT - mark.length);
+  const nl = cut.lastIndexOf("\n");
+  return (nl > 0 ? cut.slice(0, nl) : cut) + mark;
+}
 
 export function needOf(t: Task): { kind: NeedKind; key: string; reason: string } | undefined {
   if (ROUTINE.has(t.kind) || t.status === "done" || t.status === "ignored") return undefined;
-  if (t.pending?.some((a) => a.type === "brief_approve")) return { kind: "brief", key: `brief:${t.source.brief?.at}`, reason: (t.plan ?? "").slice(0, 120) };
+  if (t.pending?.some((a) => a.type === "brief_approve")) return { kind: "brief", key: `brief:${t.source.brief?.at ?? t.id}`, reason: (t.plan ?? "").slice(0, 120) };
   if (t.status === "blocked") return { kind: "blocked", key: `blocked:${t.progress}`, reason: t.progress ?? "" };
   if (t.attention === "question" || t.attention === "intake") return { kind: "blocked", key: `${t.attention}:${t.progress}`, reason: t.progress ?? "" };
   const decide = t.pending?.find((a) => a.type === "reproject" || a.type === "discard_changes" || a.type === "start_job");
@@ -54,8 +64,18 @@ export function boardBlock(conversationId: string, now = Date.now()): string {
   });
   rows.sort((a, b) => a.rank - b.rank);
 
-  const touched = [...new Set(listMessages(conversationId).slice(-3).flatMap((m) => m.taskIds ?? []))].map((id) => getTask(id)).filter((t): t is Task => !!t);
-  const tail = touched.length ? `\n\n【刚聊过的任务】\n${touched.map((t) => `#${t.seq} ${t.title}\n${fullBlock(t)}`).join("\n\n")}` : "";
+  const ids = [...new Set(listMessages(conversationId).slice(-3).reverse().flatMap((m) => m.taskIds ?? []))];
+  const blocks: string[] = [];
+  let used = 0;
+  for (const id of ids) {
+    const t = getTask(id);
+    if (!t) continue;
+    const b = `#${t.seq} ${t.title}\n${clip(fullBlock(t), t.seq)}`;
+    if (used + b.length + 2 > ALL_BLOCKS_LIMIT) break;
+    blocks.push(b);
+    used += b.length + 2;
+  }
+  const tail = blocks.length ? `\n\n【刚聊过的任务】\n${blocks.join("\n\n")}` : "";
 
   const head = (n: number, cut: number) => `【任务板】开着的 ${n} 条${cut ? `（超长，最后 ${cut} 条没列）` : ""}\n`;
   let keep = rows.length;

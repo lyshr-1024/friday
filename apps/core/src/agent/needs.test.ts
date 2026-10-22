@@ -23,6 +23,13 @@ describe("needOf", () => {
     expect(n).toEqual({ kind: "brief", key: "brief:B1", reason: "x".repeat(120) });
   });
 
+  it("brief 没有 at 时 key 用任务 id，不同卡不撞", () => {
+    const a = needOf(mk({ id: "ta", status: "review", pending: [act("a", "brief_approve")] }))!;
+    const b = needOf(mk({ id: "tb", status: "review", pending: [act("a", "brief_approve")] }))!;
+    expect(a.key).toBe("brief:ta");
+    expect(b.key).not.toBe(a.key);
+  });
+
   it("blocked 状态", () => {
     expect(needOf(mk({ status: "blocked", progress: "没权限" }))).toEqual({ kind: "blocked", key: "blocked:没权限", reason: "没权限" });
   });
@@ -83,6 +90,20 @@ describe("boardBlock", () => {
     expect(out).toContain("这条工单是财富后台");
     expect(out).not.toContain("终端正停在");
     expect(out).toContain("task_update");
+  });
+
+  it("完整块也算进 6000：单块超长被截断并带标记，三块都超长也不爆", () => {
+    const conv = createConversation().id;
+    const ids = [1, 2, 3].map((i) => createTask({ title: `大任务${i}`, kind: "slack", status: "processing", understanding: `理解${i}\n` + "长".repeat(10_000), source: {} }));
+    addMessage(conv, { role: "assistant", kind: "note", content: "a", taskIds: [ids[0]!.id] });
+    const one = boardBlock(conv);
+    expect(one.length).toBeLessThanOrEqual(6000);
+    expect(one).toContain(`#${ids[0]!.seq}`);
+    expect(one).toContain(`task_get #${ids[0]!.seq} 看全文`);
+    addMessage(conv, { role: "assistant", kind: "note", content: "b", taskIds: ids.map((t) => t.id) });
+    const all = boardBlock(conv);
+    expect(all.length).toBeLessThanOrEqual(6000);
+    expect(all).toContain("看全文");
   });
 
   it("300 条任务不超 6000 字，待验收的还在", () => {
