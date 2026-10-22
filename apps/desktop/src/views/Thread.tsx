@@ -41,6 +41,8 @@ interface Props {
   escLeavesDraft?: boolean;
   /** 任务里的会话：不在消息下挂终端卡片——头部已经有耗时和成本，卡上那句是上面消息的缩略版 */
   noJobCards?: boolean;
+  /** 主动消息卡片里的 #N 标题：点了去那条任务 */
+  onOpenTask?: (taskId: string) => void;
 }
 
 const MENTION_RE = /(?<=^|\s)@[^\s@]+/g;
@@ -58,12 +60,36 @@ function MentionText({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
+const NOTICE_DOT: Array<[string, string]> = [["· 方案待审", "dot--review"], ["· 待验收", "dot--done"], ["· 卡住", "dot--blocked"]];
+
+/** Friday 主动发的消息：首行 `#N 标题 · 状态` 带状态色点、可点；离开摘要（多条任务）原样分行 */
+function NoticeCard({ m, onOpenTask }: { m: Message; onOpenTask?: (taskId: string) => void }) {
+  const [first = "", ...rest] = m.content.split("\n");
+  const taskId = m.taskIds?.length === 1 ? m.taskIds[0] : undefined;
+  const dot = NOTICE_DOT.find(([suffix]) => first.endsWith(suffix))?.[1] ?? "";
+  const shots = (m.payload as { attachments?: Attachment[] } | undefined)?.attachments;
+  return (
+    <div className="notice">
+      {taskId ? (
+        <button className="notice__head" onClick={() => onOpenTask?.(taskId)} title="去这条任务">
+          <span className={`dot ${dot}`} />
+          <span className="notice__title">{first}</span>
+        </button>
+      ) : (
+        <div className="notice__text"><Linkified text={m.content} /></div>
+      )}
+      {taskId && rest.length > 0 && <div className="notice__text"><Linkified text={rest.join("\n")} /></div>}
+      {shots?.length ? <AttachmentStrip items={shots} /> : null}
+    </div>
+  );
+}
+
 let localId = 0;
 const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `local-${++localId}`, createdAt: new Date().toISOString() });
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards, escLeavesDraft },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards, escLeavesDraft, onOpenTask },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -320,7 +346,15 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     const onEvent = (e: Event) => {
       const ev = (e as CustomEvent<{ type: string; id?: string; running?: boolean }>).detail;
       const id = convRef.current;
-      if (ev.type !== "conversation" || !ev.running || !id || ev.id !== id || busyRef.current) return;
+      if (ev.type !== "conversation" || !id || ev.id !== id || busyRef.current) return;
+      if (!ev.running) {
+        // 主动消息（卡片、离开摘要）是 core 直接写进会话的，空闲时靠事件刷出来
+        void conversationById(id).then((conv) => {
+          if (convRef.current !== id || busyRef.current) return;
+          setMessages((cur) => (conv.messages.length !== cur.filter((m) => !m.id.startsWith("local-")).length ? conv.messages : cur));
+        }).catch(() => {});
+        return;
+      }
       void conversationById(id).then((conv) => {
         if (convRef.current !== id || busyRef.current) return;
         setMessages(conv.messages);
@@ -442,7 +476,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
                   )}
                 </>
               ) : (
-                <AssistantBody m={m} {...(noJobCards ? {} : { jobs: jobList })} />
+                m.kind === "notice" ? <NoticeCard m={m} {...(onOpenTask ? { onOpenTask } : {})} /> : <AssistantBody m={m} {...(noJobCards ? {} : { jobs: jobList })} />
               )}
             </div>
           </div>

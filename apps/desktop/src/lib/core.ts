@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -185,17 +185,22 @@ export async function newConversation(): Promise<Conversation> {
   return res.json();
 }
 
-export interface RouteResult {
-  conversationId?: string;
-  title?: string;
-  why: string;
+/** 主对话：唯一的一段会话，id 固定 */
+export async function mainConversation(): Promise<{ id: string }> {
+  const res = await fetch(`${await coreBaseUrl()}/main`);
+  if (!res.ok) throw new Error(`main ${res.status}`);
+  return res.json();
 }
 
-/** 自由对话的第一句：让 Friday 判断接着哪段旧会话还是新话题。 */
-export async function routeAsk(prompt: string): Promise<RouteResult> {
-  const res = await fetch(`${await coreBaseUrl()}/route`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) });
-  if (!res.ok) throw new Error(`route ${res.status}`);
+export async function mainNeeds(): Promise<MainNeeds> {
+  const res = await fetch(`${await coreBaseUrl()}/main/needs`);
+  if (!res.ok) throw new Error(`main needs ${res.status}`);
   return res.json();
+}
+
+/** 窗口回来 / 离开：回来时 core 可能追加一条「离开期间」摘要，Thread 按事件刷新 */
+export async function mainPresence(active: boolean): Promise<void> {
+  await fetch(`${await coreBaseUrl()}/main/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ active }) });
 }
 
 export async function openTodos(): Promise<Todo[]> {

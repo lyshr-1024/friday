@@ -4,8 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ConversationSummary, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
-import { cancelAsk, conversations, coreBaseUrl, jobsSweep, newConversation, routeAsk, routines, settings, updateSettings } from "../lib/core";
-import type { RouteResult } from "../lib/core";
+import { conversations, coreBaseUrl, jobsSweep, mainConversation, mainPresence, routines, settings, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { LinkMenuHost, fmtTime } from "./shared";
 import { MoreMenu } from "./TaskDialog";
@@ -16,6 +15,7 @@ import { Board } from "./Board";
 import { Search } from "./Search";
 import type { BoardRequest, BoardView } from "./Board";
 import { UsageStrip } from "./Usage";
+import { Needs } from "./Needs";
 import { Thread } from "./Thread";
 import type { ThreadHandle } from "./Thread";
 import { applyBackground, applyTheme, onBackgroundChange, onThemeChange } from "../lib/theme";
@@ -38,22 +38,19 @@ const NAV: Array<{ key: View; label: string; kbd?: string }> = [
   { key: "projects", label: "项目" },
 ];
 
-/** 进入「问 Friday」视图时要做的事：Thread 挂上之后再执行 */
-type PendingOpen = { kind: "reset" } | { kind: "load"; id: string; prompt?: string };
-
 export function Chat() {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [view, setView] = useState<View>("queue");
   // 导航栏固定在左侧；⌘\ 收起 / 展开，记在本机
   const [model, setModel] = useState<ModelId | null>(null);
   const [skills, setSkills] = useState<boolean | null>(null);
-  // 「问 Friday」视图：当前会话、路由提示
-  const [askConv, setAskConv] = useState<string | null>(null);
+  // 主对话 id；会话历史里点开的旧会话 id（只读）
+  const [mainId, setMainId] = useState<string | null>(null);
+  const [histConv, setHistConv] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [boardReq, setBoardReq] = useState<BoardRequest | null>(null);
-  const [routeHint, setRouteHint] = useState<(RouteResult & { prompt: string }) | null>(null);
   const threadRef = useRef<ThreadHandle>(null);
-  const pendingOpen = useRef<PendingOpen | null>(null);
+  const pendingPrompt = useRef<string | null>(null);
   // 要选中的任务：等切到任务视图、Board 挂上并开始监听之后再发（子组件的 effect 先于这里执行）
   const [openingTask, setOpeningTask] = useState<{ id: string } | null>(null);
   // 周报和学习不进任务列表，在「···」里各开一个弹窗；菜单上带着有没有要你处理的
@@ -74,6 +71,7 @@ export function Chat() {
   useEffect(() => {
     void refreshList();
     void loadSettings();
+    void loadMain();
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt || p.taskId)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     const stopTheme = onThemeChange(applyTheme);
@@ -83,8 +81,10 @@ export function Chat() {
     window.addEventListener("friday:focus-job", onFocusJob);
     // 回到工作台时问一遍终端还在不在：你 ⌘W 关掉窗口没有任何回调，
     // 不问就一直显示着在跑。收掉的会走 SSE 推回来，这里不用管返回值。
-    const onWindowFocus = () => { void jobsSweep(); };
+    const onWindowFocus = () => { void jobsSweep(); void mainPresence(true).catch(() => {}); };
+    const onWindowBlur = () => { void mainPresence(false).catch(() => {}); };
     window.addEventListener("focus", onWindowFocus);
+    window.addEventListener("blur", onWindowBlur);
     const stopEvents = connectEvents();
     // 会话生成开始 / 结束：左栏青条要立刻变
     const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
@@ -96,32 +96,34 @@ export function Chat() {
       stopEvents();
       window.removeEventListener("friday:focus-job", onFocusJob);
       window.removeEventListener("focus", onWindowFocus);
+      window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("friday:event", onEvent);
     };
   }, []);
 
-  // Thread 只在「问 Friday」视图里挂着；切过去之后再执行排队的动作
+  // Thread 只在主对话视图里挂着；切过去之后再把排队的话发出去
   useEffect(() => {
-    if (view !== "ask") return;
-    const p = pendingOpen.current;
-    pendingOpen.current = null;
+    if (view !== "ask" || !mainId) return;
+    const prompt = pendingPrompt.current;
+    pendingPrompt.current = null;
     const t = threadRef.current;
     if (!t) return;
-    if (!p) {
-      t.focus();
-      return;
+    if (prompt) void t.load(mainId).then(() => t.send(prompt, mainId));
+    else t.focus();
+  }, [view, mainId]);
+
+  async function loadMain(tries = 20): Promise<string | null> {
+    for (let i = 0; i < tries; i++) {
+      try {
+        const { id } = await mainConversation();
+        setMainId(id);
+        return id;
+      } catch {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
     }
-    if (p.kind === "reset") {
-      t.reset();
-      setRouteHint(null);
-      t.focus();
-      return;
-    }
-    void t.load(p.id).then(() => {
-      if (p.prompt) void t.send(p.prompt, p.id);
-      else t.focus();
-    });
-  }, [view]);
+    return null;
+  }
 
   // 窗口常比 sidecar 先起来，第一次拉设置会失败；失败就隔 2 秒再试，否则 Skill / 模型开关会一直是灰的
   async function loadSettings(tries = 20) {
@@ -162,29 +164,31 @@ export function Chat() {
     }
   }
 
-  function openAsk(p: PendingOpen) {
-    pendingOpen.current = p;
+  function openMain(prompt?: string) {
+    pendingPrompt.current = prompt ?? null;
     if (view === "ask") {
-      // 已经在这个视图，effect 不会再跑，直接做
       const t = threadRef.current;
-      pendingOpen.current = null;
-      if (!t) return;
-      if (p.kind === "reset") {
-        t.reset();
-        setRouteHint(null);
-        t.focus();
-      } else {
-        void t.load(p.id).then(() => (p.prompt ? t.send(p.prompt, p.id) : t.focus()));
-      }
+      pendingPrompt.current = null;
+      if (!t || !mainId) return;
+      if (prompt) void t.load(mainId).then(() => t.send(prompt, mainId));
+      else t.focus();
       return;
     }
     setView("ask");
   }
 
+  /** 老会话只读地看：主对话回主视图，其余进会话历史 */
+  function openConversation(id: string) {
+    if (id === mainId) return openMain();
+    setHistConv(id);
+    setView("history");
+  }
+
   async function openPayload(p: OpenPayload) {
     if (p.taskId) return openTask(p.taskId);
-    const id = p.conversationId ?? (await newConversation()).id;
-    openAsk({ kind: "load", id, ...(p.initialPrompt ? { prompt: p.initialPrompt } : {}) });
+    const id = await loadMain(1);
+    if (p.conversationId && p.conversationId !== id) return openConversation(p.conversationId);
+    openMain(p.initialPrompt ?? undefined);
   }
 
   /** 切到任务区再让 Board 选中它（收工了的 Board 会把「已完成」展开）；点的是周报 / 手册的通知就开对应弹窗 */
@@ -196,45 +200,13 @@ export function Chat() {
     setOpeningTask({ id });
   }
 
-  /** ⌘N：进「问 Friday」，先不建会话，第一句发出时由 Friday 决定接旧还是开新 */
-  function openFree() {
-    openAsk({ kind: "reset" });
-  }
-
-  /** ⌘⇧N：明确要一段新会话 */
-  async function startNew() {
-    const conv = await newConversation();
-    setRouteHint(null);
-    openAsk({ kind: "load", id: conv.id });
-  }
-
-  /** 自由对话的第一句：问 Friday 这是接着哪段说的，还是新话题 */
-  async function resolveFree(prompt: string) {
-    const r = await routeAsk(prompt).catch((): RouteResult => ({ why: "路由失败，新开一段" }));
-    const id = r.conversationId ?? (await newConversation()).id;
-    setRouteHint(r.conversationId ? { ...r, prompt } : null);
-    return { id, prompt };
-  }
-
-  /** 路由判断错了：换一段新会话，把刚才那句重新发过去 */
-  async function redoAsNew() {
-    const hint = routeHint;
-    const t = threadRef.current;
-    if (!hint || !t) return;
-    if (askConv) void cancelAsk(askConv);
-    setRouteHint(null);
-    const conv = await newConversation();
-    await t.load(conv.id);
-    void t.send(hint.prompt, conv.id);
-  }
-
   function go(v: View) {
-    if (v === "ask") {
-      openAsk(askConv ? { kind: "load", id: askConv } : { kind: "reset" });
-      return;
-    }
+    if (v === "ask") return openMain();
     setView(v);
-    if (v === "history") void refreshList();
+    if (v === "history") {
+      setHistConv(null);
+      void refreshList();
+    }
   }
 
   useEffect(() => {
@@ -244,10 +216,7 @@ export function Chat() {
       if ((e.target as HTMLElement | null)?.closest?.(".xterm") && !(e.key === "n" && !e.shiftKey)) return;
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        openFree();
-      } else if ((e.key === "N" || e.key === "n") && e.shiftKey) {
-        e.preventDefault();
-        void startNew();
+        openMain();
       } else if (e.key === "f") {
         e.preventDefault();
         setSearching(true);
@@ -264,7 +233,7 @@ export function Chat() {
   }, [view]);
 
   const modelLabel = MODEL_OPTIONS.find((m) => m.id === model)?.label ?? "";
-  const askTitle = askConv ? (list.find((c) => c.id === askConv)?.title ?? "当前对话") : "新话题 · 发出后判断";
+  const histList = list.filter((c) => c.id !== mainId);
 
   /** 顶栏「···」：不常用的都在这儿。任务区里的动作由 Board 监听事件去做（它握着同步状态和新建弹层） */
   const toBoard = (kind: BoardRequest["kind"]) => () => { setView("queue"); setBoardReq((r) => ({ kind, n: (r?.n ?? 0) + 1 })); };
@@ -323,9 +292,8 @@ export function Chat() {
           <>
             {head(
               "会话",
-              <span className="q__count q__count--ellipsis" title={askTitle}>{askTitle}</span>,
+              <span className="q__count">主对话</span>,
               <>
-                <button className="pill" onClick={() => void startNew()} title="新对话（⌘⇧N）">新对话<kbd>⌘⇧N</kbd></button>
                 <button
                   className={`pill ${skills ? "pill--on" : ""}`}
                   disabled={skills === null}
@@ -337,51 +305,58 @@ export function Chat() {
                 <ModelSelect compact value={model} onChange={(m) => { setModel(m); void updateSettings({ model: m }); }} />
               </>,
             )}
-            <div className="ask">
-              <Thread
-                ref={threadRef}
-                conversationId={null}
-                resolve={resolveFree}
-                resolvingText="正在看这是不是接着之前聊的…"
-                onConversation={(id) => { setAskConv(id); void refreshList(); }}
-                emptyTitle="说吧"
-                emptyHint="问题直接答；要干的活我先说判断，你点头我再开工。接着之前的话题说也行，我会认出来。关于某条任务的事，去任务卡里说。"
-                hint="Enter 发送 · Shift+Enter 换行 · Esc 回工作台 · ⌘⇧N 直接开新对话"
-                onEscape={() => go("queue")}
-                autoFocus
-                banner={
-                  routeHint?.conversationId ? (
-                    <div className="route-hint">
-                      <span className="route-hint__text" title={routeHint.why}>接着：{routeHint.title?.slice(0, 24)} · {routeHint.why}</span>
-                      <button className="b b--text" onClick={() => void redoAsNew()}>其实是新话题</button>
-                    </div>
-                  ) : null
-                }
-              />
+            <div className="mainconv">
+              <div className="ask">
+                <Thread
+                  ref={threadRef}
+                  conversationId={mainId}
+                  onConversation={() => void refreshList()}
+                  emptyTitle="说吧"
+                  emptyHint="问题直接答；要干的活我先说判断，你点头我再开工。任务有进展、要你拍板时我会在这里主动说。"
+                  hint="Enter 发送 · Shift+Enter 换行 · Esc 回工作台"
+                  onEscape={() => go("queue")}
+                  onOpenTask={(id) => void openTask(id)}
+                  autoFocus
+                />
+              </div>
+              <Needs mainId={mainId} onPick={(id) => void openTask(id)} />
             </div>
           </>
         ) : view === "history" ? (
           <>
-            {head("会话历史", <span className="q__count">{list.length} 段</span>)}
-            <div className="wb__scroll">
-              <div className="wb__page">
-                {list.length === 0 ? (
-                  <div className="empty"><strong>还没有会话</strong>⌘N 问 Friday 一句就有了。</div>
-                ) : (
-                  <div className="list">
-                    {list.map((c) => (
-                      <button key={c.id} className={`row row--compact ${c.id === askConv ? "row--on" : ""}`} onClick={() => openAsk({ kind: "load", id: c.id })}>
-                        <span className={`dot ${c.running ? "dot--processing" : ""}`} />
-                        <span className="row__main">
-                          <div className="row__title">{c.title}</div>
-                        </span>
-                        <span className="row__right row__right--dim">{c.running ? "生成中 · " : ""}{c.messageCount} 条 · {fmtTime(c.updatedAt)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+            {head("会话历史", <span className="q__count">{histConv ? list.find((c) => c.id === histConv)?.title ?? "旧会话" : `${histList.length} 段`}</span>, histConv ? <button className="pill" onClick={() => setHistConv(null)}>返回列表</button> : undefined)}
+            {histConv ? (
+              <div className="ask">
+                <Thread
+                  conversationId={histConv}
+                  emptyTitle=""
+                  emptyHint=""
+                  disabledNote="旧会话，只读。有事在主对话里说"
+                  onEscape={() => setHistConv(null)}
+                  onOpenTask={(id) => void openTask(id)}
+                />
               </div>
-            </div>
+            ) : (
+              <div className="wb__scroll">
+                <div className="wb__page">
+                  {histList.length === 0 ? (
+                    <div className="empty"><strong>还没有旧会话</strong>所有事都在主对话里说。</div>
+                  ) : (
+                    <div className="list">
+                      {histList.map((c) => (
+                        <button key={c.id} className="row row--compact" onClick={() => setHistConv(c.id)}>
+                          <span className={`dot ${c.running ? "dot--processing" : ""}`} />
+                          <span className="row__main">
+                            <div className="row__title">{c.title}</div>
+                          </span>
+                          <span className="row__right row__right--dim">{c.running ? "生成中 · " : ""}{c.messageCount} 条 · {fmtTime(c.updatedAt)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         ) : view === "projects" ? (
           <Projects nav={nav} onOpenTask={(id) => void openTask(id)} />
@@ -397,14 +372,14 @@ export function Chat() {
           onOpenWeekly={() => setRoutine("weekly")}
           onOpenLearn={() => setRoutine("learn")}
           onOpenTask={(id) => { setRoutine(null); void openTask(id); }}
-          onOpenConversation={(id) => { setRoutine(null); openAsk({ kind: "load", id }); }}
+          onOpenConversation={(id) => { setRoutine(null); openConversation(id); }}
         />
       )}
       {searching && (
         <Search
           onClose={() => setSearching(false)}
           onPickTask={openTask}
-          onPickConversation={(id) => openAsk({ kind: "load", id })}
+          onPickConversation={openConversation}
         />
       )}
     </div>
