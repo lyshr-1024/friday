@@ -20,7 +20,8 @@ import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "
 import { syncMeegleOnce } from "./meegle.js";
 import { state } from "../scheduler/index.js";
 import { startTask } from "./taskStart.js";
-import { AUTOSTART_SETTLE_MS, autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
+import { autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
 const repo = (name: string) => mainRepo(name);

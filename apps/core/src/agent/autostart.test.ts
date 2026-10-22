@@ -11,7 +11,8 @@ import { setTmuxRunner } from "./tmux.js";
 import { AUTOSTART_CONFIDENCE, type Brief, type Task, type TermSession } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, pickStoryBugs, runningAutonomous, storyEligible, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
+import { autostartPlan, autostartTick, eligible, pickAutostart, pickStoryBugs, runningAutonomous, storyEligible, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { createJob, finishJob } from "../memory/jobs.js";
 import { createTermSession } from "../memory/termSessions.js";
 import { startAutonomousJob } from "./pipeline.js";
@@ -413,5 +414,12 @@ describe("autostartTick：需求", () => {
     expect(start.mock.calls[0]![0].id).toBe(d.id);
     start.mockReset();
     updateSettings({ autonomousConcurrency: 3 });
+  });
+});
+
+describe("testingStoryBug 对非缺陷回字符串（建卡队列的 skip 对需求无副作用）", () => {
+  it("需求不被跳过", () => {
+    const story = defect({}, { meegleType: "story" });
+    expect(typeof testingStoryBug(story)).toBe("string");
   });
 });

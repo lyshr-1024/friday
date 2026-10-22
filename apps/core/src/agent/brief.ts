@@ -9,9 +9,13 @@ export type BriefPolicy = "全部" | "大的" | "不用";
 
 const PRIORITY = { high: 0, normal: 1, low: 2 } as const;
 
-export function pickBriefQueue(tasks: Task[]): Task | undefined {
+/** Meegle 工单刚建时描述常被反复改，等一个同步周期再动 */
+export const AUTOSTART_SETTLE_MS = 15 * 60_000;
+
+export function pickBriefQueue(tasks: Task[], now = Date.now(), skip: (t: Task) => boolean = () => false): Task | undefined {
   return tasks
     .filter((t) => briefable(t) && !t.source.brief && !t.source.briefFailed && !t.source.autostartOff)
+    .filter((t) => !(t.kind === "meegle" && now - Date.parse(t.createdAt) < AUTOSTART_SETTLE_MS) && !skip(t))
     .sort((a, b) => {
       if (a.due !== b.due) return !a.due ? 1 : !b.due ? -1 : a.due < b.due ? -1 : 1;
       if (a.priority !== b.priority) return PRIORITY[a.priority] - PRIORITY[b.priority];

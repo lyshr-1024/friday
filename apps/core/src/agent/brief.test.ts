@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Brief, Task } from "@friday/shared";
 import type { Project } from "../memory/projects.js";
-import { briefBasis, briefDetail, briefPolicy, briefable, parseBrief, pickBriefQueue, reviewFor } from "./brief.js";
+import { briefBasis, briefDetail, briefPolicy, briefable, parseBrief, pickBriefQueue, reviewFor, AUTOSTART_SETTLE_MS } from "./brief.js";
 
 const task = (o: Partial<Task> & { source?: Task["source"] } = {}): Task =>
   ({ id: "t", title: "T", kind: "code", status: "understood", priority: "normal", createdAt: "2026-10-01", updatedAt: "2026-10-01", source: {}, ...o }) as Task;
@@ -36,6 +36,25 @@ describe("pickBriefQueue", () => {
     const failed = task({ id: "f", project: "p", due: "2026-10-01", source: { briefFailed: { at: "x", why: "y" } } });
     expect(pickBriefQueue([a, b, c, done, off, failed])?.id).toBe("b");
     expect(pickBriefQueue([c, task({ id: "g", project: "p", priority: "low" })])?.id).toBe("c");
+  });
+});
+
+describe("pickBriefQueue 的等待与跳过", () => {
+  const NOW = Date.parse("2026-10-22T10:00:00Z");
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  it("Meegle 来的进来不满 15 分钟不进队列，满了进；口头的刚建就进", () => {
+    const fresh = task({ id: "m1", kind: "meegle", project: "p", createdAt: ago(5 * 60_000) });
+    const old = task({ id: "m2", kind: "meegle", project: "p", createdAt: ago(20 * 60_000) });
+    const verbal = task({ id: "v1", kind: "verbal", project: "p", createdAt: ago(1000) });
+    expect(AUTOSTART_SETTLE_MS).toBe(15 * 60_000);
+    expect(pickBriefQueue([fresh], NOW)).toBeUndefined();
+    expect(pickBriefQueue([fresh, old], NOW)?.id).toBe("m2");
+    expect(pickBriefQueue([verbal], NOW)?.id).toBe("v1");
+  });
+  it("skip 为真的不进队列", () => {
+    const a = task({ id: "a", project: "p", createdAt: ago(60_000) });
+    const b = task({ id: "b", project: "p", createdAt: ago(30_000) });
+    expect(pickBriefQueue([a, b], NOW, (t) => t.id === "a")?.id).toBe("b");
   });
 });
 

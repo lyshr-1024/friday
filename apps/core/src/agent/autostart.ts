@@ -6,7 +6,7 @@ import { listTasks, updateTask } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { getTermSession } from "../memory/termSessions.js";
-import { briefBasis, briefDetail, briefPolicy, reviewFor } from "./brief.js";
+import { AUTOSTART_SETTLE_MS, briefBasis, briefDetail, briefPolicy, reviewFor } from "./brief.js";
 import { briefBuilding } from "./briefJob.js";
 import { handToStorySession, startAutonomousJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
@@ -17,9 +17,6 @@ import { TmuxMissingError } from "./tmux.js";
  * worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。
  * 所以只接缺陷（需求要先对方案）、只接 intake 判成 start 且把握够高的、项目归属得是事实不是猜的。
  */
-/** 缺陷刚建时描述常被反复改，等一个同步周期再开 */
-export const AUTOSTART_SETTLE_MS = 15 * 60_000;
-
 export interface AutostartEnv {
   now: number;
   running: number;

@@ -6,7 +6,7 @@ import { taskNode } from "../memory/infer.js";
 import { getJob } from "../memory/jobs.js";
 import { neighbors } from "../memory/links.js";
 import { createRun } from "../memory/runs.js";
-import { isFridayProject, loadProjects, projectDetail, type Project } from "../memory/projects.js";
+import { isFridayProject, loadProjects, projectDetail, resolveProject, type Project } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, listTasksByKind, updateTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
@@ -285,11 +285,22 @@ function requireReview(t: Task, b: Brief): void {
   record({ taskId: t.id, action: "brief_review_required", why: friday ? "friday 项目的方案一律要你审" : "项目的「方案送审」改成要审了", how: "原来按规则不用审的理解卡改成等你审，挂「方案看过，开工」", evidence: { size: b.size }, risk: "reversible" });
 }
 
-export async function briefTick(): Promise<"started" | "busy" | "idle"> {
+export function adoptIntakeProject(t: Task): Task {
+  const guess = t.source.intake?.project;
+  if (t.project || !guess) return t;
+  const r = resolveProject(guess);
+  if (r.kind !== "match") return t;
+  const updated = updateTask(t.id, { project: r.project.name, source: { projectBy: "friday" } }) ?? t;
+  record({ taskId: t.id, action: "project_guessed", why: "卡上没定项目，用 intake 判的", how: `归到 ${r.project.name}，不对就在主对话里说，没开工前改项目直接改`, evidence: { project: r.project.name, confidence: t.source.intake?.confidence ?? null }, risk: "reversible" });
+  return updated;
+}
+
+export async function briefTick(skip?: (t: Task) => boolean): Promise<"started" | "busy" | "idle"> {
   checkBasis();
   if (!userSettings().autonomous) return "idle";
+  for (const t of listTasks(["collected", "understood"])) adoptIntakeProject(t);
   if (listTasksByKind("project", 500).some((a) => a.source.briefFor && running(a))) return "busy";
-  const next = pickBriefQueue(listTasks(["collected", "understood"]));
+  const next = pickBriefQueue(listTasks(["collected", "understood"]), Date.now(), skip);
   if (!next) return "idle";
   try {
     const r = await startBriefJob(next.id, "autostart");

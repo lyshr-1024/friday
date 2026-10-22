@@ -390,6 +390,31 @@ describe("建卡队列", () => {
     expect(anchorOf(early.id)?.source.jobId).toBe("job-tick-q");
   });
 
+  it("briefTick：没项目的卡先用 intake 判的已注册项目；不在注册表的不写", async () => {
+    clearJobs();
+    updateSettings({ autonomous: true });
+    writeProjects({ name: "p-adopt" });
+    const intake = (project: string) => ({ kind: "start" as const, confidence: 90, project, detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" });
+    const hit = createTask({ title: "缺陷甲", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: intake("p-adopt") } });
+    const miss = createTask({ title: "缺陷乙", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: intake("不存在的项目") } });
+    await briefTick();
+    const g = getTask(hit.id)!;
+    expect(g.project).toBe("p-adopt");
+    expect(g.source.projectBy).toBe("friday");
+    expect(listAudit({ taskId: hit.id }).some((e) => e.action === "project_guessed")).toBe(true);
+    expect(getTask(miss.id)!.project).toBeFalsy();
+    expect(listAudit({ taskId: miss.id }).some((e) => e.action === "project_guessed")).toBe(false);
+  });
+
+  it("briefTick：开关关着不替你定项目", async () => {
+    clearJobs();
+    updateSettings({ autonomous: false });
+    writeProjects({ name: "p-adopt-off" });
+    const t = createTask({ title: "缺陷丙", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: { kind: "start", confidence: 90, project: "p-adopt-off", detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" } } });
+    await briefTick();
+    expect(getTask(t.id)!.project).toBeFalsy();
+  });
+
   it("briefTick：tmux 没装回 idle，别的错误抛出去", async () => {
     clearJobs();
     updateSettings({ autonomous: true });
