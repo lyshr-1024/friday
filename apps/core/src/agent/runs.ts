@@ -42,8 +42,16 @@ export function startRun(conversationId: string, prompt: string, opts: Omit<AskO
   const run: Run = { conversationId, answer: "", done: false, controller: new AbortController(), listeners: new Set(), taskIds: new Set(), userMessageId: "" };
   runs.set(conversationId, run);
   publish({ type: "conversation", id: conversationId, running: true });
-  const { content, attached } = buildUserContent(prompt, attachmentIds);
-  run.userMessageId = addMessage(conversationId, { role: "user", kind: "ask", content: prompt, ...(attached.length ? { payload: { attachments: attached satisfies Attachment[] } } : {}) }).id;
+  let content: ReturnType<typeof buildUserContent>["content"];
+  try {
+    const built = buildUserContent(prompt, attachmentIds);
+    content = built.content;
+    run.userMessageId = addMessage(conversationId, { role: "user", kind: "ask", content: prompt, ...(built.attached.length ? { payload: { attachments: built.attached satisfies Attachment[] } } : {}) }).id;
+  } catch (e) {
+    runs.delete(conversationId);
+    publish({ type: "conversation", id: conversationId, running: false });
+    throw e;
+  }
   // 延后一拍启动，让发起请求的那次 SSE 先订阅上，避免开头几个事件被合并回放。
   setTimeout(() => void execute(run, content, opts), 0);
   return run;

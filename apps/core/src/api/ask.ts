@@ -51,12 +51,13 @@ interface Queued {
 
 const queues = new Map<string, Queued[]>();
 
+const existingTranscript = (session: string | undefined) => (session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined);
+
 /** 系统提示在开跑那一刻现取，排队期间任务板变了也是新的。 */
 function askOptions(conv: string) {
   const prefs = userSettings();
   // 路由到很久前的会话时 transcript 可能已被清掉，这时不带 resume 新开 Claude 会话，Friday 自己的消息记录还在
-  const session = claudeSessionId(conv);
-  const resume = conv === mainConversationId() ? mainResume() : session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
+  const resume = conv === mainConversationId() ? mainResume() : existingTranscript(claudeSessionId(conv));
   return {
     systemPrompt: friday(loadMemoryContext(), prefs.skills, boardBlock(conv)),
     cwd: config.dataDir,
@@ -69,21 +70,32 @@ function askOptions(conv: string) {
 }
 
 // 一轮结束（含出错、被中断）后接着跑队首；模块只加载一次，订阅一次
-subscribeBus((ev) => {
-  if (ev.type !== "conversation" || ev.running || isRunning(ev.id)) return;
-  const next = queues.get(ev.id)?.shift();
+const MAX_QUEUED = 20;
+
+function drain(conv: string): void {
+  if (isRunning(conv)) return;
+  if (!conversationExists(conv)) {
+    queues.delete(conv);
+    return;
+  }
+  const next = queues.get(conv)?.shift();
   if (!next) return;
-  if (!queues.get(ev.id)?.length) queues.delete(ev.id);
+  if (!queues.get(conv)?.length) queues.delete(conv);
   try {
-    startRun(ev.id, next.prompt, askOptions(ev.id), next.attachments);
+    startRun(conv, next.prompt, askOptions(conv), next.attachments);
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     console.warn(`[ask] 排队的这句没能开跑：${reason}`);
-    queues.set(ev.id, [next, ...(queues.get(ev.id) ?? [])]);
+    queues.set(conv, [next, ...(queues.get(conv) ?? [])]);
     try {
-      addMessage(ev.id, { role: "assistant", kind: "error", content: `排队的这句没能开跑：${reason}` });
+      addMessage(conv, { role: "assistant", kind: "error", content: `排队的这句没能开跑：${reason}` });
     } catch {}
   }
+}
+
+subscribeBus((ev) => {
+  if (ev.type !== "conversation" || ev.running) return;
+  drain(ev.id);
 });
 
 export const ask = new Hono()
@@ -93,9 +105,11 @@ export const ask = new Hono()
     const { prompt } = parsed.data;
     const conv = parsed.data.conversationId && conversationExists(parsed.data.conversationId) ? parsed.data.conversationId : mainConversationId();
 
-    if (isRunning(conv)) {
+    if (isRunning(conv) || queues.get(conv)?.length) {
+      if ((queues.get(conv)?.length ?? 0) >= MAX_QUEUED) return c.json({ error: "排队的太多了，等前面的跑完" }, 429);
       const item = { id: randomUUID(), prompt, attachments: parsed.data.attachments ?? [] };
       queues.set(conv, [...(queues.get(conv) ?? []), item]);
+      drain(conv);
       return c.json({ queued: { id: item.id, prompt } }, 202);
     }
     startRun(conv, prompt, askOptions(conv), parsed.data.attachments ?? []);

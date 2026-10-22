@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { listMessages } from "../memory/conversations.js";
+import { deleteConversation, listMessages } from "../memory/conversations.js";
+import { db } from "../memory/db.js";
+import { createTask, updateTask } from "../memory/tasks.js";
 
 // 每个 prompt 一个闸门：测试决定它何时结束、是否出错
 const gates = new Map<string, { release: () => void; fail: boolean }>();
 const started: string[] = [];
+const prompts = new Map<string, string>();
 
 vi.mock("../agent/claude.js", () => ({
-  askStream: async function* (prompt: unknown) {
+  askStream: async function* (prompt: unknown, opts: { systemPrompt?: string }) {
     const key = typeof prompt === "string" ? prompt : "(附件)";
+    prompts.set(key, opts.systemPrompt ?? "");
     started.push(key);
     await new Promise<void>((resolve) => gates.set(key, { release: resolve, fail: false }));
     const g = gates.get(key)!;
@@ -18,16 +22,19 @@ vi.mock("../agent/claude.js", () => ({
 }));
 
 const boardFail = vi.hoisted(() => ({ left: 0 }));
-vi.mock("../agent/needs.js", async (orig) => ({
-  ...(await orig<typeof import("../agent/needs.js")>()),
-  boardBlock: () => {
-    if (boardFail.left > 0) {
-      boardFail.left--;
-      throw new Error("板读不出来");
-    }
-    return "";
-  },
-}));
+vi.mock("../agent/needs.js", async (importOrig) => {
+  const orig = await importOrig<typeof import("../agent/needs.js")>();
+  return {
+    ...orig,
+    boardBlock: (...args: Parameters<typeof orig.boardBlock>) => {
+      if (boardFail.left > 0) {
+        boardFail.left--;
+        throw new Error("板读不出来");
+      }
+      return orig.boardBlock(...args);
+    },
+  };
+});
 
 const { app } = await import("./index.js");
 
@@ -107,5 +114,70 @@ describe("排队开跑出错", () => {
     expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q4-second"]);
     const err = listMessages(conv).find((m) => m.kind === "error");
     expect(err?.content).toBe("排队的这句没能开跑：板读不出来");
+  });
+});
+
+describe("排队的边界", () => {
+  it("每个会话最多排 20 条，第 21 条回 429", async () => {
+    const conv = await newConv();
+    void post("q5-first", conv);
+    await tick();
+    for (let i = 0; i < 20; i++) expect((await post(`q5-${i}`, conv)).status).toBe(202);
+    const over = await post("q5-over", conv);
+    expect(over.status).toBe(429);
+    expect(await over.json()).toEqual({ error: "排队的太多了，等前面的跑完" });
+    expect(await queue(conv)).toHaveLength(20);
+    gates.get("q5-first")!.release();
+    await tick();
+  });
+
+  it("会话在排队期间被删了：整个队列丢掉，不开跑", async () => {
+    const conv = await newConv();
+    void post("q6-first", conv);
+    await tick();
+    await post("q6-second", conv);
+    db().exec("PRAGMA foreign_keys = OFF");
+    deleteConversation(conv);
+    gates.get("q6-first")!.release();
+    await tick();
+    db().exec("PRAGMA foreign_keys = ON");
+    expect(started).not.toContain("q6-second");
+    expect(await queue(conv)).toEqual([]);
+  });
+
+  it("排队开跑时系统提示是那一刻现取的：期间改了任务标题，用新标题", async () => {
+    const conv = await newConv();
+    const t = createTask({ title: "旧标题Q7", kind: "code", status: "understood", source: {} });
+    void post("q7-first", conv);
+    await tick();
+    await post("q7-second", conv);
+    updateTask(t.id, { title: "新标题Q7" });
+    gates.get("q7-first")!.release();
+    await tick();
+    expect(prompts.get("q7-second")).toContain("新标题Q7");
+    expect(prompts.get("q7-second")).not.toContain("旧标题Q7");
+    gates.get("q7-second")!.release();
+    await tick();
+  });
+
+  it("drain 失败放回队首后，用户下一句排在它后面：先跑队首，新这句入队 202", async () => {
+    const conv = await newConv();
+    void post("q8-first", conv);
+    await tick();
+    await post("q8-second", conv);
+    boardFail.left = 1;
+    gates.get("q8-first")!.release();
+    await tick();
+    expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q8-second"]);
+    const r = await post("q8-third", conv);
+    expect(r.status).toBe(202);
+    await tick();
+    expect(started).toContain("q8-second");
+    expect(started).not.toContain("q8-third");
+    expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q8-third"]);
+    gates.get("q8-second")!.release();
+    await tick();
+    gates.get("q8-third")!.release();
+    await tick();
   });
 });

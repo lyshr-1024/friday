@@ -14,7 +14,8 @@ vi.mock("./claude.js", () => {
   };
 });
 
-const { startRun, touchTask } = await import("./runs.js");
+const { startRun, touchTask, isRunning } = await import("./runs.js");
+const { subscribe: subscribeBus } = await import("../bus.js");
 
 describe("touchTask", () => {
   it("这一轮碰过的任务记到用户消息和回答上", async () => {
@@ -31,5 +32,22 @@ describe("touchTask", () => {
 
   it("没有进行中的 run 就什么都不做", () => {
     expect(() => touchTask("none", "t-1")).not.toThrow();
+  });
+});
+
+describe("startRun 前置步骤抛错", () => {
+  it("不在 runs 里留一个永远不结束的 run，并发 running:false", () => {
+    const events: Array<{ id: string; running: boolean }> = [];
+    const off = subscribeBus((ev) => {
+      if (ev.type === "conversation") events.push({ id: ev.id, running: ev.running });
+    });
+    const ghost = "00000000-0000-4000-8000-000000000000";
+    expect(() => startRun(ghost, "hi", { systemPrompt: "", cwd: "." })).toThrow();
+    off();
+    expect(isRunning(ghost)).toBe(false);
+    expect(events).toEqual([
+      { id: ghost, running: true },
+      { id: ghost, running: false },
+    ]);
   });
 });
