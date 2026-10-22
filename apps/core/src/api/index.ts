@@ -4,6 +4,7 @@ import { isLocalOrigin } from "./origin.js";
 import { activity } from "./activity.js";
 import { ask } from "./ask.js";
 import { attachments } from "./attachments.js";
+import { brief } from "./brief.js";
 import { background } from "./background.js";
 import { conversation } from "./conversation.js";
 import { desk } from "./desk.js";
@@ -51,6 +52,7 @@ export const app = new Hono()
   .route("/", background)
   .route("/", desk)
   .route("/", tasks)
+  .route("/", brief)
   .route("/", route)
   .route("/", mcp)
   .route("/", events)

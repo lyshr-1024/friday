@@ -18,6 +18,7 @@ import { closeJobTerminal, say } from "./terminal.js";
 import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
+import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
@@ -474,14 +475,30 @@ export const fridayToolList = (conversationId?: string) => [
           .enum(["misjudged", "bounced"])
           .optional()
           .describe("只在往回拨时填，必须问清楚是哪种：misjudged=Friday 之前推错了阶段（会学，下次别再这么判），bounced=确实被打回了（客观事实，不学）。分不清就问用户"),
+        depReady: z.string().max(100).optional().describe("用户说理解卡上某个依赖到了（「接口给了」「设计稿到了」）时填依赖名里的关键词，那条标成已到"),
+        rebuildBrief: z
+          .union([z.boolean(), z.string().max(2000)])
+          .optional()
+          .describe("用户让 Friday 重写理解卡时填：他说了怎么改就原样填他的原话（会放在重建提示词的最前面），没说就填 true（沿用最近一次打回的原因）"),
       },
-      async (patch) => {
+      async ({ rebuildBrief, ...patch }) => {
         const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
         if (!t) return text("这条会话没有绑定任务，没有卡片可更新。");
         if (!decide("reversible").allowed) return text("操作被拒绝");
         const r = updateTaskFromChat(t.id, patch);
         if (!r) return text("任务不存在了。");
-        return text(r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "要发之前先把这段原文贴给用户，他说「发」再用 task_approve。" : ""}` : "和卡片上一样，没改。");
+        let rebuilt = "";
+        if (rebuildBrief) {
+          try {
+            const note = typeof rebuildBrief === "string" ? rebuildBrief.trim() || undefined : undefined;
+            const s = await rebuildBriefJob(t.id, note);
+            rebuilt = "error" in s ? `理解卡没重建：${s.error}。${note && s.status === 409 ? "你的话记下了，这次建完后再说一次「重建」就会带上。" : ""}` : "理解卡在后台重建，建好了卡上会换成新的。";
+          } catch (e) {
+            rebuilt = `理解卡没重建：${e instanceof Error ? e.message : String(e)}。`;
+          }
+        }
+        const updated = r.changed.length ? `任务卡已更新：${r.changed.join("、")}。${r.changed.includes("回复草稿") || r.changed.includes("新挂回复草稿") ? "要发之前先把这段原文贴给用户，他说「发」再用 task_approve。" : ""}` : rebuilt ? "" : "和卡片上一样，没改。";
+        return text(updated + rebuilt);
       },
     ),
     tool(
@@ -647,6 +664,7 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   handbook_apply: ["通过", "应用", "应用吧"],
   reproject: ["撤掉", "撤掉吧", "回退", "回退吧", "通过"],
   discard_changes: ["撤掉", "撤掉吧", "撤", "删掉", "通过"],
+  brief_approve: ["方案可以", "按这个做", "可以", "通过", "开工"],
 };
 
 function consents(said: string, forms: string[]): boolean {

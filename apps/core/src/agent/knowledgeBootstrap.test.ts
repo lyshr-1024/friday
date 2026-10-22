@@ -118,7 +118,7 @@ describe("知识库冷启动", () => {
     createJob({ id: "job-dn", project: "p-dn", dir: repo, logPath: "/tmp/dn.log", taskId: boot.id });
     for (const name of ["friday_done", "friday_progress", "friday_blocked", "friday_finish"]) {
       const r = await callBridge("job-dn", name, { summary: "列完了", testResult: "无", text: "进展", reason: "卡住" });
-      expect(r).toEqual({ text: "冷启动不用调这个，报完直接退出" });
+      expect(r).toEqual({ text: "这个会话不用调这个，报完直接退出" });
     }
     const t = getTask(boot.id)!;
     expect(t.report).toBeUndefined();

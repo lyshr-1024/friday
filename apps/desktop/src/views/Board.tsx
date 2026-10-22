@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
+import { BriefCard } from "./Brief";
 import { Resources } from "./Resources";
 import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
@@ -885,8 +886,8 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
       )}
       {termVisible || panel ? null : notStarted(t) ? (
         <>
-          <IdleState t={t} />
-          <div className="detail__chat"><TaskChat t={t} placeholder="开工 / 这条不用管了" /></div>
+          <IdleState t={t} onAct={onAct} />
+          <div className="detail__chat"><TaskChat t={t} placeholder={t.pending?.some((a) => a.type === "brief_approve") ? chatHint(t) : "开工 / 这条不用管了"} /></div>
         </>
       ) : (
         <>
@@ -1133,9 +1134,10 @@ function actionNote(a: PendingAction, conv?: SlackConversation): string {
 }
 
 /** 没开工的任务：写清还差什么、Friday 为什么没自己动手。开工在下面跟 Friday 说，右上「···」里也有 */
-function IdleState({ t }: { t: Task }) {
+function IdleState({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const asked = t.attention === "intake" && t.progress ? t.progress : "";
-  const pending = t.pending?.[0];
+  const pending = t.pending?.find((a) => a.type !== "brief_approve");
+  const brief = briefable(t) || Boolean(t.source.brief || t.source.briefFailed);
   // 缺陷在需求的会话里改：项目跟需求走
   const inRoot = Boolean(t.source.rootId);
   const ready = Boolean(t.project || inRoot) && !asked;
@@ -1146,7 +1148,8 @@ function IdleState({ t }: { t: Task }) {
     : v.kind === "ask" ? `得先问清楚：${v.why}` : `得你来：${v.why}`;
   const guess = !t.project && !inRoot ? v?.project : undefined;
   return (
-    <div className="idle">
+    <div className={`idle${brief ? " idle--brief" : ""}`}>
+      {brief && <BriefCard t={t} onAct={onAct} />}
       <div className="idle__box">
         <div className="idle__head"><Icon name="terminal" /><span>{ready ? "可以开工了" : t.project || inRoot ? "开工前还有一件事" : "还差一步：定项目"}</span></div>
         <div className="idle__steps">
@@ -1189,12 +1192,13 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", brief_approve: "按这个做" };
 
 function chatHint(t: Task): string {
   if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
   if (t.autostart?.kind === "story") return "先别做 / 这条我来";
   if (t.pending?.some((a) => a.type === "discard_changes")) return "撤掉 / 完成，不执行";
+  if (t.pending?.some((a) => a.type === "brief_approve")) return "按这个做 / 打回：原因";
   if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
   if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
   if (t.source.handedAt) return "标记完成 / 打回：原因";
@@ -1224,6 +1228,8 @@ function FridayTop({ t }: { t: Task }) {
             <span className="ac__text">
               {a.kind === "story"
                 ? `需求在测试中，Friday 直接在它的分支上修，不走把握分${a.waiting ? `。${a.waiting}` : ""}`
+                : a.kind === "brief"
+                ? `理解卡${t.source.brief?.review === "approved" ? "审过" : "不用审"}、依赖齐了，轮到就开。`
                 : <>
                     {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
                     {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}

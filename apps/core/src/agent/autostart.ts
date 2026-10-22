@@ -1,11 +1,13 @@
-import { STAGE_LABEL, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
+import { STAGE_LABEL, briefRefusal, taskCategory, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
-import { resolveProject } from "../memory/projects.js";
+import { loadProjects, resolveProject } from "../memory/projects.js";
 import { listTasks, updateTask } from "../memory/tasks.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { getTermSession } from "../memory/termSessions.js";
+import { briefBasis, briefDetail, briefPolicy, reviewFor } from "./brief.js";
+import { briefBuilding } from "./briefJob.js";
 import { handToStorySession, startAutonomousJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
@@ -119,6 +121,28 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
   return undefined;
 }
 
+/** 需求：理解卡审过（或按项目规则不用审）、没过期、依赖齐了就自己开，不看 intake、不等稳定期 */
+const isStory = (t: Task): boolean => Boolean(t.source.brief) && taskCategory(t.source) !== "defect";
+
+export function storyEligible(t: Task): string | undefined {
+  if (t.status !== "understood" && t.status !== "collected") return "不在排队里";
+  const refusal = briefRefusal(t);
+  if (refusal) return refusal;
+  const b = t.source.brief;
+  if (!b) return "还没有理解卡";
+  if (b.review === "pending") return "理解卡等你审";
+  if (b.review === "rejected") return "方案被打回了";
+  if (b.stale || b.basis !== briefBasis(t)) return "需求变了，理解卡要重看";
+  if (briefBuilding(t.id)) return "理解卡在重写";
+  if (t.source.briefFailed) return "理解卡重建失败";
+  if (b.review === "none" && reviewFor(b.size, briefPolicy(loadProjects().find((x) => x.name === t.project))) === "pending") return "项目改成要审了";
+  const waiting = b.deps.find((d) => d.status !== "ready");
+  if (waiting) return `等 ${waiting.from ?? "别人"} 给 ${waiting.what}`;
+  if (t.attention) return "卡上还挂着要你回答的问题";
+  if (t.source.autostartOff) return "你说了先别做";
+  return undefined;
+}
+
 /**
  * 卡片上那句「Friday 会自己开工 · HH:mm」：开关开着、除了「等描述稳定」和并发都满足才有。
  * at 是稳定期结束的时刻（已过就是现在），behind 是前面还在跑的自主任务数。
@@ -127,6 +151,7 @@ export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean })
   if (!env.enabled) return undefined;
   const story = storyPlan(t, { ...defaultStoryEnv, enabled: true }, env.now);
   if (story) return story;
+  if (isStory(t)) return storyEligible(t) ? undefined : { kind: "brief", at: new Date(env.now).toISOString(), behind: env.running };
   if (eligible(t, { ...env, now: Number.MAX_SAFE_INTEGER })) return undefined;
   const at = Math.max(env.now, Date.parse(t.createdAt) + AUTOSTART_SETTLE_MS);
   return { kind: "gate", at: new Date(at).toISOString(), behind: env.running };
@@ -138,7 +163,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
   if (slots <= 0) return [];
   const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
   return tasks
-    .filter((t) => !eligible(t, env))
+    .filter((t) => (isStory(t) ? !storyEligible(t) : !eligible(t, env)))
     .sort((a, b) => (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || a.createdAt.localeCompare(b.createdAt))
     .slice(0, slots);
 }
@@ -173,7 +198,37 @@ export async function autostartTick(now = Date.now()): Promise<number> {
       console.warn(`[autostart] ${task.title.slice(0, 40)}：交代进需求会话出错：${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  for (const t of pickAutostart(listTasks("understood"), env)) {
+  for (const t of pickAutostart([...listTasks("understood"), ...listTasks("collected")], env)) {
+    const brief = t.source.brief;
+    if (brief && isStory(t)) {
+      const r = resolveProject(t.project!);
+      if (r.kind !== "match") continue;
+      const s = getTermSession(resolveRoot(t).id);
+      if (s?.kind === "interactive" && s.status !== "closed") {
+        console.log(`[autostart] ${t.title.slice(0, 40)}：开着你的交互式会话，不往里敲字，跳过`);
+        continue;
+      }
+      try {
+        await startAutonomousJob(t, r.project.name, r.project.dir, briefDetail(t, brief), "autostart");
+      } catch (e) {
+        if (e instanceof TmuxMissingError) {
+          console.warn(`[autostart] ${e.message}，本轮不再尝试`);
+          break;
+        }
+        throw e;
+      }
+      record({
+        taskId: t.id,
+        action: "autostart",
+        why: `理解卡${brief.review === "approved" ? "你审过" : "按项目规则不用审"}、依赖齐了`,
+        how: `在 ${r.project.name} 上按理解卡自主开工，没等你点`,
+        evidence: { review: brief.review, project: r.project.name, meegleId: t.source.meegleId ?? null },
+        risk: "reversible",
+      });
+      state.notices.push({ title: `Friday 自己开工了 · ${r.project.name}`, body: t.title.slice(0, 120), taskId: t.id });
+      started++;
+      continue;
+    }
     const v = t.source.intake!;
     const r = resolveProject(t.project ?? v.project!);
     if (r.kind !== "match") continue;

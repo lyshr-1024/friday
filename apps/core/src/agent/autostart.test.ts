@@ -4,15 +4,23 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initMemory } from "../memory/db.js";
-import { createTask, getTask } from "../memory/tasks.js";
+import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { updateSettings } from "../settings.js";
 import { setTmuxRunner } from "./tmux.js";
-import { AUTOSTART_CONFIDENCE, type Task, type TermSession } from "@friday/shared";
+import { AUTOSTART_CONFIDENCE, type Brief, type Task, type TermSession } from "@friday/shared";
 
 const AUTOSTART_MIN_CONFIDENCE = AUTOSTART_CONFIDENCE.default;
-import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
-import { createJob } from "../memory/jobs.js";
+import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutostart, pickStoryBugs, runningAutonomous, storyEligible, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
+import { createJob, finishJob } from "../memory/jobs.js";
+import { createTermSession } from "../memory/termSessions.js";
+import { startAutonomousJob } from "./pipeline.js";
+import { briefBasis } from "./brief.js";
+
+vi.mock("./pipeline.js", async (orig) => {
+  const m = await orig<typeof import("./pipeline.js")>();
+  return { ...m, startAutonomousJob: vi.fn(m.startAutonomousJob) };
+});
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
 const env: AutostartEnv = { now: NOW, running: 0, max: 1, minConfidence: AUTOSTART_MIN_CONFIDENCE };
@@ -181,6 +189,7 @@ describe("runningAutonomous", () => {
       createTask({ title: id, kind: "code", status, source: { jobId: id, autonomous: true } });
     }
     expect(runningAutonomous()).toBe(before + 1);
+    for (const id of ["ra-p", "ra-r", "ra-b"]) finishJob(id, 0);
   });
 
   it("按 env.max 放", () => {
@@ -239,5 +248,166 @@ describe("testingStoryBug", () => {
     createJob({ id: "ra-handed", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
     createTask({ title: "转交的缺陷", kind: "meegle", status: "processing", source: { jobId: "ra-handed", autonomous: true, handedAt: new Date().toISOString() } });
     expect(runningAutonomous()).toBe(before);
+  });
+});
+
+const brief = (over: Partial<Brief> = {}): Brief => ({
+  todo: "做导出", deps: [], acceptance: { source: "own", cases: ["导出 CSV"] }, release: "走 canary", plan: "改 export.ts", size: "small", sizeWhy: "一个文件",
+  review: "approved", basis: "prd", at: settled, features: [], ...over,
+});
+const req = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["source"] = {}): Task => {
+  const t = { id: "r1", title: "导出中心", kind: "meegle", status: "understood", priority: "normal", project: "whale-console", createdAt: new Date(NOW).toISOString(), updatedAt: settled, ...over, source: { meegleType: "story", brief: brief(b), ...source } } as Task;
+  if (t.source.brief && b.basis === undefined) t.source.brief.basis = briefBasis(t);
+  return t;
+};
+const register = (name: string, ...extra: string[]) =>
+  writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## ${name}\n- 目录：/tmp\n${extra.map((l) => `- ${l}\n`).join("")}`);
+
+describe("storyEligible：需求要有理解卡、没变、依赖齐才自己开", () => {
+  it("没理解卡 / 待审 / 打回 / 过期 / 依赖没齐，各自拒绝并写明", () => {
+    expect(storyEligible(req({}, {}, { brief: undefined }))).toMatch(/还没有理解卡/);
+    expect(storyEligible(req({}, { review: "pending" }))).toMatch(/理解卡等你审/);
+    expect(storyEligible(req({}, { review: "rejected" }))).toMatch(/方案被打回了/);
+    expect(storyEligible(req({}, { stale: true }))).toMatch(/需求变了/);
+    expect(storyEligible(req({}, { deps: [{ what: "接口文档", from: "后端小王", status: "ready" }, { what: "设计稿", from: "设计", status: "pending" }, { what: "字段", status: "pending" }] }))).toBe("等 设计 给 设计稿");
+    expect(storyEligible(req({}, { deps: [{ what: "字段", status: "pending" }] }))).toBe("等 别人 给 字段");
+  });
+  it("没项目 / 已开工 / 挂着问题 / 你说先别做，各自拒绝", () => {
+    expect(storyEligible(req({ project: undefined }))).toMatch(/项目/);
+    expect(storyEligible(req({}, {}, { jobId: "j" }))).toMatch(/开过工/);
+    expect(storyEligible(req({ attention: "question" }))).toMatch(/问题/);
+    expect(storyEligible(req({}, {}, { autostartOff: true }))).toBe("你说了先别做");
+  });
+  it("审过或不用审、依赖齐、未开始 → 放行，不看 intake、不等 15 分钟", () => {
+    register("whale-console", "方案送审：不用");
+    expect(storyEligible(req())).toBeUndefined();
+    expect(storyEligible(req({ status: "collected" }, { review: "none" }, {}))).toBeUndefined();
+  });
+});
+
+describe("storyEligible：终审修正", () => {
+  it("不用审的卡，项目后来改成要审：不开", () => {
+    register("whale-console");
+    expect(storyEligible(req({}, { review: "none" }))).toBe("项目改成要审了");
+    register("whale-console", "方案送审：大的");
+    expect(storyEligible(req({}, { review: "none", size: "large" }))).toBe("项目改成要审了");
+    expect(storyEligible(req({}, { review: "none", size: "small" }))).toBeUndefined();
+    expect(storyEligible(req({}, { review: "approved", size: "large" }))).toBeUndefined();
+  });
+  it("重建失败、需求变了（不等 briefTick 标过期）：不开", () => {
+    register("whale-console", "方案送审：不用");
+    expect(storyEligible(req({}, {}, { briefFailed: { at: settled, why: "会话异常退出" } }))).toBe("理解卡重建失败");
+    expect(storyEligible(req({}, { basis: "changed" }))).toBe("需求变了，理解卡要重看");
+  });
+});
+
+describe("需求门禁与缺陷门禁并存", () => {
+  it("缺陷门禁不变：需求卡仍被 eligible 当成「不是缺陷」", () => {
+    expect(eligible(req(), env)).toBe("不是缺陷");
+    expect(eligible(defect(), env)).toBeUndefined();
+  });
+  it("autostartPlan 对能开的需求给 brief 计划，前面在跑的记在 behind", () => {
+    expect(autostartPlan(req(), { ...env, enabled: true, running: 1 })).toEqual({ kind: "brief", at: new Date(NOW).toISOString(), behind: 1 });
+    expect(autostartPlan(req({}, { stale: true }), { ...env, enabled: true })).toBeUndefined();
+  });
+  it("pickAutostart 需求和缺陷一起按优先级排、共用并发 1", () => {
+    const r = req({ id: "r", priority: "high" });
+    const d = defect({ id: "d" });
+    expect(pickAutostart([d, r], env).map((t) => t.id)).toEqual(["r"]);
+    expect(pickAutostart([d, r], { ...env, running: 1 })).toEqual([]);
+  });
+});
+
+describe("autostartTick：需求", () => {
+  const setup = (name: string, ...extra: string[]) => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    finishJob("ra-norm", 0);
+    for (const x of listTasks("understood")) updateTask(x.id, { status: "ignored" });
+    const dir = mkdtempSync(join(tmpdir(), "friday-as-"));
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## ${name}\n- 目录：${dir}\n${extra.map((l) => `- ${l}\n`).join("")}`);
+    updateSettings({ autonomous: true });
+    return dir;
+  };
+  const mk = (name: string, review: Brief["review"]) => {
+    const t = createTask({ title: `需求-${name}`, kind: "meegle", status: "understood", project: name, source: { meegleType: "story", meegleId: name, brief: brief({ review }) } });
+    return updateTask(t.id, { source: { brief: brief({ review, basis: briefBasis(t) }) } })!;
+  };
+
+  it("用 briefDetail 开工、trigger autostart、记账写「理解卡你审过」", async () => {
+    const dir = setup("storyapp");
+    const t = mk("storyapp", "approved");
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    const [task, name, d, detail, trigger] = start.mock.calls[0]!;
+    expect([task.id, name, d, trigger]).toEqual([t.id, "storyapp", dir, "autostart"]);
+    expect(detail).toContain("导出 CSV");
+    const e = listAudit({ taskId: t.id }).find((x) => x.action === "autostart")!;
+    expect(e.why).toBe("理解卡你审过、依赖齐了");
+  });
+  it("不用审的写「按项目规则不用审」", async () => {
+    setup("storyapp2", "方案送审：不用");
+    const t = mk("storyapp2", "none");
+    vi.mocked(startAutonomousJob).mockResolvedValueOnce(undefined as never);
+    await autostartTick(NOW);
+    expect(listAudit({ taskId: t.id }).find((x) => x.action === "autostart")!.why).toBe("理解卡按项目规则不用审、依赖齐了");
+  });
+  it("交互式会话开着不开工", async () => {
+    const dir = setup("storyapp3");
+    const t = mk("storyapp3", "approved");
+    createTermSession({ id: t.id, project: "storyapp3", repoDir: dir, tmuxName: "storyapp3", kind: "interactive", jobId: "jx" });
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(0);
+    expect(start).not.toHaveBeenCalled();
+  });
+  it("理解卡在重写（锚点 job 在跑）：旧卡虽审过也不开", async () => {
+    setup("storyapp4");
+    const t = mk("storyapp4", "approved");
+    createJob({ id: "bb-job", project: "storyapp4", dir: "/tmp", logPath: "/tmp/x.log" });
+    createTask({ title: "理解卡：x", kind: "project", status: "processing", source: { briefFor: t.id, jobId: "bb-job", headless: true } });
+    expect(storyEligible(getTask(t.id)!)).toBe("理解卡在重写");
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(0);
+    expect(start).not.toHaveBeenCalled();
+    finishJob("bb-job", 0);
+  });
+  it("并发设成 1：两条需求都能开，一轮只开一条", async () => {
+    setup("storyapp5");
+    updateSettings({ autonomousConcurrency: 1 });
+    mk("storyapp5", "approved");
+    mk("storyapp5", "approved");
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValue(undefined as never);
+    expect(await autostartTick(NOW)).toBe(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    start.mockReset();
+    updateSettings({ autonomousConcurrency: 3 });
+  });
+  it("并发设成 1、需求和缺陷同优先级：先进来的先开", async () => {
+    setup("storyapp6");
+    updateSettings({ autonomousConcurrency: 1 });
+    const early = new Date(NOW - 3 * AUTOSTART_SETTLE_MS).toISOString();
+    const late = new Date(NOW - 2 * AUTOSTART_SETTLE_MS).toISOString();
+    const d = createTask({ title: "缺陷", kind: "meegle", status: "understood", project: "storyapp6", source: { meegleType: "issue", meegleId: "D6", intake: { kind: "start", confidence: 95, project: "storyapp6", detail: "改", why: "具体", at: settled } } });
+    const r0 = createTask({ title: "需求", kind: "meegle", status: "understood", project: "storyapp6", source: { meegleType: "story", meegleId: "S6", brief: brief() } });
+    const r = updateTask(r0.id, { source: { brief: brief({ basis: briefBasis(r0) }) } })!;
+    const db = (await import("../memory/db.js")).db();
+    db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(late, r.id);
+    db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(early, d.id);
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(1);
+    expect(start.mock.calls[0]![0].id).toBe(d.id);
+    start.mockReset();
+    updateSettings({ autonomousConcurrency: 3 });
   });
 });
