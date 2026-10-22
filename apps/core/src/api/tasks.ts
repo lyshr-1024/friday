@@ -112,6 +112,8 @@ export const tasks = new Hono()
     return c.json(await draftWeeklyOnce({ week: w, manual: true }));
   })
   .put("/tasks/:id/okr-draft", async (c) => {
+    // 先读 body 再查任务：反过来的话，如果这两步之间恰好有一次提交把待审动作重新挂上去，
+    // 合并就会拿旧 payload 覆盖掉那次提交刚写下的 submitted 状态
     const body = (await c.req.json().catch(() => ({}))) as { rows?: unknown };
     const t = getTask(c.req.param("id"));
     const action = t?.pending?.find((p) => p.type === "okr_submit");
@@ -151,6 +153,7 @@ export const tasks = new Hono()
     const p = action.payload as { draft: HandbookDraft; skip?: string[] };
     return c.json(draftView(p.draft, p.skip ?? []));
   })
+  // 勾掉的条目只记下来，通过时才剔掉；卡上点通过和会话里说「通过」都按这份走
   .put("/tasks/:id/handbook-skip", async (c) => {
     const id = c.req.param("id");
     const action = getTask(id)?.pending?.find((p) => p.type === "handbook_apply");
@@ -166,6 +169,7 @@ export const tasks = new Hono()
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  // 口头 / 文档：程序化建任务（UI 入口已并入对话，开工由会话里确认后 run_claude）
   .post("/tasks", async (c) => {
     const parsed = newTask.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "title 不能为空" }, 400);
@@ -180,6 +184,7 @@ export const tasks = new Hono()
       source: { ...(note ? { note } : {}), ...(url ? { url } : {}) },
       ...(projectName ? { project: projectName } : {}),
       ...(due ? { due } : {}),
+      // 手动建的进待办，不是「Friday 在做」——建完还没人开始干
       status: "understood",
     });
     record({ taskId: t.id, action: "task_create", why: "你交代的", how: url ? "带文档链接建任务" : "建任务", evidence: { title, note: note ?? null, url: url ?? null, project: projectName ?? null }, risk: "read" });
@@ -240,6 +245,7 @@ export const tasks = new Hono()
     const attachment = saveAttachment(basename(real), mime ?? "text/plain", data);
     return c.json({ attachmentId: attachment.id, attachment });
   })
+  // 卡住的任务重新开工（比如用量上限恢复后）
   /** 项目注册表里的项目名，任务卡上手动归属用 */
   .get("/projects", (c) => c.json(loadProjects().map((p) => ({ name: p.name, dir: p.dir }))))
   .get("/projects/terminals", (c) => c.json(projectTerminals()))
@@ -247,6 +253,7 @@ export const tasks = new Hono()
     const o = projectOverview(decodeURIComponent(c.req.param("name")));
     return o ? c.json(o) : c.json({ error: "注册表里没有这个项目" }, 404);
   })
+  // fresh：关掉现在这段 Claude、全新开一段（上下文太大时用），不接回旧对话
   .post("/projects/:name/terminal", async (c) => {
     const { fresh } = (await c.req.json().catch(() => ({}))) as { fresh?: boolean };
     try {
@@ -284,6 +291,8 @@ export const tasks = new Hono()
     if (r.kind !== "set") return c.json(r.task);
     const t = r.task;
     record({ taskId: t.id, action: name ? "project_set" : "project_cleared", why: "你手动指定了项目", how: name ? `归到 ${name}` : "解除项目归属", evidence: { project: name, from: r.before ?? null }, risk: "reversible" });
+    // 你自己的终端开在旧项目目录里，留着只会继续在错的仓库上改。断掉，任务回到待办；
+    // worktree 里是你的改动，留着进遗留列表，删不删你定
     const job = t.source.jobId ? getJob(t.source.jobId) : undefined;
     if (r.before && job?.status === "running") {
       await closeJobTerminal(job.id, `项目从 ${r.before} 改成 ${name ?? "未定"}，旧终端开在错的目录里`, t.id);
@@ -327,9 +336,11 @@ export const tasks = new Hono()
       ...(from.source.meegleId ? [from.source.meegleId] : []),
       ...(from.source.mergedMeegleIds ?? []),
     ].filter((x, i, a) => a.indexOf(x) === i && x !== into.source.meegleId);
+    // 两边的描述都留着：合并不是丢掉一半内容
     const understanding = [into.understanding, `—— 并入 #${from.source.meegleId ?? from.id}「${from.title}」——`, from.understanding]
       .filter(Boolean)
       .join("\n\n");
+    // 名字和链接一起存下来：被合掉那条马上就删了，只留号码的话卡片上没法显示也点不开
     const merged = [
       ...(into.source.merged ?? []),
       ...(from.source.meegleId
@@ -371,6 +382,7 @@ export const tasks = new Hono()
     record({ taskId: t.id, action: base ? "base_set" : "base_cleared", why: "二期要在一期分支上接着开", how: base ? `基线改成任务 ${base}` : "解除基线", evidence: { baseTaskId: base }, risk: "reversible" });
     return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
   })
+  // 开工：Friday 在 worktree 里做，做完交你验收，中途你随时能在终端里插话
   .post("/tasks/:id/start", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
@@ -398,18 +410,22 @@ export const tasks = new Hono()
     record({ taskId: t.id, action: "root_adopted", why: "你确认了 Friday 推断的归属", how: "去掉「推断」标记，进需求的会话", evidence: { rootId }, risk: "reversible" });
     return c.json(r.task);
   })
+  // 「通过前请确认」勾选状态；全部勾完 = 这轮验收通过，Friday 推进下一步
   .post("/tasks/:id/verify", async (c) => {
     const parsed = z.object({ index: z.number().int().min(0), checked: z.boolean() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "index / checked 必填" }, 400);
     const t = await setVerified(c.req.param("id"), parsed.data.index, parsed.data.checked);
     return t ? c.json(t) : c.json({ error: "任务不存在或没有验证点" }, 404);
   })
+  // 星标关注：列表顶上单独一组
   .post("/tasks/:id/pin", async (c) => {
     const parsed = z.object({ pinned: z.boolean() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "pinned 必填" }, 400);
     const t = updateTask(c.req.param("id"), { pinned: parsed.data.pinned });
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  // 阶段：想拨哪拨哪，不限方向——测试打回、上线回滚都是常事。
+  // 往回拨要说清是「Friday 推错了」还是「确实被打回了」，只有前者进学习。
   .post("/tasks/:id/stage", async (c) => {
     const parsed = z
       .object({
@@ -422,6 +438,7 @@ export const tasks = new Hono()
     const t = setStage(c.req.param("id"), parsed.data.stage, parsed.data.reason as RollbackReason | undefined, parsed.data.note);
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
   })
+  // 回答卡片上那一问（「看起来提测了？」）。答什么都算一次经验
   .post("/tasks/:id/stage-hint", async (c) => {
     const parsed = z.object({ yes: z.boolean() }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "yes 必填" }, 400);
@@ -504,6 +521,7 @@ export const tasks = new Hono()
     const id = c.req.param("id");
     const before = getTask(id);
     if (!before) return c.json({ error: "任务不存在" }, 404);
+    // 终端还开着就一并收掉，不然留下孤儿 claude 进程和「运行中」的 job
     await closeTaskTerminal(before, "任务被删除");
     const row = deleteTask(id);
     if (!row) return c.json({ error: "任务不存在" }, 404);
@@ -552,6 +570,8 @@ export const tasks = new Hono()
       return c.json({ ok: true });
     }
     if (plan.kind === "stage_set") {
+      // 撤回一次阶段变更：拨回它变更前停的那一档。
+      // 从 released 撤回时任务要回板上，交给 setStage 的回滚分支处理。
       const cur = getTask(plan.taskId);
       if (!cur) return c.json({ error: "任务已不在" }, 409);
       if (plan.stage) setStage(plan.taskId, plan.stage as Stage, "misjudged", "你撤回了这次阶段变更");
@@ -565,6 +585,7 @@ export const tasks = new Hono()
         try {
           await removeOkrReport(reportId);
           remaining.shift();
+          // 删一条就记一条：中途再失败的话，重试只用剩下的，不会对已经删掉的再删一次
           setEventUndo(c.req.param("id"), { kind: "delete_okr_reports", ids: remaining });
         } catch (e) {
           const removed = plan.ids.length - remaining.length;
