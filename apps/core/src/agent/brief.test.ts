@@ -12,10 +12,10 @@ const aBrief = (o: Partial<Brief> = {}): Brief => ({
 });
 
 describe("briefable", () => {
-  it("缺陷、没项目、查询任务、容器、已开工、已收工、kind 不对都不建", () => {
+  it("没项目、查询任务、容器、已开工、已收工、kind 不对都不建", () => {
     expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "story" } }))).toBe(true);
     expect(briefable(task({ kind: "verbal", project: "p" }))).toBe(true);
-    expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "issue" } }))).toBe(false);
+    expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "issue" } }))).toBe(true);
     expect(briefable(task({ kind: "verbal" }))).toBe(false);
     expect(briefable(task({ kind: "slack", project: "p", source: { headless: true, conversation: "c:1" } }))).toBe(false);
     expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "story", storyContainer: true } }))).toBe(false);

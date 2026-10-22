@@ -726,7 +726,6 @@ export function briefRefusal(t: Task): string | undefined {
   if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
   if (t.source.scheduleId) return "定时任务的卡不建理解卡";
   if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
-  if (taskCategory(t.source) === "defect") return "缺陷不建理解卡，直接修";
   if (t.source.jobId) return "已经开过工了，不建理解卡";
   if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
   if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";
