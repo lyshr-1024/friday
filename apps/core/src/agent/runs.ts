@@ -75,12 +75,17 @@ async function execute(run: Run, prompt: Parameters<typeof askStream>[0], opts: 
       emit({ type: "error", message: error });
     }
   } finally {
-    finishSession(sessionId, run.answer);
-    const taskIds = [...run.taskIds];
-    if (taskIds.length) setMessageTaskIds(run.userMessageId, taskIds);
-    if (run.answer) addMessage(run.conversationId, { role: "assistant", kind: "ask", content: run.answer, taskIds });
-    if (error) addMessage(run.conversationId, { role: "assistant", kind: "error", content: error, taskIds });
-    if (run.controller.signal.aborted && !run.answer) addMessage(run.conversationId, { role: "assistant", kind: "error", content: "已中断" });
+    try {
+      finishSession(sessionId, run.answer);
+      const taskIds = [...run.taskIds];
+      if (taskIds.length) setMessageTaskIds(run.userMessageId, taskIds);
+      if (run.answer) addMessage(run.conversationId, { role: "assistant", kind: "ask", content: run.answer, taskIds });
+      if (error) addMessage(run.conversationId, { role: "assistant", kind: "error", content: error, taskIds });
+      if (run.controller.signal.aborted && !run.answer) addMessage(run.conversationId, { role: "assistant", kind: "error", content: "已中断" });
+    } catch (e) {
+      // 生成中途会话被删：写不进去，照常收尾，队列由 drain 清掉
+      console.warn(`[runs] 收尾写消息失败：${e instanceof Error ? e.message : e}`);
+    }
     run.done = true;
     runs.delete(run.conversationId);
     publish({ type: "conversation", id: run.conversationId, running: false });

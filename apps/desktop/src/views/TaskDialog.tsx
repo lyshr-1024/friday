@@ -1,8 +1,8 @@
-import { Related } from "./Related";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Task } from "@friday/shared";
 import { STAGE_LABEL } from "@friday/shared";
+import { Related } from "./Related";
 
 export interface DialogAction { label: string; run: () => void }
 

@@ -36,7 +36,7 @@ export function postNotices(): number {
         role: "assistant",
         kind: "notice",
         content: noticeText(t, need),
-        payload: shots?.length ? { attachments: shots } : undefined,
+        payload: { need: need.kind, ...(shots?.length ? { attachments: shots } : {}) },
         taskIds: [t.id],
       });
       posted++;
@@ -122,6 +122,7 @@ export function presence(active: boolean, now = Date.now()): Message | undefined
     role: "assistant",
     kind: "notice",
     content: digestText(Math.floor((now - away) / 60_000), needs),
+    payload: { digest: true },
     taskIds: NEED_ORDER.flatMap((k) => needs[k].map((i) => i.id)),
   });
   publish({ type: "conversation", id, running: false });

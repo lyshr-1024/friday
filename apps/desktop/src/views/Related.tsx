@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import type { Message } from "@friday/shared";
 import type { FridayEvent } from "../lib/events";
 import { taskRelated } from "../lib/core";
-import { AssistantBody, Linkified } from "./shared";
-import { NoticeCard } from "./Thread";
+import { AssistantBody } from "./shared";
+import { MentionText, NoticeCard } from "./Thread";
 
 /** 只读：主对话里提到这条任务的话，加上它旧会话里的消息 */
 export function Related({ taskId }: { taskId: string }) {
@@ -36,7 +36,7 @@ export function Related({ taskId }: { taskId: string }) {
             <div key={m.id} className={`tm${m.role === "user" ? " tm--user" : ""}`}>
               {m.role !== "user" && <span className="tm__who is-friday">Friday</span>}
               <div className="tm__body">
-                {m.role === "user" ? <span className="tm__text"><Linkified text={m.content} /></span> : m.kind === "notice" ? <NoticeCard m={m} readOnly /> : <AssistantBody m={m} />}
+                {m.role === "user" ? <span className="tm__text"><MentionText text={m.content} /></span> : m.kind === "notice" ? <NoticeCard m={m} readOnly /> : <AssistantBody m={m} />}
               </div>
             </div>
           ))}

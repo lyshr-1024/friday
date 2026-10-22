@@ -47,7 +47,7 @@ interface Props {
 
 const MENTION_RE = /(?<=^|\s)@[^\s@]+/g;
 
-function MentionText({ text }: { text: string }) {
+export function MentionText({ text }: { text: string }) {
   const parts: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(MENTION_RE)) {
@@ -60,14 +60,17 @@ function MentionText({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
-const NOTICE_DOT: Array<[string, string]> = [["· 方案待审", "dot--review"], ["· 待验收", "dot--done"], ["· 卡住", "dot--blocked"]];
+const NEED_DOT: Record<string, string> = { brief: "dot--review", review: "dot--accept", blocked: "dot--blocked" };
+// 老消息没有 payload.need，退回首行后缀
+const NOTICE_DOT: Array<[string, string]> = [["· 方案待审", "dot--review"], ["· 待验收", "dot--accept"], ["· 卡住", "dot--blocked"]];
 
 /** Friday 主动发的消息：首行 `#N 标题 · 状态` 带状态色点、可点；离开摘要（多条任务）原样分行 */
 export function NoticeCard({ m, onOpenTask, readOnly }: { m: Message; onOpenTask?: (taskId: string) => void; readOnly?: boolean }) {
   const [first = "", ...rest] = m.content.split("\n");
   const taskId = m.taskIds?.length === 1 ? m.taskIds[0] : undefined;
-  const dot = NOTICE_DOT.find(([suffix]) => first.endsWith(suffix))?.[1] ?? "";
-  const shots = (m.payload as { attachments?: Attachment[] } | undefined)?.attachments;
+  const payload = m.payload as { need?: string; attachments?: Attachment[] } | undefined;
+  const dot = (payload?.need && NEED_DOT[payload.need]) || NOTICE_DOT.find(([suffix]) => first.endsWith(suffix))?.[1] || "";
+  const shots = payload?.attachments;
   return (
     <div className="notice">
       {taskId && !readOnly ? (
@@ -85,6 +88,11 @@ export function NoticeCard({ m, onOpenTask, readOnly }: { m: Message; onOpenTask
     </div>
   );
 }
+
+const isLocal = (m: Message) => m.id.startsWith("local-");
+// 空闲时按服务端刷新；本地错误气泡之类服务端没有的消息接在后面
+const mergeIdle = (server: Message[], cur: Message[]) =>
+  server.length !== cur.filter((m) => !isLocal(m)).length ? [...server, ...cur.filter(isLocal)] : cur;
 
 let localId = 0;
 const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `local-${++localId}`, createdAt: new Date().toISOString() });
@@ -108,6 +116,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const [jobList, setJobList] = useState<Job[]>([]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // 只读时输入框 disabled 收不到键盘，Esc 挂在容器上
+  const readOnlyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const convRef = useRef<string | null>(null);
@@ -121,6 +131,10 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const [unread, setUnread] = useState(false);
   const forceBottomRef = useRef(false);
   const lastLenRef = useRef(0);
+
+  useEffect(() => {
+    if (disabledNote) readOnlyRef.current?.focus();
+  }, [Boolean(disabledNote), conversationId]);
 
   function scrollToBottom(smooth = false) {
     const el = bodyRef.current;
@@ -174,7 +188,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       void conversationById(convId)
         .then((c) => {
           if (convRef.current !== convId) return;
-          setMessages((cur) => (c.messages.length !== cur.filter((m) => !m.id.startsWith("local-")).length ? c.messages : cur));
+          setMessages((cur) => mergeIdle(c.messages, cur));
         })
         .catch(() => {});
     }, 8000);
@@ -315,27 +329,35 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     forceBottomRef.current = true;
     const shown = text.trim() || prompt;
     const body = { prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) };
+    const refreshQueue = () => void askQueue(id).then((q) => { if (convRef.current === id) setQueued(q); });
+    const fail = (e: unknown, bubbleId?: string) => {
+      if (bubbleId) setMessages((ms) => ms.filter((m) => m.id !== bubbleId));
+      setInput(text);
+      setPending(attachments);
+      push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+    };
     if (busyRef.current) {
       // 正在生成：不抢占当前的订阅，让 core 排队
       try {
         const r = await ask(body, new AbortController().signal);
-        if ("queued" in r) setQueued((q) => [...q, { id: r.queued.id, prompt: shown }]);
+        if ("queued" in r) refreshQueue();
         else if (convRef.current === id && !busyRef.current) void follow(id, r.events);
       } catch (e) {
-        push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+        fail(e);
       }
       return;
     }
-    push({ role: "user", kind: "ask", content: shown, ...(attachments.length ? { payload: { attachments } } : {}) });
+    const bubble = local({ role: "user", kind: "ask", content: shown, ...(attachments.length ? { payload: { attachments } } : {}) });
+    setMessages((ms) => [...ms, bubble]);
     try {
       const r = await ask(body, newSubscription());
       if ("queued" in r) {
         // 发出去的瞬间别处刚好开始生成：撤掉刚推的本地消息，改成排队气泡
-        setMessages((ms) => ms.slice(0, -1));
-        setQueued((q) => [...q, { id: r.queued.id, prompt: shown }]);
+        setMessages((ms) => ms.filter((m) => m.id !== bubble.id));
+        refreshQueue();
       } else await follow(id, r.events);
     } catch (e) {
-      if ((e as { name?: string }).name !== "AbortError") push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+      if ((e as { name?: string }).name !== "AbortError") fail(e, bubble.id);
     }
   }
 
@@ -354,7 +376,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         // 主动消息（卡片、离开摘要）是 core 直接写进会话的，空闲时靠事件刷出来
         void conversationById(id).then((conv) => {
           if (convRef.current !== id || busyRef.current) return;
-          setMessages((cur) => (conv.messages.length !== cur.filter((m) => !m.id.startsWith("local-")).length ? conv.messages : cur));
+          setMessages((cur) => mergeIdle(conv.messages, cur));
         }).catch(() => {});
         return;
       }
@@ -438,6 +460,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   return (
     <div
       className={`thread${compact ? " thread--compact" : ""}${dragging ? " thread--drop" : ""}`}
+      {...(disabledNote ? { tabIndex: -1, ref: readOnlyRef, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onEscape?.(); } } } : {})}
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current += 1;

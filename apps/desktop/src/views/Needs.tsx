@@ -7,7 +7,7 @@ import type { FridayEvent } from "../lib/events";
 
 const GROUPS: Array<{ key: keyof MainNeeds; label: string; dot: string }> = [
   { key: "brief", label: NEED_LABEL.brief, dot: "dot--review" },
-  { key: "review", label: NEED_LABEL.review, dot: "dot--done" },
+  { key: "review", label: NEED_LABEL.review, dot: "dot--accept" },
   { key: "blocked", label: NEED_LABEL.blocked, dot: "dot--blocked" },
   { key: "working", label: "在干", dot: "dot--processing" },
   { key: "queued", label: "排队", dot: "" },

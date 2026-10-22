@@ -63,6 +63,10 @@ export async function ask(body: AskRequest, signal: AbortSignal): Promise<{ even
     signal,
   });
   if (res.status === 202) return (await res.json()) as { queued: QueuedAsk };
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(err?.error ?? `请求失败（${res.status}）`);
+  }
   return { events: readSse(res) };
 }
 

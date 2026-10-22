@@ -1197,7 +1197,7 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", brief_approve: "按这个做" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做" };
 
 /**
  * Friday 自主任务面板最上面那块：要你拍板的事（待审动作）、或者排队中「什么时候开、凭什么判的」。

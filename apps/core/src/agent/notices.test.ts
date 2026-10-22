@@ -29,6 +29,7 @@ describe("postNotices", () => {
     updateTask(b.id, { progress: "没权限" });
     expect(postNotices()).toBe(1);
     expect(last().content).toContain("· 卡住");
+    expect(last().payload).toEqual({ need: "blocked" });
     expect(last().taskIds).toEqual([b.id]);
     expect(last().role).toBe("assistant");
     expect(postNotices()).toBe(0);
@@ -83,6 +84,7 @@ describe("postNotices", () => {
     expect(needOf(getTask(r.id)!)).toMatchObject({ kind: "review", key: "review:R9", reason: "改好了" });
     expect(postNotices()).toBe(1);
     expect(last().content).toContain("· 待验收");
+    expect(last().payload).toEqual({ need: "review" });
   });
 
   it("待验收按挂着的动作提示怎么收下", () => {
@@ -104,6 +106,7 @@ describe("postNotices", () => {
     addPending(t.id, { type: "brief_approve", label: "批方案", detail: "d", payload: {} } as never);
     expect(postNotices()).toBe(1);
     expect(last().content).toContain("· 方案待审");
+    expect(last().payload).toEqual({ need: "brief" });
     expect(last().content).toContain(`说「#${t.seq} 按这个做」开工`);
   });
 
@@ -114,6 +117,7 @@ describe("postNotices", () => {
     postNotices();
     expect(last().content).toContain("· 待验收");
     expect((last().payload as { attachments: unknown[] }).attachments).toHaveLength(1);
+    expect((last().payload as { need: string }).need).toBe("review");
   });
 
   it("noticeText 三种模板原样", () => {
@@ -191,6 +195,7 @@ describe("presence", () => {
     expect(m.content).toContain(`【卡住】#${getTask(b.id)!.seq} 卡住的 · 没权限`);
     expect(m.content).toContain(`还在干：#${getTask(w.id)!.seq} 自主在跑`);
     expect(m.taskIds).toEqual([b.id]);
+    expect(m.payload).toEqual({ digest: true });
     expect(presence(true, min(21))).toBeUndefined();
   });
 

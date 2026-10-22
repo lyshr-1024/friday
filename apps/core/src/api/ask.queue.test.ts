@@ -1,3 +1,4 @@
+import { isRunning } from "../agent/runs.js";
 import { describe, expect, it, vi } from "vitest";
 import { deleteConversation, listMessages } from "../memory/conversations.js";
 import { db } from "../memory/db.js";
@@ -32,6 +33,18 @@ vi.mock("../agent/needs.js", async (importOrig) => {
         throw new Error("板读不出来");
       }
       return orig.boardBlock(...args);
+    },
+  };
+});
+
+const buildFail = vi.hoisted(() => ({ on: false }));
+vi.mock("../agent/content.js", async (importOrig) => {
+  const orig = await importOrig<typeof import("../agent/content.js")>();
+  return {
+    ...orig,
+    buildUserContent: (...args: Parameters<typeof orig.buildUserContent>) => {
+      if (buildFail.on) throw new Error("附件读不出来");
+      return orig.buildUserContent(...args);
     },
   };
 });
@@ -179,5 +192,54 @@ describe("排队的边界", () => {
     await tick();
     gates.get("q8-third")!.release();
     await tick();
+  });
+});
+
+describe("嵌套失败只写一条 error", () => {
+  it("askOptions 连续抛错：队列 3 条都还在、顺序不变、只一条 error", async () => {
+    const conv = await newConv();
+    void post("q9-first", conv);
+    await tick();
+    for (const p of ["q9-a", "q9-b", "q9-c"]) await post(p, conv);
+    boardFail.left = 10;
+    gates.get("q9-first")!.release();
+    await tick();
+    boardFail.left = 0;
+    expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q9-a", "q9-b", "q9-c"]);
+    expect(listMessages(conv).filter((m) => m.kind === "error")).toHaveLength(1);
+  });
+
+  it("startRun 早退时发 running:false 触发再入：同样只一条 error、队列不动", async () => {
+    const conv = await newConv();
+    void post("q10-first", conv);
+    await tick();
+    for (const p of ["q10-a", "q10-b", "q10-c"]) await post(p, conv);
+    buildFail.on = true;
+    gates.get("q10-first")!.release();
+    await tick();
+    buildFail.on = false;
+    expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q10-a", "q10-b", "q10-c"]);
+    expect(listMessages(conv).filter((m) => m.kind === "error")).toHaveLength(1);
+  });
+});
+
+describe("生成中途会话被删", () => {
+  it("run 照常收尾、队列清掉、不抛未处理异常", async () => {
+    const conv = await newConv();
+    void post("q11-first", conv);
+    await tick();
+    await post("q11-second", conv);
+    const rejections: unknown[] = [];
+    const onRej = (e: unknown) => rejections.push(e);
+    process.on("unhandledRejection", onRej);
+    expect(db().prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+    deleteConversation(conv);
+    gates.get("q11-first")!.release();
+    await tick(80);
+    process.off("unhandledRejection", onRej);
+    expect(rejections).toEqual([]);
+    expect(isRunning(conv)).toBe(false);
+    expect(started).not.toContain("q11-second");
+    expect(await queue(conv)).toEqual([]);
   });
 });

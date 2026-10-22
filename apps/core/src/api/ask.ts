@@ -72,8 +72,20 @@ function askOptions(conv: string) {
 // 一轮结束（含出错、被中断）后接着跑队首；模块只加载一次，订阅一次
 const MAX_QUEUED = 20;
 
+// startRun 早退会发 running:false 再入 drain；同一次失败只在最外层处理一次
+const draining = new Set<string>();
+
 function drain(conv: string): void {
-  if (isRunning(conv)) return;
+  if (draining.has(conv) || isRunning(conv)) return;
+  draining.add(conv);
+  try {
+    drainOne(conv);
+  } finally {
+    draining.delete(conv);
+  }
+}
+
+function drainOne(conv: string): void {
   if (!conversationExists(conv)) {
     queues.delete(conv);
     return;

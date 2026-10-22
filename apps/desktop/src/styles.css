@@ -1836,6 +1836,11 @@ body,
   background: var(--green);
 }
 
+/* 「待验收」：和其他状态点同尺寸，绿色 */
+.dot--accept {
+  background: var(--green);
+}
+
 /* 展开的那一件 */
 .fx {
   border: 1px solid var(--line-2);

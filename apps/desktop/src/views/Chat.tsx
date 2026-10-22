@@ -70,9 +70,10 @@ export function Chat() {
   }, [openingTask]);
 
   useEffect(() => {
+    const loadCancel = { cancelled: false };
     void refreshList();
     void loadSettings();
-    void loadMain();
+    void loadMain(loadCancel);
     void invoke<OpenPayload | null>("take_pending_chat").then((p) => { if (p && (p.conversationId || p.initialPrompt || p.taskId)) void openPayload(p); });
     const unlisten = listen<OpenPayload>("friday://open-conversation", (e) => void openPayload(e.payload));
     const stopTheme = onThemeChange(applyTheme);
@@ -91,6 +92,7 @@ export function Chat() {
     const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
     window.addEventListener("friday:event", onEvent);
     return () => {
+      loadCancel.cancelled = true;
       void unlisten.then((f) => f());
       stopTheme();
       stopBg();
@@ -114,15 +116,17 @@ export function Chat() {
   }, [view, mainId]);
 
   // 先隔 2 秒试 20 次；还连不上就提示，并在后台每 10 秒继续试，后台起来后自己恢复
-  async function loadMain() {
-    for (let i = 0; ; i++) {
+  async function loadMain(c: { cancelled: boolean }) {
+    for (let i = 0; !c.cancelled; i++) {
       try {
         const { id } = await mainConversation();
+        if (c.cancelled) return;
         setMainId(id);
         setMainFailed(false);
         return;
       } catch {
         if (i >= 20) setMainFailed(true);
+        if (c.cancelled) return;
         await new Promise((r) => setTimeout(r, i >= 20 ? 10000 : 2000));
       }
     }
@@ -169,7 +173,7 @@ export function Chat() {
 
   function openMain(prompt?: string) {
     // 主对话 id 还没到：话先留着，id 到了由 view/mainId 的 effect 发出
-    if (prompt || view !== "ask") pendingPrompt.current = prompt ?? pendingPrompt.current;
+    pendingPrompt.current = prompt ?? null;
     if (view === "ask") {
       if (!mainId) return;
       const t = threadRef.current;
