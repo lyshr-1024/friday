@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
 import { finishBootstrap } from "./knowledgeBootstrap.js";
+import { finishBriefJob } from "./briefJob.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -199,6 +200,10 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (!job) return undefined;
   if (job.task.source.knowledgeBootstrap) {
     finishBootstrap(job.task, jobId, exitCode).catch((e) => console.error("[knowledge] finishBootstrap", e));
+    return undefined;
+  }
+  if (job.task.source.briefFor) {
+    finishBriefJob(job.task, jobId, exitCode).catch((e) => console.error("[brief] finishBriefJob", e));
     return undefined;
   }
   settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");

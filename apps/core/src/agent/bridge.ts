@@ -26,6 +26,8 @@ import { closeRun, closeRunForTask, recordRound } from "./runLog.js";
 import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
+import { storeBrief } from "./briefJob.js";
+import { readChunk } from "./web.js";
 
 const execFileP = promisify(execFile);
 
@@ -107,11 +109,79 @@ export const KNOWLEDGE_TOOL: BridgeTool = {
   },
 };
 
+export const BRIEF_TOOL: BridgeTool = {
+  name: "friday_brief",
+  description: "建理解卡专用：把这条需求的理解卡报给 Friday。字段不合法会回错，照错误改了再调；成功后直接退出。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      todo: str("这条需求要做什么"),
+      deps: {
+        type: "array",
+        description: "确定要别人给的东西",
+        items: {
+          type: "object",
+          properties: {
+            what: str("要什么"),
+            from: str("找谁要"),
+            status: { type: "string", enum: ["pending", "ready"], description: "已经给了写 ready" },
+            evidence: {
+              type: "object",
+              description: "ready 的出处",
+              properties: { source: { type: "string", enum: ["meegle", "slack", "user"] }, url: str("链接"), text: str("原话"), at: str("什么时候给的，ISO 时间") },
+              required: ["source"],
+            },
+          },
+          required: ["what", "status"],
+        },
+      },
+      acceptance: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["cases", "prd", "own"], description: "用例来自现成用例 / PRD / 你自己写的" },
+          cases: list("用例，一条一句，至少一条"),
+          note: str("补充说明"),
+        },
+        required: ["source", "cases"],
+      },
+      release: str("怎么发"),
+      plan: str("方案：改哪些文件、怎么改；拿不准的写进「要你拍板」"),
+      size: { type: "string", enum: ["small", "large"] },
+      sizeWhy: str("规模的一句话依据"),
+      features: list("涉及的知识库功能 id"),
+    },
+    required: ["todo", "acceptance", "size", "sizeWhy"],
+  },
+};
+
+export const WEB_TOOL: BridgeTool = {
+  name: "friday_web_read",
+  description: "建理解卡专用：用无头浏览器读一个网页（带用户 Chrome 的登录态），长文分段返回，按结尾的 offset 接着读。飞书文档用 lark-doc skill 读，不用这个。",
+  inputSchema: { type: "object", properties: { url: str("http / https 地址"), offset: { type: "number", description: "从第几个字开始读，第一次不填" } }, required: ["url"] },
+};
+
 const ownerOf = (job: Job): Task | undefined => (job.taskId ? getTask(job.taskId) : findTaskBySource((s) => s.jobId === job.id, true));
 
 export function bridgeToolsFor(jobId: string): BridgeTool[] {
   const job = getJob(jobId);
-  return job && ownerOf(job)?.source.knowledgeBootstrap ? [...BRIDGE_TOOLS, KNOWLEDGE_TOOL] : BRIDGE_TOOLS;
+  const owner = job && ownerOf(job);
+  if (owner?.source.knowledgeBootstrap) return [...BRIDGE_TOOLS, KNOWLEDGE_TOOL];
+  if (owner?.source.briefFor) return [...BRIDGE_TOOLS, BRIEF_TOOL, WEB_TOOL];
+  return BRIDGE_TOOLS;
+}
+
+async function webRead(args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
+  const url = String(args.url ?? "").trim();
+  if (!/^https?:\/\//.test(url)) return { text: "url 只支持 http / https", isError: true };
+  const offset = Number.isInteger(args.offset) && (args.offset as number) > 0 ? (args.offset as number) : 0;
+  try {
+    const r = await readChunk(url, offset);
+    if (r.kind === "login") return { text: `读不到，要登录：${r.url}，写进 plan 的要你拍板` };
+    const rest = r.next !== undefined ? `还没读完，下一段 offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
+    return { text: `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）\n${untrusted("web", `标题：${r.title}\n地址：${r.url}\n\n${r.text}`)}\n${rest}` };
+  } catch (e) {
+    return { text: `没读到：${e instanceof Error ? e.message : String(e)}`, isError: true };
+  }
 }
 
 function taskFor(job: Job): Task {
@@ -323,8 +393,17 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     const r = ingestBootstrap(project, owner.source.repoDir ?? job.dir, args);
     return { text: `新建 ${r.added}、合并 ${r.updated}、丢弃 ${r.dropped}。${lang()}` };
   }
-  // 通用桥接提示词说 friday_done 必须调，冷启动的锚点是隐藏卡，不能写报告、发通知
-  if (["friday_done", "friday_blocked", "friday_progress", "friday_finish"].includes(name) && ownerOf(job)?.source.knowledgeBootstrap) return { text: "冷启动不用调这个，报完直接退出" };
+  if (name === "friday_brief" || name === "friday_web_read") {
+    const taskId = ownerOf(job)?.source.briefFor;
+    if (!taskId) return { text: "这个工具只给建理解卡用", isError: true };
+    if (name === "friday_web_read") return webRead(args);
+    const r = storeBrief(taskId, args);
+    if (!r.ok) return { text: `${r.error}。照这个改了再调一次 friday_brief。`, isError: true };
+    return { text: `收到了，理解卡已挂到需求上（${r.review === "pending" ? "等用户审" : "按项目规则不用审"}）。直接退出，不用调 friday_done。` };
+  }
+  // 通用桥接提示词说 friday_done 必须调，冷启动和建卡的锚点是隐藏卡，不能写报告、发通知
+  const anchor = ownerOf(job)?.source;
+  if (["friday_done", "friday_blocked", "friday_progress", "friday_finish"].includes(name) && (anchor?.knowledgeBootstrap || anchor?.briefFor)) return { text: "冷启动不用调这个，报完直接退出" };
   const target = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args, name !== "friday_progress") : taskFor(job);
   if (typeof target === "string") return { text: target, isError: true };
   const task = target;
