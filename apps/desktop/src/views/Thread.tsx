@@ -1,8 +1,8 @@
 import { Icon } from "./Icon";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { Attachment, Job, Message } from "@friday/shared";
-import { ask, askSubscribe, cancelAsk, conversationById, jobs as fetchJobs, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
-import type { AskEvent } from "../lib/core";
+import { ask, askQueue, askSubscribe, cancelAsk, conversationById, withdrawQueued, jobs as fetchJobs, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
+import type { AskEvent, QueuedAsk } from "../lib/core";
 import { useImeGuard } from "../lib/ime";
 import { AssistantBody, AttachmentStrip, Linkified, MentionPop, mentionAt } from "./shared";
 
@@ -72,6 +72,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const [draft, setDraft] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [queued, setQueued] = useState<QueuedAsk[]>([]);
+  const busyRef = useRef(false);
   const [resolving, setResolving] = useState(false);
   const [pending, setPending] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -114,6 +116,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     if (conversationId) void load(conversationId).catch(() => {});
     else reset();
   }, [conversationId]);
+
+  busyRef.current = busy;
 
   useEffect(() => {
     const grew = messages.length > lastLenRef.current || Boolean(draft);
@@ -203,10 +207,12 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     abortRef.current?.abort();
     setBusy(false);
     setDraft("");
+    setQueued([]);
     const conv = await conversationById(id);
     forceBottomRef.current = true;
     setConversation(conv.id);
     setMessages(conv.messages);
+    void askQueue(conv.id).then((q) => { if (convRef.current === conv.id) setQueued(q); });
     if (conv.running) void follow(conv.id, askSubscribe(conv.id, newSubscription()));
   }
 
@@ -216,6 +222,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     abortRef.current?.abort();
     setBusy(false);
     setDraft("");
+    setQueued([]);
     setMessages([]);
     setInput("");
     setPending([]);
@@ -242,21 +249,26 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       return;
     }
     if (convRef.current !== id) return;
+    let next = false;
     try {
       const conv = await conversationById(id);
       setMessages(conv.messages);
+      next = Boolean(conv.running);
+      void askQueue(id).then((q) => { if (convRef.current === id) setQueued(q); });
     } catch {
       if (answer) push({ role: "assistant", kind: "ask", content: answer });
     }
     setDraft("");
     setBusy(false);
+    // 队列里的下一条在这一轮收尾时已经开跑，直接接上它的流
+    if (next) void follow(id, askSubscribe(id, newSubscription()));
     // Friday 可能在这一轮里用 task_update 改了任务卡，让任务板重新拉
     window.dispatchEvent(new Event("friday:tasks-changed"));
   }
 
   async function send(text: string, id: string | null = convRef.current) {
     let prompt = text.trim() || (pending.length ? "看看这些附件" : "");
-    if (!prompt || busy || uploading > 0 || resolving) return;
+    if (!prompt || uploading > 0 || resolving) return;
     if (!id) {
       if (!resolve) return;
       setResolving(true);
@@ -272,9 +284,53 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     setPending([]);
     setMention(null);
     forceBottomRef.current = true;
-    push({ role: "user", kind: "ask", content: text.trim() || prompt, ...(attachments.length ? { payload: { attachments } } : {}) });
-    await follow(id, ask({ prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) }, newSubscription()));
+    const shown = text.trim() || prompt;
+    const body = { prompt, conversationId: id, ...(attachments.length ? { attachments: attachments.map((a) => a.id) } : {}) };
+    if (busyRef.current) {
+      // 正在生成：不抢占当前的订阅，让 core 排队
+      try {
+        const r = await ask(body, new AbortController().signal);
+        if ("queued" in r) setQueued((q) => [...q, { id: r.queued.id, prompt: shown }]);
+        else if (convRef.current === id && !busyRef.current) void follow(id, r.events);
+      } catch (e) {
+        push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+    push({ role: "user", kind: "ask", content: shown, ...(attachments.length ? { payload: { attachments } } : {}) });
+    try {
+      const r = await ask(body, newSubscription());
+      if ("queued" in r) {
+        // 发出去的瞬间别处刚好开始生成：撤掉刚推的本地消息，改成排队气泡
+        setMessages((ms) => ms.slice(0, -1));
+        setQueued((q) => [...q, { id: r.queued.id, prompt: shown }]);
+      } else await follow(id, r.events);
+    } catch (e) {
+      if ((e as { name?: string }).name !== "AbortError") push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+    }
   }
+
+  async function withdraw(item: QueuedAsk) {
+    if (await withdrawQueued(item.id)) setQueued((q) => q.filter((x) => x.id !== item.id));
+    else if (convRef.current) void askQueue(convRef.current).then(setQueued);
+  }
+
+  // 排队的那条开跑了：core 广播会话 running，没在跟就跟上，并刷新消息让它的用户消息出现
+  useEffect(() => {
+    const onEvent = (e: Event) => {
+      const ev = (e as CustomEvent<{ type: string; id?: string; running?: boolean }>).detail;
+      const id = convRef.current;
+      if (ev.type !== "conversation" || !ev.running || !id || ev.id !== id || busyRef.current) return;
+      void conversationById(id).then((conv) => {
+        if (convRef.current !== id || busyRef.current) return;
+        setMessages(conv.messages);
+        void askQueue(id).then((q) => { if (convRef.current === id) setQueued(q); });
+        void follow(id, askSubscribe(id, newSubscription()));
+      }).catch(() => {});
+    };
+    window.addEventListener("friday:event", onEvent);
+    return () => window.removeEventListener("friday:event", onEvent);
+  }, []);
 
   useImperativeHandle(ref, () => ({ load, reset, send, focus: () => inputRef.current?.focus() }));
 
@@ -403,6 +459,14 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             <div className="tm__body answer answer--streaming">{draft}</div>
           </div>
         )}
+        {queued.map((q) => (
+          <div key={q.id} className="tm tm--user tm--queued">
+            <div className="tm__body">
+              <span className="tm__text">{q.prompt}</span>
+              <span className="tm__queued-note"> 排队中 · <button className="link" onClick={() => void withdraw(q)}>撤回</button></span>
+            </div>
+          </div>
+        ))}
       </div>
       {!atBottom && (
         <button className={`thread__jump ${unread ? "thread__jump--unread" : ""}`} onClick={() => scrollToBottom(true)} title="回到底部" aria-label="回到底部">

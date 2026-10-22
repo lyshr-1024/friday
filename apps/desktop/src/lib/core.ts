@@ -49,15 +49,31 @@ async function* readSse(res: Response): AsyncGenerator<AskEvent> {
   }
 }
 
-/** 发起一轮生成并订阅进度。signal 只取消订阅，不中断生成；中断用 cancelAsk。 */
-export async function* ask(body: AskRequest, signal: AbortSignal): AsyncGenerator<AskEvent> {
+export interface QueuedAsk {
+  id: string;
+  prompt: string;
+}
+
+/** 发起一轮生成并订阅进度；会话正在生成时 core 回 202，这句话进队列。signal 只取消订阅，不中断生成；中断用 cancelAsk。 */
+export async function ask(body: AskRequest, signal: AbortSignal): Promise<{ events: AsyncGenerator<AskEvent> } | { queued: QueuedAsk }> {
   const res = await fetch(`${await coreBaseUrl()}/ask`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "text/event-stream" },
     body: JSON.stringify(body),
     signal,
   });
-  yield* readSse(res);
+  if (res.status === 202) return (await res.json()) as { queued: QueuedAsk };
+  return { events: readSse(res) };
+}
+
+export async function askQueue(conversationId: string): Promise<QueuedAsk[]> {
+  const res = await fetch(`${await coreBaseUrl()}/ask/queue?conversationId=${encodeURIComponent(conversationId)}`);
+  return res.ok ? ((await res.json()) as QueuedAsk[]) : [];
+}
+
+export async function withdrawQueued(id: string): Promise<boolean> {
+  const res = await fetch(`${await coreBaseUrl()}/ask/queue/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return res.ok;
 }
 
 /**
