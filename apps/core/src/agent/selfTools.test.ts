@@ -9,6 +9,8 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
+import { addRule, getRule, renderHandbook, restoreRules } from "../memory/rules.js";
+import { readHandbook, writeHandbook } from "../memory/handbooks.js";
 
 const callIn = async (conv: string | undefined, name: string, args: Record<string, unknown>) => {
   const t = fridayToolList(conv).find((x) => x.name === name)!;
@@ -132,5 +134,71 @@ describe("project_update", () => {
       expect(await callIn(undefined, "project_update", { project: bad, create: true, fields: { 目录: dir } })).toContain("项目名");
     }
     expect(readMemoryFile("projects")).toBe(seed);
+  });
+});
+
+describe("手册规则工具", () => {
+  const mk = (project: string, text: string) => addRule({ project, section: "约定", text, origin: "history", evidence: [{ quote: "q", at: new Date().toISOString(), kind: "utterance" }] });
+  const undo = (id: string) => {
+    const plan = undoPlan(id)!;
+    if (plan.kind !== "restore_rules") throw new Error();
+    for (const p of restoreRules(plan.snapshot)) writeHandbook(p, renderHandbook(p));
+  };
+
+  it("rule_update 改文字：手册是新文字，撤销回旧文字", async () => {
+    const r = mk("rp1", "旧文字");
+    const conv = createConversation().id;
+    addMessage(conv, { role: "user", kind: "ask", content: "把那条改成新文字" });
+    const out = await callIn(conv, "rule_update", { id: r.id, text: "新文字" });
+    expect(out).toContain("新文字");
+    expect(readHandbook("rp1")).toContain("新文字");
+    const e = listAudit({}).find((x) => x.action === "rule_changed")!;
+    expect(e.evidence).toMatchObject({ quote: "把那条改成新文字", before: "旧文字", after: "新文字" });
+    undo(e.id);
+    expect(getRule(r.id)!.text).toBe("旧文字");
+    expect(readHandbook("rp1")).toContain("旧文字");
+    expect(readHandbook("rp1")).not.toContain("新文字");
+  });
+
+  it("rule_update 超长或不存在被拒", async () => {
+    const r = mk("rp2", "x");
+    expect(await callIn(undefined, "rule_update", { id: r.id, text: "长".repeat(121) })).toContain("120");
+    expect(await callIn(undefined, "rule_update", { id: "r-nope", text: "y" })).toBe("没有这条规则");
+    expect(getRule(r.id)!.text).toBe("x");
+  });
+
+  it("rule_retire 必须给 why，退役后撤销回到 active", async () => {
+    const r = mk("rp3", "要退役");
+    expect(await callIn(undefined, "rule_retire", { id: r.id, why: "  " })).toContain("原因");
+    expect(getRule(r.id)!.status).toBe("active");
+    await callIn(undefined, "rule_retire", { id: r.id, why: "过时了" });
+    expect(getRule(r.id)).toMatchObject({ status: "retired", retiredWhy: "过时了" });
+    expect(readHandbook("rp3")).not.toContain("要退役");
+    const e = listAudit({}).find((x) => x.action === "rule_retired")!;
+    undo(e.id);
+    expect(getRule(r.id)!.status).toBe("active");
+    expect(readHandbook("rp3")).toContain("要退役");
+    expect(await callIn(undefined, "rule_retire", { id: r.id, why: "再退" })).not.toContain("已经退役");
+    const n = listAudit({}).filter((x) => x.action === "rule_retired").length;
+    expect(await callIn(undefined, "rule_retire", { id: r.id, why: "又退" })).toBe("这条已经退役了");
+    expect(listAudit({}).filter((x) => x.action === "rule_retired")).toHaveLength(n);
+  });
+
+  it("rules_list 不给项目时 _global 在前、按项目分组", async () => {
+    const g = mk("_global", "全局一条");
+    const b = mk("zz-b", "B 一条");
+    const a = mk("zz-a", "A 一条");
+    const out = await callIn(undefined, "rules_list", {});
+    const iG = out.indexOf("【_global】"), iA = out.indexOf("【zz-a】"), iB = out.indexOf("【zz-b】");
+    expect(iG).toBeGreaterThanOrEqual(0);
+    expect(iG).toBeLessThan(iA);
+    expect(iA).toBeLessThan(iB);
+    expect(out).toContain(`${a.id} · 约定 · A 一条`);
+    expect(out).toContain(g.id);
+    expect(out).toContain(b.id);
+    const only = await callIn(undefined, "rules_list", { project: "zz-a" });
+    expect(only).toContain("A 一条");
+    expect(only).not.toContain("B 一条");
+    expect(await callIn(undefined, "rules_list", { project: "没有的项目" })).toBe("还没有规则");
   });
 });

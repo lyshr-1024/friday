@@ -35,6 +35,7 @@ export type Undo =
   | { kind: "delete_research"; file: string }
   | { kind: "restore_features"; snapshot: FeaturesSnapshot }
   | { kind: "restore_settings"; before: SettingsUpdate }
+  | { kind: "restore_rules"; snapshot: RulesSnapshot }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

@@ -8,6 +8,7 @@ import { record } from "../memory/audit.js";
 import { existsSync, statSync } from "node:fs";
 import { expandHome, loadProjects, projectSection, resolveProject, setProjectField, type ProjectFieldKey } from "../memory/projects.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
+import { activeRules, editRule, getRule, snapshotRules } from "../memory/rules.js";
 import { updateSettings, userSettings } from "../settings.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
@@ -112,6 +113,68 @@ export const selfToolList = (conversationId?: string) => [
         undo: { kind: "restore_memory", snapshot },
       });
       return text(`改好了（可在操作记录里撤销）：\n${projectSection(next, name) ?? ""}`);
+    },
+  ),
+  tool(
+    "rules_list",
+    "列手册规则（还在生效的），每条 `id · 段落 · 文本`，按项目分组，_global 在前。不给 project 就列全部。",
+    { project: z.string().optional() },
+    async ({ project }) => {
+      const rules = activeRules(project?.trim() || undefined);
+      if (!rules.length) return text("还没有规则");
+      const names = [...new Set(rules.map((r) => r.project))].sort((a, b) => (a === "_global" ? -1 : b === "_global" ? 1 : a.localeCompare(b)));
+      return text(names.map((n) => `【${n}】\n${rules.filter((r) => r.project === n).map((r) => `${r.id} · ${r.section} · ${r.text}`).join("\n")}`).join("\n\n"));
+    },
+  ),
+  tool(
+    "rule_update",
+    "改一条手册规则的文字（1–120 字），改完算手改、之后自动提炼不会再动它。可撤销、会记账。用户明确要改才调；先用 rules_list 拿 id。",
+    { id: z.string().min(1), text: z.string().min(1).max(120) },
+    async ({ id, text: t }) => {
+      const before = getRule(id);
+      if (!before) return text("没有这条规则");
+      if (before.status === "retired") return text("这条已经退役了");
+      const snapshot = snapshotRules([id]);
+      let after;
+      try {
+        after = editRule(id, { text: t });
+      } catch (e) {
+        return text(e instanceof Error ? e.message : String(e));
+      }
+      record({
+        action: "rule_changed",
+        why: "你在对话里让 Friday 改手册规则",
+        how: `${before.project} · ${id}：${before.text} → ${after.text}`,
+        evidence: { quote: saidLast(conversationId), before: before.text, after: after.text },
+        risk: "reversible",
+        undo: { kind: "restore_rules", snapshot },
+      });
+      return text(`改好了：${before.text} → ${after.text}（可在操作记录里撤销）`);
+    },
+  ),
+  tool(
+    "rule_retire",
+    "退役一条手册规则，必须写一句原因 why。可撤销、会记账。用户明确要删 / 不要这条才调；先用 rules_list 拿 id。",
+    { id: z.string().min(1), why: z.string().min(1).max(200) },
+    async ({ id, why }) => {
+      const before = getRule(id);
+      if (!before) return text("没有这条规则");
+      if (before.status === "retired") return text("这条已经退役了");
+      const snapshot = snapshotRules([id]);
+      try {
+        editRule(id, { retire: why });
+      } catch (e) {
+        return text(e instanceof Error ? e.message : String(e));
+      }
+      record({
+        action: "rule_retired",
+        why: "你在对话里让 Friday 退役手册规则",
+        how: `${before.project} · ${id}：${before.text}（${why.trim()}）`,
+        evidence: { quote: saidLast(conversationId), before: before.text, after: `已退役：${why.trim()}` },
+        risk: "reversible",
+        undo: { kind: "restore_rules", snapshot },
+      });
+      return text(`已退役：${before.text}（可在操作记录里撤销）`);
     },
   ),
 ];

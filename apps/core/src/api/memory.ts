@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { MemoryFileResponse } from "@friday/shared";
 import { memoryPath, readMemoryFile, writeMemoryFile } from "../memory/files.js";
-import { handbookPath, listHandbooks, readHandbook, writeHandbook } from "../memory/handbooks.js";
-import { activeRules, getRule, renderHandbook, retireRule, setRuleText } from "../memory/rules.js";
+import { handbookPath, listHandbooks, readHandbook } from "../memory/handbooks.js";
+import { activeRules, editRule, getRule } from "../memory/rules.js";
 
 const name = z.enum(["projects", "decisions", "people"]);
 const body = z.object({ content: z.string().max(200_000) });
@@ -26,9 +26,7 @@ export const memory = new Hono()
     if (!r) return c.json({ error: "没有这条规则" }, 404);
     const parsed = rulePatch.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "text 要 1–120 字；retire 要写一句原因" }, 400);
-    const next = parsed.data.retire !== undefined ? retireRule(r.id, parsed.data.retire) : setRuleText(r.id, parsed.data.text!);
-    writeHandbook(r.project, renderHandbook(r.project));
-    return c.json(next);
+    return c.json(editRule(r.id, parsed.data.retire !== undefined ? { retire: parsed.data.retire } : { text: parsed.data.text! }));
   })
   .get("/memory/:name", (c) => {
     const parsed = name.safeParse(c.req.param("name"));

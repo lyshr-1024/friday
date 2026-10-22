@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { RULE_SECTIONS, type Rule, type RuleEvidence, type RuleOrigin, type RuleSection } from "@friday/shared";
 import { db } from "./db.js";
-import { GLOBAL, readHandbookNotes } from "./handbooks.js";
+import { GLOBAL, readHandbookNotes, writeHandbook } from "./handbooks.js";
 
 interface RuleRow {
   id: string;
@@ -131,6 +131,24 @@ export function snapshotRules(ids?: string[]): RulesSnapshot {
     scoped: true,
     added: [],
   };
+}
+
+/** 设置页和对话共用：改文字（成手改）或退役，并重渲染手册 */
+export function editRule(id: string, change: { text: string } | { retire: string }): Rule {
+  const r = getRule(id);
+  if (!r) throw new Error("没有这条规则");
+  let next: Rule | undefined;
+  if ("retire" in change) {
+    const why = change.retire.trim();
+    if (!why || why.length > 200) throw new Error("退役要写一句原因（200 字内）");
+    next = retireRule(id, why);
+  } else {
+    const t = change.text.trim();
+    if (!t || t.length > 120) throw new Error("规则文字要 1–120 字");
+    next = setRuleText(id, t);
+  }
+  writeHandbook(r.project, renderHandbook(r.project));
+  return next!;
 }
 
 /** 规则还原后涉及到哪些项目，调用方据此重新渲染手册 */
