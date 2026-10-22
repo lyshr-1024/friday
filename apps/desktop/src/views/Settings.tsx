@@ -107,7 +107,7 @@ export function Settings() {
       <section>
         <h2>自主开工</h2>
         <div className="group">
-          <Row label="让 Friday 自己开工" hint="缺陷和需求一样：有理解卡、审过（或按项目「方案送审」不用审）、依赖齐了，Friday 就直接在 worktree 里自主改完交你审。同时最多做下面设的条数；合并前照旧要你点头">
+          <Row label="让 Friday 自己开工" hint="缺陷和需求一样：有理解卡、审过（或按项目「方案送审」不用审）、依赖齐了，Friday 就直接在 worktree 里自主改完交你审。开着时每条代码任务（缺陷也算）会自动建理解卡，每张几毛到一块。同时最多做下面设的条数；合并前照旧要你点头">
             <button
               className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
               role="switch"

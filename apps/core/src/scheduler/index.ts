@@ -154,7 +154,28 @@ export function drainNotices(): Notice[] {
   return state.notices.splice(0);
 }
 
+let started = false;
+let kicking = false;
+
+async function briefAndAutostart(): Promise<void> {
+  await briefTick((t) => yieldsToStory(t)).catch((e) => console.error(`[brief] ${e instanceof Error ? e.message : e}`));
+  await autostartTick().catch((e) => console.error(`[autostart] ${e instanceof Error ? e.message : e}`));
+}
+
+/** 卡交了、方案批了：不等下一轮 Meegle 同步（最多 15 分钟）就补跑一次建卡和开工 */
+export function kickAutostart(): void {
+  if (!started || kicking) return;
+  kicking = true;
+  // 让调用方先把手上的写库做完
+  setImmediate(() => {
+    void briefAndAutostart().finally(() => {
+      kicking = false;
+    });
+  });
+}
+
 export function startScheduler(): void {
+  started = true;
   const tick = async () => {
     await syncSlackOnce();
     const wait = intervalMs();
@@ -165,8 +186,7 @@ export function startScheduler(): void {
   setTimeout(tick, 5_000).unref();
   const meegleTick = async () => {
     await syncMeegleOnce();
-    await briefTick((t) => yieldsToStory(t)).catch((e) => console.error(`[brief] ${e instanceof Error ? e.message : e}`));
-    await autostartTick().catch((e) => console.error(`[autostart] ${e instanceof Error ? e.message : e}`));
+    await briefAndAutostart();
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };
   setTimeout(meegleTick, 8_000).unref();

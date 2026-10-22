@@ -1189,7 +1189,7 @@ function foldSummary(t: Task, defects: number): string {
   const convs = (t.conversations ?? []).length;
   return [
     t.stage ? STAGE_LABEL[t.stage] : "",
-    t.project ?? t.source.intake?.project ?? "项目没定",
+    t.project ?? (t.source.intake?.project ? `项目没定（Friday 猜的：${t.source.intake.project}）` : "项目没定"),
     defects ? `${defects} 条缺陷` : "",
     docs ? `${docs} 份资料` : "没有资料",
     convs ? `${convs} 段 Slack 讨论` : "",

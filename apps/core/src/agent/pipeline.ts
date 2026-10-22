@@ -17,7 +17,7 @@ import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, storyBugPrompt } from "./runner.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
 import { hasSession } from "./tmux.js";
-import { state } from "../scheduler/index.js";
+import { kickAutostart, state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
 import { onSignal } from "./stage.js";
@@ -432,6 +432,7 @@ export async function executePending(
       const t = updateTask(taskId, { progress: "理解卡你看过了，照它开工", source: { brief: { ...b, review: "approved", stale: undefined, basis: b.stale ? briefBasis(cur) : b.basis, ...(b.stale ? { project: cur.project } : {}) } } })!;
       record({ taskId, action: "brief_approved", why: "你审核通过", how: "理解卡标成已审，开工照它做", evidence: { size: b.size, rejections: b.rejections ?? 0 }, risk: "reversible", status: "approved" });
       // 审过理解卡不是收尾：需求还没开工
+      kickAutostart();
       return t;
     } else if (action.type === "reproject") {
       const { rollbackAndRestart } = await import("./reproject.js");

@@ -9,7 +9,7 @@ import { createRun } from "../memory/runs.js";
 import { isFridayProject, loadProjects, projectDetail, resolveProject, type Project } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, listTasksByKind, updateTask } from "../memory/tasks.js";
 import { userSettings } from "../settings.js";
-import { state } from "../scheduler/index.js";
+import { kickAutostart, state } from "../scheduler/index.js";
 import { briefable, briefBasis, briefPolicy, parseBrief, pickBriefQueue, renderBrief, reviewFor } from "./brief.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { closeRun, fillRunCost } from "./runLog.js";
@@ -146,6 +146,7 @@ export function storeBrief(taskId: string, raw: unknown, build: NonNullable<Task
     risk: "reversible",
   });
   if (review === "pending") state.notices.push({ title: `理解卡写好了，等你看 · ${t.project}`, body: t.title.slice(0, 200), taskId: t.id });
+  kickAutostart();
   return { ok: true, review };
 }
 
@@ -246,6 +247,7 @@ export async function finishBriefJob(anchor: Task, jobId: string, exitCode: numb
   });
   await closeJobTerminal(jobId, "理解卡建完了", anchor.id);
   updateTask(anchor.id, { status: "done" });
+  kickAutostart();
 }
 
 function checkBasis(): void {

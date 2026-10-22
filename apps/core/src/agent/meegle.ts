@@ -457,10 +457,10 @@ export async function syncMeegleOnce(connector = new MeegleConnector()): Promise
   }
 }
 
-/** 新工单的自动处置：能做的直接开终端，缺项目归属的问用户一句，其余排队。 */
+/** 新工单的自动处置：判一次 intake，存在卡上给人看，并在卡上没定项目时猜一个。 */
 export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = judgeIntake): Promise<void> {
   const verdict = await judge(task, item.description ?? "", loadProjects());
-  // 判断结果落在卡上：自主开工的门禁（autostart.ts）按它决定，卡片上也能看到 Friday 凭什么开或不开
+  // 判断结果落在卡上：卡片上能看到 Friday 凭什么这么判，判成 start 的用它猜项目（开不开工看理解卡，不看这里）
   updateTask(task.id, {
     source: {
       intake: {
