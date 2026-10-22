@@ -98,22 +98,18 @@ describe("任务会话与 @ 引入", () => {
   });
 });
 
-describe("存量任务补会话", () => {
-  it("没收工、没会话的各补一段；已收工的不动；再跑一次不多建", () => {
+describe("存量任务不再补会话", () => {
+  it("没收工、没会话的任务 migrate 后仍没有；已有的保留", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);
     const ins = d.prepare("INSERT INTO tasks (id, title, kind, source, status, priority, created_at, updated_at) VALUES (?, ?, 'verbal', ?, ?, 'normal', '2026-09-01', '2026-09-01')");
     ins.run("open", "开着", "{}", "understood");
-    ins.run("done", "收了", "{}", "done");
     ins.run("bound", "有了", JSON.stringify({ conversationId: "c-1" }), "processing");
     migrate(d);
-    migrate(d);
     const conv = (id: string) => (JSON.parse((d.prepare("SELECT source FROM tasks WHERE id = ?").get(id) as { source: string }).source) as { conversationId?: string }).conversationId;
-    expect(conv("open")).toBeTruthy();
-    expect(d.prepare("SELECT 1 FROM conversations WHERE id = ?").get(conv("open")!)).toBeTruthy();
-    expect(conv("done")).toBeUndefined();
+    expect(conv("open")).toBeUndefined();
     expect(conv("bound")).toBe("c-1");
-    expect((d.prepare("SELECT COUNT(*) AS n FROM conversations").get() as { n: number }).n).toBe(1);
+    expect((d.prepare("SELECT COUNT(*) AS n FROM conversations").get() as { n: number }).n).toBe(0);
   });
 });
 

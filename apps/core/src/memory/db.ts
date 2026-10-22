@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -141,19 +140,6 @@ export function migrate(d: DatabaseSync): void {
     const note = d.prepare("UPDATE tasks SET progress = ?, updated_at = ? WHERE id = ? AND status = 'processing'");
     for (const j of legacy) if (j.task_id) note.run("旧版终端已不可接回，需重新开工", at, j.task_id);
   }
-
-  const unbound = d.prepare("SELECT id FROM tasks WHERE status NOT IN ('done', 'ignored') AND json_extract(source, '$.conversationId') IS NULL").all() as Array<{ id: string }>;
-  if (!unbound.length) return;
-  const addConv = d.prepare("INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)");
-  const bind = d.prepare("UPDATE tasks SET source = json_set(source, '$.conversationId', ?) WHERE id = ?");
-  const at = new Date().toISOString();
-  d.exec("BEGIN");
-  for (const { id } of unbound) {
-    const conv = randomUUID();
-    addConv.run(conv, at, at);
-    bind.run(conv, id);
-  }
-  d.exec("COMMIT");
 }
 
 export function db(): DatabaseSync {
