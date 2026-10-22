@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { AUTOSTART_CONFIDENCE, MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
+import { MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
@@ -19,7 +19,6 @@ export const settingsShape = {
   learnHistory: z.boolean().optional(),
   okrWeekly: z.boolean().optional(),
   autonomous: z.boolean().optional(),
-  autonomousMinConfidence: z.number().int().min(AUTOSTART_CONFIDENCE.min).max(AUTOSTART_CONFIDENCE.max).optional(),
   autonomousConcurrency: z.number().int().min(1).max(10).optional(),
   meegleDefects: z.boolean().optional(),
   summon: z.object({

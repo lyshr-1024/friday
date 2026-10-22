@@ -66,16 +66,12 @@ describe("自主开工的并发与开关", () => {
   });
 });
 
-describe("自主开工的把握门槛", () => {
-  it("默认 80；存的值钳在 50–100 之间、取整", () => {
-    expect(userSettings().autonomousMinConfidence).toBe(80);
-    expect(updateSettings({ autonomousMinConfidence: 75 }).autonomousMinConfidence).toBe(75);
+describe("已删的把握门槛", () => {
+  it("老 settings.json 里还留着 autonomousMinConfidence：正常读，结果里没有这个键", () => {
     const file = join(config.dataDir, "settings.json");
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), autonomousMinConfidence: 12 }));
-    expect(userSettings().autonomousMinConfidence).toBe(50);
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), autonomousMinConfidence: 120.6 }));
-    expect(userSettings().autonomousMinConfidence).toBe(100);
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), autonomousMinConfidence: "高" }));
-    expect(userSettings().autonomousMinConfidence).toBe(80);
+    writeFileSync(file, JSON.stringify({ autonomousMinConfidence: 70, autonomous: false }));
+    const got = userSettings();
+    expect(got.autonomous).toBe(false);
+    expect("autonomousMinConfidence" in got).toBe(false);
   });
 });

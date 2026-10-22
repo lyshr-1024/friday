@@ -53,4 +53,12 @@ describe("settings", () => {
     expect(got).toContain("my.internal.site");
     for (const d of DEFAULT_SUMMON_SETTINGS.urlAllowlist) expect(got).toContain(d);
   });
+
+  it("PUT 带已删的 autonomousMinConfidence：照常 200，不写进文件", async () => {
+    const file = join(process.env.FRIDAY_DATA_DIR!, "settings.json");
+    const res = await app.request("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ autonomousMinConfidence: 70, autonomousConcurrency: 2 }) });
+    expect(res.status).toBe(200);
+    expect("autonomousMinConfidence" in ((await res.json()) as object)).toBe(false);
+    expect(JSON.parse(readFileSync(file, "utf8"))).not.toHaveProperty("autonomousMinConfidence");
+  });
 });

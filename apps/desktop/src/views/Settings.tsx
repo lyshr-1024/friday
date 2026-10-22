@@ -9,7 +9,6 @@ import { Row } from "./shared";
 import { coreBaseUrl, health, leftoverWorktrees, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
-import { AUTOSTART_CONFIDENCE } from "@friday/shared";
 
 export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
@@ -108,7 +107,7 @@ export function Settings() {
       <section>
         <h2>自主开工</h2>
         <div className="group">
-          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握不低于下面的门槛）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时最多做下面设的条数；合并前照旧要你点头">
+          <Row label="让 Friday 自己开工" hint="缺陷和需求一样：有理解卡、审过（或按项目「方案送审」不用审）、依赖齐了，Friday 就直接在 worktree 里自主改完交你审。同时最多做下面设的条数；合并前照旧要你点头">
             <button
               className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
               role="switch"
@@ -131,27 +130,6 @@ export function Settings() {
               ))}
             </div>
           </Row>
-          {prefs && (
-            <Row
-              label="把握门槛"
-              hint="Friday 判断「照工单描述一次就能改对」的把握不低于这个值才自己开工。调低放进来的多、白干的也多。"
-            >
-              <div className="bgpick">
-                <input
-                  type="range"
-                  className="bgpick__range"
-                  aria-label="自主开工的把握门槛"
-                  min={AUTOSTART_CONFIDENCE.min}
-                  max={AUTOSTART_CONFIDENCE.max}
-                  value={prefs.autonomousMinConfidence}
-                  onChange={(e) => setPrefs({ ...prefs, autonomousMinConfidence: Number(e.target.value) })}
-                  onPointerUp={() => { void updateSettings({ autonomousMinConfidence: prefs.autonomousMinConfidence }); }}
-                  onKeyUp={() => { void updateSettings({ autonomousMinConfidence: prefs.autonomousMinConfidence }); }}
-                />
-                <span className="bgpick__val">{prefs.autonomousMinConfidence}</span>
-              </div>
-            </Row>
-          )}
         </div>
       </section>
 

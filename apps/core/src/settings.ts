@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AUTOSTART_CONFIDENCE, DEFAULT_SKILL_LIST, DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
+import { DEFAULT_SKILL_LIST, DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
 
 export type TerminalApp = "ghostty" | "terminal";
@@ -22,7 +22,6 @@ export interface UserSettings {
   okrWeekly: boolean;
   /** 让 Friday 对够具体的缺陷自己开自主任务，不等你点「交给 Friday 改」 */
   autonomous: boolean;
-  autonomousMinConfidence: number;
   autonomousConcurrency: number;
   /** 分派给我的 Meegle 缺陷拉不拉进待办。关掉只停拉新的，已经在列表里的留着 */
   meegleDefects: boolean;
@@ -42,7 +41,7 @@ function mergeSummon(raw: unknown): SummonSettings {
   };
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousMinConfidence: AUTOSTART_CONFIDENCE.default, autonomousConcurrency: 3, meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousConcurrency: 3, meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS };
 
 /** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
 function readSkillList(raw: unknown): string[] | "all" {
@@ -91,10 +90,6 @@ export function userSettings(): UserSettings {
     learnHistory: typeof raw.learnHistory === "boolean" ? raw.learnHistory : DEFAULTS.learnHistory,
     okrWeekly: typeof raw.okrWeekly === "boolean" ? raw.okrWeekly : DEFAULTS.okrWeekly,
     autonomous: typeof raw.autonomous === "boolean" ? raw.autonomous : DEFAULTS.autonomous,
-    autonomousMinConfidence:
-      typeof raw.autonomousMinConfidence === "number" && Number.isFinite(raw.autonomousMinConfidence)
-        ? Math.min(AUTOSTART_CONFIDENCE.max, Math.max(AUTOSTART_CONFIDENCE.min, Math.round(raw.autonomousMinConfidence)))
-        : DEFAULTS.autonomousMinConfidence,
     autonomousConcurrency:
       typeof raw.autonomousConcurrency === "number" && Number.isFinite(raw.autonomousConcurrency)
         ? Math.min(10, Math.max(1, Math.round(raw.autonomousConcurrency)))
@@ -117,7 +112,6 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.learnHistory !== undefined) raw.learnHistory = patch.learnHistory;
   if (patch.okrWeekly !== undefined) raw.okrWeekly = patch.okrWeekly;
   if (patch.autonomous !== undefined) raw.autonomous = patch.autonomous;
-  if (patch.autonomousMinConfidence !== undefined) raw.autonomousMinConfidence = patch.autonomousMinConfidence;
   if (patch.autonomousConcurrency !== undefined) raw.autonomousConcurrency = patch.autonomousConcurrency;
   if (patch.meegleDefects !== undefined) raw.meegleDefects = patch.meegleDefects;
   if (patch.summon !== undefined) raw.summon = { ...mergeSummon(raw.summon), ...patch.summon };

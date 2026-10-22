@@ -46,6 +46,14 @@ describe("settings 工具", () => {
     expect(userSettings().autonomousConcurrency).not.toBe(2);
   });
 
+  it("已删的 autonomousMinConfidence 被拒，设置文件不变", async () => {
+    const file = join(process.env.FRIDAY_DATA_DIR!, "settings.json");
+    const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+    const out = await callIn(undefined, "settings_update", { patch: { autonomousMinConfidence: 70 } });
+    expect(out).toContain("不能改");
+    expect(existsSync(file) ? readFileSync(file, "utf8") : "").toBe(before);
+  });
+
   it("值不合规被拒", async () => {
     const out = await callIn(undefined, "settings_update", { patch: { autonomousConcurrency: 99 } });
     expect(out).toContain("不能改");
