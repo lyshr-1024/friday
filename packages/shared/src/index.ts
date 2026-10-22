@@ -465,7 +465,33 @@ export interface TaskDoc {
 
 export type AutostartPlan =
   | { kind: "gate"; at: string; behind: number }
-  | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string };
+  | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string }
+  | { kind: "brief"; at: string; behind: number };
+
+export interface BriefDep {
+  what: string;
+  from?: string;
+  status: "pending" | "ready";
+  evidence?: { url?: string; text?: string; at: string; source: "meegle" | "slack" | "user" };
+}
+
+/** Friday 对一条需求的书面理解：要做什么、要别人给什么、怎么验收、怎么发、怎么做。自主开工的前置闸 */
+export interface Brief {
+  todo: string;
+  deps: BriefDep[];
+  acceptance: { source: "cases" | "prd" | "own"; cases: string[]; note?: string };
+  release: string;
+  plan: string;
+  size: "small" | "large";
+  sizeWhy: string;
+  review: "none" | "pending" | "approved" | "rejected";
+  reviewNote?: string;
+  rejections?: number;
+  stale?: boolean;
+  basis: string;
+  at: string;
+  features: string[];
+}
 
 export interface TaskSource {
   /** 知识库冷启动的锚点卡，值是项目名 */
@@ -570,6 +596,10 @@ export interface TaskSource {
   projectBy?: "friday" | "user";
   /** 你说了「先别做 / 这条我来」：Friday 不再自己开工 */
   autostartOff?: boolean;
+  brief?: Brief;
+  /** 建理解卡的锚点，值是需求任务 id */
+  briefFor?: string;
+  briefFailed?: { at: string; why: string; log?: string };
   /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */
   handedAt?: string;
   /** 重开后下一次交代进需求会话时告诉 Claude 上一轮为什么没过，交代完清掉 */
@@ -657,6 +687,15 @@ export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack
  */
 export function isQueryTask(source: TaskSource): boolean {
   return Boolean(source.headless && source.conversation);
+}
+
+/** 能不能给这条任务建理解卡：要写代码的需求类、项目已定、还没开工也没收工 */
+export function briefable(t: Task): boolean {
+  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return false;
+  if (!t.project || isQueryTask(t.source) || t.source.storyContainer || t.source.jobId) return false;
+  if (taskCategory(t.source) === "defect") return false;
+  if (t.status !== "collected" && t.status !== "understood") return false;
+  return t.stage === undefined || t.stage === "todo";
 }
 
 /** Friday 全权在跑、没人看着的任务（自主 `-p` / 后台查询）。你自己开终端驱动的交互式任务不算——「Friday 在做」只放这种。 */
@@ -752,7 +791,7 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "custom";
 
 export interface PendingAction {
   id: string;
@@ -853,6 +892,7 @@ export const USAGE_LABELS: Record<string, string> = {
   desk: "首屏建议",
   okr_weekly: "OKR 周报",
   knowledge: "收工记知识库",
+  brief: "建理解卡",
 };
 
 export interface UsageEntry {
