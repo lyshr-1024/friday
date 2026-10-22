@@ -106,7 +106,8 @@ describe("runs 三处记账", () => {
     const t1 = autonomousTask("rh-9", repoOnBranch("fix/i"));
     await rpc("rh-9", "friday_done", { summary: "改完", testResult: "过" });
     await app.request(`/tasks/${t1.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "改错页面了" }) });
-    expect(runByJob("rh-9")).toMatchObject({ outcome: "rejected", outcomeWhy: "改错页面了" });
+    // 打回会在原会话里续跑一轮（rh-9#2），被打回的是交付的那一轮
+    expect(runsForTask(t1.id).find((r) => r.id === "rh-9")).toMatchObject({ outcome: "rejected", outcomeWhy: "改错页面了" });
 
     const t2 = autonomousTask("rh-10", repoOnBranch("fix/j"));
     await rpc("rh-10", "friday_done", { summary: "改完", testResult: "过" });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
@@ -198,9 +198,10 @@ describe("窗口 / 会话没了：任务得跟着收尾，不能一直挂在 pro
     const t = createTask({ title: "demo：rej", kind: "code", source: { jobId: "sw-rej", autonomous: true }, project: "demo", status: "review" });
     rejectTask(t.id, "改错页面了");
     await sweepClosedTerminals();
+    // 没有会话可续跑：打回自己标卡住；对账不把它收回 review、不挂回合并
+    await vi.waitFor(() => expect(getTask(t.id)!.status).toBe("blocked"));
     const after = getTask(t.id)!;
-    expect(after.status).toBe("processing");
-    expect(after.progress).toContain("被打回");
+    expect(after.progress).toBe("打回了，但会话已不在，点「开工」重开");
     expect((after.pending ?? []).some((p) => p.type === "git_merge")).toBe(false);
   });
 });
