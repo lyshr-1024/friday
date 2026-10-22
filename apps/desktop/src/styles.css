@@ -2798,12 +2798,12 @@ body,
 }
 .needs {
   flex: none;
-  width: 240px;
+  width: 360px;
   overflow-y: auto;
   padding: var(--s-6) var(--s-4);
   border-left: 1px solid var(--line-1);
 }
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .needs {
     display: none;
   }
