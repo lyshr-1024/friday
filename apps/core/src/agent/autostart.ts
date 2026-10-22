@@ -1,4 +1,4 @@
-import { STAGE_LABEL, briefRefusal, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
+import { STAGE_LABEL, briefRefusal, taskCategory, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
@@ -7,6 +7,7 @@ import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { briefDetail } from "./brief.js";
+import { briefBuilding } from "./briefJob.js";
 import { handToStorySession, startAutonomousJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
 import { TmuxMissingError } from "./tmux.js";
@@ -120,6 +121,8 @@ export function eligible(t: Task, env: AutostartEnv): string | undefined {
 }
 
 /** 需求：理解卡审过（或按项目规则不用审）、没过期、依赖齐了就自己开，不看 intake、不等稳定期 */
+const isStory = (t: Task): boolean => Boolean(t.source.brief) && taskCategory(t.source) !== "defect";
+
 export function storyEligible(t: Task): string | undefined {
   if (t.status !== "understood" && t.status !== "collected") return "不在排队里";
   const refusal = briefRefusal(t);
@@ -129,6 +132,7 @@ export function storyEligible(t: Task): string | undefined {
   if (b.review === "pending") return "理解卡等你审";
   if (b.review === "rejected") return "方案被打回了";
   if (b.stale) return "需求变了，理解卡要重看";
+  if (briefBuilding(t.id)) return "理解卡在重写";
   const waiting = b.deps.find((d) => d.status !== "ready");
   if (waiting) return `等 ${waiting.from ?? "别人"} 给 ${waiting.what}`;
   if (t.attention) return "卡上还挂着要你回答的问题";
@@ -144,7 +148,7 @@ export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean })
   if (!env.enabled) return undefined;
   const story = storyPlan(t, { ...defaultStoryEnv, enabled: true }, env.now);
   if (story) return story;
-  if (t.source.brief) return storyEligible(t) ? undefined : { kind: "brief", at: new Date(env.now).toISOString(), behind: env.running };
+  if (isStory(t)) return storyEligible(t) ? undefined : { kind: "brief", at: new Date(env.now).toISOString(), behind: env.running };
   if (eligible(t, { ...env, now: Number.MAX_SAFE_INTEGER })) return undefined;
   const at = Math.max(env.now, Date.parse(t.createdAt) + AUTOSTART_SETTLE_MS);
   return { kind: "gate", at: new Date(at).toISOString(), behind: env.running };
@@ -156,7 +160,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
   if (slots <= 0) return [];
   const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
   return tasks
-    .filter((t) => !eligible(t, env) || !storyEligible(t))
+    .filter((t) => (isStory(t) ? !storyEligible(t) : !eligible(t, env)))
     .sort((a, b) => (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || a.createdAt.localeCompare(b.createdAt))
     .slice(0, slots);
 }
@@ -193,7 +197,7 @@ export async function autostartTick(now = Date.now()): Promise<number> {
   }
   for (const t of pickAutostart([...listTasks("understood"), ...listTasks("collected")], env)) {
     const brief = t.source.brief;
-    if (brief && !storyEligible(t)) {
+    if (brief && isStory(t)) {
       const r = resolveProject(t.project!);
       if (r.kind !== "match") continue;
       const s = getTermSession(resolveRoot(t).id);

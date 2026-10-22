@@ -79,6 +79,8 @@ const BUSY = { error: "这条需求的理解卡正在建", status: 409 } as cons
 // 锚点的 jobId 要等 openSession 返回才写得上，这段空档里定时 tick 和手点会撞
 const starting = new Set<string>();
 
+export const briefBuilding = (taskId: string): boolean => starting.has(taskId) || running(anchorOf(taskId));
+
 export async function startBriefJob(taskId: string): Promise<{ jobId: string } | { error: string; status: 404 | 409 }> {
   if (starting.has(taskId)) return BUSY;
   const t = getTask(taskId);

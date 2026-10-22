@@ -318,10 +318,51 @@ describe("autostartTick：需求", () => {
   it("交互式会话开着不开工", async () => {
     const dir = setup("storyapp3");
     const t = mk("storyapp3", "approved");
-    createTermSession({ id: t.id, project: "storyapp3", repoDir: dir, tmuxName: "storyapp3", kind: "interactive", jobId: "jx" } as never);
+    createTermSession({ id: t.id, project: "storyapp3", repoDir: dir, tmuxName: "storyapp3", kind: "interactive", jobId: "jx" });
     const start = vi.mocked(startAutonomousJob);
     start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
     expect(await autostartTick(NOW)).toBe(0);
     expect(start).not.toHaveBeenCalled();
+  });
+  it("理解卡在重写（锚点 job 在跑）：旧卡虽审过也不开", async () => {
+    setup("storyapp4");
+    const t = mk("storyapp4", "approved");
+    createJob({ id: "bb-job", project: "storyapp4", dir: "/tmp", logPath: "/tmp/x.log" });
+    createTask({ title: "理解卡：x", kind: "project", status: "processing", source: { briefFor: t.id, jobId: "bb-job", headless: true } });
+    expect(storyEligible(getTask(t.id)!)).toBe("理解卡在重写");
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(0);
+    expect(start).not.toHaveBeenCalled();
+    finishJob("bb-job", 0);
+  });
+  it("两条需求都能开，一轮只开一条", async () => {
+    setup("storyapp5");
+    mk("storyapp5", "approved");
+    mk("storyapp5", "approved");
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValue(undefined as never);
+    expect(await autostartTick(NOW)).toBe(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    start.mockReset();
+  });
+  it("需求和缺陷同优先级：先进来的先开", async () => {
+    setup("storyapp6");
+    const early = new Date(NOW - 3 * AUTOSTART_SETTLE_MS).toISOString();
+    const late = new Date(NOW - 2 * AUTOSTART_SETTLE_MS).toISOString();
+    const d = createTask({ title: "缺陷", kind: "meegle", status: "understood", project: "storyapp6", source: { meegleType: "issue", meegleId: "D6", intake: { kind: "start", confidence: 95, project: "storyapp6", detail: "改", why: "具体", at: settled } } });
+    const r = createTask({ title: "需求", kind: "meegle", status: "understood", project: "storyapp6", source: { meegleType: "story", meegleId: "S6", brief: brief() } });
+    const db = (await import("../memory/db.js")).db();
+    db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(late, r.id);
+    db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(early, d.id);
+    const start = vi.mocked(startAutonomousJob);
+    start.mockClear();
+    start.mockResolvedValueOnce(undefined as never);
+    expect(await autostartTick(NOW)).toBe(1);
+    expect(start.mock.calls[0]![0].id).toBe(d.id);
+    start.mockReset();
   });
 });
