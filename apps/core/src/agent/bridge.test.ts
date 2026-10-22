@@ -113,7 +113,10 @@ describe("终端 → Friday 的 MCP 桥", () => {
     writeFile(join(shotsDir("job-mcp-dec"), "导出页-改后.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     createJob({ id: "job-mcp-dec", project: "demo", dir: tmpdir(), task: "自主改", logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：带决定", kind: "code", source: { jobId: "job-mcp-dec", autonomous: true }, project: "demo", status: "processing", plan: "改" });
-    await rpc("job-mcp-dec", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过", decisions: ["字段用 string"] } });
+    const res = (await (await rpc("job-mcp-dec", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过", decisions: ["字段用 string"] } })).json()) as { result: { content: Array<{ text: string }> } };
+    // 进程交付后不退出：告诉它停在这里等追问，别说「交付完就结束」
+    expect(res.result.content[0]!.text).not.toContain("交付完就结束");
+    expect(res.result.content[0]!.text).toContain("追问");
     const t = getTask(task.id)!;
     expect(t.report?.decisions).toEqual(["字段用 string"]);
     expect(t.report?.screenshots).toHaveLength(1);

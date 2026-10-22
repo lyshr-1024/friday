@@ -415,7 +415,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary, "finished", false);
     postDelivery(t, jobId, report);
-    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}交付完就结束，会话留着给用户看终端。` };
+    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
   }
 
   if (name === "friday_finish") {
