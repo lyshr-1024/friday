@@ -27,12 +27,15 @@ const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
-export function saidLast(conversationId?: string): string {
-  if (!conversationId) return "";
-  return (listMessages(conversationId).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
+function lastUserMessage(conversationId?: string): { id: string | null; text: string } {
+  if (!conversationId) return { id: null, text: "" };
+  const m = listMessages(conversationId).filter((x) => x.role === "user").at(-1);
+  return { id: m?.id ?? null, text: (m?.content ?? "").trim() };
 }
 
-const asked = new Map<string, { path: string; dirty: boolean }>();
+export const saidLast = (conversationId?: string): string => lastUserMessage(conversationId).text;
+
+const asked = new Map<string, { path: string; dirty: boolean; after: string | null }>();
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
@@ -331,11 +334,12 @@ export const selfToolList = (conversationId?: string) => [
       if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能删 worktree，等用户回来。");
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
-      const said = saidLast(conversationId);
+      const { id: sayId, text: said } = lastUserMessage(conversationId);
       const key = conversationId ?? "";
-      const ok = asked.get(key)?.path === entry.path && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
+      const prior = asked.get(key);
+      const ok = prior?.path === entry.path && sayId !== null && sayId !== prior.after && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
       if (!ok) {
-        asked.set(key, { path: entry.path, dirty: entry.dirty });
+        asked.set(key, { path: entry.path, dirty: entry.dirty, after: sayId });
         return text(
           entry.dirty
             ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`

@@ -472,4 +472,16 @@ describe("遗留 worktree 工具", () => {
     await callIn(conv, "worktree_remove", { path: tree });
     expect(existsSync(tree)).toBe(false);
   });
+
+  it("同一轮里对同一个路径连调两次，凭同一句「删掉」也删不掉；用户在被问之后再说一句才删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "连调", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const conv = say("删掉");
+    await callIn(conv, "worktree_remove", { path: tree });
+    await callIn(conv, "worktree_remove", { path: tree });
+    expect(existsSync(tree)).toBe(true);
+    addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
+    await callIn(conv, "worktree_remove", { path: tree });
+    expect(existsSync(tree)).toBe(false);
+  });
 });
