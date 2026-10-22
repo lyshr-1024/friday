@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { transcriptPath } from "../agent/runner.js";
 import { config } from "../config.js";
 import { addMessage, createConversation, deleteConversation, listMessages, listMessagesForTask, setClaudeSessionId } from "./conversations.js";
@@ -9,17 +10,23 @@ import { mainConversationId, mainResume } from "./mainConversation.js";
 import { setCursor } from "./inbox.js";
 import { createTask } from "./tasks.js";
 
-const made: string[] = [];
+let home = "";
+let realHome: string | undefined;
 function transcript(): string {
   const sid = randomUUID();
   const p = transcriptPath(config.dataDir, sid);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, "");
-  made.push(p);
   return sid;
 }
+beforeEach(() => {
+  realHome = process.env.HOME;
+  home = mkdtempSync(join(tmpdir(), "friday-home-"));
+  process.env.HOME = home;
+});
 afterEach(() => {
-  for (const p of made.splice(0)) rmSync(p, { force: true });
+  process.env.HOME = realHome;
+  rmSync(home, { recursive: true, force: true });
 });
 
 describe("主对话", () => {
