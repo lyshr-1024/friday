@@ -87,12 +87,12 @@ apps/core/src/
 
 设计稿 `docs/superpowers/specs/2026-10-22-one-conversation-dispatch-design.md` 第二块。起因：每条任务一段会话，你得先找到是哪条任务、哪段会话才能说话，而 Friday 只在你问的时候才开口。用户定：只有一个对话窗，任务靠编号指，Friday 有事主动说。
 
-- **短编号 `#N`**：`tasks.seq` 递增，不复用，列表、通知、会话里一律写 `#N 标题`；工具的 `taskId` 接 id 前 8 位或 `#N`（`resolveTaskRef`），`GET /tasks` 带 `seq`。
-- **一条主对话**（`GET /main`，`memory/mainConversation.ts`）：没有就建。会话视图只挂它，没有「新对话」「路由」，`POST /route` / `agent/route.ts` / `⌘⇧N` 全删；旧会话留在「···」→ 会话历史，点开只读（`disabledNote`）。**会话轮换**：主对话的 Claude 会话（resume）太长时按量换一个新的 Claude 会话，对话本身（消息）不换，所以你看到的永远是同一条流；新会话靠下面的任务板注入接上上下文，不靠 resume。
+- **短编号 `#N`**：`tasks.seq` 递增，不复用，列表、通知、会话里一律写 `#N 标题`；工具的 `taskId` 接 id 前 8 位或 `#N`（`findTaskByRef`），`GET /tasks` 带 `seq`。
+- **一条主对话**（`GET /main`，`memory/mainConversation.ts`）：没有就建。会话视图只挂它，没有「新对话」「路由」，`POST /route` / `agent/route.ts` / `⌘⇧N` 全删；旧会话留在「···」→ 会话历史，点开只读（`disabledNote`）。**会话轮换**：主对话的 Claude 会话（resume）跨过上海日界或你说满 `MAX_USER_TURNS` 轮就换一个新的 Claude 会话（`mainResume`），对话本身（消息）不换，所以你看到的永远是同一条流；新会话靠下面的任务板注入接上上下文，不靠 resume。
 - **工具点名任务**：`task_update` / `task_start` / `task_approve` / `task_reject` / `terminal_say` 等都必须带 `taskId`，不再按「当前会话绑的任务」猜；每次调用在回复里留一行痕迹（`#N 标题 · 做了什么`），消息的 `taskIds` 记下它碰过哪几条，任务页「相关对话」就是按这个捞的。**批准 / 打回这类不可逆的，要求你这句话里点了编号或标题**（模型回你「#3 通过？」你答「好」才算），一句裸的「好」不认——原来任务会话里一句「好」只可能指那一条，现在主对话里指不了。
 - **任务板注入**（`/ask` 的 system）：每轮带一块当前任务板，上限 6000 字：需要你的（方案待审 / 待验收 / 卡住）每条带细节、最多 2000 字，其余只列 `#N 标题 · 状态`；会话里点到的那条任务另带 4000 字全文（`contextFor`）。模型凭这块知道「#3」是什么，不凭记忆。
 - **主动消息 `kind: "notice"`**（`agent/notices.ts`）：任务进方案待审 / 待验收 / 卡住时往主对话追加一条，首行 `#N 标题 · 待验收`，正文是交付摘要 / 卡住原因，不调模型、不花钱。靠总线 `tasks` 事件对比上一次状态触发，同一状态不重复发；**启动那一轮只播种当前状态、不发**，否则重启一次主对话被刷满。和系统通知并存，通知照发。
-- **离开回来的汇总**：窗口 `blur` / `focus` 上报 `POST /main/presence {active}`，失焦写 `sync_state` 的 `main:away` 时间戳，回来时有「要你」的（待审 / 待验收 / 卡住）超过阈值才追加一条汇总 notice：`离开这 N 分钟，M 件要你：`，每件一行 `状态 #N 标题 · 原因`；没有要你的不发，回来就清游标。真机验过：20 分钟、2 件。
+- **离开回来的汇总**：窗口 `blur` / `focus` 上报 `POST /main/presence {active}`，失焦写 `sync_state` 的 `main:away` 时间戳，离开满 15 分钟（`AWAY_MIN_MS`）且有「要你」的（待审 / 待验收 / 卡住）才追加一条汇总 notice：`离开这 N 分钟，M 件要你：`，每件一行 `状态 #N 标题 · 原因`；没有要你的不发，回来就清游标。真机验过：20 分钟、2 件。
 - **消息排队**：Friday 在回的时候你再发一句不丢、不打断，排在后面，回完按顺序接着处理；Esc / 发送键变成的「中断」才取消当前这轮。
 - **会话视图**：左边主对话，右边 240px 的「等你」栏（`views/Needs.tsx`，`GET /main/needs`：方案待审 / 待验收 / 卡住 / 在干 / 排队五组，空组不显示，每行 `#N 标题` + 原因 + 时间，点了跳任务视图选中那条，总线 `tasks` 事件就重拉）。notice 渲染成卡片：细边框、左侧色点（方案待审 amber、待验收 green、卡住 red），首行 `#N 标题` 可点；汇总那条没有色点。
 - **任务视图**：列表按「要你」分组——方案待审 / 待验收 / 卡住（看 `Task.need`）、在干（processing）、排队（`autostart` 有值）、其他（原来的阶段子分组放在里面）；详情去掉所有会话框（`TaskChat` 删了，`TaskDialog` 不再收 `chat`），换成默认折叠的只读「相关对话 N 条」（`views/Related.tsx`，`GET /tasks/:id/related`：主对话里 `taskIds` 含它的消息 + 它旧会话的消息，按时间排）。引导文案改成「在主对话里说「#N 开工」」。
