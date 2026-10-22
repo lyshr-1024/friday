@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Attachment, Job, Message } from "@friday/shared";
 import { ask, askQueue, askSubscribe, cancelAsk, conversationById, withdrawQueued, jobs as fetchJobs, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
 import type { AskEvent, QueuedAsk } from "../lib/core";
@@ -119,6 +119,13 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const [jobList, setJobList] = useState<Job[]>([]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
   // 只读时输入框 disabled 收不到键盘，Esc 挂在容器上
   const readOnlyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
