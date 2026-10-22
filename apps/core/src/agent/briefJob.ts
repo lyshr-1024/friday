@@ -225,9 +225,14 @@ function checkBasis(): void {
     const b = t.source.brief;
     if (!b || b.basis === briefBasis(t)) continue;
     if (b.review === "approved") {
-      if (b.stale) continue;
-      updateTask(t.id, { source: { brief: { ...b, stale: true } } });
-      record({ taskId: t.id, action: "brief_stale", why: "需求正文在理解卡审过之后变了", how: "卡上标「已过期」，不自动重建，等你决定", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
+      const asking = t.pending?.some((a) => a.type === "brief_approve");
+      if (b.stale && asking) continue;
+      if (!b.stale) {
+        updateTask(t.id, { source: { brief: { ...b, stale: true } } });
+        record({ taskId: t.id, action: "brief_stale", why: "需求正文在理解卡审过之后变了", how: "卡上标「已过期」，不自动重建，挂「方案看过，开工」等你再批一次或重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
+      }
+      // 不挂的话「按这个做」和卡上的批准都没东西可批，过期只能靠重建解除
+      if (!asking) addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: `需求变了，这张卡写在变之前。还按这个做就批准，不然点重建。\n\n${renderBrief(b)}`, payload: {} }, { keepStatus: true });
     } else {
       updateTask(t.id, { pending: withoutApprove(t), source: { brief: undefined } });
       record({ taskId: t.id, action: "brief_stale_rebuild", why: "需求正文在理解卡审过之前变了", how: "撤掉旧理解卡和待审动作，进队列重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "reversible" });

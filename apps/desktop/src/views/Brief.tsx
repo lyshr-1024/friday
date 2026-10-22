@@ -142,8 +142,8 @@ export function BriefCard({ t, onAct }: { t: Task; onAct: Act }) {
         <div className="brief__foot">
           <div className="brief__dim">通过后，依赖齐了 Friday 就会自己开工（自主开工开着时）</div>
           <div className="brief__acts">
-            <button className="b b--primary" onClick={() => void run(() => taskApprove(t.id, approve.id))}>方案看过，开工</button>
-            <button className="b b--ghost" onClick={() => setRejecting(true)}>打回…</button>
+            <button className="b b--primary" disabled={building} onClick={() => void run(() => taskApprove(t.id, approve.id))}>方案看过，开工</button>
+            <button className="b b--ghost" disabled={building} onClick={() => setRejecting(true)}>打回…</button>
           </div>
         </div>
       )}

@@ -387,6 +387,34 @@ describe("建卡队列", () => {
     expect(listAudit({ taskId: a.id }).some((e) => e.action === "brief_stale_rebuild")).toBe(true);
   });
 
+  it("已审的卡过期：挂一条 brief_approve，再 tick 不重复挂；批准后清掉 stale，下一轮不再标", async () => {
+    clearJobs();
+    updateSettings({ autonomous: false });
+    writeProjects({ name: "p-st2" });
+    const t = story("p-st2");
+    updateTask(t.id, { source: { brief: brief("old-basis", "approved") } });
+    const approves = () => (getTask(t.id)!.pending ?? []).filter((p) => p.type === "brief_approve");
+
+    await briefTick();
+    expect(getTask(t.id)!.source.brief?.stale).toBe(true);
+    expect(approves()).toHaveLength(1);
+    expect(approves()[0]).toMatchObject({ label: "方案看过，开工" });
+    expect(approves()[0]!.detail.startsWith("需求变了，这张卡写在变之前。还按这个做就批准，不然点重建。\n\n")).toBe(true);
+    expect(getTask(t.id)!.status).toBe("understood");
+
+    await briefTick();
+    expect(approves()).toHaveLength(1);
+
+    const done = await executePending(t.id, approves()[0]!.id, { slackPost: vi.fn() });
+    expect(done.source.brief?.stale).toBeUndefined();
+    expect(done.source.brief?.basis).toBe(briefBasis(done));
+
+    await briefTick();
+    expect(getTask(t.id)!.source.brief?.stale).toBeUndefined();
+    expect(approves()).toHaveLength(0);
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_stale")).toHaveLength(1);
+  });
+
   it("briefTick：起不了会话的 404 标 briefFailed，队列往下走", async () => {
     clearJobs();
     updateSettings({ autonomous: true });
