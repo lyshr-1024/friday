@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { briefRefusal, type Task } from "@friday/shared";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { config } from "../config.js";
 import { listAudit } from "../memory/audit.js";
@@ -10,7 +11,7 @@ import { linkUp } from "../memory/links.js";
 import { slackNode, taskNode } from "../memory/infer.js";
 import { createJob } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
-import { addPending, createTask, findTaskBySource, getTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
 import { briefPrompt, finishBriefJob, startBriefJob, storeBrief } from "./briefJob.js";
@@ -75,6 +76,33 @@ describe("建卡会话", () => {
     expect(await startBriefJob(t.id)).toMatchObject({ status: 409 });
   });
 
+  it("同一条需求并发起两次：第二次回 409，只起一个会话", async () => {
+    writeProjects({ name: "p-race" });
+    const t = story("p-race");
+    let open!: (id: string) => void;
+    vi.mocked(openSession).mockImplementationOnce(() => new Promise<string>((r) => (open = r)));
+    const calls = vi.mocked(openSession).mock.calls.length;
+    const first = startBriefJob(t.id);
+    const second = await startBriefJob(t.id);
+    expect(second).toEqual({ error: "这条需求的理解卡正在建", status: 409 });
+    open("job-race");
+    expect(await first).toEqual({ jobId: "job-race" });
+    expect(vi.mocked(openSession).mock.calls.length).toBe(calls + 1);
+    vi.mocked(openSession).mockRejectedValueOnce(new Error("内嵌终端需要 tmux"));
+    await expect(startBriefJob(t.id)).rejects.toThrow("tmux");
+    vi.mocked(openSession).mockResolvedValueOnce("job-race2");
+    expect(await startBriefJob(t.id)).toEqual({ jobId: "job-race2" });
+  });
+
+  it("briefRefusal：能建回 undefined，不能建逐条写原因", () => {
+    const base = { id: "x", title: "t", kind: "verbal", project: "p", status: "understood", priority: "normal", source: {}, createdAt: "", updatedAt: "" } as unknown as Task;
+    expect(briefRefusal(base)).toBeUndefined();
+    expect(briefRefusal({ ...base, source: { meegleType: "defect" } })).toContain("缺陷");
+    expect(briefRefusal({ ...base, project: undefined })).toContain("项目");
+    expect(briefRefusal({ ...base, source: { jobId: "j" } })).toContain("开过工");
+    expect(briefRefusal({ ...base, status: "done" })).toContain("收工");
+  });
+
   it("不能建的卡回 404 并写明原因", async () => {
     writeProjects({ name: "p-404" });
     const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-404", status: "understood", source: { meegleType: "defect" } });
@@ -125,6 +153,34 @@ describe("建卡会话", () => {
     expect(getTask(t.id)!.source.brief).toBeUndefined();
   });
 
+  it("storeBrief：需求已经开工或收工就不挂，卡不动", () => {
+    writeProjects({ name: "p-late" });
+    const started = story("p-late");
+    updateTask(started.id, { status: "processing", progress: "你在终端里做", source: { jobId: "job-user" } });
+    expect(storeBrief(started.id, goodBrief)).toEqual({ ok: false, error: "需求已经开工或收工，理解卡不挂了" });
+    const s1 = getTask(started.id)!;
+    expect(s1.source.brief).toBeUndefined();
+    expect(s1.progress).toBe("你在终端里做");
+    expect(s1.pending ?? []).toEqual([]);
+    const closed = story("p-late");
+    updateTask(closed.id, { status: "done" });
+    expect(storeBrief(closed.id, goodBrief)).toMatchObject({ ok: false });
+    expect(getTask(closed.id)!.plan).toBeUndefined();
+  });
+
+  it("finishBriefJob：需求已经开工或收工，不写 briefFailed，锚点照收", async () => {
+    writeProjects({ name: "p-late2" });
+    const t = story("p-late2");
+    const anchor = createTask({ title: "理解卡", kind: "project", status: "processing", project: "p-late2", source: { briefFor: t.id, repoDir: repo, headless: true, jobId: "job-late" } });
+    createJob({ id: "job-late", project: "p-late2", dir: repo, logPath: "/tmp/late.log", taskId: anchor.id });
+    updateTask(t.id, { status: "done", progress: "你收了" });
+    await finishBriefJob(anchor, "job-late", 0);
+    const after = getTask(t.id)!;
+    expect(after.source.briefFailed).toBeUndefined();
+    expect(after.progress).toBe("你收了");
+    expect(getTask(anchor.id)!.status).toBe("done");
+  });
+
   it("callBridge friday_brief：建卡 job 能调、别的 job 回错；friday_done 对建卡 job 只回一句", async () => {
     writeProjects({ name: "p-cb" });
     const t = story("p-cb");
@@ -139,7 +195,7 @@ describe("建卡会话", () => {
     expect(ok.isError).toBeUndefined();
     expect(getTask(t.id)!.source.brief?.todo).toBe(goodBrief.todo);
     for (const name of ["friday_done", "friday_progress", "friday_blocked", "friday_finish"]) {
-      expect(await callBridge("job-cb", name, { summary: "写完了", testResult: "无", text: "进展", reason: "卡住" })).toEqual({ text: "冷启动不用调这个，报完直接退出" });
+      expect(await callBridge("job-cb", name, { summary: "写完了", testResult: "无", text: "进展", reason: "卡住" })).toEqual({ text: "这个会话不用调这个，报完直接退出" });
     }
     expect(getTask(anchor.id)!.report).toBeUndefined();
   });

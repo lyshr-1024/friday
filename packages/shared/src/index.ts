@@ -689,14 +689,20 @@ export function isQueryTask(source: TaskSource): boolean {
   return Boolean(source.headless && source.conversation);
 }
 
-/** 能不能给这条任务建理解卡：要写代码的需求类、项目已定、还没开工也没收工 */
-export function briefable(t: Task): boolean {
-  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return false;
-  if (!t.project || isQueryTask(t.source) || t.source.storyContainer || t.source.jobId) return false;
-  if (taskCategory(t.source) === "defect") return false;
-  if (t.status !== "collected" && t.status !== "understood") return false;
-  return t.stage === undefined || t.stage === "todo";
+/** 为什么不能给这条任务建理解卡；能建回 undefined。只给要写代码的需求类、项目已定、还没开工也没收工的建 */
+export function briefRefusal(t: Task): string | undefined {
+  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
+  if (!t.project) return "还没定项目，先定项目再建理解卡";
+  if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
+  if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
+  if (taskCategory(t.source) === "defect") return "缺陷不建理解卡，直接修";
+  if (t.source.jobId) return "已经开过工了，不建理解卡";
+  if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
+  if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";
+  return undefined;
 }
+
+export const briefable = (t: Task): boolean => !briefRefusal(t);
 
 /** Friday 全权在跑、没人看着的任务（自主 `-p` / 后台查询）。你自己开终端驱动的交互式任务不算——「Friday 在做」只放这种。 */
 export function isFridayRun(source: TaskSource): boolean {

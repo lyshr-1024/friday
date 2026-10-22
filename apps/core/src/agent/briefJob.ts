@@ -1,4 +1,4 @@
-import { conversationKey, isQueryTask, taskCategory, type Brief, type Task } from "@friday/shared";
+import { briefRefusal, conversationKey, type Brief, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { listFeatures, matchFeatures } from "../memory/features.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
@@ -71,37 +71,38 @@ export function briefPrompt(t: Task, p: Project, rejected?: string): string {
     .join("\n");
 }
 
-function refusal(t: Task): string {
-  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
-  if (!t.project) return "还没定项目，先定项目再建理解卡";
-  if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
-  if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
-  if (taskCategory(t.source) === "defect") return "缺陷不建理解卡，直接修";
-  if (t.source.jobId) return "已经开过工了，不建理解卡";
-  if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
-  return "已经过了「未开始」阶段，不建理解卡";
-}
+const BUSY = { error: "这条需求的理解卡正在建", status: 409 } as const;
+// 锚点的 jobId 要等 openSession 返回才写得上，这段空档里定时 tick 和手点会撞
+const starting = new Set<string>();
 
 export async function startBriefJob(taskId: string): Promise<{ jobId: string } | { error: string; status: 404 | 409 }> {
+  if (starting.has(taskId)) return BUSY;
   const t = getTask(taskId);
   if (!t) return { error: "没有这条任务", status: 404 };
-  if (!briefable(t)) return { error: refusal(t), status: 404 };
+  const refused = briefRefusal(t);
+  if (refused) return { error: refused, status: 404 };
   const p = loadProjects().find((x) => x.name === t.project);
   if (!p) return { error: `注册表里没有项目「${t.project}」`, status: 404 };
   const found = anchorOf(t.id);
-  if (running(found)) return { error: "这条需求的理解卡正在建", status: 409 };
-  const anchor = found ?? createTask({ title: `理解卡：${t.title}`, kind: "project", project: p.name, source: { briefFor: t.id, repoDir: p.dir, headless: true } });
-  const rejected = t.source.brief?.review === "rejected" ? t.source.brief.reviewNote : undefined;
-  const jobId = await openSession(anchor, anchor, { kind: "query", project: p.name, repoDir: p.dir, task: briefPrompt(t, p, rejected) });
-  updateTask(anchor.id, { status: "processing", source: { jobId } });
-  updateTask(t.id, { progress: "Friday 在读需求、写理解卡", source: { briefFailed: undefined } });
-  record({ taskId: t.id, action: "brief_build_start", why: "给这条需求写理解卡", how: `在 ${p.dir} 里起只读后台会话，读需求、代码和知识库`, evidence: { jobId, anchorId: anchor.id, project: p.name }, risk: "read" });
-  return { jobId };
+  if (running(found)) return BUSY;
+  starting.add(taskId);
+  try {
+    const anchor = found ?? createTask({ title: `理解卡：${t.title}`, kind: "project", project: p.name, source: { briefFor: t.id, repoDir: p.dir, headless: true } });
+    const rejected = t.source.brief?.review === "rejected" ? t.source.brief.reviewNote : undefined;
+    const jobId = await openSession(anchor, anchor, { kind: "query", project: p.name, repoDir: p.dir, task: briefPrompt(t, p, rejected) });
+    updateTask(anchor.id, { status: "processing", source: { jobId } });
+    updateTask(t.id, { progress: "Friday 在读需求、写理解卡", source: { briefFailed: undefined } });
+    record({ taskId: t.id, action: "brief_build_start", why: "给这条需求写理解卡", how: `在 ${p.dir} 里起只读后台会话，读需求、代码和知识库`, evidence: { jobId, anchorId: anchor.id, project: p.name }, risk: "read" });
+    return { jobId };
+  } finally {
+    starting.delete(taskId);
+  }
 }
 
 export function storeBrief(taskId: string, raw: unknown): { ok: true; review: Brief["review"] } | { ok: false; error: string } {
   const t = getTask(taskId);
   if (!t?.project) return { ok: false, error: "Friday 找不到这条需求" };
+  if (!briefable(t)) return { ok: false, error: "需求已经开工或收工，理解卡不挂了" };
   const policy = briefPolicy(loadProjects().find((x) => x.name === t.project));
   const parsed = parseBrief(raw, { featureIds: new Set(listFeatures(t.project).map((f) => f.id)), basis: briefBasis(t) });
   if (typeof parsed === "string") return { ok: false, error: parsed };
@@ -132,7 +133,7 @@ export async function finishBriefJob(anchor: Task, jobId: string, exitCode: numb
   const t = getTask(anchor.source.briefFor!);
   const startedAt = getJob(jobId)?.startedAt;
   const reported = Boolean(t?.source.brief && startedAt && t.source.brief.at >= startedAt);
-  if (t && !reported) {
+  if (t && !reported && briefable(t)) {
     const why = exitCode !== 0 ? "会话异常退出" : "没调 friday_brief 就退出了";
     updateTask(t.id, { progress: why, source: { briefFailed: { at: new Date().toISOString(), why, log: jobLog(jobId) } } });
   }

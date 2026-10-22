@@ -403,7 +403,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   }
   // 通用桥接提示词说 friday_done 必须调，冷启动和建卡的锚点是隐藏卡，不能写报告、发通知
   const anchor = ownerOf(job)?.source;
-  if (["friday_done", "friday_blocked", "friday_progress", "friday_finish"].includes(name) && (anchor?.knowledgeBootstrap || anchor?.briefFor)) return { text: "冷启动不用调这个，报完直接退出" };
+  if (["friday_done", "friday_blocked", "friday_progress", "friday_finish"].includes(name) && (anchor?.knowledgeBootstrap || anchor?.briefFor)) return { text: "这个会话不用调这个，报完直接退出" };
   const target = name === "friday_progress" || name === "friday_done" || name === "friday_blocked" ? targetTask(job, args, name !== "friday_progress") : taskFor(job);
   if (typeof target === "string") return { text: target, isError: true };
   const task = target;
