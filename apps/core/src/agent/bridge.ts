@@ -22,10 +22,11 @@ import { replyLanguageLine } from "./lang.js";
 
 /** 贴在工具返回末尾：工具调用之后那段汇报最容易换成英文 */
 const lang = () => `\n接下来${replyLanguageLine()}。`;
-import { closeRun, closeRunForTask, recordRound } from "./runLog.js";
+import { closeRun, closeRunForTask, recordRound, startRound } from "./runLog.js";
 import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
 import { collectShots } from "./report.js";
+import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
 
 const execFileP = promisify(execFile);
@@ -395,6 +396,9 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     // 进程交付后不退出，截图不能再等退出时收
     report.screenshots = collectShots(jobId, task.report?.at);
     let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
+    // 上一轮交付过、这次你追问或 Friday 转达后又交了一次：新的一轮
+    const prev = runByJob(jobId);
+    if (prev?.endedAt) startRound(jobId, task.id, job.project, "followup", prev.endedAt);
     closeRun(jobId, "report");
     // 空分支不挂合并：Claude 没改代码（比如发现改错仓库）时分支上一个提交都没有，合进去什么也没有
     const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;

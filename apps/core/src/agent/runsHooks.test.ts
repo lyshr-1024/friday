@@ -177,3 +177,43 @@ describe("runs 三处记账", () => {
     expect(runByJob("rh-open")).toMatchObject({ outcome: "closed_unverified" });
   });
 });
+
+describe("同一个会话交付好几轮", () => {
+  it("两次交付两行：第二行 followup，第一行标 superseded，成本只记增量", async () => {
+    const home = mkdtempSync(join(tmpdir(), "friday-home-"));
+    const realHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const repo = repoOnBranch("fix/rounds");
+      const t = autonomousTask("rh-rounds", repo);
+      setJobSession("rh-rounds", "sess-rounds");
+      const dir = join(home, ".claude", "projects", repo.replace(/[^A-Za-z0-9]/g, "-"));
+      mkdirSync(dir, { recursive: true });
+      const cost = (usd: number) => writeFileSync(join(dir, "sess-rounds.jsonl"), JSON.stringify({ type: "cost-state", totalCostUSD: usd, modelUsage: { "claude-opus-5": { costUSD: usd } } }) + "\n");
+      cost(1);
+      await rpc("rh-rounds", "friday_done", { summary: "第一轮", testResult: "过" });
+      cost(1.5);
+      await rpc("rh-rounds", "friday_done", { summary: "第二轮", testResult: "过" });
+      const rows = runsForTask(t.id);
+      expect(rows.map((r) => r.id)).toEqual(["rh-rounds", "rh-rounds#2"]);
+      expect(rows[1]!.trigger).toBe("followup");
+      expect(rows[0]!.outcome).toBe("superseded");
+      expect(rows[1]!.outcome).toBe("pending");
+      expect(rows[1]!.costUsd).toBeCloseTo(0.5);
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("superseded 单独计数，不算待定", async () => {
+    const before = runsSummary("today").byProject.find((p) => p.project === "rounds-sum");
+    expect(before).toBeUndefined();
+    const t = createTask({ title: "汇总", kind: "code", source: {}, project: "rounds-sum", status: "review" });
+    createRun({ id: "rs-1", jobId: "rs-1", taskId: t.id, project: "rounds-sum", kind: "autonomous", trigger: "retry" });
+    const { setRunOutcome } = await import("../memory/runs.js");
+    setRunOutcome("rs-1", "superseded");
+    const row = runsSummary("today").byProject.find((p) => p.project === "rounds-sum")!;
+    expect(row.superseded).toBe(1);
+    expect(row.pending).toBe(0);
+  });
+});

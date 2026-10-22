@@ -129,6 +129,7 @@ export function UsageStrip() {
                             原样收下 {p.mergedAsIs} · 改过再收 {p.mergedModified} · 打回 {p.rejected}
                             {p.reopened ? ` · 被 Reopen ${p.reopened}` : ""}
                             {p.unverified ? ` · 标了完成没找到提交 ${p.unverified}` : ""}
+                            {p.superseded ? ` · 又交一轮 ${p.superseded}` : ""}
                             {p.pending ? ` · 待定 ${p.pending}` : ""}
                             {p.medianMinutes ? ` · 中位 ${p.medianMinutes} 分` : ""}
                           </span>

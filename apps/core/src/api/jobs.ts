@@ -8,6 +8,7 @@ import { jobActivity } from "../agent/transcript.js";
 import { trayStatus } from "../agent/tray.js";
 import { checkPush, describeQuestion, terminalAnswered, terminalAsking, turnFinished, clearAttention } from "../agent/bridge.js";
 import { roundStopped, userPrompted } from "../agent/rounds.js";
+import { fillRunCost } from "../agent/runLog.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import { findTaskBySource, getTask } from "../memory/tasks.js";
 import { getTermSession, markInput, markStop } from "../memory/termSessions.js";
@@ -108,6 +109,8 @@ export const jobs = new Hono()
       if (sid) publish({ type: "tasks" });
     }
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
+    // 交互式进程不退出，cost-state 等不到退出时落盘；每轮说完补一次还空着的成本
+    if (event === "Stop") fillRunCost(id);
     if (event === "Stop") void roundStopped(id).catch((e) => console.warn(`[rounds] ${id}：${e instanceof Error ? e.message : String(e)}`));
     return c.json({ ok: true });
   })

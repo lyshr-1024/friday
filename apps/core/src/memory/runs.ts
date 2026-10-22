@@ -160,7 +160,7 @@ export function runsSummary(range: UsageRange, now = new Date()): RunsSummary {
     let g = groups.get(key);
     if (!g) {
       g = {
-        base: { project: r.project, kind: r.kind, runs: 0, mergedAsIs: 0, mergedModified: 0, rejected: 0, abandoned: 0, reopened: 0, unverified: 0, pending: 0, costUsd: 0, costUnknown: 0, medianMinutes: 0 },
+        base: { project: r.project, kind: r.kind, runs: 0, mergedAsIs: 0, mergedModified: 0, rejected: 0, abandoned: 0, reopened: 0, unverified: 0, superseded: 0, pending: 0, costUsd: 0, costUnknown: 0, medianMinutes: 0 },
         minutes: [],
       };
       groups.set(key, g);
@@ -175,6 +175,7 @@ export function runsSummary(range: UsageRange, now = new Date()): RunsSummary {
     else if (r.outcome === "abandoned") b.abandoned++;
     else if (r.outcome === "reopened") b.reopened++;
     else if (r.outcome === "closed_unverified") b.unverified++;
+    else if (r.outcome === "superseded") b.superseded++;
     else b.pending++;
     if (r.ended_at) g.minutes.push((Date.parse(r.ended_at) - Date.parse(r.started_at)) / 60_000);
   }
