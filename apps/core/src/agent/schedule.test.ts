@@ -114,6 +114,19 @@ describe("friday 执行方", () => {
   });
 });
 
+describe("无人值守的上一轮", () => {
+  it("交付了（进程还活着）不算还在跑；还在 processing 才算", async () => {
+    const { createJob } = await import("../memory/jobs.js");
+    const s = createSchedule({ title: "无人值守", cron: "0 9 * * *", executor: "project", project: "whale-console", prompt: "p" });
+    createJob({ id: "un-1", project: "whale-console", dir: "/tmp", logPath: "/tmp/x.log" });
+    const t = createTask({ title: "[定时] 无人值守", kind: "code", status: "review", project: "whale-console", source: { scheduleId: s.id, jobId: "un-1", autonomous: true } });
+    updateSchedule(s.id, { anchorTaskId: t.id });
+    expect(busyReason(getSchedule(s.id)!)).toBeUndefined();
+    updateTask(t.id, { status: "processing" });
+    expect(busyReason(getSchedule(s.id)!)).toBe("上一轮还在跑");
+  });
+});
+
 describe("有人值守的上一轮会话还在用", () => {
   it("干活中 / 在问你 / 等你输入都跳过，空闲了才跑", () => {
     const s = createSchedule({ title: "值守", cron: "0 9 * * *", executor: "project", project: "whale-console", prompt: "p", attended: true });

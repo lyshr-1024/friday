@@ -404,7 +404,7 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(getTask(root.id)!.report?.summary).toBe("需求的");
   });
 
-  it("成本：后台那轮收 run 时带它自己的 session，say 路不拿需求的", async () => {
+  it("成本：借需求会话交付的按需求会话累计减交接时的基线；旧版后台那轮按它自己的 session", async () => {
     const home = mkdtempSync(join(tmpdir(), "friday-home-"));
     const realHome = process.env.HOME;
     process.env.HOME = home;
@@ -420,9 +420,9 @@ describe("需求会话里的交付归到缺陷", () => {
       cost("sess-root-n", 9);
       const [say, bg] = bs as [typeof bs[0], typeof bs[0]];
       updateTask(say.id, { source: { worktree: wt } });
-      createRun({ id: "say-n", jobId: `${job}#x`, taskId: say.id, project: "demo", kind: "story_bug", trigger: "autostart" });
+      createRun({ id: "say-n", jobId: `${job}#x`, taskId: say.id, project: "demo", kind: "story_bug", trigger: "autostart", costBase: 7 });
       await call(job, "friday_done", { taskId: say.id.slice(0, 8), summary: "好了", testResult: "过" });
-      expect(runsForTask(say.id)[0]!.costUsd).toBeUndefined();
+      expect(runsForTask(say.id)[0]!.costUsd).toBeCloseTo(2);
 
       createJob({ id: "job-bg-n", project: "demo", dir: wt, task: "x", logPath: "/tmp/x.log", taskId: bg.id, sessionId: root.id });
       setJobSession("job-bg-n", "sess-bg-n");

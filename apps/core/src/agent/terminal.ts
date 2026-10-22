@@ -46,6 +46,8 @@ export async function sweepClosedTerminals(): Promise<string[]> {
       return !(t.source.rejectedAt && job.finishedAt && t.source.rejectedAt >= job.finishedAt);
     })
     .map((t) => t.source.jobId!);
+  const { stalledStarts } = await import("./rounds.js");
+  if (stalledStarts().length) publish({ type: "tasks" });
   const exits = [...new Set([...dead, ...stuck])];
   if (exits.length) {
     const { onJobExit } = await import("./pipeline.js");

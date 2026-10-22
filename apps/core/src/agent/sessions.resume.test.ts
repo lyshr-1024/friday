@@ -303,6 +303,19 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(openRunForTask(bug.id)).toMatchObject({ kind: "story_bug", jobId: `${rootJobId}#${bug.id.slice(0, 8)}` });
   });
 
+  it("需求会话是你自己开的交互式、Claude 已退出：不替你接回（不带模型和守卫的会话里不能无人值守地跑），no-session", async () => {
+    const { root, rootJobId, bug: mk } = await testingStory("sbmine");
+    const bug = mk();
+    setJobSession(rootJobId, "sess-mine");
+    finishJob(rootJobId, 0);
+    updateTermSession(root.id, { status: "exited" });
+    calls = [];
+    expect(await handToStorySession(bug, root)).toBe("no-session");
+    expect(typed()).toEqual([]);
+    expect(listAudit({ taskId: bug.id }).find((e) => e.action === "story_session_gone")!.why).toContain("你自己开的");
+    updateTask(bug.id, { status: "ignored" });
+  });
+
   it("Friday 驾驶的需求会话、Claude 活着且空闲：敲进去", async () => {
     const { root, rootJobId, bug: mk } = await testingStory("sbidle", "autonomous");
     const bug = mk();
@@ -380,7 +393,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
   });
 
   it("打回重交时 tmux 出错：缺陷卡标 blocked 写明错误，不占着需求的串行名额", async () => {
-    const { root, bug: mk } = await testingStory("sbrejthrow");
+    const { root, bug: mk } = await testingStory("sbrejthrow", "autonomous");
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
     updateTermSession(root.id, { status: "exited" });
@@ -492,7 +505,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
   });
 
   it("Friday 里重新打开、需求还在测试中：回待办未开始、不接回会话，门禁重新接", async () => {
-    const { root, rootJobId, bug: mk } = await testingStory("sbreopen3");
+    const { root, rootJobId, bug: mk } = await testingStory("sbreopen3", "autonomous");
     const bug = mk();
     setJobSession(rootJobId, "sess-root");
     updateTermSession(root.id, { status: "exited" });
@@ -703,7 +716,9 @@ describe("缺陷在需求会话里修：成本只记本轮增量", () => {
       expect(await handToStorySession(bug, root)).toBe("handed");
       expect(openRunForTask(bug.id)!.costBase).toBe(2);
       transcript(wt, "sess-story", [costLine(2), costLine(2.75)]);
-      closeRunForTask(bug.id, "report", wt, "sess-story");
+      // 走真实的交付：需求会话里的 Claude 带 taskId 调 friday_done
+      await app.request(`/mcp/${rootJobId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "friday_done", arguments: { summary: "修好了", testResult: "过", taskId: bug.id.slice(0, 8) } } }) });
+      expect(getTask(bug.id)!.status).toBe("review");
       expect(runsForTask(bug.id).at(-1)!.costUsd).toBeCloseTo(0.75);
       updateTask(bug.id, { status: "ignored" });
     } finally {

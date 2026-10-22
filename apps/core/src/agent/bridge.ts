@@ -366,13 +366,13 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     };
     const branch = await currentBranch(job.dir);
     if (task.source.handedAt && closed(task)) {
-      closeRunForTask(task.id, "report", task.source.worktree, job.taskId === task.id ? job.claudeSessionId : undefined);
+      closeRunForTask(task.id, "report", task.source.worktree, job.claudeSessionId);
       record({ taskId: task.id, action: "terminal_done_ignored", why: "缺陷已被用户收掉，这次交付不改卡片", how: "friday_done 交付报告", evidence: { jobId, status: task.status, summary: report.summary }, risk: "read" });
       return { text: `用户已经收掉了这条，不用再做。${lang()}` };
     }
     if (task.source.handedAt) {
       const t = updateTask(task.id, { status: "review", report, progress: "修完了，等你核验" })!;
-      closeRunForTask(t.id, "report", t.source.worktree, job.taskId === t.id ? job.claudeSessionId : undefined);
+      closeRunForTask(t.id, "report", t.source.worktree, job.claudeSessionId);
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "需求会话交付了缺陷" });
       const m = await transitionToInProgress(t);
       record({ taskId: t.id, action: "terminal_done", why: "需求会话里的 Claude Code 报告缺陷修完", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
@@ -432,7 +432,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
   if (name === "friday_blocked") {
     const reason = String(args.reason ?? "").trim().slice(0, 500);
     if (!reason) return { text: "reason 不能为空", isError: true };
-    if (task.source.handedAt) closeRunForTask(task.id, "blocked", task.source.worktree, job.taskId === task.id ? job.claudeSessionId : undefined);
+    if (task.source.handedAt) closeRunForTask(task.id, "blocked", task.source.worktree, job.claudeSessionId);
     else if (task.source.autonomous) closeRun(jobId, "blocked");
     if (task.source.handedAt && closed(task)) {
       record({ taskId: task.id, action: "terminal_blocked", why: "缺陷已被用户收掉，卡住不改卡片", how: reason, evidence: { jobId, status: task.status }, risk: "read" });

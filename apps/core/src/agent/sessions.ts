@@ -119,10 +119,12 @@ export async function sayToSession(sessionId: string, text: string): Promise<"se
   await sendText(s.tmuxName, text, win);
   markInput(sessionId);
   const active = latestRunningJob(sessionId) ?? s.jobId;
-  if (active) {
-    recordTerminalInput(active, text);
-    // Friday 往自己驾驶的会话里说的每一句都开了新的一轮，欠一次交付
-    if (s.kind === "autonomous") markAwaiting(active);
+  const activeJob = active ? getJob(active) : undefined;
+  if (activeJob) {
+    recordTerminalInput(activeJob.id, text);
+    // Friday 往自己驾驶的那次 claude 里说的每一句都开了新的一轮，欠一次交付。看在跑那个 job 的 owner，
+    // 不看会话的 kind：升级前你开的交互式会话，Claude 退出后点「开工」，跑的就是 Friday 驾驶的 job
+    if (jobKind(activeJob, s.kind) === "autonomous") markAwaiting(activeJob.id);
   }
   return "sent";
 }

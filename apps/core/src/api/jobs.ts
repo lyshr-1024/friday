@@ -111,7 +111,8 @@ export const jobs = new Hono()
     if ((event === "Stop" || !event) && text) turnFinished(id, text);
     // 交互式进程不退出，cost-state 等不到退出时落盘；每轮说完补一次还空着的成本
     if (event === "Stop") fillRunCost(id);
-    if (event === "Stop") void roundStopped(id).catch((e) => console.warn(`[rounds] ${id}：${e instanceof Error ? e.message : String(e)}`));
+    // Esc 中断、API 出错回到输入框都没有 Stop，只有 idle_prompt：同样算这一轮停了
+    if (event === "Stop" || (event === "Notification" && notificationType === "idle_prompt")) void roundStopped(id).catch((e) => console.warn(`[rounds] ${id}：${e instanceof Error ? e.message : String(e)}`));
     return c.json({ ok: true });
   })
   // 终端脚本回报退出码

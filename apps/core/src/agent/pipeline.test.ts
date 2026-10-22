@@ -199,6 +199,16 @@ describe("Friday 驾驶的 Claude 退出了", () => {
     expect(out.progress).toBe("Claude 退出了，这一轮没交付，看终端");
   });
 
+  it("已收工（Meegle 自动收工留着终端）的任务，Claude 退出或会话没了：不翻成卡住", () => {
+    for (const [id, status, code] of [["fx3", "done", 0], ["fx4", "ignored", -1]] as const) {
+      const t = createTask({ title: id, kind: "verbal", source: { autonomous: true, jobId: id }, status, project: "app" });
+      createJob({ id, project: "app", dir: process.cwd(), logPath: join(tmpdir(), `${id}.log`), taskId: t.id });
+      createRun({ id, jobId: id, taskId: t.id, project: "app", kind: "autonomous", trigger: "retry" });
+      expect(onJobExit(id, code)!.status).toBe(status);
+      expect(runByJob(id)!.endedAt).toBeTruthy();
+    }
+  });
+
   it("升级时还在跑的老 -p 任务写了报告文件：照旧进审核", () => {
     const t = createTask({ title: "老任务", kind: "verbal", source: { autonomous: true, jobId: "fx2" }, status: "processing", project: "app" });
     createJob({ id: "fx2", project: "app", dir: process.cwd(), logPath: join(tmpdir(), "fx2.log"), taskId: t.id });

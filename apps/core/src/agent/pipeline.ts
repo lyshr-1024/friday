@@ -196,6 +196,12 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     state.notices.push({ title: "缺陷没交付", body: t.title, taskId: t.id });
     return t;
   }
+  // 收工了的（Meegle 自动收工会留着终端）：Claude 之后退出或会话没了，只收尾这次运行，不改卡
+  if (job.task.status === "done" || job.task.status === "ignored") {
+    closeRun(jobId, exitCode === -1 ? "window_closed" : "no_report");
+    fillRunCost(jobId);
+    return job.task;
+  }
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
   fillRunCost(jobId);
@@ -526,7 +532,11 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
   const costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
   if (alive) {
     if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
-  } else if (!(await resumeInSession(root.id, prompt))) return gone("需求会话里接不回 Claude");
+  } else {
+    // 你自己开的需求会话接回来是交互式：不带模型（继承你的默认）、不挂守卫，不能在里面无人值守地跑
+    if (!root.source.autonomous) return gone("需求会话是你自己开的、Claude 已退出：先在需求终端里接回，Friday 不在你的会话里无人值守地跑");
+    if (!(await resumeInSession(root.id, prompt))) return gone("需求会话里接不回 Claude");
+  }
   const run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
   updateTask(task.id, {
     status: "processing",

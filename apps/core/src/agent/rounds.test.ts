@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createTask, getTask } from "../memory/tasks.js";
-import { clearAwaiting, getJob, markAwaiting, recordTerminalInput } from "../memory/jobs.js";
+import { createTask, getTask, updateTask } from "../memory/tasks.js";
+import { clearAwaiting, createJob, getJob, markAwaiting, recordTerminalInput } from "../memory/jobs.js";
 import { updateTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "./tmux.js";
 import { setClaudeFinder } from "./runner.js";
-import { openSession, setLauncher } from "./sessions.js";
-import { NUDGE_TEXT, roundStopped, userPrompted } from "./rounds.js";
+import { openSession, sayToSession, setLauncher } from "./sessions.js";
+import { NUDGE_TEXT, roundStopped, stalledStarts, userPrompted } from "./rounds.js";
+import { app } from "../api/index.js";
+import { db } from "../memory/db.js";
+import { setJobSession } from "../memory/jobs.js";
+import { vi } from "vitest";
 import { mainRepo } from "./testRepos.js";
 
 let calls: string[][] = [];
@@ -77,5 +81,62 @@ describe("停了没交付", () => {
   it("开工就欠一次交付", async () => {
     const { job } = await fridayRun();
     expect(getJob(job)!.awaitingDelivery).toBe(true);
+  });
+});
+
+describe("终审修正", () => {
+  it("待验收的卡上插一句话：不催、不标卡住，只清掉欠交付", async () => {
+    const { task, job } = await fridayRun();
+    updateTask(task, { status: "review" });
+    markAwaiting(job);
+    expect(await roundStopped(job)).toBe("none");
+    expect(await roundStopped(job)).toBe("none");
+    expect(typed()).toEqual([]);
+    expect(getTask(task)!.status).toBe("review");
+    expect(getJob(job)!.awaitingDelivery).toBeUndefined();
+  });
+
+  it("会话是升级前开的交互式、眼下在跑的是 Friday 驾驶的 job：Friday 敲的话照样标欠交付", async () => {
+    const { task } = await fridayRun({}, "interactive");
+    const owner = createTask({ title: "Friday 接手", kind: "verbal", source: { autonomous: true }, status: "processing", project: "app" });
+    createJob({ id: `fd-${owner.id}`, project: "app", dir: "/tmp", logPath: "/tmp/x.log", taskId: owner.id, sessionId: task });
+    expect(await sayToSession(task, "接着改")).toBe("sent");
+    expect(getJob(`fd-${owner.id}`)!.awaitingDelivery).toBe(true);
+  });
+});
+
+describe("等不到 Stop 的那几种", () => {
+  const hook = (job: string, body: Record<string, unknown>) =>
+    app.request(`/jobs/${job}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("经接口：Stop 催一次", async () => {
+    const { job } = await fridayRun();
+    await hook(job, { event: "Stop", text: "看完了" });
+    await vi.waitFor(() => expect(typed()).toEqual([NUDGE_TEXT]));
+  });
+
+  it("Esc 中断、API 出错回到输入框没有 Stop，只有 idle_prompt 通知：同样催", async () => {
+    const { job } = await fridayRun();
+    await hook(job, { event: "Notification", notificationType: "idle_prompt", message: "Claude is waiting for your input" });
+    await vi.waitFor(() => expect(typed()).toEqual([NUDGE_TEXT]));
+  });
+
+  it("开工 20 分钟还没回报会话 id（卡在信任目录 / 登录弹框上）：标卡住，释放名额", async () => {
+    const { task, job } = await fridayRun();
+    db().prepare("UPDATE jobs SET started_at = ? WHERE id = ?").run(new Date(Date.now() - 21 * 60_000).toISOString(), job);
+    expect(stalledStarts()).toEqual([job]);
+    expect(getTask(task)!.status).toBe("blocked");
+    expect(getTask(task)!.progress).toContain("Claude 没起来");
+    expect(getJob(job)!.awaitingDelivery).toBeUndefined();
+  });
+
+  it("回报过会话 id 的、还在准备段的：不动", async () => {
+    const a = await fridayRun();
+    setJobSession(a.job, "sess-a");
+    const b = await fridayRun();
+    updateTermSession(b.task, { status: "preparing" });
+    for (const j of [a.job, b.job]) db().prepare("UPDATE jobs SET started_at = ? WHERE id = ?").run(new Date(Date.now() - 60 * 60_000).toISOString(), j);
+    expect(stalledStarts()).toEqual([]);
+    expect(getTask(a.task)!.status).toBe("processing");
   });
 });

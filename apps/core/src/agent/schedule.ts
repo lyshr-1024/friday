@@ -5,7 +5,6 @@ import type { Schedule, ScheduleInput, ScheduleView, SessionState, Task } from "
 import { config } from "../config.js";
 import { userSettings } from "../settings.js";
 import { record } from "../memory/audit.js";
-import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { claudeSessionId, createConversation, renameConversation } from "../memory/conversations.js";
@@ -52,7 +51,6 @@ export function validateSchedule(i: ScheduleInput): string | undefined {
   return undefined;
 }
 
-const runningJob = (t: Task | undefined) => Boolean(t?.source.jobId && getJob(t.source.jobId)?.status === "running");
 const hasPending = (t: Task | undefined) => Boolean(t && t.status !== "done" && t.status !== "ignored" && (t.pending ?? []).length);
 
 const ATTENDED_BUSY: SessionState[] = ["preparing", "working", "asking", "awaiting"];
@@ -62,7 +60,8 @@ export function busyReason(s: Schedule): string | undefined {
   if (s.executor !== "project") return undefined;
   const last = getTask((s.mode === "continue" ? s.anchorTaskId : s.lastRef) ?? "");
   if (hasPending(last)) return "上一轮的交付还等你处理";
-  if (!s.attended && runningJob(last)) return "上一轮还在跑";
+  // Friday 驾驶的进程交付后不退出，job 一直是 running：看卡还在不在 processing，跟并发名额一个口径
+  if (!s.attended && last?.status === "processing") return "上一轮还在跑";
   // 到点会把话敲进这个会话，你正用着就别插嘴
   const state = s.attended && last ? taskSession(last).state : undefined;
   if (state && ATTENDED_BUSY.includes(state)) return `上一轮的终端还${SESSION_STATE_LABEL[state]}`;
