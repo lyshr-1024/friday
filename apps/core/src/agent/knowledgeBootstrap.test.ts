@@ -6,7 +6,7 @@ import { config } from "../config.js";
 import { listAudit } from "../memory/audit.js";
 import { getCursor } from "../memory/inbox.js";
 import { db } from "../memory/db.js";
-import { createFeature, featureHistory, findFeatureByName, hasHistoryFor, listFeatures } from "../memory/features.js";
+import { correctFeature, createFeature, featureHistory, findFeatureByName, getFeature, hasHistoryFor, listFeatures } from "../memory/features.js";
 import { createJob } from "../memory/jobs.js";
 import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
@@ -199,5 +199,14 @@ describe("冷启动会话被手动关掉", () => {
 
   it("提示词：命令不许放后台", () => {
     expect(bootstrapPrompt({ name: "p-kp", dir: repo, aliases: [], channels: [], urls: [], envs: [], protected: [], extra: {} }, [])).toContain("不要放到后台");
+  });
+});
+
+describe("重扫不覆盖纠正过的字段", () => {
+  it("correctFeature where 后 ingestBootstrap 给旧值仍保留", () => {
+    const f = createFeature("kb-corr", { name: "基金筛选", where: "A 仓" }, "bootstrap");
+    correctFeature(f.id, { where: "B 仓" });
+    ingestBootstrap("kb-corr", repo, { features: [{ name: "基金筛选", where: "A 仓", summary: "新说明" }] });
+    expect(getFeature(f.id)).toMatchObject({ where: "B 仓", summary: "新说明" });
   });
 });

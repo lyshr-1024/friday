@@ -147,6 +147,12 @@ export function correctFeature(id: string, patch: Partial<Pick<FeatureInput, Cor
   return getFeature(id)!;
 }
 
+export function withoutCorrected(cur: Feature, input: Partial<FeatureInput>): Partial<FeatureInput> {
+  const out = { ...input };
+  for (const k of cur.corrected ?? []) delete out[k as keyof FeatureInput];
+  return out;
+}
+
 export function mergeFeatures(keepId: string, dropId: string, at = new Date().toISOString()): Feature {
   const keep = getFeature(keepId)!;
   const drop = getFeature(dropId)!;

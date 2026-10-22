@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../memory/features.js", async (orig) => {
+  const m = await orig<typeof import("../memory/features.js")>();
+  return { ...m, writeKnowledge: vi.fn(m.writeKnowledge) };
+});
 import { fridayToolList } from "./tools.js";
 import { saidLast, SETTINGS_KEYS } from "./selfTools.js";
 import { addMessage, createConversation } from "../memory/conversations.js";
@@ -10,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { addRule, getRule, renderHandbook, restoreRules } from "../memory/rules.js";
-import { addFeatureHistory, createFeature, featureHistory, findFeatureByName, getFeature, readKnowledge, restoreFeatures } from "../memory/features.js";
+import { addFeatureHistory, createFeature, featureHistory, findFeatureByName, getFeature, readKnowledge, restoreFeatures, writeKnowledge } from "../memory/features.js";
 import { readHandbook, writeHandbook } from "../memory/handbooks.js";
 
 const callIn = async (conv: string | undefined, name: string, args: Record<string, unknown>) => {
@@ -207,8 +212,8 @@ describe("手册规则工具", () => {
 describe("knowledge_update", () => {
   const dir = mkdtempSync(join(tmpdir(), "kb-proj-"));
   const seed = `# 项目\n\n## KbApp\n- 目录：${dir}\n\n## KbOther\n- 目录：${dir}\n`;
-  const undoOf = (action: string) => {
-    const e = listAudit({}).find((x) => x.action === action)!;
+  const undoOf = (featureId: string) => {
+    const e = listAudit({ limit: 500 }).find((x) => x.action === "knowledge_corrected" && (x.evidence.features as string[]).includes(featureId))!;
     const plan = undoPlan(e.id)!;
     if (plan.kind !== "restore_features") throw new Error();
     return { e, plan };
@@ -223,7 +228,7 @@ describe("knowledge_update", () => {
     expect(out).toContain("B 仓");
     expect(getFeature(f.id)).toMatchObject({ where: "B 仓", corrected: ["where"] });
     expect(readKnowledge("KbApp")).toContain("B 仓");
-    const { e, plan } = undoOf("knowledge_corrected");
+    const { e, plan } = undoOf(f.id);
     expect(e.evidence.quote).toBe("基金筛选在 B 仓");
     restoreFeatures(plan.snapshot);
     expect(getFeature(f.id)).toMatchObject({ where: "A 仓", corrected: [] });
@@ -248,12 +253,12 @@ describe("knowledge_update", () => {
     expect(getFeature(d.id)).toBeUndefined();
     expect(getFeature(k.id)!.aliases).toContain("提现规则");
     expect(featureHistory(k.id)).toHaveLength(1);
-    restoreFeatures(undoOf("knowledge_corrected").plan.snapshot);
+    restoreFeatures(undoOf(d.id).plan.snapshot);
     expect(getFeature(d.id)).toBeTruthy();
     expect(featureHistory(d.id)).toHaveLength(1);
   });
 
-  it("move：挪历史，to 认「项目:功能名」；delete 可撤", async () => {
+  it("move：挪历史，to 认「项目:功能名」", async () => {
     writeMemoryFile("projects", seed);
     const a = createFeature("KbApp", { name: "移出方" }, "task");
     const b = createFeature("KbApp", { name: "移入方" }, "task");
@@ -261,9 +266,60 @@ describe("knowledge_update", () => {
     await callIn(undefined, "knowledge_update", { op: "move", historyId: h, to: "KbApp:移入方" });
     expect(featureHistory(b.id).map((x) => x.id)).toEqual([h]);
     expect(await callIn(undefined, "knowledge_update", { op: "move", historyId: 999999, to: b.id })).toContain("没有这条历史");
-    await callIn(undefined, "knowledge_update", { op: "delete", id: b.id });
-    expect(findFeatureByName("KbApp", "移入方")).toBeUndefined();
-    restoreFeatures(undoOf("knowledge_corrected").plan.snapshot);
-    expect(featureHistory(b.id).map((x) => x.id)).toEqual([h]);
+    restoreFeatures(undoOf(a.id).plan.snapshot);
+    expect(featureHistory(a.id).map((x) => x.id)).toEqual([h]);
+  });
+
+  it("delete 可撤：功能和历史回来", async () => {
+    writeMemoryFile("projects", seed);
+    const c = createFeature("KbApp", { name: "待删功能" }, "task");
+    const h = addFeatureHistory({ featureId: c.id, at: "2026-10-01T00:00:00Z", what: "x", files: [] });
+    await callIn(undefined, "knowledge_update", { op: "delete", id: c.id });
+    expect(findFeatureByName("KbApp", "待删功能")).toBeUndefined();
+    restoreFeatures(undoOf(c.id).plan.snapshot);
+    expect(featureHistory(c.id).map((x) => x.id)).toEqual([h]);
+  });
+
+  it("渲染知识库文件出错也先把账记下，工具回文本不抛，撤销入口还在", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "渲染炸了" }, "task");
+    vi.mocked(writeKnowledge).mockImplementationOnce(() => {
+      throw new Error("磁盘满了");
+    });
+    const out = await callIn(undefined, "knowledge_update", { op: "delete", id: f.id });
+    expect(out).toContain("磁盘满了");
+    restoreFeatures(undoOf(f.id).plan.snapshot);
+    expect(getFeature(f.id)?.name).toBe("渲染炸了");
+  });
+
+  it("edit 的撤销不动历史：先 edit、再把历史挪走、撤销 edit 后历史仍在目标上", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "编辑方", where: "A 仓" }, "task");
+    const g = createFeature("KbApp", { name: "接收方" }, "task");
+    const h = addFeatureHistory({ featureId: f.id, at: "2026-10-01T00:00:00Z", what: "x", files: [] });
+    await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { where: "B 仓" } });
+    await callIn(undefined, "knowledge_update", { op: "move", historyId: h, to: g.id });
+    const edit = listAudit({ limit: 500 }).filter((x) => x.action === "knowledge_corrected" && x.how.includes("where：A 仓"))[0]!;
+    const plan = undoPlan(edit.id)!;
+    if (plan.kind !== "restore_features") throw new Error();
+    restoreFeatures(plan.snapshot);
+    expect(getFeature(f.id)?.where).toBe("A 仓");
+    expect(featureHistory(g.id).map((x) => x.id)).toEqual([h]);
+    expect(featureHistory(f.id)).toEqual([]);
+  });
+
+  it("全角冒号也能拆「项目：功能名」", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "全角功能" }, "task");
+    await callIn(undefined, "knowledge_update", { op: "edit", id: "KbApp：全角功能", patch: { summary: "s" } });
+    expect(getFeature(f.id)?.summary).toBe("s");
+  });
+
+  it("owners 这类对象在回显里可读，不是 [object Object]", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "负责人功能" }, "task");
+    const out = await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { owners: { backend: "甲" } } });
+    expect(out).toContain("backend");
+    expect(out).not.toContain("[object Object]");
   });
 });

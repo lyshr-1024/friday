@@ -1,6 +1,6 @@
 import { isQueryTask, type Feature, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
-import { addFeatureHistory, createFeature, findFeatureByName, hasHistoryFor, listFeatures, matchFeatures, mergeFeature, writeKnowledge } from "../memory/features.js";
+import { addFeatureHistory, createFeature, findFeatureByName, hasHistoryFor, listFeatures, matchFeatures, mergeFeature, withoutCorrected, writeKnowledge } from "../memory/features.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { getJob } from "../memory/jobs.js";
 import { loadProjects, type Project } from "../memory/projects.js";
@@ -52,7 +52,7 @@ export function ingestBootstrap(project: string, repoDir: string, raw: unknown):
     }
     const hit = findFeatureByName(project, input.name);
     if (hit) {
-      mergeFeature(hit.id, { ...input, name: hit.name });
+      mergeFeature(hit.id, withoutCorrected(hit, { ...input, name: hit.name }));
       r.updated++;
     } else {
       createFeature(project, input, "bootstrap");

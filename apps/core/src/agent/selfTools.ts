@@ -20,7 +20,7 @@ type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, settingsShape[k]])) as Pick<typeof settingsShape, SettingsKey>).strict();
 
-const show = (v: unknown) => (Array.isArray(v) ? JSON.stringify(v) : String(v));
+const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
 export function saidLast(conversationId?: string): string {
   if (!conversationId) return "";
@@ -45,7 +45,7 @@ function resolveFeature(ref: string): Feature | string {
   const r = ref.trim();
   const byId = getFeature(r);
   if (byId) return byId;
-  const i = r.indexOf(":");
+  const i = r.search(/[:：]/);
   if (i > 0) {
     const key = r.slice(0, i).trim().toLowerCase();
     const project = loadProjects().find((p) => p.name.toLowerCase() === key);
@@ -273,17 +273,21 @@ export const selfToolList = (conversationId?: string) => [
         how = `${f.project} · 删掉 ${f.name}`;
         run = () => void deleteFeature(f.id);
       }
-      const snapshot = snapshotFeatures(involved.map((f) => f.id), { withHistory: true });
-      run();
-      for (const p of new Set(involved.map((f) => f.project))) writeKnowledge(p);
-      record({
-        action: "knowledge_corrected",
-        why: "你在对话里让 Friday 纠正知识库",
-        how,
-        evidence: { quote: saidLast(conversationId), op: a.op, features: involved.map((f) => f.id) },
-        risk: "reversible",
-        undo: { kind: "restore_features", snapshot },
-      });
+      const snapshot = snapshotFeatures(involved.map((f) => f.id), { withHistory: a.op !== "edit" });
+      try {
+        run();
+        record({
+          action: "knowledge_corrected",
+          why: "你在对话里让 Friday 纠正知识库",
+          how,
+          evidence: { quote: saidLast(conversationId), op: a.op, features: involved.map((f) => f.id) },
+          risk: "reversible",
+          undo: { kind: "restore_features", snapshot },
+        });
+        for (const p of new Set(involved.map((f) => f.project))) writeKnowledge(p);
+      } catch (e) {
+        return text(`${how}：出错了：${e instanceof Error ? e.message : String(e)}（已改的部分可在操作记录里撤销）`);
+      }
       return text(`改好了：${how}（可在操作记录里撤销）`);
     },
   ),

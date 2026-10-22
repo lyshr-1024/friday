@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize } from "node:path";
 import { isQueryTask, type Feature, type FeatureOwners, type Task } from "@friday/shared";
 import { config } from "../config.js";
 import { record } from "../memory/audit.js";
-import { addFeatureHistory, createFeature, findFeatureByName, getFeature, listFeatures, mergeFeature, snapshotFeatures, writeKnowledge, type FeatureInput, type FeaturesSnapshot } from "../memory/features.js";
+import { addFeatureHistory, createFeature, findFeatureByName, getFeature, listFeatures, mergeFeature, snapshotFeatures, withoutCorrected, writeKnowledge, type FeatureInput, type FeaturesSnapshot } from "../memory/features.js";
 import { loadProjects } from "../memory/projects.js";
 import { askStream, SONNET_MODEL } from "./claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
@@ -112,10 +112,7 @@ export function applyLearn(project: string, taskId: string, items: LearnItem[], 
     if (target) {
       const cur = getFeature(target)!;
       const renamed = input.name !== cur.name ? [input.name] : [];
-      const fixed = new Set(cur.corrected ?? []);
-      const learned: Partial<FeatureInput> = { ...input, name: cur.name, aliases: [...(input.aliases ?? []), ...renamed] };
-      for (const k of fixed) delete learned[k as keyof FeatureInput];
-      id = mergeFeature(target, learned, at).id;
+      id = mergeFeature(target, withoutCorrected(cur, { ...input, name: cur.name, aliases: [...(input.aliases ?? []), ...renamed] }), at).id;
     } else {
       id = createFeature(project, input, "task", at).id;
       snap.added.push(id);

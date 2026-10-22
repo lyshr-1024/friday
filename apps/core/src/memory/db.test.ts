@@ -108,6 +108,15 @@ describe("老库迁移", () => {
     expect(seqs).toEqual(["a1", "b2", "c3"]);
   });
 
+  it("老库 features 没有 corrected 列：迁移补上，默认 '[]'", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    d.exec("ALTER TABLE features DROP COLUMN corrected");
+    d.exec("INSERT INTO features (id, project, name, origin, created_at, updated_at) VALUES ('f-1', 'p', 'n', 'task', 't', 't')");
+    migrate(d);
+    expect((d.prepare("SELECT corrected FROM features WHERE id = 'f-1'").get() as { corrected: string }).corrected).toBe("[]");
+  });
+
   it("线程、经验、阈值三张表清掉，inbox 补 prior 列", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);
