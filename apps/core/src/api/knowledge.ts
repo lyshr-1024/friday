@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { ProjectKnowledge } from "@friday/shared";
 import { bootstrapState, startKnowledgeBootstrap } from "../agent/knowledgeBootstrap.js";
 import { record } from "../memory/audit.js";
-import { deleteFeature, featureHistory, getFeature, listFeatures, writeKnowledge } from "../memory/features.js";
+import { deleteFeature, featureHistory, getFeature, listFeatures, snapshotFeatures, writeKnowledge } from "../memory/features.js";
 import { loadProjects } from "../memory/projects.js";
 
 export const knowledge = new Hono()
@@ -24,8 +24,9 @@ export const knowledge = new Hono()
     const f = getFeature(c.req.param("id"));
     if (!f) return c.json({ error: "没有这个功能" }, 404);
     const history = featureHistory(f.id);
+    const snapshot = snapshotFeatures([f.id], { withHistory: true });
     deleteFeature(f.id);
-    record({ action: "feature_deleted", why: "你在项目页的知识库里删了它", how: `${f.project} · ${f.name}`, evidence: { feature: f, history }, risk: "irreversible" });
+    record({ action: "feature_deleted", why: "你在项目页的知识库里删了它", how: `${f.project} · ${f.name}`, evidence: { feature: f, history }, risk: "reversible", undo: { kind: "restore_features", snapshot } });
     writeKnowledge(f.project);
     return c.json({ ok: true });
   });

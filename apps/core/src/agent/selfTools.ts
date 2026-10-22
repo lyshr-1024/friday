@@ -6,7 +6,9 @@ import { publish } from "../bus.js";
 import { listMessages } from "../memory/conversations.js";
 import { record } from "../memory/audit.js";
 import { existsSync, statSync } from "node:fs";
+import type { Feature } from "@friday/shared";
 import { expandHome, loadProjects, projectSection, resolveProject, setProjectField, type ProjectFieldKey } from "../memory/projects.js";
+import { correctFeature, deleteFeature, findFeatureByName, getFeature, getFeatureHistory, mergeFeatures, moveHistory, snapshotFeatures, writeKnowledge } from "../memory/features.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { activeRules, editRule, getRule, snapshotRules } from "../memory/rules.js";
 import { updateSettings, userSettings } from "../settings.js";
@@ -27,6 +29,32 @@ export function saidLast(conversationId?: string): string {
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
+
+const featurePatch = z
+  .object({
+    name: z.string().min(1).optional(),
+    aliases: z.array(z.string()).optional(),
+    where: z.string().optional(),
+    paths: z.array(z.string()).optional(),
+    owners: z.object({ frontend: z.string(), backend: z.string(), pm: z.string(), qa: z.string() }).partial().strict().optional(),
+    summary: z.string().optional(),
+  })
+  .strict();
+
+function resolveFeature(ref: string): Feature | string {
+  const r = ref.trim();
+  const byId = getFeature(r);
+  if (byId) return byId;
+  const i = r.indexOf(":");
+  if (i > 0) {
+    const key = r.slice(0, i).trim().toLowerCase();
+    const project = loadProjects().find((p) => p.name.toLowerCase() === key);
+    if (!project) return `没有项目「${r.slice(0, i)}」。`;
+    const f = findFeatureByName(project.name, r.slice(i + 1));
+    if (f) return f;
+  }
+  return `没找到这个功能：${ref}（要功能 id，或「项目:功能名」）`;
+}
 
 export const selfToolList = (conversationId?: string) => [
   tool(
@@ -175,6 +203,88 @@ export const selfToolList = (conversationId?: string) => [
         undo: { kind: "restore_rules", snapshot },
       });
       return text(`已退役：${before.text}（可在操作记录里撤销）`);
+    },
+  ),
+  tool(
+    "knowledge_update",
+    "纠正项目知识库（功能条目）。op: edit（id + patch，可改 name/aliases/where/paths/owners/summary，改过的字段之后收工学习不会再覆盖）、merge（keep + drop，同一项目，drop 的历史和名字并进 keep）、move（historyId + to，把一条历史挪到另一个功能）、delete（id，连历史一起删）。id / keep / drop / to 接功能 id 或「项目:功能名」。可撤销、会记账。用户明确要改才调。",
+    {
+      op: z.enum(["edit", "merge", "move", "delete"]),
+      id: z.string().optional(),
+      patch: featurePatch.optional(),
+      keep: z.string().optional(),
+      drop: z.string().optional(),
+      historyId: z.number().int().optional(),
+      to: z.string().optional(),
+    },
+    async (a) => {
+      const need = (v: string | undefined, name: string): string | undefined => (v?.trim() ? undefined : `${a.op} 需要 ${name}。`);
+      const pick = (v: string): Feature | string => resolveFeature(v);
+      let involved: Feature[];
+      let how: string;
+      let run: () => void;
+      if (a.op === "edit") {
+        const miss = need(a.id, "id");
+        if (miss) return text(miss);
+        const parsed = featurePatch.safeParse(a.patch ?? {});
+        if (!parsed.success) return text(`不能改：${parsed.error.issues.map((i) => `${i.path.join(".") || "patch"} ${i.message}`).join("；")}。能改的字段：name、aliases、where、paths、owners、summary。`);
+        const keys = Object.keys(parsed.data);
+        if (!keys.length) return text("没有要改的字段。");
+        const f = pick(a.id!);
+        if (typeof f === "string") return text(f);
+        involved = [f];
+        const changes = (keys as (keyof typeof f)[]).map((k) => `${k}：${show(f[k])} → ${show((parsed.data as Record<string, unknown>)[k])}`);
+        how = `${f.project} · ${f.name}：${changes.join("；")}`;
+        run = () => void correctFeature(f.id, parsed.data);
+      } else if (a.op === "merge") {
+        const miss = need(a.keep, "keep") ?? need(a.drop, "drop");
+        if (miss) return text(miss);
+        const keep = pick(a.keep!);
+        if (typeof keep === "string") return text(keep);
+        const drop = pick(a.drop!);
+        if (typeof drop === "string") return text(drop);
+        if (keep.id === drop.id) return text("keep 和 drop 是同一个功能。");
+        if (keep.project !== drop.project) return text(`两个功能不在同一个项目（${keep.project} / ${drop.project}），不能合并。`);
+        involved = [keep, drop];
+        how = `${keep.project} · ${drop.name} 并入 ${keep.name}`;
+        run = () => void mergeFeatures(keep.id, drop.id);
+      } else if (a.op === "move") {
+        const miss = need(a.to, "to");
+        if (miss) return text(miss);
+        if (a.historyId === undefined) return text("move 需要 historyId。");
+        const h = getFeatureHistory(a.historyId);
+        if (!h) return text(`没有这条历史：${a.historyId}`);
+        const to = pick(a.to!);
+        if (typeof to === "string") return text(to);
+        const from = getFeature(h.featureId);
+        if (!from) return text("这条历史挂着的功能已不在。");
+        if (from.id === to.id) return text("已经在这个功能上了。");
+        if (from.project !== to.project) return text(`两个功能不在同一个项目（${from.project} / ${to.project}），不能挪。`);
+        involved = [from, to];
+        how = `${from.project} · 历史 #${h.id}（${h.what}）：${from.name} → ${to.name}`;
+        const hid = h.id;
+        run = () => moveHistory(hid, to.id);
+      } else {
+        const miss = need(a.id, "id");
+        if (miss) return text(miss);
+        const f = pick(a.id!);
+        if (typeof f === "string") return text(f);
+        involved = [f];
+        how = `${f.project} · 删掉 ${f.name}`;
+        run = () => void deleteFeature(f.id);
+      }
+      const snapshot = snapshotFeatures(involved.map((f) => f.id), { withHistory: true });
+      run();
+      for (const p of new Set(involved.map((f) => f.project))) writeKnowledge(p);
+      record({
+        action: "knowledge_corrected",
+        why: "你在对话里让 Friday 纠正知识库",
+        how,
+        evidence: { quote: saidLast(conversationId), op: a.op, features: involved.map((f) => f.id) },
+        risk: "reversible",
+        undo: { kind: "restore_features", snapshot },
+      });
+      return text(`改好了：${how}（可在操作记录里撤销）`);
     },
   ),
 ];

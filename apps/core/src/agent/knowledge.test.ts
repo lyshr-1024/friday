@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { DeliveryReport } from "@friday/shared";
 import { config } from "../config.js";
 import { listAudit } from "../memory/audit.js";
-import { addFeatureHistory, createFeature, featureHistory, getFeature, listFeatures, restoreFeatures } from "../memory/features.js";
+import { addFeatureHistory, correctFeature, createFeature, featureHistory, getFeature, listFeatures, restoreFeatures } from "../memory/features.js";
 import { createTask } from "../memory/tasks.js";
 import { applyLearn, changedFiles, cleanInput, learnFromTask, learnPrompt, parseLearn } from "./knowledge.js";
 
@@ -61,6 +61,13 @@ describe("知识库收工记账", () => {
     expect(featureHistory(f.id)[0]).toMatchObject({ taskId: "t-1", what: "加了筛选入口", files: ["src/funds/index.tsx"] });
     expect(snap.added).toHaveLength(1);
     expect(snap.historyIds).toHaveLength(2);
+  });
+
+  it("纠正 where 后收工学习给出旧值，不覆盖", () => {
+    const f = createFeature("p-corr", { name: "基金筛选", where: "A 仓", summary: "旧" }, "task");
+    correctFeature(f.id, { where: "B 仓" });
+    applyLearn("p-corr", "t-1", [{ match: f.id, name: "基金筛选", where: "A 仓", summary: "新", what: "w" }], []);
+    expect(getFeature(f.id)).toMatchObject({ where: "B 仓", summary: "新" });
   });
 
   it("restore 不碰之后别的任务写的历史", () => {

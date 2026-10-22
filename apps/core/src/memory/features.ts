@@ -27,10 +27,11 @@ export interface FeatureRow {
   owners: string;
   summary: string;
   origin: FeatureOrigin;
+  corrected?: string;
   created_at: string;
   updated_at: string;
 }
-interface HistoryRow {
+export interface HistoryRow {
   id: number;
   feature_id: string;
   task_id: string | null;
@@ -42,6 +43,7 @@ export interface FeaturesSnapshot {
   features: FeatureRow[];
   added: string[];
   historyIds: number[];
+  history?: HistoryRow[];
 }
 
 const KNOWLEDGE_DIR = "knowledge";
@@ -62,6 +64,7 @@ const toFeature = (r: FeatureRow): Feature => ({
   owners: JSON.parse(r.owners),
   summary: r.summary,
   origin: r.origin,
+  corrected: JSON.parse(r.corrected ?? "[]"),
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -124,6 +127,46 @@ export function mergeFeature(id: string, input: Partial<FeatureInput>, at = new 
   return getFeature(id)!;
 }
 
+type Correctable = "name" | "aliases" | "where" | "paths" | "owners" | "summary";
+export const CORRECTABLE: readonly Correctable[] = ["name", "aliases", "where", "paths", "owners", "summary"];
+
+export function correctFeature(id: string, patch: Partial<Pick<FeatureInput, Correctable>>, at = new Date().toISOString()): Feature {
+  const cur = getFeature(id)!;
+  const keys = CORRECTABLE.filter((k) => patch[k] !== undefined);
+  const next = {
+    name: patch.name ?? cur.name,
+    aliases: patch.aliases ?? cur.aliases,
+    where: patch.where ?? cur.where,
+    paths: patch.paths ?? cur.paths,
+    owners: patch.owners ?? cur.owners,
+    summary: patch.summary ?? cur.summary,
+  };
+  db()
+    .prepare("UPDATE features SET name = ?, aliases = ?, where_ = ?, paths = ?, owners = ?, summary = ?, corrected = ?, updated_at = ? WHERE id = ?")
+    .run(next.name, JSON.stringify(next.aliases), next.where, JSON.stringify(next.paths), JSON.stringify(next.owners), next.summary, JSON.stringify(union(cur.corrected ?? [], keys)), at, id);
+  return getFeature(id)!;
+}
+
+export function mergeFeatures(keepId: string, dropId: string, at = new Date().toISOString()): Feature {
+  const keep = getFeature(keepId)!;
+  const drop = getFeature(dropId)!;
+  db().prepare("UPDATE feature_history SET feature_id = ? WHERE feature_id = ?").run(keepId, dropId);
+  db().prepare("DELETE FROM features WHERE id = ?").run(dropId);
+  db()
+    .prepare("UPDATE features SET aliases = ?, updated_at = ? WHERE id = ?")
+    .run(JSON.stringify(union(keep.aliases, [drop.name, ...drop.aliases].filter((n) => norm(n) !== norm(keep.name)))), at, keepId);
+  return getFeature(keepId)!;
+}
+
+export function getFeatureHistory(historyId: number): FeatureHistory | undefined {
+  const r = db().prepare("SELECT * FROM feature_history WHERE id = ?").get(historyId) as unknown as HistoryRow | undefined;
+  return r && toHistory(r);
+}
+
+export function moveHistory(historyId: number, toFeatureId: string): void {
+  db().prepare("UPDATE feature_history SET feature_id = ? WHERE id = ?").run(toFeatureId, historyId);
+}
+
 export function findFeatureByName(project: string, name: string): Feature | undefined {
   const key = norm(name);
   return listFeatures(project).find((f) => norm(f.name) === key || f.aliases.some((a) => norm(a) === key));
@@ -148,9 +191,12 @@ export function hasHistoryFor(featureId: string, taskId: string): boolean {
   return !!db().prepare("SELECT 1 FROM feature_history WHERE feature_id = ? AND task_id = ?").get(featureId, taskId);
 }
 
-export function snapshotFeatures(ids: string[]): FeaturesSnapshot {
-  const features = ids.length ? (db().prepare(`SELECT * FROM features WHERE id IN (${ids.map(() => "?").join(",")})`).all(...ids) as unknown as FeatureRow[]) : [];
-  return { features, added: [], historyIds: [] };
+export function snapshotFeatures(ids: string[], opts: { withHistory?: boolean } = {}): FeaturesSnapshot {
+  const marks = ids.map(() => "?").join(",");
+  const features = ids.length ? (db().prepare(`SELECT * FROM features WHERE id IN (${marks})`).all(...ids) as unknown as FeatureRow[]) : [];
+  const snap: FeaturesSnapshot = { features, added: [], historyIds: [] };
+  if (opts.withHistory) snap.history = ids.length ? (db().prepare(`SELECT * FROM feature_history WHERE feature_id IN (${marks})`).all(...ids) as unknown as HistoryRow[]) : [];
+  return snap;
 }
 
 export function restoreFeatures(s: FeaturesSnapshot): string[] {
@@ -165,8 +211,10 @@ export function restoreFeatures(s: FeaturesSnapshot): string[] {
     for (const id of s.historyIds) d.prepare("DELETE FROM feature_history WHERE id = ?").run(id);
     // 之后别的任务往这个功能上记过历史，功能就留着
     for (const id of s.added) d.prepare("DELETE FROM features WHERE id = ? AND NOT EXISTS (SELECT 1 FROM feature_history WHERE feature_id = ?)").run(id, id);
-    const up = d.prepare("INSERT OR REPLACE INTO features (id, project, name, aliases, where_, paths, routes, owners, summary, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    for (const f of s.features) up.run(f.id, f.project, f.name, f.aliases, f.where_, f.paths, f.routes, f.owners, f.summary, f.origin, f.created_at, f.updated_at);
+    const up = d.prepare("INSERT OR REPLACE INTO features (id, project, name, aliases, where_, paths, routes, owners, summary, origin, corrected, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const f of s.features) up.run(f.id, f.project, f.name, f.aliases, f.where_, f.paths, f.routes, f.owners, f.summary, f.origin, f.corrected ?? "[]", f.created_at, f.updated_at);
+    const hist = d.prepare("INSERT OR REPLACE INTO feature_history (id, feature_id, task_id, at, what, files) VALUES (?, ?, ?, ?, ?, ?)");
+    for (const h of s.history ?? []) hist.run(h.id, h.feature_id, h.task_id, h.at, h.what, h.files);
     d.exec("COMMIT");
   } catch (e) {
     d.exec("ROLLBACK");

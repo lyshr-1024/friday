@@ -66,6 +66,8 @@ export function migrate(d: DatabaseSync): void {
     d.exec("INSERT INTO links SELECT id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at FROM links_old");
     d.exec("DROP TABLE links_old");
   }
+  const featCols = (d.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!featCols.includes("corrected")) d.exec("ALTER TABLE features ADD COLUMN corrected TEXT NOT NULL DEFAULT '[]'");
   const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
   const msgCols = (d.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).map((c) => c.name);

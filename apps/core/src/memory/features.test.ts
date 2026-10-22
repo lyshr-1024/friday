@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addFeatureHistory,
+  correctFeature,
   createFeature,
   deleteFeature,
   featureHistory,
@@ -12,6 +13,8 @@ import {
   listKnowledge,
   matchFeatures,
   mergeFeature,
+  mergeFeatures,
+  moveHistory,
   readKnowledge,
   renderKnowledge,
   restoreFeatures,
@@ -102,5 +105,55 @@ describe("knowledgeBlock", () => {
     expect(knowledgeBlock("p-kb", "基金筛选加入口")).toContain("- 基金筛选 — 财富 › 基金 — src/funds");
     expect(knowledgeBlock("p-kb", "完全无关")).toBe("");
     expect(knowledgeBlock("p-kb", "基金筛选", 10)).toBe("");
+  });
+});
+
+describe("功能纠正", () => {
+  it("correctFeature 直接替换字段并记进 corrected", () => {
+    const f = createFeature("p-cf", { name: "A", where: "A 仓", aliases: ["x"] }, "task");
+    const c = correctFeature(f.id, { where: "B 仓", aliases: [] });
+    expect(c).toMatchObject({ where: "B 仓", aliases: [], corrected: ["aliases", "where"] });
+    expect(correctFeature(f.id, { where: "C 仓", summary: "s" }).corrected).toEqual(["aliases", "where", "summary"]);
+  });
+
+  it("删功能可撤销：功能和历史都回来", () => {
+    const f = createFeature("p-del-u", { name: "持仓页", where: "w" }, "task");
+    const h = addFeatureHistory({ featureId: f.id, taskId: "t1", at: "2026-10-03T00:00:00Z", what: "改了排序", files: ["a"] });
+    const snap = snapshotFeatures([f.id], { withHistory: true });
+    deleteFeature(f.id);
+    expect(getFeature(f.id)).toBeUndefined();
+    restoreFeatures(snap);
+    expect(getFeature(f.id)?.where).toBe("w");
+    expect(featureHistory(f.id)).toMatchObject([{ id: h, what: "改了排序", files: ["a"] }]);
+  });
+
+  it("合并：历史挂到留下的那条，名字进别名，可撤销", () => {
+    const keep = createFeature("p-mg", { name: "提现", aliases: ["出金"] }, "task");
+    const drop = createFeature("p-mg", { name: "提现规则", aliases: ["规则"] }, "task");
+    const h1 = addFeatureHistory({ featureId: keep.id, at: "2026-10-01T00:00:00Z", what: "a", files: [] });
+    const h2 = addFeatureHistory({ featureId: drop.id, at: "2026-10-02T00:00:00Z", what: "b", files: [] });
+    const snap = snapshotFeatures([keep.id, drop.id], { withHistory: true });
+    const m = mergeFeatures(keep.id, drop.id);
+    expect(m.aliases).toEqual(["出金", "提现规则", "规则"]);
+    expect(getFeature(drop.id)).toBeUndefined();
+    expect(featureHistory(keep.id).map((h) => h.id).sort()).toEqual([h1, h2].sort());
+    restoreFeatures(snap);
+    expect(getFeature(drop.id)?.name).toBe("提现规则");
+    expect(getFeature(keep.id)?.aliases).toEqual(["出金"]);
+    expect(featureHistory(keep.id).map((h) => h.id)).toEqual([h1]);
+    expect(featureHistory(drop.id).map((h) => h.id)).toEqual([h2]);
+  });
+
+  it("挪一条历史到另一个功能，可撤销", () => {
+    const a = createFeature("p-mv", { name: "A" }, "task");
+    const b = createFeature("p-mv", { name: "B" }, "task");
+    const h = addFeatureHistory({ featureId: a.id, at: "2026-10-01T00:00:00Z", what: "a", files: [] });
+    const snap = snapshotFeatures([a.id, b.id], { withHistory: true });
+    moveHistory(h, b.id);
+    expect(featureHistory(a.id)).toEqual([]);
+    expect(featureHistory(b.id).map((x) => x.id)).toEqual([h]);
+    restoreFeatures(snap);
+    expect(featureHistory(a.id).map((x) => x.id)).toEqual([h]);
+    expect(featureHistory(b.id)).toEqual([]);
   });
 });

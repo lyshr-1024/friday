@@ -1001,6 +1001,7 @@ export interface Feature {
   owners: FeatureOwners;
   summary: string;
   origin: FeatureOrigin;
+  corrected?: string[];
   createdAt: string;
   updatedAt: string;
 }

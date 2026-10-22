@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { ProjectKnowledge } from "@friday/shared";
 import { describe, expect, it, vi } from "vitest";
 import { config } from "../config.js";
-import { listAudit } from "../memory/audit.js";
-import { addFeatureHistory, createFeature, listFeatures, readKnowledge, writeKnowledge } from "../memory/features.js";
+import { listAudit, undoPlan } from "../memory/audit.js";
+import { addFeatureHistory, createFeature, featureHistory, getFeature, listFeatures, readKnowledge, restoreFeatures, writeKnowledge } from "../memory/features.js";
 import { knowledge } from "./knowledge.js";
 
 vi.mock("../memory/features.js", async (orig) => {
@@ -69,9 +69,21 @@ describe("/features/:id", () => {
     expect(listFeatures("kb-del")).toEqual([]);
     expect(readKnowledge("kb-del")).not.toContain("持仓页");
     const ev = listAudit({ limit: 20 }).find((e) => e.action === "feature_deleted" && (e.evidence as { feature?: { id: string } }).feature?.id === f.id);
-    expect(ev).toMatchObject({ risk: "irreversible", reversible: false });
+    expect(ev).toMatchObject({ risk: "reversible", reversible: true });
     expect((ev!.evidence as { history: unknown[] }).history).toHaveLength(1);
     expect((await knowledge.request(`/features/${f.id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("设置页的 DELETE /features/:id 也能撤销", async () => {
+    const f = createFeature("kb-del3", { name: "订单页" }, "task");
+    addFeatureHistory({ featureId: f.id, at: "2026-10-03T00:00:00.000Z", what: "改了列宽", files: [] });
+    await knowledge.request(`/features/${f.id}`, { method: "DELETE" });
+    const ev = listAudit({ limit: 20 }).find((e) => e.action === "feature_deleted" && (e.evidence as { feature?: { id: string } }).feature?.id === f.id)!;
+    const plan = undoPlan(ev.id)!;
+    if (plan.kind !== "restore_features") throw new Error();
+    restoreFeatures(plan.snapshot);
+    expect(getFeature(f.id)?.name).toBe("订单页");
+    expect(featureHistory(f.id).map((h) => h.what)).toEqual(["改了列宽"]);
   });
 
   it("DELETE 渲染文件出错也先把证据记下（删掉的内容只剩账上这一份）", async () => {

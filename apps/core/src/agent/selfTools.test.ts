@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { addRule, getRule, renderHandbook, restoreRules } from "../memory/rules.js";
+import { addFeatureHistory, createFeature, featureHistory, findFeatureByName, getFeature, readKnowledge, restoreFeatures } from "../memory/features.js";
 import { readHandbook, writeHandbook } from "../memory/handbooks.js";
 
 const callIn = async (conv: string | undefined, name: string, args: Record<string, unknown>) => {
@@ -200,5 +201,69 @@ describe("手册规则工具", () => {
     expect(only).toContain("A 一条");
     expect(only).not.toContain("B 一条");
     expect(await callIn(undefined, "rules_list", { project: "没有的项目" })).toBe("还没有规则");
+  });
+});
+
+describe("knowledge_update", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kb-proj-"));
+  const seed = `# 项目\n\n## KbApp\n- 目录：${dir}\n\n## KbOther\n- 目录：${dir}\n`;
+  const undoOf = (action: string) => {
+    const e = listAudit({}).find((x) => x.action === action)!;
+    const plan = undoPlan(e.id)!;
+    if (plan.kind !== "restore_features") throw new Error();
+    return { e, plan };
+  };
+
+  it("认「项目:功能名」（项目名大小写不敏感、功能名认别名），改字段、重渲染、可撤", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "基金筛选", aliases: ["筛选"], where: "A 仓" }, "task");
+    const conv = createConversation().id;
+    addMessage(conv, { role: "user", kind: "ask", content: "基金筛选在 B 仓" });
+    const out = await callIn(conv, "knowledge_update", { op: "edit", id: "kbapp:筛选", patch: { where: "B 仓" } });
+    expect(out).toContain("B 仓");
+    expect(getFeature(f.id)).toMatchObject({ where: "B 仓", corrected: ["where"] });
+    expect(readKnowledge("KbApp")).toContain("B 仓");
+    const { e, plan } = undoOf("knowledge_corrected");
+    expect(e.evidence.quote).toBe("基金筛选在 B 仓");
+    restoreFeatures(plan.snapshot);
+    expect(getFeature(f.id)).toMatchObject({ where: "A 仓", corrected: [] });
+  });
+
+  it("找不到、空 patch、未知键都回文本不抛", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "资金流水" }, "task");
+    expect(await callIn(undefined, "knowledge_update", { op: "edit", id: "KbApp:没有", patch: { where: "x" } })).toContain("没找到这个功能");
+    expect(await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: {} })).toContain("没有要改");
+    expect(await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { origin: "x" } })).toContain("不能改");
+  });
+
+  it("merge：跨项目被拒；同项目合并后可撤", async () => {
+    writeMemoryFile("projects", seed);
+    const k = createFeature("KbApp", { name: "提现" }, "task");
+    const d = createFeature("KbApp", { name: "提现规则" }, "task");
+    const o = createFeature("KbOther", { name: "别处" }, "task");
+    addFeatureHistory({ featureId: d.id, at: "2026-10-01T00:00:00Z", what: "b", files: [] });
+    expect(await callIn(undefined, "knowledge_update", { op: "merge", keep: k.id, drop: o.id })).toContain("同一个项目");
+    await callIn(undefined, "knowledge_update", { op: "merge", keep: k.id, drop: d.id });
+    expect(getFeature(d.id)).toBeUndefined();
+    expect(getFeature(k.id)!.aliases).toContain("提现规则");
+    expect(featureHistory(k.id)).toHaveLength(1);
+    restoreFeatures(undoOf("knowledge_corrected").plan.snapshot);
+    expect(getFeature(d.id)).toBeTruthy();
+    expect(featureHistory(d.id)).toHaveLength(1);
+  });
+
+  it("move：挪历史，to 认「项目:功能名」；delete 可撤", async () => {
+    writeMemoryFile("projects", seed);
+    const a = createFeature("KbApp", { name: "移出方" }, "task");
+    const b = createFeature("KbApp", { name: "移入方" }, "task");
+    const h = addFeatureHistory({ featureId: a.id, at: "2026-10-01T00:00:00Z", what: "x", files: [] });
+    await callIn(undefined, "knowledge_update", { op: "move", historyId: h, to: "KbApp:移入方" });
+    expect(featureHistory(b.id).map((x) => x.id)).toEqual([h]);
+    expect(await callIn(undefined, "knowledge_update", { op: "move", historyId: 999999, to: b.id })).toContain("没有这条历史");
+    await callIn(undefined, "knowledge_update", { op: "delete", id: b.id });
+    expect(findFeatureByName("KbApp", "移入方")).toBeUndefined();
+    restoreFeatures(undoOf("knowledge_corrected").plan.snapshot);
+    expect(featureHistory(b.id).map((x) => x.id)).toEqual([h]);
   });
 });

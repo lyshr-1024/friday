@@ -112,7 +112,10 @@ export function applyLearn(project: string, taskId: string, items: LearnItem[], 
     if (target) {
       const cur = getFeature(target)!;
       const renamed = input.name !== cur.name ? [input.name] : [];
-      id = mergeFeature(target, { ...input, name: cur.name, aliases: [...(input.aliases ?? []), ...renamed] }, at).id;
+      const fixed = new Set(cur.corrected ?? []);
+      const learned: Partial<FeatureInput> = { ...input, name: cur.name, aliases: [...(input.aliases ?? []), ...renamed] };
+      for (const k of fixed) delete learned[k as keyof FeatureInput];
+      id = mergeFeature(target, learned, at).id;
     } else {
       id = createFeature(project, input, "task", at).id;
       snap.added.push(id);
