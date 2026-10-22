@@ -119,6 +119,7 @@ export function migrate(d: DatabaseSync): void {
   if (!taskCols.includes("stage_hint")) d.exec("ALTER TABLE tasks ADD COLUMN stage_hint TEXT");
   if (!taskCols.includes("released_at")) d.exec("ALTER TABLE tasks ADD COLUMN released_at TEXT");
   if (!taskCols.includes("seq")) d.exec("ALTER TABLE tasks ADD COLUMN seq INTEGER");
+  d.exec("UPDATE tasks SET seq = NULL WHERE seq IS NOT NULL AND rowid NOT IN (SELECT MIN(rowid) FROM tasks WHERE seq IS NOT NULL GROUP BY seq)");
   const unnumbered = d.prepare("SELECT rowid AS r FROM tasks WHERE seq IS NULL ORDER BY created_at, rowid").all() as Array<{ r: number }>;
   if (unnumbered.length) {
     let next = (d.prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM tasks").get() as { m: number }).m;

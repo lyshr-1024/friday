@@ -61,6 +61,18 @@ const toTask = (r: Row): Task => ({
 const STATUSES: TaskStatus[] = ["collected", "understood", "processing", "review", "done", "blocked", "ignored"];
 const now = () => new Date().toISOString();
 
+const SEQ_HWM = "task:seq:hwm";
+/** 号只增不减：硬删掉最大号后不能让下一条拿到同一个号 */
+function nextSeq(): number {
+  const max = (db().prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM tasks").get() as { m: number }).m;
+  const hwm = Number((db().prepare("SELECT cursor FROM sync_state WHERE source = ?").get(SEQ_HWM) as { cursor: string | null } | undefined)?.cursor ?? 0);
+  const n = Math.max(max, hwm) + 1;
+  db()
+    .prepare("INSERT INTO sync_state (source, last_synced_at, cursor) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET last_synced_at = excluded.last_synced_at, cursor = excluded.cursor")
+    .run(SEQ_HWM, now(), String(n));
+  return n;
+}
+
 export function createTask(input: {
   title: string;
   kind: TaskKind;
@@ -78,9 +90,9 @@ export function createTask(input: {
   const source = input.source;
   db()
     .prepare(
-      "INSERT INTO tasks (id, seq, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM tasks), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tasks (id, seq, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
+    .run(id, nextSeq(), input.title.slice(0, 200), input.kind, JSON.stringify(source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
   publish({ type: "tasks" });
   const task = getTask(id)!;
   inferTaskLinks(task);
@@ -167,7 +179,7 @@ export function restoreTask(row: TaskRow): boolean {
   if (!cols.length) return false;
   const kept = typeof row.seq === "number" ? (db().prepare("SELECT 1 FROM tasks WHERE seq = ? AND id != ?").get(row.seq, row.id as string) ? undefined : row.seq) : undefined;
   db()
-    .prepare(`INSERT OR REPLACE INTO tasks (seq, ${cols.join(", ")}) VALUES (${kept ?? "(SELECT COALESCE(MAX(seq), 0) + 1 FROM tasks)"}, ${cols.map(() => "?").join(", ")})`)
+    .prepare(`INSERT OR REPLACE INTO tasks (seq, ${cols.join(", ")}) VALUES (${kept ?? nextSeq()}, ${cols.map(() => "?").join(", ")})`)
     .run(...cols.map((c) => row[c] as never));
   publish({ type: "tasks" });
   return true;
@@ -183,7 +195,8 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
   return rows.map(toTask);
 }
 
-export const taskTag = (t: Task): string => `#${t.seq} ${t.title.slice(0, 30)}`;
+export const tagOf = (seq: number, title: string): string => `#${seq} ${title.slice(0, 30)}`;
+export const taskTag = (t: Task): string => tagOf(t.seq, t.title);
 
 /** `#12` / `12` 按短号；否则完整 id 或 ≥6 位的 id 前缀（唯一命中才返回） */
 export function findTaskByRef(ref: string): Task | undefined {
@@ -215,10 +228,11 @@ export function listTasksWithPriorWorktrees(): Task[] {
 }
 
 const ROUTINE_KINDS = new Set<TaskKind>(["project", "okr_weekly", "handbook"]);
+const isBoardKind = (t: Task) => !ROUTINE_KINDS.has(t.kind);
 
 /** 任务板上没收工的任务：不含例行卡，不设上限 */
 export function listOpenBoardTasks(): Task[] {
-  return (db().prepare("SELECT * FROM tasks WHERE status NOT IN ('done', 'ignored') ORDER BY updated_at DESC").all() as unknown as Row[]).map(toTask).filter((t) => !ROUTINE_KINDS.has(t.kind));
+  return (db().prepare("SELECT * FROM tasks WHERE status NOT IN ('done', 'ignored') ORDER BY updated_at DESC").all() as unknown as Row[]).map(toTask).filter(isBoardKind);
 }
 
 /** 周报、手册这类例行卡不进任务板，在各自的弹窗里看，连已忽略的一起列（那也是记录） */
@@ -228,7 +242,7 @@ export function listTasksByKind(kind: TaskKind, limit = 100): Task[] {
 
 export function taskBoard(): Omit<TaskBoard, "meegleSyncedAt" | "slackConfigured"> {
   // 项目终端的锚点在「项目」页里，周报和手册改动在右上「···」各自的弹窗里，都不是任务
-  const tasks = listTasks(undefined, 500).filter((t) => !ROUTINE_KINDS.has(t.kind));
+  const tasks = listTasks(undefined, 500).filter(isBoardKind);
   const counts = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TaskStatus, number>;
   for (const t of tasks) counts[t.status]++;
   return { tasks: tasks.filter((t) => t.status !== "ignored"), counts };

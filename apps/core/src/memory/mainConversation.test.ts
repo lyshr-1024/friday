@@ -7,7 +7,8 @@ import { transcriptPath } from "../agent/runner.js";
 import { config } from "../config.js";
 import { addMessage, createConversation, deleteConversation, listMessages, listMessagesForTask, setClaudeSessionId } from "./conversations.js";
 import { mainConversationId, mainResume } from "./mainConversation.js";
-import { setCursor } from "./inbox.js";
+import { db } from "./db.js";
+import { getCursor, setCursor } from "./inbox.js";
 import { createTask } from "./tasks.js";
 
 let home = "";
@@ -23,6 +24,9 @@ beforeEach(() => {
   realHome = process.env.HOME;
   home = mkdtempSync(join(tmpdir(), "friday-home-"));
   process.env.HOME = home;
+  const old = getCursor("main:conversation");
+  if (old) deleteConversation(old);
+  db().exec("DELETE FROM sync_state WHERE source IN ('main:conversation', 'main:session:since')");
 });
 afterEach(() => {
   process.env.HOME = realHome;
@@ -38,7 +42,6 @@ describe("主对话", () => {
   });
 
   it("换日换新的 Claude session；首次调用只记 since 不轮换", () => {
-    deleteConversation(mainConversationId());
     const id = mainConversationId();
     const s = transcript();
     setClaudeSessionId(id, s);
@@ -63,7 +66,6 @@ describe("主对话", () => {
   });
 
   it("since 之后用户消息满 40 条换新", () => {
-    deleteConversation(mainConversationId());
     const id = mainConversationId();
     setClaudeSessionId(id, transcript());
     const since = new Date(Date.now() - 1000).toISOString();
@@ -86,16 +88,14 @@ describe("消息挂任务", () => {
     expect(addMessage(c.id, { role: "user", kind: "ask", content: "y" }).taskIds).toBeUndefined();
   });
 
-  it("listMessagesForTask：主对话里挂了它的 + 它自己的旧会话，按时间排", async () => {
+  it("listMessagesForTask：主对话里挂了它的 + 它自己的旧会话，按时间排", () => {
     const main = mainConversationId();
     const own = createConversation().id;
     const t = createTask({ title: "x", kind: "verbal", source: { conversationId: own } });
     const m1 = addMessage(own, { role: "user", kind: "ask", content: "own1" });
-    await new Promise((r) => setTimeout(r, 3));
     const m2 = addMessage(main, { role: "user", kind: "ask", content: "main-hit", taskIds: [t.id, "other"] });
     addMessage(main, { role: "user", kind: "ask", content: "main-miss", taskIds: ["other"] });
     addMessage(main, { role: "user", kind: "ask", content: "main-none" });
-    await new Promise((r) => setTimeout(r, 3));
     const m3 = addMessage(own, { role: "assistant", kind: "ask", content: "own2" });
     expect(listMessagesForTask(t.id).map((m) => m.id)).toEqual([m1.id, m2.id, m3.id]);
   });

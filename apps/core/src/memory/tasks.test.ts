@@ -52,6 +52,16 @@ describe("任务中枢", () => {
     expect(getTask(d.id)!.seq).toBe(c.seq);
   });
 
+  it("最大号被硬删后下一条不复用这个号", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    createTask({ title: "一", kind: "verbal", source: {} });
+    createTask({ title: "二", kind: "verbal", source: {} });
+    const c = createTask({ title: "三", kind: "verbal", source: {} });
+    deleteTask(c.id);
+    const d = createTask({ title: "四", kind: "verbal", source: {} });
+    expect(d.seq).toBe(c.seq + 1);
+  });
+
   it("新任务按顺序拿短号，#N / 数字 / id 前缀都能找回", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const a = createTask({ title: "甲", kind: "verbal", source: {} });
@@ -63,7 +73,6 @@ describe("任务中枢", () => {
     expect(findTaskByRef(b.id)!.id).toBe(b.id);
     expect(findTaskByRef("#999999")).toBeUndefined();
   });
-
 
   it("建任务、按来源去重、推进状态、待审核动作进出", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);

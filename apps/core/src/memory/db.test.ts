@@ -82,6 +82,20 @@ describe("老库迁移", () => {
     expect(seqs).toEqual(["x7", "o8", "p9", "q10"]);
   });
 
+  it("老库里已有重复 seq：保留最早那行，其余重新取号，建唯一索引不抛", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    d.exec("ALTER TABLE tasks ADD COLUMN seq INTEGER");
+    const add = (id: string) => d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at, seq) VALUES (?, ?, 'verbal', '{}', 'understood', 'a', 'a', 5)").run(id, id);
+    add("m");
+    add("n");
+    expect(() => migrate(d)).not.toThrow();
+    const seqs = (d.prepare("SELECT id, seq FROM tasks ORDER BY rowid").all() as Array<{ id: string; seq: number }>);
+    expect(seqs[0]).toEqual({ id: "m", seq: 5 });
+    expect(seqs[1]!.seq).not.toBe(5);
+    expect(seqs[1]!.seq).toBeGreaterThan(5);
+  });
+
   it("老库补 seq：按 created_at 回填，从 1 开始不重复", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);
