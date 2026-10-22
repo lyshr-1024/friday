@@ -11,6 +11,7 @@ import { createJob } from "../memory/jobs.js";
 import { createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
 import { onJobExit } from "./pipeline.js";
+import { closeJobTerminal } from "./terminal.js";
 import { bootstrapPrompt, bootstrapState, finishBootstrap, ingestBootstrap, startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
 import { openSession } from "./sessions.js";
 
@@ -183,5 +184,20 @@ describe("知识库冷启动", () => {
     ingestBootstrap("p-pf", repo, { features: [{ name: "订单列表" }] });
     await finishBootstrap(anchor, "job-pf", 1);
     expect(getCursor("knowledge:bootstrapped:p-pf")).toBeTruthy();
+  });
+});
+
+describe("冷启动会话被手动关掉", () => {
+  it("关终端也走收尾：入过库就记水位、锚点收工", async () => {
+    const anchor = createTask({ title: "知识库冷启动：p-kc", kind: "project", status: "processing", project: "p-kc", source: { knowledgeBootstrap: "p-kc", repoDir: repo, headless: true, jobId: "job-kc" } });
+    createJob({ id: "job-kc", project: "p-kc", dir: repo, logPath: "/tmp/job-kc.log", taskId: anchor.id });
+    ingestBootstrap("p-kc", repo, { features: [{ name: "订单列表" }] });
+    await closeJobTerminal("job-kc", "你在顶栏的终端列表里关了它", anchor.id);
+    await vi.waitFor(() => expect(getTask(anchor.id)!.status).toBe("done"));
+    expect(getCursor("knowledge:bootstrapped:p-kc")).toBeTruthy();
+  });
+
+  it("提示词：命令不许放后台", () => {
+    expect(bootstrapPrompt({ name: "p-kp", dir: repo, aliases: [], channels: [], urls: [], envs: [], protected: [], extra: {} }, [])).toContain("不要放到后台");
   });
 });
