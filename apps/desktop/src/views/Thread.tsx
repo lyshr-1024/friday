@@ -293,6 +293,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }
 
   async function send(text: string, id: string | null = convRef.current) {
+    if (disabledNote) return;
     let prompt = text.trim() || (pending.length ? "看看这些附件" : "");
     if (!prompt || uploading > 0 || resolving) return;
     if (!id) {
@@ -389,6 +390,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }
 
   function onPaste(e: React.ClipboardEvent) {
+    if (disabledNote) return;
     const files = [...e.clipboardData.items].filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter((f): f is File => Boolean(f));
     if (!files.length) return;
     e.preventDefault();
@@ -449,7 +451,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         e.preventDefault();
         dragDepth.current = 0;
         setDragging(false);
-        if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+        if (!disabledNote && e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
       }}
     >
       {dragging && <div className="thread__drop">松手就把文件交给 Friday</div>}
@@ -513,7 +515,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         {pending.length > 0 && <AttachmentStrip items={pending} onRemove={(id) => setPending((p) => p.filter((a) => a.id !== id))} />}
         <div className={`composer__box${disabledNote ? " is-off" : ""}`} onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
           <span className="composer__caret" aria-hidden="true">›</span>
-          {!compact && (
+          {!compact && !disabledNote && (
             <button className="composer__attach" title="添加图片或文件（也可以直接粘贴、拖入）" aria-label="添加附件" onClick={() => fileRef.current?.click()}>
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10.5 5.5 6 10a1.8 1.8 0 0 0 2.5 2.5l5-5a3.2 3.2 0 0 0-4.5-4.5l-5 5a4.6 4.6 0 0 0 6.5 6.5l3.5-3.5" /></svg>
             </button>
@@ -566,7 +568,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
           ) : (
             <button
               className="composer__send"
-              disabled={uploading > 0 || resolving || (!input.trim() && !pending.length)}
+              disabled={Boolean(disabledNote) || uploading > 0 || resolving || (!input.trim() && !pending.length)}
               onClick={() => void send(input)}
               title={uploading > 0 ? `还有 ${uploading} 个附件在上传` : resolving ? "正在判断这句话接哪段对话" : !input.trim() && !pending.length ? "写点什么再发" : "发送（Enter）"}
               aria-label="发送"

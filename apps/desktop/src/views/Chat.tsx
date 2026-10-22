@@ -46,6 +46,7 @@ export function Chat() {
   const [skills, setSkills] = useState<boolean | null>(null);
   // 主对话 id；会话历史里点开的旧会话 id（只读）
   const [mainId, setMainId] = useState<string | null>(null);
+  const [mainFailed, setMainFailed] = useState(false);
   const [histConv, setHistConv] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [boardReq, setBoardReq] = useState<BoardRequest | null>(null);
@@ -112,17 +113,19 @@ export function Chat() {
     else t.focus();
   }, [view, mainId]);
 
-  async function loadMain(tries = 20): Promise<string | null> {
-    for (let i = 0; i < tries; i++) {
+  // 先隔 2 秒试 20 次；还连不上就提示，并在后台每 10 秒继续试，后台起来后自己恢复
+  async function loadMain() {
+    for (let i = 0; ; i++) {
       try {
         const { id } = await mainConversation();
         setMainId(id);
-        return id;
+        setMainFailed(false);
+        return;
       } catch {
-        await new Promise((r) => setTimeout(r, 2000));
+        if (i >= 20) setMainFailed(true);
+        await new Promise((r) => setTimeout(r, i >= 20 ? 10000 : 2000));
       }
     }
-    return null;
   }
 
   // 窗口常比 sidecar 先起来，第一次拉设置会失败；失败就隔 2 秒再试，否则 Skill / 模型开关会一直是灰的
@@ -165,11 +168,13 @@ export function Chat() {
   }
 
   function openMain(prompt?: string) {
-    pendingPrompt.current = prompt ?? null;
+    // 主对话 id 还没到：话先留着，id 到了由 view/mainId 的 effect 发出
+    if (prompt || view !== "ask") pendingPrompt.current = prompt ?? pendingPrompt.current;
     if (view === "ask") {
+      if (!mainId) return;
       const t = threadRef.current;
       pendingPrompt.current = null;
-      if (!t || !mainId) return;
+      if (!t) return;
       if (prompt) void t.load(mainId).then(() => t.send(prompt, mainId));
       else t.focus();
       return;
@@ -186,8 +191,9 @@ export function Chat() {
 
   async function openPayload(p: OpenPayload) {
     if (p.taskId) return openTask(p.taskId);
-    const id = await loadMain(1);
-    if (p.conversationId && p.conversationId !== id) return openConversation(p.conversationId);
+    // 拿不到主对话 id（后台没起来）时，带 conversationId 的当主对话处理，不落进只读历史
+    const id = await mainConversation().then((m) => { setMainId(m.id); return m.id; }).catch(() => null);
+    if (id && p.conversationId && p.conversationId !== id) return openConversation(p.conversationId);
     openMain(p.initialPrompt ?? undefined);
   }
 
@@ -310,6 +316,7 @@ export function Chat() {
                 <Thread
                   ref={threadRef}
                   conversationId={mainId}
+                  {...(mainId ? {} : { disabledNote: mainFailed ? "连不上 Friday 的后台，稍后再试" : "正在连接 Friday…" })}
                   onConversation={() => void refreshList()}
                   emptyTitle="说吧"
                   emptyHint="问题直接答；要干的活我先说判断，你点头我再开工。任务有进展、要你拍板时我会在这里主动说。"
