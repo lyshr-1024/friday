@@ -11,6 +11,7 @@ export function deliveryText(report: DeliveryReport, query = false): string {
   const lines = [`${query ? "查完了" : "交付了"}：${report.summary}`];
   if (report.testResult && !EMPTY.test(report.testResult)) lines.push(`测试结果：${report.testResult}`);
   if (query && report.changes.length) lines.push(["依据：", ...report.changes.map((c) => `- ${c}`)].join("\n"));
+  if (report.decisions?.length) lines.push(["替你定了：", ...report.decisions.map((d) => `- ${d}`)].join("\n"));
   if (report.verify.length) lines.push(["请你验证：", ...report.verify.map((v) => `- ${v}`)].join("\n"));
   return lines.join("\n");
 }

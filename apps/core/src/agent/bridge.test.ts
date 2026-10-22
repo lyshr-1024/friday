@@ -9,7 +9,7 @@ import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
 import { createJob, getJob, setJobSession } from "../memory/jobs.js";
 import { createRun, openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
-import { transcriptPath } from "./runner.js";
+import { shotsDir, transcriptPath } from "./runner.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { createFeature } from "../memory/features.js";
@@ -106,6 +106,17 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(t.pending![0]!.payload).toMatchObject({ dir: "/main/repo", branch: "fix/login-token", worktree: repo });
     // 会话留到任务收工，供「看终端」翻 scrollback；claude -p 自己会退出
     expect(getJob("job-mcp-4")!.status).toBe("running");
+  });
+
+  it("自主任务 friday_done：decisions 进报告，截图交付时就收，不等进程退出", async () => {
+    mkdirSync(shotsDir("job-mcp-dec"), { recursive: true });
+    writeFile(join(shotsDir("job-mcp-dec"), "导出页-改后.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    createJob({ id: "job-mcp-dec", project: "demo", dir: tmpdir(), task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：带决定", kind: "code", source: { jobId: "job-mcp-dec", autonomous: true }, project: "demo", status: "processing", plan: "改" });
+    await rpc("job-mcp-dec", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过", decisions: ["字段用 string"] } });
+    const t = getTask(task.id)!;
+    expect(t.report?.decisions).toEqual(["字段用 string"]);
+    expect(t.report?.screenshots).toHaveLength(1);
   });
 
   it("分支上一个提交都没有（比如 Claude 发现改错仓库、没动代码）就不挂合并动作", async () => {

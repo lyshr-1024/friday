@@ -693,6 +693,8 @@ export interface DeliveryReport {
   checked?: boolean[];
   /** 查询类任务给出的、可直接发给对方的一句回复 */
   reply?: string;
+  /** 方案没写到、Claude 替用户定了的事 */
+  decisions?: string[];
 }
 
 export interface Task {

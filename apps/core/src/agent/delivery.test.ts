@@ -25,6 +25,13 @@ describe("交付写进会话：卡上没有交付报告了，验收看这条", (
     expect(deliveryText(report, true)).toContain("依据：\n- src/a.ts:12 轮询没带 offset");
   });
 
+  it("带「替你定了」，在测试结果之后、请你验证之前", () => {
+    const text = deliveryText({ ...report, decisions: ["字段用 string"] });
+    expect(text).toContain("替你定了：\n- 字段用 string");
+    expect(text.indexOf("替你定了")).toBeGreaterThan(text.indexOf("测试结果"));
+    expect(text.indexOf("替你定了")).toBeLessThan(text.indexOf("请你验证"));
+  });
+
   it("没写测试结果（占位的「（…）」）就不写那一行", () => {
     expect(deliveryText({ ...report, testResult: "（没写测试结果）" })).not.toContain("测试结果");
   });

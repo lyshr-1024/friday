@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Attachment, DeliveryReport } from "@friday/shared";
 import { saveAttachment } from "../memory/attachments.js";
@@ -30,11 +30,12 @@ export function queryReplyDraft(report: DeliveryReport): string | undefined {
   return draft ? draft.slice(0, 300) : undefined;
 }
 
-function readShots(jobId: string): Array<{ name: string; data: Buffer }> {
+function readShots(jobId: string, since?: string): Array<{ name: string; data: Buffer }> {
   const dir = shotsDir(jobId);
+  const after = since ? Date.parse(since) : 0;
   return existsSync(dir)
     ? readdirSync(dir)
-        .filter((f) => /\.png$/i.test(f))
+        .filter((f) => /\.png$/i.test(f) && statSync(join(dir, f)).mtimeMs > after)
         .sort()
         .map((f) => ({ name: f, data: readFileSync(join(dir, f)) }))
     : [];
@@ -46,7 +47,7 @@ export function collectReport(jobId: string): DeliveryReport | undefined {
   return parseReport(readFileSync(p, "utf8"), readShots(jobId));
 }
 
-/** friday_done 交付的报告里没有截图：退出时再把截图目录收成附件 */
-export function collectShots(jobId: string): Attachment[] {
-  return readShots(jobId).map((s) => saveAttachment(s.name, "image/png", s.data));
+/** 把截图目录收成附件；since 是上一轮交付的时间，同一个会话交好几轮时只收这一轮新截的 */
+export function collectShots(jobId: string, since?: string): Attachment[] {
+  return readShots(jobId, since).map((s) => saveAttachment(s.name, "image/png", s.data));
 }

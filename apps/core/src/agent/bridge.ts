@@ -25,6 +25,7 @@ const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, closeRunForTask, recordRound } from "./runLog.js";
 import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
+import { collectShots } from "./report.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
 
 const execFileP = promisify(execFile);
@@ -63,6 +64,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
         testSteps: list("每一步一条：跑了什么命令 / 做了什么操作 → 结果"),
         testResult: str("一句话：全部通过 / 哪些没过"),
         verify: list("用户应该亲自确认的点，写清楚打开哪里看什么"),
+        decisions: list("方案没写到、你替用户定了的事，每条一句"),
         taskId: TASK_ID,
       },
       required: ["summary", "testResult"],
@@ -356,6 +358,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       testResult: String(args.testResult ?? "").trim() || "（没写测试结果）",
       screenshots: [],
       verify: strs(args.verify),
+      ...(strs(args.decisions).length ? { decisions: strs(args.decisions) } : {}),
       at: new Date().toISOString(),
     };
     const branch = await currentBranch(job.dir);
@@ -387,6 +390,8 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
       return { text: `已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。${lang()}` };
     }
+    // 进程交付后不退出，截图不能再等退出时收
+    report.screenshots = collectShots(jobId, task.report?.at);
     let t = updateTask(task.id, { status: "review", report, progress: "终端里的 Claude Code 说做完了，等你验收" })!;
     closeRun(jobId, "report");
     // 空分支不挂合并：Claude 没改代码（比如发现改错仓库）时分支上一个提交都没有，合进去什么也没有

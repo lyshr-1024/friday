@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { cleanEnv } from "./env.js";
 import type { Task } from "@friday/shared";
 import { createFeature } from "../memory/features.js";
-import { autonomousPrompt, buildGuardScript, claudeArgs, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath, workCommand } from "./runner.js";
+import { autonomousPrompt, buildGuardScript, claudeArgs, reportPath, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath, workCommand } from "./runner.js";
 import { PUSH_WHY } from "./guard.js";
 
 describe("终端环境与会话恢复", () => {
@@ -87,5 +87,23 @@ describe("Friday 驾驶的会话怎么拉起 claude", () => {
     const mine = claudeArgs(files, { kind: "interactive" });
     expect(mine).not.toContain("-p");
     expect(mine).not.toContain("--model");
+  });
+});
+
+describe("自主任务提示词", () => {
+  it("交付走 friday_done、写替你定了、影响别人的调 friday_blocked、交付后可能被追问", () => {
+    const p = autonomousPrompt("j1", "改导出", "p");
+    expect(p).toContain("friday_done");
+    expect(p).toContain("decisions");
+    expect(p).toMatch(/接口约定.*公共组件.*远端数据/);
+    expect(p).toContain("friday_blocked");
+    expect(p).toContain("再调一次 friday_done");
+    expect(p).not.toContain(reportPath("j1"));
+  });
+  it("自主任务里拒答的理由说清楚按方案自己定、影响别人的才停", () => {
+    const settings = JSON.parse(buildHookSettings("/h.sh", "/g.sh")) as { hooks: { PreToolUse: Array<{ matcher?: string; hooks: Array<{ command: string }> }> } };
+    const deny = settings.hooks.PreToolUse.find((h) => h.matcher === "AskUserQuestion|ExitPlanMode")!.hooks[0]!.command;
+    expect(deny).toContain("decisions");
+    expect(deny).toContain("friday_blocked");
   });
 });

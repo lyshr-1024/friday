@@ -14,7 +14,7 @@ describe("交付报告", () => {
     expect(r.screenshots[0]!.name).toBe("login-before.png");
   });
 
-  it("自主模式脚本用 claude -p，提示词说明已在分支上、带报告路径与截图目录", () => {
+  it("自主模式脚本跑交互式 claude，提示词说明已在分支上、走 friday_done 交付、带截图目录", () => {
     const prompt = autonomousPrompt("abcdef12-0000", "修登录报错", "whale-console");
     // 分支由准备段按项目规范建好，干活提示词只说已经在分支上，命名规则在 prepPrompt
     expect(prompt).toContain("不要再建分支");
@@ -23,7 +23,7 @@ describe("交付报告", () => {
     expect(prep).toContain("feat/<topic>");
     expect(prep).toContain("fix/<bug>");
     expect(prep).toContain("不要用 friday 开头");
-    expect(prompt).toContain("abcdef12-0000.report.md");
+    expect(prompt).not.toContain("abcdef12-0000.report.md");
     expect(prompt).toContain("abcdef12-0000.shots");
     expect(prompt).toContain("agent-browser");
     expect(prompt).toContain("只碰工单里给的造数数据");
