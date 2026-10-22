@@ -131,6 +131,8 @@ export interface SettingsResponse {
   autonomous: boolean;
   /** 自主开工的把握门槛：intake 给的 confidence 不低于它才开，50–100 */
   autonomousMinConfidence: number;
+  /** Friday 自己开工时最多同时做几条，1–10；交付了、卡住了的不算 */
+  autonomousConcurrency: number;
   meegleDefects: boolean;
   summon: SummonSettings;
   dataDir: string;
@@ -150,6 +152,7 @@ export interface SettingsUpdate {
   okrWeekly?: boolean;
   autonomous?: boolean;
   autonomousMinConfidence?: number;
+  autonomousConcurrency?: number;
   meegleDefects?: boolean;
   summon?: Partial<SummonSettings>;
 }

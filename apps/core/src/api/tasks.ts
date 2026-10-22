@@ -127,7 +127,7 @@ export const tasks = new Hono()
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
-    const plan = { now: Date.now(), running: runningAutonomous(), minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
+    const plan = { now: Date.now(), running: runningAutonomous(), max: userSettings().autonomousConcurrency, minConfidence: userSettings().autonomousMinConfidence, enabled: userSettings().autonomous };
     const withSession = (t: Task): Task => {
       const autostart = autostartPlan(t, plan);
       return { ...t, session: taskSession(t), ...(autostart ? { autostart } : {}) };

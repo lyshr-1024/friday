@@ -119,7 +119,7 @@ export function Settings() {
       <section>
         <h2>自主开工</h2>
         <div className="group">
-          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握不低于下面的门槛）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时只跑 1 条，跑完再接下一条；合并前照旧要你点头">
+          <Row label="让 Friday 自己开工" hint="Meegle 同步时，描述够具体（有复现步骤、把握不低于下面的门槛）、项目归属明确的缺陷，Friday 直接在 worktree 里自主改完交你审。只接缺陷不接需求；同时最多做下面设的条数；合并前照旧要你点头">
             <button
               className={`switch ${prefs?.autonomous ? "switch--on" : ""}`}
               role="switch"
@@ -127,6 +127,20 @@ export function Settings() {
               disabled={!prefs}
               onClick={() => prefs && void updateSettings({ autonomous: !prefs.autonomous }).then(setPrefs)}
             />
+          </Row>
+          <Row label="同时最多几条" hint="Friday 自己开工时最多同时做几条。交付了、卡住了的不算">
+            <div className="seg">
+              {[1, 2, 3, 5].map((n) => (
+                <button
+                  key={n}
+                  className={`seg__item ${prefs?.autonomousConcurrency === n ? "on" : ""}`}
+                  disabled={!prefs}
+                  onClick={() => void updateSettings({ autonomousConcurrency: n }).then(setPrefs)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </Row>
           {prefs && (
             <Row

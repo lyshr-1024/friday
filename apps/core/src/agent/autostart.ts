@@ -15,13 +15,14 @@ import { TmuxMissingError } from "./tmux.js";
  * worktree + 守卫 + 合并前审核已经把破坏面压到零，白干的代价只剩 token 和一份废报告。
  * 所以只接缺陷（需求要先对方案）、只接 intake 判成 start 且把握够高的、项目归属得是事实不是猜的。
  */
-export const AUTOSTART_MAX_RUNNING = 1;
 /** 缺陷刚建时描述常被反复改，等一个同步周期再开 */
 export const AUTOSTART_SETTLE_MS = 15 * 60_000;
 
 export interface AutostartEnv {
   now: number;
   running: number;
+  /** 设置里的「同时最多几条」 */
+  max: number;
   /** 设置页「把握门槛」，intake 的 confidence 不低于它才开 */
   minConfidence: number;
   /** intake 判的项目在不在注册表里；缺省查 projects.md */
@@ -133,7 +134,7 @@ export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean })
 
 /** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发约束。 */
 export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
-  const slots = AUTOSTART_MAX_RUNNING - env.running;
+  const slots = env.max - env.running;
   if (slots <= 0) return [];
   const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
   return tasks
@@ -154,14 +155,14 @@ export function previewAutostart(tasks: Task[], minConfidence: number): { pass: 
   const candidates = tasks.filter(
     (t) => t.status === "understood" && t.kind === "meegle" && t.source.meegleType === "issue" && t.source.intake?.kind === "start" && !t.source.jobId && (!t.stage || t.stage === "todo"),
   );
-  const env: AutostartEnv = { now: Number.MAX_SAFE_INTEGER, running: 0, minConfidence };
+  const env: AutostartEnv = { now: Number.MAX_SAFE_INTEGER, running: 0, max: Infinity, minConfidence };
   return { pass: candidates.filter((t) => !eligible(t, env)).length, candidates: candidates.length };
 }
 
 /** 每轮 Meegle 同步后跑一次。开关关着就什么都不做。 */
 export async function autostartTick(now = Date.now()): Promise<number> {
   if (!userSettings().autonomous) return 0;
-  const env: AutostartEnv = { now, running: runningAutonomous(), minConfidence: userSettings().autonomousMinConfidence };
+  const env: AutostartEnv = { now, running: runningAutonomous(), max: userSettings().autonomousConcurrency, minConfidence: userSettings().autonomousMinConfidence };
   let started = 0;
   for (const { task, root } of pickStoryBugs(listTasks("understood"))) {
     try {

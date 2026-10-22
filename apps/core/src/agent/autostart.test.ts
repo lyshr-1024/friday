@@ -15,7 +15,7 @@ import { AUTOSTART_SETTLE_MS, autostartPlan, autostartTick, eligible, pickAutost
 import { createJob } from "../memory/jobs.js";
 
 const NOW = Date.parse("2026-09-28T10:00:00Z");
-const env: AutostartEnv = { now: NOW, running: 0, minConfidence: AUTOSTART_MIN_CONFIDENCE };
+const env: AutostartEnv = { now: NOW, running: 0, max: 1, minConfidence: AUTOSTART_MIN_CONFIDENCE };
 const settled = new Date(NOW - AUTOSTART_SETTLE_MS - 1000).toISOString();
 
 const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
@@ -103,7 +103,7 @@ describe("pickAutostart：并发和每日上限", () => {
   });
 
   it("已有一条在跑就不开", () => {
-    expect(pickAutostart([defect()], { ...env, running: 1 })).toEqual([]);
+    expect(pickAutostart([defect()], { ...env, running: 1, max: 1 })).toEqual([]);
   });
 
   it("不设每天上限：前一条跑完就接下一条，只受「同时 1 条」约束", () => {
@@ -174,6 +174,20 @@ describe("autostartTick：tmux 没装", () => {
 });
 
 describe("runningAutonomous", () => {
+  it("交付了 / 卡住的任务不占名额，哪怕 Claude 进程还活着", () => {
+    const before = runningAutonomous();
+    for (const [id, status] of [["ra-p", "processing"], ["ra-r", "review"], ["ra-b", "blocked"]] as const) {
+      createJob({ id, project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+      createTask({ title: id, kind: "code", status, source: { jobId: id, autonomous: true } });
+    }
+    expect(runningAutonomous()).toBe(before + 1);
+  });
+
+  it("按 env.max 放", () => {
+    const many = [1, 2, 3, 4, 5].map((i) => defect({ id: `m${i}` }));
+    expect(pickAutostart(many, { ...env, running: 1, max: 3 })).toHaveLength(2);
+  });
+
   it("定时任务的自主运行不占 autostart 的并发", () => {
     const before = runningAutonomous();
     createJob({ id: "ra-sched", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });

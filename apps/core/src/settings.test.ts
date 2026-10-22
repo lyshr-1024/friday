@@ -48,6 +48,24 @@ describe("模型存别名，不存版本号——出新模型不用改代码", (
   });
 });
 
+describe("自主开工的并发与开关", () => {
+  it("并发默认 3、钳到 1–10 的整数；自主开工默认开，存过 false 的不动", () => {
+    expect(userSettings().autonomousConcurrency).toBe(3);
+    expect(updateSettings({ autonomousConcurrency: 5 }).autonomousConcurrency).toBe(5);
+    const file = join(config.dataDir, "settings.json");
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), autonomousConcurrency: 0 }));
+    expect(userSettings().autonomousConcurrency).toBe(1);
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), autonomousConcurrency: 99.4 }));
+    expect(userSettings().autonomousConcurrency).toBe(10);
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    delete raw.autonomous;
+    writeFileSync(file, JSON.stringify(raw));
+    expect(userSettings().autonomous).toBe(true);
+    writeFileSync(file, JSON.stringify({ ...raw, autonomous: false }));
+    expect(userSettings().autonomous).toBe(false);
+  });
+});
+
 describe("自主开工的把握门槛", () => {
   it("默认 80；存的值钳在 50–100 之间、取整", () => {
     expect(userSettings().autonomousMinConfidence).toBe(80);
