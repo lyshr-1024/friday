@@ -25,7 +25,7 @@ import { onTaskDone } from "./knowledge.js";
 import { clearHanded, settleHandedBugs } from "./handedBugs.js";
 import { worktreeDirt } from "./git.js";
 import { existsSync } from "node:fs";
-import { closeRun, closeRunForTask, fillRunCost } from "./runLog.js";
+import { closeRun, closeRunForTask, fillRunCost, startRound } from "./runLog.js";
 import { createRun, pendingRunsForTask, runByJob, runsForTask, setRunOutcome } from "../memory/runs.js";
 
 const execFileP = promisify(execFile);
@@ -357,7 +357,24 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
         updateTask(t.id, { status: "blocked", progress: `打回了，但重交时出错：${message}` });
       });
   }
+  const jobId = t.source.jobId;
+  if (updated && !root && jobId && t.source.autonomous && !t.source.headless && !t.source.handedAt) {
+    void continueAfterReject(updated, jobId, reason ?? "无说明").catch((e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`[reject] 打回后续跑失败：${message}`);
+      updateTask(t.id, { status: "blocked", progress: `打回了，但续跑时出错：${message}` });
+    });
+  }
   return updated;
+}
+
+/** Friday 自己做的任务被打回：原因敲进它还开着的终端，接着做下一轮，不另起会话 */
+async function continueAfterReject(t: Task, jobId: string, reason: string): Promise<void> {
+  // 先记这一轮再敲：它交付得快时 friday_done 要落在这一行上，不能被当成追问后的 followup
+  startRound(jobId, t.id, t.project ?? getJob(jobId)?.project ?? "", "rejected");
+  if (await continueRootSession(resolveRoot(t), `上一轮被打回：${reason}。按这个改，改完再调 friday_done。`)) return;
+  closeRun(jobId, "window_closed");
+  updateTask(t.id, { status: "blocked", progress: "打回了，但会话已不在，点「开工」重开" });
 }
 
 /** 审核通过一条待审动作：按钮和会话里的「合并吧 / 发」走同一条路。text 是改过的要发原文 */

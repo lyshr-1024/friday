@@ -20,7 +20,7 @@ import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "
 import { syncMeegleOnce } from "./meegle.js";
 import { state } from "../scheduler/index.js";
 import { handToFriday, startTask } from "./taskStart.js";
-import { AUTOSTART_SETTLE_MS, autostartTick, testingStoryBug } from "./autostart.js";
+import { AUTOSTART_SETTLE_MS, autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
 const repo = (name: string) => mainRepo(name);
@@ -130,6 +130,39 @@ describe("自主入口遇到已退出的根会话：在原会话里起一次新�
     expect(getTermSession(t.id)).toMatchObject({ status: "running", jobId, kind: "autonomous" });
     expect(runByJob(jobId)).toMatchObject({ kind: "autonomous", trigger: "retry" });
     expect(after).toMatchObject({ status: "processing", source: { autonomous: true } });
+  });
+});
+
+describe("打回 Friday 驾驶的任务：在原终端续跑", () => {
+  async function delivered(name: string) {
+    const dir = repo("app");
+    const t = createTask({ title: `打回 ${name}`, kind: "verbal", source: { autonomous: true }, status: "processing", project: "app" });
+    const jobId = await openSession(t, t, { kind: "autonomous", project: "app", repoDir: dir, task: "改", jobId: `rj-${name}` });
+    await worktreeReady(jobId, addTestWorktree(dir, `app-reject-${name}`));
+    createRun({ id: jobId, jobId, taskId: t.id, project: "app", kind: "autonomous", trigger: "retry" });
+    closeRunForTask(t.id, "report");
+    updateTask(t.id, { status: "review", source: { jobId } });
+    calls = [];
+    return { t, jobId };
+  }
+
+  it("原因敲进它的会话，新起一轮 rejected，任务回 processing 占名额", async () => {
+    const { t, jobId } = await delivered("a");
+    const before = runningAutonomous();
+    rejectTask(t.id, "按钮颜色不对");
+    await vi.waitFor(() => expect(typed().some((x) => x.includes("上一轮被打回：按钮颜色不对"))).toBe(true));
+    expect(runsForTask(t.id).at(-1)).toMatchObject({ id: `${jobId}#2`, trigger: "rejected" });
+    expect(getTask(t.id)!.status).toBe("processing");
+    expect(runningAutonomous()).toBe(before + 1);
+    expect(getJob(jobId)!.awaitingDelivery).toBe(true);
+  });
+
+  it("会话已不在：标卡住", async () => {
+    const { t } = await delivered("b");
+    updateTermSession(t.id, { status: "closed" });
+    rejectTask(t.id, "不对");
+    await vi.waitFor(() => expect(getTask(t.id)!.status).toBe("blocked"));
+    expect(getTask(t.id)!.progress).toBe("打回了，但会话已不在，点「开工」重开");
   });
 });
 
