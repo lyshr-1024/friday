@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
 import { finishBootstrap } from "./knowledgeBootstrap.js";
+import { finishBriefJob, rejectBrief, withoutApprove } from "./briefJob.js";
+import { briefBasis } from "./brief.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
-import { isQueryTask } from "@friday/shared";
+import { briefable, isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -149,7 +151,7 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
     if (!root.project) updateTask(root.id, { project });
     if (await continueRootSession(root, `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`)) return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
     const jobId = await openSession(root, root, { kind: "interactive", project, repoDir: dir, task: `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`, ...baseBranchOf(root) });
-    updateTask(root.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } });
+    updateTask(root.id, { status: "processing", pending: withoutApprove(getTask(root.id)!), source: { jobId, autonomous: false, repoDir: dir } });
     record({ taskId: root.id, action: "terminal_opened", why: "你点了名下缺陷的「开始做」，需求还没有会话", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
     return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
   }
@@ -159,7 +161,7 @@ export async function startInteractiveJob(task: Task, project: string, dir: stri
   }
   const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...(conversationId ? { conversationId } : {}), ...baseBranchOf(task) });
   record({ taskId: task.id, action: "terminal_opened", why: "你点了「开始做」，这条需求自己动手", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
-  return updateTask(task.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } })!;
+  return updateTask(task.id, { status: "processing", pending: withoutApprove(getTask(task.id)!), source: { jobId, autonomous: false, repoDir: dir } })!;
 }
 
 /** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
@@ -187,7 +189,7 @@ export async function startAutonomousJob(task: Task, project: string, dir: strin
   // task.progress 可能已经写了「Friday 已自动回复」之类的话（同一条线程既触发了回复又触发了改代码），
   // 这里是覆盖 progress 的地方，得接上而不是整句丢掉，不然工作台上那条已经发出去的回复就查无痕迹。
   const progress = [task.progress, `Claude Code 正在 ${project} 上处理`].filter(Boolean).join("\n");
-  return updateTask(task.id, { status: "processing", progress, source: { jobId: id, autonomous: true, repoDir: dir } })!;
+  return updateTask(task.id, { status: "processing", progress, pending: withoutApprove(getTask(task.id)!), source: { jobId: id, autonomous: true, repoDir: dir } })!;
 }
 
 /** 终端任务退出：收交付报告，任务进审核，合并到主分支挂成待审核动作。 */
@@ -199,6 +201,10 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (!job) return undefined;
   if (job.task.source.knowledgeBootstrap) {
     finishBootstrap(job.task, jobId, exitCode).catch((e) => console.error("[knowledge] finishBootstrap", e));
+    return undefined;
+  }
+  if (job.task.source.briefFor) {
+    finishBriefJob(job.task, jobId, exitCode).catch((e) => console.error("[brief] finishBriefJob", e));
     return undefined;
   }
   settleHandedBugs(job.task.id, "需求会话退出了，这条没交付");
@@ -354,6 +360,7 @@ function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
 export function rejectTask(id: string, reason?: string): Task | undefined {
   const t = getTask(id);
   if (!t) return undefined;
+  if (briefable(t) && t.pending?.some((p) => p.type === "brief_approve")) return rejectBrief(id, reason ?? "无说明");
   record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
   const updated = updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
@@ -435,6 +442,15 @@ export async function executePending(
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
+    } else if (action.type === "brief_approve") {
+      const cur = getTask(taskId)!;
+      const b = cur.source.brief;
+      if (!b) return cur;
+      // 只有过期的卡批准才算你认了新正文；没过期时刷指纹会把你没看到的改动一起认掉
+      const t = updateTask(taskId, { progress: "理解卡你看过了，照它开工", source: { brief: { ...b, review: "approved", stale: undefined, basis: b.stale ? briefBasis(cur) : b.basis } } })!;
+      record({ taskId, action: "brief_approved", why: "你审核通过", how: "理解卡标成已审，开工照它做", evidence: { size: b.size, rejections: b.rejections ?? 0 }, risk: "reversible", status: "approved" });
+      // 审过理解卡不是收尾：需求还没开工
+      return t;
     } else if (action.type === "reproject") {
       const { rollbackAndRestart } = await import("./reproject.js");
       // 回退完直接在新项目上重开：任务回到「Friday 在做」，不走下面的收尾

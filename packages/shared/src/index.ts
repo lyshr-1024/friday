@@ -465,7 +465,33 @@ export interface TaskDoc {
 
 export type AutostartPlan =
   | { kind: "gate"; at: string; behind: number }
-  | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string };
+  | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string }
+  | { kind: "brief"; at: string; behind: number };
+
+export interface BriefDep {
+  what: string;
+  from?: string;
+  status: "pending" | "ready";
+  evidence?: { url?: string; text?: string; at: string; source: "meegle" | "slack" | "user" };
+}
+
+/** Friday 对一条需求的书面理解：要做什么、要别人给什么、怎么验收、怎么发、怎么做。自主开工的前置闸 */
+export interface Brief {
+  todo: string;
+  deps: BriefDep[];
+  acceptance: { source: "cases" | "prd" | "own"; cases: string[]; note?: string };
+  release: string;
+  plan: string;
+  size: "small" | "large";
+  sizeWhy: string;
+  review: "none" | "pending" | "approved" | "rejected";
+  reviewNote?: string;
+  rejections?: number;
+  stale?: boolean;
+  basis: string;
+  at: string;
+  features: string[];
+}
 
 export interface TaskSource {
   /** 知识库冷启动的锚点卡，值是项目名 */
@@ -570,6 +596,14 @@ export interface TaskSource {
   projectBy?: "friday" | "user";
   /** 你说了「先别做 / 这条我来」：Friday 不再自己开工 */
   autostartOff?: boolean;
+  brief?: Brief;
+  /** 建理解卡的锚点，值是需求任务 id */
+  briefFor?: string;
+  briefFailed?: { at: string; why: string; log?: string };
+  /** 锚点上记的这次建卡开工时的需求指纹和带进提示词的原话：交上来的卡按它算过期，不按交卡那一刻 */
+  briefBuild?: { basis: string; note?: string };
+  /** 你让重建时说的原话，下一次建卡带进提示词，带上它的那次交卡后清掉 */
+  briefNote?: string;
   /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */
   handedAt?: string;
   /** 重开后下一次交代进需求会话时告诉 Claude 上一轮为什么没过，交代完清掉 */
@@ -658,6 +692,22 @@ export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack
 export function isQueryTask(source: TaskSource): boolean {
   return Boolean(source.headless && source.conversation);
 }
+
+/** 为什么不能给这条任务建理解卡；能建回 undefined。只给要写代码的需求类、项目已定、还没开工也没收工的建 */
+export function briefRefusal(t: Task): string | undefined {
+  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
+  if (!t.project) return "还没定项目，先定项目再建理解卡";
+  if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
+  if (t.source.scheduleId) return "定时任务的卡不建理解卡";
+  if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
+  if (taskCategory(t.source) === "defect") return "缺陷不建理解卡，直接修";
+  if (t.source.jobId) return "已经开过工了，不建理解卡";
+  if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
+  if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";
+  return undefined;
+}
+
+export const briefable = (t: Task): boolean => !briefRefusal(t);
 
 /** Friday 全权在跑、没人看着的任务（自主 `-p` / 后台查询）。你自己开终端驱动的交互式任务不算——「Friday 在做」只放这种。 */
 export function isFridayRun(source: TaskSource): boolean {
@@ -752,7 +802,7 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "custom";
 
 export interface PendingAction {
   id: string;
@@ -941,7 +991,7 @@ export interface ProjectKnowledge {
 
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
-export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug";
+export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug" | "brief";
 export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user" | "schedule";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */

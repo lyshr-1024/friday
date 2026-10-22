@@ -219,6 +219,18 @@ describe("项目明确之后只做决定和转发", () => {
     expect(text).toContain('<untrusted source="knowledge">');
   });
 
+  it("contextFor 带理解卡要点（要做什么、用例、方案），过围栏", () => {
+    const task = createTask({ title: "基金加排序", kind: "verbal", source: {}, project: "whale", status: "understood", understanding: "产品要按收益率排序" });
+    updateTask(task.id, {
+      source: {
+        brief: { todo: "列表按收益率排序", deps: [], acceptance: { source: "own", cases: ["点表头降序"] }, release: "跟版本", plan: "改 FundList.tsx", size: "small", sizeWhy: "小", review: "approved", basis: "b", at: "2026-10-01T00:00:00.000Z", features: [] },
+      },
+    });
+    const text = contextFor(getTask(task.id)!);
+    expect(text).toMatch(/<untrusted source="brief">[\s\S]*列表按收益率排序[\s\S]*点表头降序[\s\S]*改 FundList\.tsx[\s\S]*<\/untrusted>/);
+    expect(text.indexOf("产品要按收益率排序")).toBeLessThan(text.indexOf('<untrusted source="brief">'));
+  });
+
   it("资料标题截 200 字，整段资料过围栏", () => {
     const task = createTask({
       title: "资料围栏",

@@ -145,3 +145,19 @@ describe("会话里说需求做完了", () => {
     expect(getTask(bug.id)!.status).toBe("done");
   });
 });
+
+describe("task_update 标依赖到了", () => {
+  it("depReady 按关键词标；没对上写进改动说明", () => {
+    const t = createTask({ title: "加排序", kind: "verbal", project: "p-tud", status: "understood", source: {} });
+    updateTask(t.id, {
+      source: {
+        brief: { todo: "加排序", deps: [{ what: "行情接口", status: "pending" }], acceptance: { source: "own", cases: ["降序"] }, release: "", plan: "", size: "small", sizeWhy: "小", review: "approved", basis: "b", at: "2026-10-01T00:00:00.000Z", features: [] },
+      },
+    });
+    const r = updateTaskFromChat(t.id, { depReady: "行情" })!;
+    expect(r.changed.join("")).toContain("行情");
+    expect(getTask(t.id)!.source.brief!.deps[0]).toMatchObject({ status: "ready", evidence: { source: "user", text: "你标的到了" } });
+    const miss = updateTaskFromChat(t.id, { depReady: "设计稿" })!;
+    expect(miss.changed.join("")).toContain("没标");
+  });
+});

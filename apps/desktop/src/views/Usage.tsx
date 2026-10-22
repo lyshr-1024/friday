@@ -4,7 +4,7 @@ import { runsSummary, usage as fetchUsage } from "../lib/core";
 import { Icon } from "./Icon";
 
 const RANGES: UsageRange[] = ["today", "7d", "30d"];
-const RUN_KIND: Record<RunKind, string> = { autonomous: "自主", query: "查询", interactive_round: "你开的终端", story_bug: "测试阶段缺陷" };
+const RUN_KIND: Record<RunKind, string> = { autonomous: "自主", query: "查询", interactive_round: "你开的终端", story_bug: "测试阶段缺陷", brief: "建理解卡" };
 
 /** 金额：不到一分钱就别写 $0.00，那看着像没花钱 */
 function money(v: number): string {

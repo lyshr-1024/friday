@@ -132,7 +132,7 @@ export function lessonsSince(since: string): RunRecord[] {
 }
 
 export function openRunForTask(taskId: string): RunRecord | undefined {
-  const r = db().prepare("SELECT * FROM runs WHERE task_id = ? AND ended_at IS NULL ORDER BY started_at DESC, rowid DESC LIMIT 1").get(taskId) as unknown as Row | undefined;
+  const r = db().prepare("SELECT * FROM runs WHERE task_id = ? AND ended_at IS NULL AND kind != 'brief' ORDER BY started_at DESC, rowid DESC LIMIT 1").get(taskId) as unknown as Row | undefined;
   return r ? toRun(r) : undefined;
 }
 
@@ -141,7 +141,8 @@ export function runsForTask(taskId: string): RunRecord[] {
 }
 
 export function pendingRunsForTask(taskId: string): RunRecord[] {
-  return runsForTask(taskId).filter((r) => r.outcome === "pending" && r.kind !== "interactive_round");
+  // 建理解卡记在需求名下只为算成本，不是交付，打回 / 收工都不该改它的结局
+  return runsForTask(taskId).filter((r) => r.outcome === "pending" && r.kind !== "interactive_round" && r.kind !== "brief");
 }
 
 function median(xs: number[]): number {

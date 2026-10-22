@@ -12,6 +12,7 @@ import { setStage } from "./stage.js";
 import { requestProjectChange } from "./reproject.js";
 import { finishDefectsOf, openDefectsOf } from "./pipeline.js";
 import { onTaskDone } from "./knowledge.js";
+import { markDepReady } from "./briefJob.js";
 
 export interface TaskPatch {
   understanding?: string;
@@ -35,6 +36,8 @@ export interface TaskPatch {
   autostart?: boolean;
   /** 用户说「在 X 分支上改」= X；「从主干新开」= ""。下次开工按它建 worktree */
   branch?: string;
+  /** 用户说理解卡上某个依赖到了：依赖名里的关键词 */
+  depReady?: string;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "进行中", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -104,6 +107,16 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
       updateTask(rootId, { source: { branch: branch || undefined, worktree: undefined } });
       task = getTask(taskId)!;
       changed.push(branch ? `分支 → ${branch}（下次开工在它上面做）` : "分支清掉了，下次开工从主干新开");
+    }
+  }
+
+  const dep = patch.depReady?.trim();
+  if (dep) {
+    const r = markDepReady(taskId, dep);
+    if (typeof r === "string") changed.push(`依赖没标：${r}`);
+    else {
+      task = r;
+      changed.push(`依赖「${dep}」标成已到`);
     }
   }
 
