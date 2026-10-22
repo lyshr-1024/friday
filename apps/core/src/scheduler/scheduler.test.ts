@@ -23,7 +23,7 @@ describe("kickAutostart：卡交了 / 批了立刻补跑一次", () => {
   afterEach(() => vi.useRealTimers());
   it("调度器没启动：什么都不做；启动后触发一次建卡和开工，同时只跑一个", async () => {
     kickAutostart();
-    await Promise.resolve();
+    await new Promise((r) => setImmediate(r));
     expect(briefTick).not.toHaveBeenCalled();
     expect(autostartTick).not.toHaveBeenCalled();
     vi.useFakeTimers({ toFake: ["setTimeout"] });

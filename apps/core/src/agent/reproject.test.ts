@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { runByJob, setRunOutcome } from "../memory/runs.js";
@@ -11,9 +11,15 @@ import { setClaudeFinder } from "./runner.js";
 import { setLauncher, worktreeReady } from "./sessions.js";
 import { executePending, startAutonomousJob } from "./pipeline.js";
 import { requestProjectChange } from "./reproject.js";
+import { briefBasis } from "./brief.js";
 import { syncMeegleOnce } from "./meegle.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
+
+vi.mock("./pipeline.js", async (orig) => {
+  const m = await orig<typeof import("./pipeline.js")>();
+  return { ...m, startAutonomousJob: vi.fn(m.startAutonomousJob) };
+});
 
 let calls: string[][] = [];
 let alive = new Set<string>();
@@ -102,6 +108,16 @@ describe("改项目：Friday 自主干过活的先挂回退清单", () => {
     expect(after.report).toBeUndefined();
     expect((after.pending ?? []).some((x) => x.type === "reproject" || x.type === "git_merge")).toBe(false);
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "reproject_rollback" && e.risk === "irreversible")).toBe(true);
+  });
+
+  it("撤掉重开时，带审过的理解卡（项目是新项目）就用理解卡正文交代", async () => {
+    const { t } = await fridayOnWrongProject();
+    const card = { todo: "单元格超长时加 Tooltip 显示全文", deps: [], acceptance: { source: "own" as const, cases: ["超长单元格悬停出全文"] }, release: "走 canary", plan: "改 Table.tsx", size: "small" as const, sizeWhy: "一个文件", review: "approved" as const, basis: briefBasis(t), project: "rightapp", at: new Date().toISOString(), features: [] };
+    updateTask(t.id, { source: { brief: card } });
+    requestProjectChange(t.id, "rightapp");
+    const action = getTask(t.id)!.pending!.find((x) => x.type === "reproject")!;
+    await executePending(t.id, action.id, noSlack);
+    expect(String(vi.mocked(startAutonomousJob).mock.lastCall![3])).toContain("单元格超长时加 Tooltip 显示全文");
   });
 
   it("已经合进主干的不回退，告诉你要自己 revert", async () => {
