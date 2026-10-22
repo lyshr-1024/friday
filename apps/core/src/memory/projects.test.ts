@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
-import { DEFAULT_PROTECTED, matchEnv, parseEnvs, parseProjects, projectDetail, protectedBranches, resolveProject } from "./projects.js";
+import { DEFAULT_PROTECTED, matchEnv, parseEnvs, parseProjects, projectDetail, protectedBranches, resolveProject, setProjectField } from "./projects.js";
 
 const md = `# 项目注册表
 
@@ -125,5 +125,17 @@ describe("matchEnv", () => {
   // 前缀要落在路径边界上，否则 /x 会吃掉 /xyz
   it("前缀不在路径边界上不算命中", () => {
     expect(matchEnv("https://console.longbridge.xyz/xyz/a", ps)).toMatchObject({ project: { name: "fe-wealth-admin" } });
+  });
+});
+
+describe("setProjectField", () => {
+  it("替换已有行、追加新行、删行、新建段", () => {
+    const md = "# 项目\n\n## app\n- 目录：/r/app\n- 别名：老名\n\n## web\n- 目录：/r/web\n";
+    expect(setProjectField(md, "app", "别名", "甲、乙")).toContain("## app\n- 目录：/r/app\n- 别名：甲、乙\n");
+    expect(setProjectField(md, "app", "保护分支", "main, sit")).toMatch(/- 别名：老名\n- 保护分支：main, sit\n\n## web/);
+    expect(setProjectField(md, "app", "别名", "")).not.toContain("别名");
+    expect(setProjectField(md, "friday", "目录", "/r/friday")).toMatch(/## friday\n- 目录：\/r\/friday\n$/);
+    expect(() => setProjectField(md, "friday", "别名", "x")).toThrow();
+    expect(setProjectField(md, "app", "说明", "第一行\n第二行")).toContain("- 说明：第一行 第二行");
   });
 });

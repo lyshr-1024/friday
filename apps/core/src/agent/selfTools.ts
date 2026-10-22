@@ -5,6 +5,9 @@ import { settingsShape } from "../api/settings.js";
 import { publish } from "../bus.js";
 import { listMessages } from "../memory/conversations.js";
 import { record } from "../memory/audit.js";
+import { existsSync, statSync } from "node:fs";
+import { expandHome, loadProjects, projectSection, resolveProject, setProjectField, type ProjectFieldKey } from "../memory/projects.js";
+import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { updateSettings, userSettings } from "../settings.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
@@ -20,6 +23,9 @@ export function saidLast(conversationId?: string): string {
   if (!conversationId) return "";
   return (listMessages(conversationId).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
 }
+
+const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
+const REVIEW_LEVELS = ["全部", "大的", "不用"];
 
 export const selfToolList = (conversationId?: string) => [
   tool(
@@ -56,6 +62,51 @@ export const selfToolList = (conversationId?: string) => [
       });
       if (keys.includes("theme")) publish({ type: "settings" });
       return text(`改好了：${how}（可在操作记录里撤销）`);
+    },
+  ),
+  tool(
+    "project_update",
+    `按字段改 projects.md 里的项目登记，可新建项目（create: true，必须给目录）。字段：${PROJECT_FIELDS.join("、")}；值为空串表示删掉这个字段；方案送审只认 全部 / 大的 / 不用。可撤销、会记账。用户明确要改才调。`,
+    {
+      project: z.string().min(1),
+      fields: z.object(Object.fromEntries(PROJECT_FIELDS.map((k) => [k, z.string().optional()]))).strict(),
+      create: z.boolean().optional(),
+    },
+    async ({ project, fields, create }) => {
+      const entries = Object.entries(fields).filter(([, v]) => v !== undefined) as [ProjectFieldKey, string][];
+      if (!entries.length && !create) return text("没有要改的字段。");
+      const res = resolveProject(project);
+      let name: string;
+      if (res.kind === "match") name = res.project.name;
+      else if (res.kind === "ambiguous") return text(`「${project}」对上了好几个项目：${res.candidates.map((c) => c.name).join("、")}，说清是哪个。`);
+      else if (create) {
+        name = project.trim();
+        if (!fields.目录?.trim()) return text("新建项目必须给目录。");
+      } else return text(`找不到项目「${project}」；要新建的话带 create: true 并给目录。`);
+      const dir = fields.目录?.trim();
+      if (dir) {
+        const p = expandHome(dir);
+        if (!existsSync(p) || !statSync(p).isDirectory()) return text(`目录不存在：${p}`);
+      }
+      const level = fields.方案送审?.trim();
+      if (level && !REVIEW_LEVELS.includes(level)) return text(`方案送审只认：${REVIEW_LEVELS.join(" / ")}。`);
+      const snapshot = { decisions: readMemoryFile("decisions"), people: readMemoryFile("people"), projects: readMemoryFile("projects") };
+      let next = snapshot.projects;
+      try {
+        for (const [k, v] of entries) next = setProjectField(next, name, k, v);
+      } catch (e) {
+        return text(e instanceof Error ? e.message : String(e));
+      }
+      writeMemoryFile("projects", next);
+      record({
+        action: "project_updated",
+        why: "你在对话里让 Friday 改项目登记",
+        how: `${name}：${entries.map(([k, v]) => `${k}=${v || "（删除）"}`).join("；")}`,
+        evidence: { quote: saidLast(conversationId), project: name, fields },
+        risk: "reversible",
+        undo: { kind: "restore_memory", snapshot },
+      });
+      return text(`改好了（可在操作记录里撤销）：\n${projectSection(next, name) ?? ""}`);
     },
   ),
 ];

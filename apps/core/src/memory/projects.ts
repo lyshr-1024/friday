@@ -152,6 +152,45 @@ export function protectedBranches(project?: string, projects = loadProjects()): 
   return p?.protected.length ? p.protected : DEFAULT_PROTECTED;
 }
 
+export type ProjectFieldKey = "目录" | "别名" | "说明" | "保护分支" | "方案送审" | "环境" | "频道";
+
+export function projectSection(markdown: string, project: string): string | undefined {
+  const lines = markdown.split("\n");
+  const start = lines.findIndex((l) => /^##\s+(.+?)\s*$/.exec(l)?.[1] === project);
+  if (start < 0) return undefined;
+  let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  if (end < 0) end = lines.length;
+  return lines.slice(start, end).join("\n").trimEnd();
+}
+
+/** 纯文本改写：替换 / 追加 / 删除 `- key：` 行；项目段不存在时在文件末尾新建（必须同时给目录） */
+export function setProjectField(markdown: string, project: string, key: ProjectFieldKey, value: string): string {
+  const v = value.replace(/\s*\n\s*/g, " ").trim();
+  const lines = markdown.split("\n");
+  const start = lines.findIndex((l) => /^##\s+(.+?)\s*$/.exec(l)?.[1] === project);
+  if (start < 0) {
+    if (key !== "目录" || !v) throw new Error(`项目「${project}」不存在，新建时必须先给目录`);
+    const base = markdown.replace(/\n*$/, "");
+    return `${base ? `${base}\n\n` : ""}## ${project}\n- 目录：${v}\n`;
+  }
+  let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  if (end < 0) end = lines.length;
+  const isKey = (l: string) => {
+    const m = /^-\s*([^:：]{1,40}?)\s*[:：]/.exec(l);
+    return !!m && m[1]!.replace(/\*/g, "") === key;
+  };
+  const at = lines.findIndex((l, i) => i > start && i < end && isKey(l));
+  if (at >= 0) {
+    if (v) lines[at] = `- ${key}：${v}`;
+    else lines.splice(at, 1);
+  } else if (v) {
+    let last = start;
+    for (let i = start + 1; i < end; i++) if (lines[i]!.startsWith("- ")) last = i;
+    lines.splice(last + 1, 0, `- ${key}：${v}`);
+  }
+  return lines.join("\n");
+}
+
 export function loadProjects(): Project[] {
   const file = join(config.dataDir, "projects.md");
   return existsSync(file) ? parseProjects(readFileSync(file, "utf8")) : [];

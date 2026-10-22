@@ -115,9 +115,10 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "memory_write",
-      "整篇覆盖写入记忆库 markdown 文件。改项目别名、登记新项目、记决策、记人物都用它：先 memory_read 拿全文，改好后整篇写回，保持原有格式（## 名称 / - 目录 / - 别名 / - 状态 / - 说明）。",
+      "整篇覆盖写入记忆库 markdown 文件（decisions / people）：先 memory_read 拿全文，改好后整篇写回。projects 用 project_update 改，这里不收。",
       { file, content: z.string().max(200_000) },
       async ({ file, content }) => {
+        if (file === "projects") return text("projects 不能整篇写，改项目登记用 project_update（按字段改、可新建、可撤销）。");
         if (!decide("reversible").allowed) return text("操作被拒绝");
         writeMemoryFile(file, content);
         console.log(`[tool] memory_write ${file} ${content.length} chars`);

@@ -5,6 +5,10 @@ import { addMessage, createConversation } from "../memory/conversations.js";
 import { listAudit, undoPlan } from "../memory/audit.js";
 import { updateSettings, userSettings } from "../settings.js";
 import { subscribe } from "../bus.js";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 
 const callIn = async (conv: string | undefined, name: string, args: Record<string, unknown>) => {
   const t = fridayToolList(conv).find((x) => x.name === name)!;
@@ -71,5 +75,48 @@ describe("settings 工具", () => {
     const lines = out.split("\n");
     expect(lines).toHaveLength(SETTINGS_KEYS.length);
     for (const k of SETTINGS_KEYS) expect(lines.some((l) => l.startsWith(`${k}：`))).toBe(true);
+  });
+});
+
+describe("project_update", () => {
+  const dir = mkdtempSync(join(tmpdir(), "proj-"));
+  const seed = `# 项目\n\n## app\n- 目录：${dir}\n- 别名：老名\n`;
+
+  it("改保护分支，记账可撤", async () => {
+    writeMemoryFile("projects", seed);
+    const conv = createConversation().id;
+    addMessage(conv, { role: "user", kind: "ask", content: "app 的保护分支加上 sit" });
+    const out = await callIn(conv, "project_update", { project: "app", fields: { 保护分支: "main, sit" } });
+    expect(out).toContain("- 保护分支：main, sit");
+    expect(readMemoryFile("projects")).toContain("- 保护分支：main, sit");
+    const e = listAudit({}).find((x) => x.action === "project_updated")!;
+    expect(e.evidence.quote).toBe("app 的保护分支加上 sit");
+    const plan = undoPlan(e.id)!;
+    if (plan.kind !== "restore_memory") throw new Error();
+    expect(plan.snapshot.projects).toBe(seed);
+  });
+
+  it("目录不存在就拒绝、方案送审只认三档", async () => {
+    writeMemoryFile("projects", seed);
+    expect(await callIn(undefined, "project_update", { project: "app", fields: { 目录: "/no/such/dir-xyz" } })).toContain("不存在");
+    expect(await callIn(undefined, "project_update", { project: "app", fields: { 方案送审: "随便" } })).toContain("全部");
+    expect(readMemoryFile("projects")).toBe(seed);
+    expect(await callIn(undefined, "project_update", { project: "app", fields: { 方案送审: "大的" } })).toContain("- 方案送审：大的");
+  });
+
+  it("create 新建项目要目录", async () => {
+    writeMemoryFile("projects", seed);
+    expect(await callIn(undefined, "project_update", { project: "newp", create: true, fields: {} })).toContain("目录");
+    const out = await callIn(undefined, "project_update", { project: "newp", create: true, fields: { 目录: dir, 别名: "新" } });
+    expect(out).toContain("## newp");
+    expect(readMemoryFile("projects")).toContain("## newp");
+    expect(await callIn(undefined, "project_update", { project: "ghost", fields: { 别名: "x" } })).toContain("找不到");
+  });
+
+  it("memory_write projects 被引去 project_update，文件不变", async () => {
+    writeMemoryFile("projects", seed);
+    const out = await callIn(undefined, "memory_write", { file: "projects", content: "乱写" });
+    expect(out).toContain("project_update");
+    expect(readFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "utf8")).toBe(seed);
   });
 });
