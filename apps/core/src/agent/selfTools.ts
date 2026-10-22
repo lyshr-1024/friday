@@ -12,6 +12,11 @@ import { correctFeature, deleteFeature, findFeatureByName, getFeature, getFeatur
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { activeRules, editRule, getRule, snapshotRules } from "../memory/rules.js";
 import { updateSettings, userSettings } from "../settings.js";
+import { leftoverWorktrees } from "../api/worktrees.js";
+import { removeWorktree } from "./git.js";
+import { scheduleByConversation } from "../memory/schedules.js";
+import { getTask } from "../memory/tasks.js";
+import { consents } from "./tools.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -297,6 +302,52 @@ export const selfToolList = (conversationId?: string) => [
         return text(`${how}：已改并记账，但知识库文件没重新生成：${e instanceof Error ? e.message : String(e)}（可在操作记录里撤销）`);
       }
       return text(`改好了：${how}（可在操作记录里撤销）`);
+    },
+  ),
+  tool(
+    "worktrees_leftover",
+    "列遗留的 git worktree（任务收工后留在磁盘上的），每行 `路径 · 分支 · 有没有未提交改动 · 所属任务 #N`。",
+    {},
+    async () => {
+      const list = leftoverWorktrees();
+      if (!list.length) return text("没有遗留的 worktree");
+      return text(
+        list
+          .map((w) => {
+            const seq = w.taskId ? getTask(w.taskId)?.seq : undefined;
+            return [w.path, w.branch ?? "（无分支）", w.dirty ? "有未提交改动" : "没有未提交改动", ...(seq ? [`所属任务 #${seq}`] : [])].join(" · ");
+          })
+          .join("\n"),
+      );
+    },
+  ),
+  tool(
+    "worktree_remove",
+    "删一个遗留 worktree（path 必须在 worktrees_leftover 的列表里），一次一个。删了撤不回，所以必须用户单独一句整句同意才执行：先调一次拿到后果说明转告用户，等他回「删掉」再调。有未提交改动的要他回「连改动一起删掉」。",
+    { path: z.string().min(1) },
+    async ({ path }) => {
+      if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能删 worktree，等用户回来。");
+      const entry = leftoverWorktrees().find((w) => w.path === path);
+      if (!entry) return text("这个路径不在遗留列表里，不删");
+      const said = saidLast(conversationId);
+      const ok = entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]);
+      if (!ok) {
+        return text(
+          entry.dirty
+            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
+            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
+        );
+      }
+      const r = await removeWorktree(entry.repoDir, entry.path, entry.dirty);
+      const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
+      record({
+        action: r.removed ? "worktree_removed" : "worktree_kept",
+        why: entry.dirty ? "你在对话里让 Friday 删遗留的 worktree，连没提交的改动一起丢" : "你在对话里让 Friday 删遗留的 worktree",
+        how: r.removed ? `删了 ${entry.path}${branchNote}` : `没删：${r.kept ?? "未知原因"}`,
+        evidence: { quote: said, path: entry.path, repoDir: entry.repoDir, branch: r.branch ?? null },
+        risk: entry.dirty ? "irreversible" : "reversible",
+      });
+      return text(r.removed ? `删了 ${entry.path}${branchNote}。` : `没删：${r.kept ?? "未知原因"}`);
     },
   ),
 ];

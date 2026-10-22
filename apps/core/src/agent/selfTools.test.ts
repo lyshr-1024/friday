@@ -11,7 +11,10 @@ import { listAudit, undoPlan } from "../memory/audit.js";
 import { updateSettings, userSettings } from "../settings.js";
 import { subscribe } from "../bus.js";
 import { db } from "../memory/db.js";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createTask } from "../memory/tasks.js";
+import { createSchedule, updateSchedule } from "../memory/schedules.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -346,5 +349,81 @@ describe("knowledge_update", () => {
     const out = await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { owners: { backend: "甲" } } });
     expect(out).toContain("backend");
     expect(out).not.toContain("[object Object]");
+  });
+});
+
+describe("遗留 worktree 工具", () => {
+  function repoWithWorktree() {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "swt-repo-")));
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+    const tree = join(realpathSync(mkdtempSync(join(tmpdir(), "swt-tree-"))), "feat-y");
+    git("worktree", "add", "-q", "-b", "feat/y", tree);
+    return { repo, tree };
+  }
+  const say = (content: string) => {
+    const conv = createConversation().id;
+    addMessage(conv, { role: "user", kind: "ask", content });
+    return conv;
+  };
+
+  it("worktrees_leftover 列路径 · 分支 · 改动 · 所属任务 #N，没有就说没有", async () => {
+    const { repo, tree } = repoWithWorktree();
+    const t = createTask({ title: "遗留列表", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const out = await callIn(undefined, "worktrees_leftover", {});
+    expect(out).toContain(`${tree} · feat/y · 没有未提交改动 · 所属任务 #${t.seq}`);
+    writeFileSync(join(tree, "wip.txt"), "x\n");
+    expect(await callIn(undefined, "worktrees_leftover", {})).toContain(`${tree} · feat/y · 有未提交改动`);
+    createTask({ title: "占着", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "review" });
+    expect(await callIn(undefined, "worktrees_leftover", {})).not.toContain(tree);
+  });
+
+  it("路径不在遗留列表里 → 拒绝，不删", async () => {
+    const { tree } = repoWithWorktree();
+    const out = await callIn(say("删掉"), "worktree_remove", { path: tree });
+    expect(out).toContain("这个路径不在遗留列表里，不删");
+    expect(existsSync(tree)).toBe(true);
+  });
+
+  it("用户这句不是同意 → 只返回后果说明，不删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "说明", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const out = await callIn(say("看看有哪些"), "worktree_remove", { path: tree });
+    expect(out).toContain(`要删 ${tree}（分支 feat/y）。删了撤不回。确认的话请用户单独回一句「删掉」`);
+    expect(existsSync(tree)).toBe(true);
+  });
+
+  it("用户回「删掉」→ 真删，记账带原话，说明分支去向", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "要删", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const out = await callIn(say("删掉"), "worktree_remove", { path: tree });
+    expect(existsSync(tree)).toBe(false);
+    expect(out).toContain("feat/y");
+    const e = listAudit({ limit: 10 }).find((x) => x.action === "worktree_removed" && x.evidence.path === tree)!;
+    expect(e.evidence.quote).toBe("删掉");
+    expect(e.risk).toBe("reversible");
+  });
+
+  it("有未提交改动：回「删掉」不删并要求「连改动一起删掉」；回「连改动一起删掉」才删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    writeFileSync(join(tree, "wip.txt"), "x\n");
+    createTask({ title: "有改动", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const out = await callIn(say("删掉"), "worktree_remove", { path: tree });
+    expect(out).toContain("里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」");
+    expect(existsSync(tree)).toBe(true);
+    await callIn(say("连改动一起删掉"), "worktree_remove", { path: tree });
+    expect(existsSync(tree)).toBe(false);
+    expect(listAudit({ limit: 10 }).find((x) => x.action === "worktree_removed" && x.evidence.path === tree)?.risk).toBe("irreversible");
+  });
+
+  it("定时任务的会话里硬拒", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "定时拒", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const conv = say("删掉");
+    const s = createSchedule({ title: "x", cron: "0 10 * * *", executor: "friday", prompt: "p" });
+    updateSchedule(s.id, { conversationId: conv });
+    expect(await callIn(conv, "worktree_remove", { path: tree })).toBe("定时任务里不能删 worktree，等用户回来。");
+    expect(existsSync(tree)).toBe(true);
   });
 });
