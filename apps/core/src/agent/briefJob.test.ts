@@ -14,7 +14,7 @@ import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, taskTag, updateTask } from "../memory/tasks.js";
 import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
-import { ANCHOR_EXIT_GRACE_MS, briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
+import { adoptIntakeProject, ANCHOR_EXIT_GRACE_MS, briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
 import { closeJobTerminal } from "./terminal.js";
 import { executePending, onJobExit, rejectTask, startAutonomousJob } from "./pipeline.js";
 import { createRun, runByJob, runsForTask } from "../memory/runs.js";
@@ -404,6 +404,19 @@ describe("建卡队列", () => {
     expect(listAudit({ taskId: hit.id }).some((e) => e.action === "project_guessed")).toBe(true);
     expect(getTask(miss.id)!.project).toBeFalsy();
     expect(listAudit({ taskId: miss.id }).some((e) => e.action === "project_guessed")).toBe(false);
+  });
+
+  it("adoptIntakeProject：你清掉项目（projectBy user）不再猜回去；已有项目不动", () => {
+    writeProjects({ name: "p-keep" }, { name: "p-other" });
+    const intake = { kind: "start" as const, confidence: 90, project: "p-keep", detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" };
+    const cleared = createTask({ title: "缺陷丁", kind: "meegle", status: "understood", source: { meegleType: "issue", intake, projectBy: "user" } });
+    adoptIntakeProject(cleared);
+    expect(getTask(cleared.id)!.project).toBeFalsy();
+    expect(listAudit({ taskId: cleared.id }).some((e) => e.action === "project_guessed")).toBe(false);
+    const has = createTask({ title: "缺陷戊", kind: "meegle", project: "p-other", status: "understood", source: { meegleType: "issue", intake } });
+    adoptIntakeProject(has);
+    expect(getTask(has.id)!.project).toBe("p-other");
+    expect(listAudit({ taskId: has.id }).some((e) => e.action === "project_guessed")).toBe(false);
   });
 
   it("briefTick：开关关着不替你定项目", async () => {

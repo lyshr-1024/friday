@@ -287,10 +287,11 @@ function requireReview(t: Task, b: Brief): void {
 
 export function adoptIntakeProject(t: Task): Task {
   const guess = t.source.intake?.project;
-  if (t.project || !guess) return t;
+  if (t.project || !guess || t.source.projectBy === "user") return t;
   const r = resolveProject(guess);
   if (r.kind !== "match") return t;
-  const updated = updateTask(t.id, { project: r.project.name, source: { projectBy: "friday" } }) ?? t;
+  const updated = updateTask(t.id, { project: r.project.name, source: { projectBy: "friday" } });
+  if (!updated) return t;
   record({ taskId: t.id, action: "project_guessed", why: "卡上没定项目，用 intake 判的", how: `归到 ${r.project.name}，不对就在主对话里说，没开工前改项目直接改`, evidence: { project: r.project.name, confidence: t.source.intake?.confidence ?? null }, risk: "reversible" });
   return updated;
 }
