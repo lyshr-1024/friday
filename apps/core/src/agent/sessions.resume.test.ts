@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
-import { finishJob, getJob, runningJobs, setJobSession } from "../memory/jobs.js";
+import { createJob, finishJob, getJob, runningJobs, setJobSession } from "../memory/jobs.js";
 import { listAudit } from "../memory/audit.js";
 import { openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
@@ -245,12 +245,17 @@ describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求"
 
 const guardPathOf = (script: string) => settingsOf(script).hooks.PreToolUse!.find((h) => h.matcher === "Bash")!.hooks[0]!.command.replace(/^'|'$/g, "");
 
+const idle = (rootId: string) => db().prepare("UPDATE term_sessions SET last_stop_at = ? WHERE id = ?").run(new Date(Date.now() + 1000).toISOString(), rootId);
+const working = (rootId: string) => db().prepare("UPDATE term_sessions SET last_input_at = ? WHERE id = ?").run(new Date().toISOString(), rootId);
+
 async function testingStory(name: string, kind: "interactive" | "autonomous" = "interactive") {
   const dir = repo(name);
-  const root = createTask({ title: `需求 ${name}`, kind: "meegle", source: { meegleId: `${name}-S`, meegleType: "story" }, status: "processing", project: name, stage: "testing" });
+  const root = createTask({ title: `需求 ${name}`, kind: "meegle", source: { meegleId: `${name}-S`, meegleType: "story", ...(kind === "autonomous" ? { autonomous: true } : {}) }, status: "processing", project: name, stage: "testing" });
   const rootJobId = await openSession(root, root, { kind, project: name, repoDir: dir, task: "x" });
   const wt = addTestWorktree(dir, `${name}-feat-s`);
   await worktreeReady(rootJobId, wt);
+  // 默认 Claude 空闲（这一轮说完了）；要测「在干活」的自己把 last_input_at 推后
+  db().prepare("UPDATE term_sessions SET last_input_at = ?, last_stop_at = ? WHERE id = ?").run(new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() - 30_000).toISOString(), root.id);
   const bug = (n = 1) =>
     createTask({ title: `缺陷 ${name} ${n}`, kind: "meegle", status: "understood", stage: "todo", project: name, source: { meegleType: "issue", meegleId: `${name}-B${n}`, linkedStoryId: `${name}-S` } });
   return { root: getTask(root.id)!, rootJobId, bug, wt };
@@ -273,10 +278,11 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(listAudit({ taskId: bug.id }).some((e) => e.action === "autostart")).toBe(true);
   });
 
-  it("根已退出：同一会话里起 -p --model opus --resume，守卫在且不含 merge，缺陷卡有新 jobId", async () => {
-    const { root, rootJobId, bug: mk } = await testingStory("sbexit");
+  it("根已退出：在需求自己的 Claude 会话上 --resume 接回并敲进去，不 fork、不起 -p", async () => {
+    const { root, rootJobId, bug: mk } = await testingStory("sbexit", "autonomous");
     const bug = mk();
     setJobSession(rootJobId, "sess-root");
+    finishJob(rootJobId, 0);
     updateTermSession(root.id, { status: "exited" });
     calls = [];
     launched = [];
@@ -285,20 +291,32 @@ describe("测试阶段缺陷交代进需求会话", () => {
     const script = scriptOf(typed().at(-1)!);
     expect(script).toMatch(/--model ['\\].*opus/);
     expect(script).not.toMatch(/ -p /);
-    expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
+    expect(script).toContain("--resume '\\''sess-root'\\''");
+    expect(script).not.toContain("--fork-session");
+    expect(script).toContain(bug.id.slice(0, 8));
     const guard = readFileSync(guardPathOf(script), "utf8");
     expect(guard).not.toContain("合并由 Friday");
     expect(guard).toContain("保护分支");
-    const jobId = getTask(bug.id)!.source.jobId!;
-    expect(jobId).toBeTruthy();
-    expect(getJob(jobId)).toMatchObject({ sessionId: root.id, taskId: bug.id, status: "running" });
+    expect(getTask(bug.id)!.source.jobId).toBeUndefined();
+    expect(getJob(rootJobId)!.status).toBe("running");
     expect(getTermSession(root.id)!.jobId).toBe(rootJobId);
-    expect(runByJob(jobId)).toMatchObject({ id: jobId, kind: "story_bug", taskId: bug.id });
+    expect(openRunForTask(bug.id)).toMatchObject({ kind: "story_bug", jobId: `${rootJobId}#${bug.id.slice(0, 8)}` });
   });
 
-  it("autonomous 根活着：busy，不敲字", async () => {
+  it("Friday 驾驶的需求会话、Claude 活着且空闲：敲进去", async () => {
+    const { root, rootJobId, bug: mk } = await testingStory("sbidle", "autonomous");
+    const bug = mk();
+    calls = [];
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    expect(typed().at(-1)).toContain(bug.id.slice(0, 8));
+    expect(openRunForTask(bug.id)).toMatchObject({ jobId: `${rootJobId}#${bug.id.slice(0, 8)}` });
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("Claude 正在一轮里：busy，不敲字", async () => {
     const { root, bug: mk } = await testingStory("sbbusy", "autonomous");
     const bug = mk();
+    working(root.id);
     calls = [];
     expect(await handToStorySession(bug, root)).toBe("busy");
     expect(typed()).toEqual([]);
@@ -330,8 +348,8 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(getTask(bug.id)!.source.handedAt).toBeUndefined();
   });
 
-  it("打回后带原因重交；根退出时走 headless 路", async () => {
-    const { root, bug: mk } = await testingStory("sbreject");
+  it("打回后带原因重交；根退出时在需求会话上接回", async () => {
+    const { root, bug: mk } = await testingStory("sbreject", "autonomous");
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
     const first = openRunForTask(bug.id)!;
@@ -339,21 +357,20 @@ describe("测试阶段缺陷交代进需求会话", () => {
     calls = [];
     rejectTask(bug.id, "改错页面了");
     expect(runsForTask(bug.id).find((r) => r.id === first.id)!.endedAt).toBeTruthy();
-    await vi.waitFor(() => expect(getTask(bug.id)!.source.jobId).toBeTruthy());
+    await vi.waitFor(() => expect(openRunForTask(bug.id)?.trigger).toBe("retry"));
     const script = scriptOf(typed().at(-1)!);
     expect(script).toContain("上一轮被打回：改错页面了");
     expect(script).toMatch(/--model/);
     expect(script).not.toMatch(/ -p /);
     const runs = runsForTask(bug.id);
     expect(runs.find((r) => r.id === first.id)).toMatchObject({ outcome: "rejected" });
-    expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)).toMatchObject({ kind: "story_bug", outcome: "pending", trigger: "retry" });
-    expect(openRunForTask(bug.id)!.id).toBe(getTask(bug.id)!.source.jobId);
+    expect(openRunForTask(bug.id)).toMatchObject({ kind: "story_bug", outcome: "pending", trigger: "retry" });
     expect(listAudit({ taskId: bug.id }).some((e) => e.action === "retry" && e.why === "打回后重交")).toBe(true);
-    expect(runs.find((r) => r.id === getTask(bug.id)!.source.jobId)!.endedAt).toBeFalsy();
   });
 
   it("打回时根会话在忙：重交不了，缺陷卡标 blocked 说明原因", async () => {
     const { root, bug: mk } = await testingStory("sbrejbusy", "autonomous");
+    working(root.id);
     const bug = updateTask(mk().id, { status: "processing", source: { rootId: root.id, handedAt: new Date().toISOString(), autonomous: true } })!;
     calls = [];
     rejectTask(bug.id, "没修好");
@@ -451,6 +468,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     expect(after.source.autonomous).toBeUndefined();
     expect(after.source.handBackNote).toBe("测试在 Meegle 里把它 Reopen 了（Reopened），上一轮的修法没过");
     expect(testingStoryBug(after)).toMatchObject({ root: { id: root.id } });
+    idle(root.id);
     calls = [];
     expect(await handToStorySession(after, getTask(root.id)!)).toBe("handed");
     expect(typed().at(-1)).toContain("上一轮被打回：测试在 Meegle 里把它 Reopen 了（Reopened），上一轮的修法没过");
@@ -479,7 +497,6 @@ describe("交给需求会话修过的缺陷被重开", () => {
     setJobSession(rootJobId, "sess-root");
     updateTermSession(root.id, { status: "exited" });
     expect(await handToStorySession(bug, root)).toBe("handed");
-    finishJob(getTask(bug.id)!.source.jobId!, 0);
     updateTask(bug.id, { status: "done", stage: "testing" });
     calls = [];
     launched = [];
@@ -544,6 +561,7 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "review" });
+    idle(root.id);
     const r = await handToFriday(getTask(bug.id)!);
     expect("task" in r).toBe(true);
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
@@ -555,8 +573,8 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
-  it("会话记着 running、Claude 其实已退出：走后台 -p --resume --fork-session", async () => {
-    const { root, rootJobId, bug: mk } = await testingStory("sbgoneclaude");
+  it("会话记着 running、Claude 其实已退出：在需求会话上接回，不 fork", async () => {
+    const { root, rootJobId, bug: mk } = await testingStory("sbgoneclaude", "autonomous");
     const bug = mk();
     setJobSession(rootJobId, "sess-root");
     db().prepare("UPDATE term_sessions SET last_input_at = ? WHERE id = ?").run(new Date(Date.now() - 60_000).toISOString(), root.id);
@@ -569,8 +587,9 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     const script = scriptOf(typed().at(-1)!);
     expect(script).toMatch(/--model/);
     expect(script).not.toMatch(/ -p /);
-    expect(script).toContain("--resume '\\''sess-root'\\'' --fork-session");
-    expect(getTask(bug.id)!.source.jobId).toBeTruthy();
+    expect(script).toContain("--resume '\\''sess-root'\\''");
+    expect(script).not.toContain("--fork-session");
+    expect(getTask(bug.id)!.source.jobId).toBeUndefined();
     updateTask(bug.id, { status: "ignored" });
   });
 
@@ -593,18 +612,18 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
 describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
   const reopened = (id: string) =>
     ({ fetchWorkItems: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" }] }) as never;
+  // 旧版交接在需求会话里给缺陷起过一次自己的 -p，缺陷卡记着那个 jobId；升级时这种数据还在
   const headless = async (name: string) => {
-    const { root, rootJobId, bug: mk } = await testingStory(name);
-    setJobSession(rootJobId, "sess-root");
-    updateTermSession(root.id, { status: "exited" });
+    const { root, bug: mk } = await testingStory(name);
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
-    const jobId = getTask(bug.id)!.source.jobId!;
-    expect(getJob(jobId)!.status).toBe("running");
-    return { root, bug, jobId };
+    const jobId = `legacy-${name}`;
+    createJob({ id: jobId, project: name, dir: "/tmp", logPath: "/tmp/x.log", taskId: bug.id, sessionId: root.id });
+    updateTask(bug.id, { source: { jobId } });
+    return { root, bug: getTask(bug.id)!, jobId };
   };
 
-  it("上一轮的 -p 还在跑：重新打开回 409，卡片和交接标记都不动；它退出后能重开", async () => {
+  it("旧版留下的 -p 还在跑：重新打开回 409，卡片和交接标记都不动；它退出后能重开", async () => {
     const { bug, jobId } = await headless("sbreopenrun");
     updateTask(bug.id, { status: "done" });
     const res = await app.request(`/tasks/${bug.id}/reopen`, { method: "POST" });
@@ -618,7 +637,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
-  it("上一轮的 -p 还在跑：Meegle Reopen 这一轮跳过，退出后下一轮再处理", async () => {
+  it("旧版留下的 -p 还在跑：Meegle Reopen 这一轮跳过，退出后下一轮再处理", async () => {
     const { bug, jobId } = await headless("sbmreopenrun");
     updateTask(bug.id, { status: "done", stage: "testing" });
     expect((await syncMeegleOnce(reopened(bug.source.meegleId!))).reopened).toBe(0);
@@ -639,7 +658,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "review" });
-    updateTermSession(root.id, { kind: "autonomous" });
+    working(root.id);
     expect(await handToFriday(getTask(bug.id)!)).toMatchObject({ status: 409 });
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
     expect(old.outcome).toBe("pending");
@@ -655,6 +674,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "blocked" });
+    idle(root.id);
     expect("task" in (await handToFriday(getTask(bug.id)!))).toBe(true);
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
     expect(old.outcome).toBe("pending");
@@ -664,7 +684,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
   });
 });
 
-describe("headless 交接的成本只记本轮增量", () => {
+describe("缺陷在需求会话里修：成本只记本轮增量", () => {
   const costLine = (usd: number, model = "claude-opus-5") => JSON.stringify({ type: "cost-state", totalCostUSD: usd, modelUsage: { [model]: { costUSD: usd } } });
   const transcript = (dir: string, sid: string, lines: string[]) => {
     const p = transcriptPath(dir, sid);
@@ -672,52 +692,19 @@ describe("headless 交接的成本只记本轮增量", () => {
     writeFileSync(p, lines.join("\n") + "\n");
   };
 
-  it("fork 出来的 transcript 带着需求会话的累计成本：缺陷那行只记差额；没有基线的照旧记全额", async () => {
+  it("交接时记下需求会话此刻的累计成本，缺陷那行只记之后的差额", async () => {
     const realHome = process.env.HOME;
     process.env.HOME = mkdtempSync(join(tmpdir(), "friday-home-"));
     try {
-      const { root, rootJobId, bug: mk, wt } = await testingStory("sbcost");
+      const { root, rootJobId, bug: mk, wt } = await testingStory("sbcost", "autonomous");
       setJobSession(rootJobId, "sess-story");
-      updateTermSession(root.id, { status: "exited" });
-      const story = costLine(2, "claude-haiku-4-5");
-      transcript(wt, "sess-story", [story]);
+      transcript(wt, "sess-story", [costLine(2)]);
       const bug = mk();
       expect(await handToStorySession(bug, root)).toBe("handed");
-      const jobId = getTask(bug.id)!.source.jobId!;
-      expect(runByJob(jobId)!.costBase).toBe(2);
-      setJobSession(jobId, "sess-fork");
-      transcript(wt, "sess-fork", [story, costLine(2.75)]);
-      closeRunForTask(bug.id, "report", wt, "sess-fork");
-      expect(runByJob(jobId)!.costUsd).toBeCloseTo(0.75);
-
-      const plain = createTask({ title: "普通", kind: "verbal", source: {}, status: "processing" });
-      createRun({ id: "plain-cost", jobId: "plain-cost", taskId: plain.id, project: "sbcost", kind: "autonomous", trigger: "retry" });
-      closeRunForTask(plain.id, "report", wt, "sess-fork");
-      expect(runByJob("plain-cost")!.costUsd).toBeCloseTo(2.75);
-      updateTask(bug.id, { status: "ignored" });
-    } finally {
-      process.env.HOME = realHome;
-    }
-  });
-
-  it("交付时成本还没落盘：退出后补的那次也减掉基线", async () => {
-    const realHome = process.env.HOME;
-    process.env.HOME = mkdtempSync(join(tmpdir(), "friday-home-"));
-    try {
-      const { root, rootJobId, bug: mk, wt } = await testingStory("sbcost2");
-      setJobSession(rootJobId, "sess-story2");
-      updateTermSession(root.id, { status: "exited" });
-      const story = costLine(1.5);
-      transcript(wt, "sess-story2", [story]);
-      const bug = mk();
-      expect(await handToStorySession(bug, root)).toBe("handed");
-      const jobId = getTask(bug.id)!.source.jobId!;
-      setJobSession(jobId, "sess-fork2");
-      closeRunForTask(bug.id, "report", wt, "sess-fork2");
-      expect(runByJob(jobId)!.costUsd).toBeUndefined();
-      transcript(getJob(jobId)!.dir, "sess-fork2", [story, costLine(1.9)]);
-      fillRunCost(jobId);
-      expect(runByJob(jobId)!.costUsd).toBeCloseTo(0.4);
+      expect(openRunForTask(bug.id)!.costBase).toBe(2);
+      transcript(wt, "sess-story", [costLine(2), costLine(2.75)]);
+      closeRunForTask(bug.id, "report", wt, "sess-story");
+      expect(runsForTask(bug.id).at(-1)!.costUsd).toBeCloseTo(0.75);
       updateTask(bug.id, { status: "ignored" });
     } finally {
       process.env.HOME = realHome;

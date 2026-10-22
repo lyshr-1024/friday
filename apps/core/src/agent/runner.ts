@@ -274,7 +274,6 @@ export interface SessionLaunch {
   inRepo?: boolean;
   /** 项目页的普通 shell：只开 zsh，不起 Claude */
   shell?: boolean;
-  forkSession?: boolean;
   /** 只读查询一次跑完就退：带 -p。Friday 驾驶的代码任务不带，进程交付后留着供插话 */
   print?: boolean;
 }
@@ -312,7 +311,7 @@ export function workCommand(req: SessionLaunch, claudePath: string, port: number
   const flags = claudeFlags(files, { kind: req.kind, print: req.print }, req.project);
   const prompt = req.task ? ` ${shellQuote(req.task)}` : "";
   const claude = req.resumeSessionId
-    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${req.forkSession ? " --fork-session" : ""}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
+    ? `${shellQuote(claudePath)} ${flags} --resume ${shellQuote(req.resumeSessionId)}${prompt} || ${shellQuote(claudePath)} ${flags}${prompt}`
     : `${shellQuote(claudePath)} ${flags}${prompt}`;
   // 不再用 script 录终端：macOS 的 script 不把窗口尺寸变化转给它开的 pty，Claude 一直按启动时的宽度画（2026-09-30 用户报：
   // 窗口放大了内容还只有那么宽，实测窗格 184×43、script 里 Claude 的 pty 85×25）。改由 tmux pipe-pane 把窗格输出追加进同一个日志

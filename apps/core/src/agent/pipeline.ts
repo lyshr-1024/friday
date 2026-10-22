@@ -13,7 +13,7 @@ import { addPending, findTaskBySource, getTask, listTasks, updatePending, update
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, storyBugPrompt } from "./runner.js";
-import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, reviveSession, runInSession, sayToSession } from "./sessions.js";
+import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
 import { hasSession } from "./tmux.js";
 import { state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
@@ -521,7 +521,7 @@ export async function executePending(
   return done;
 }
 
-/** 需求在测试中：缺陷交代进需求自己的会话，Claude 活着就敲进去，退出了就在同一个 worktree 里 -p --resume 接回后台跑 */
+/** 需求在测试中：缺陷交代进需求自己的会话，Claude 空闲就敲进去、在干活就等，退出了就在需求自己的 Claude 会话上接回 */
 export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "asking" | "no-session"> {
   const trigger = opts.trigger ?? "autostart";
   const gone = (why: string) => {
@@ -533,42 +533,36 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
   const project = s.project;
   const prompt = storyBugPrompt(task, root, project, opts.rejected ?? task.source.handBackNote);
   const alive = s.status === "running" && !(await claudeGone(s));
-  if (alive && s.kind !== "interactive") {
-    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 还在跑，等它退出`);
-    return "busy";
-  }
   // 敲字带回车，会替你选中弹窗里高亮的那个选项
   if (alive && root.attention === "question") {
     console.log(`[story-bug] ${task.title.slice(0, 40)}：需求终端在等你回答，不往里敲`);
     return "asking";
   }
-  let run: { id: string; jobId: string };
-  let costBase: number | undefined;
+  // 在一轮里就等它交付：敲进去它也只是排队，交付归属会乱
+  if (alive && s.lastInputAt && (!s.lastStopAt || s.lastInputAt > s.lastStopAt)) {
+    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 正在干活，等这一轮交付`);
+    return "busy";
+  }
+  const job = s.jobId ? getJob(s.jobId) : undefined;
+  // 缺陷这一轮的成本从此刻需求会话的累计起算
+  const costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
   if (alive) {
     if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
-    run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
-  } else {
-    const id = randomUUID();
-    const job = s.jobId ? getJob(s.jobId) : undefined;
-    // --fork-session 的 transcript 带着需求会话的累计成本
-    costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
-    const ok = await runInSession(root.id, { id, repoDir: s.repoDir, kind: "autonomous", project, task: prompt, ...(job?.claudeSessionId ? { resumeSessionId: job.claudeSessionId, forkSession: true } : {}) }, task.id);
-    if (!ok) return gone("需求会话里起不了新的运行");
-    run = { id, jobId: id };
-  }
+  } else if (!(await resumeInSession(root.id, prompt))) return gone("需求会话里接不回 Claude");
+  const run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
   updateTask(task.id, {
     status: "processing",
     attention: undefined,
     progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
-    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: alive ? undefined : run.id },
+    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: undefined },
   });
   createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger, ...(costBase !== undefined ? { costBase } : {}) });
   record({
     taskId: task.id,
     action: trigger === "autostart" ? "autostart" : "retry",
     why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
-    how: "交代进需求的会话（敲进去 / 接回后台跑）",
-    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "headless" },
+    how: alive ? "敲进需求的会话" : "在需求的会话上接回 Claude 再交代",
+    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "resume" },
     risk: "reversible",
   });
   if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
