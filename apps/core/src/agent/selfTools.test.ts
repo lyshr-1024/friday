@@ -12,7 +12,7 @@ import { updateSettings, userSettings } from "../settings.js";
 import { subscribe } from "../bus.js";
 import { db } from "../memory/db.js";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createTask } from "../memory/tasks.js";
 import { createSchedule, updateSchedule } from "../memory/schedules.js";
 import { tmpdir } from "node:os";
@@ -72,12 +72,10 @@ describe("settings 工具", () => {
     expect(listAudit({}).find((x) => x.action === "settings_changed")!.evidence.quote).toBe("");
   });
 
-  it("改 theme 发 settings 事件，别的键不发", async () => {
+  it("改任何键都发 settings 事件", async () => {
     const seen: string[] = [];
     const stop = subscribe((ev) => seen.push(ev.type));
-    await callIn(undefined, "settings_update", { patch: { okrWeekly: false } });
-    expect(seen).not.toContain("settings");
-    await callIn(undefined, "settings_update", { patch: { theme: "light" } });
+    await callIn(undefined, "settings_update", { patch: { model: "sonnet" } });
     stop();
     expect(seen).toContain("settings");
   });
@@ -104,8 +102,7 @@ describe("project_update", () => {
     const e = listAudit({}).find((x) => x.action === "project_updated")!;
     expect(e.evidence.quote).toBe("app 的保护分支加上 sit");
     const plan = undoPlan(e.id)!;
-    if (plan.kind !== "restore_memory") throw new Error();
-    expect(plan.snapshot.projects).toBe(seed);
+    expect(plan).toMatchObject({ kind: "restore_project", name: "app" });
   });
 
   it("目录不存在就拒绝、方案送审只认三档", async () => {
@@ -135,6 +132,63 @@ describe("project_update", () => {
   it("不许清空目录", async () => {
     writeMemoryFile("projects", seed);
     expect(await callIn(undefined, "project_update", { project: "app", fields: { 目录: "" } })).toContain("目录不能清空");
+    expect(readMemoryFile("projects")).toBe(seed);
+  });
+
+  it("create 只认完全同名：模糊命中别的项目不改它", async () => {
+    const seedWeb = `${seed}\n## web-admin\n- 目录：${dir}\n- 别名：后台\n`;
+    writeMemoryFile("projects", seedWeb);
+    const out = await callIn(undefined, "project_update", { project: "web", create: true, fields: { 目录: dir, 别名: "新" } });
+    expect(out).toContain("已有相近的项目「web-admin」");
+    expect(readMemoryFile("projects")).toBe(seedWeb);
+    const same = await callIn(undefined, "project_update", { project: "APP", create: true, fields: { 说明: "同名" } });
+    expect(same).toContain("- 说明：同名");
+    expect(readMemoryFile("projects")).toContain("## app\n");
+  });
+
+  it("不带 create 时目录路径不算已有项目，不写文件", async () => {
+    writeMemoryFile("projects", seed);
+    const out = await callIn(undefined, "project_update", { project: dir, fields: { 别名: "x" } });
+    expect(out).toContain("找不到");
+    expect(readMemoryFile("projects")).toBe(seed);
+  });
+
+  it("目录要绝对路径或 ~ 开头，~ 照用户写的形式存", async () => {
+    writeMemoryFile("projects", seed);
+    expect(await callIn(undefined, "project_update", { project: "app", fields: { 目录: "relative/dir" } })).toContain("目录要写绝对路径");
+    expect(readMemoryFile("projects")).toBe(seed);
+    const oldHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "home-"));
+    mkdirSync(join(home, "code"));
+    process.env.HOME = home;
+    try {
+      const out = await callIn(undefined, "project_update", { project: "app", fields: { 目录: "~/code" } });
+      expect(out).toContain("- 目录：~/code");
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("记账撤销只带这一段", async () => {
+    writeMemoryFile("projects", seed);
+    await callIn(undefined, "project_update", { project: "app", fields: { 说明: "x" } });
+    const e = listAudit({}).find((x) => x.action === "project_updated")!;
+    expect(undoPlan(e.id)).toEqual({ kind: "restore_project", name: "app", before: seed.slice(seed.indexOf("## app")).trimEnd() });
+  });
+
+  it("定时会话里不能改配置，设置和项目文件不变", async () => {
+    writeMemoryFile("projects", seed);
+    const conv = createConversation().id;
+    const s = createSchedule({ title: "cfg", cron: "0 10 * * *", executor: "friday", prompt: "p" });
+    updateSchedule(s.id, { conversationId: conv });
+    updateSettings({ autonomousConcurrency: 3 });
+    const msg = "定时任务里不能改 Friday 的配置，等用户回来。";
+    expect(await callIn(conv, "settings_update", { patch: { autonomousConcurrency: 7 } })).toBe(msg);
+    expect(await callIn(conv, "project_update", { project: "app", fields: { 说明: "x" } })).toBe(msg);
+    expect(await callIn(conv, "rule_update", { id: "r-x", text: "x" })).toBe(msg);
+    expect(await callIn(conv, "rule_retire", { id: "r-x", why: "x" })).toBe(msg);
+    expect(await callIn(conv, "knowledge_update", { op: "delete", id: "x" })).toBe(msg);
+    expect(userSettings().autonomousConcurrency).toBe(3);
     expect(readMemoryFile("projects")).toBe(seed);
   });
 
@@ -236,6 +290,18 @@ describe("knowledge_update", () => {
     expect(e.evidence.quote).toBe("基金筛选在 B 仓");
     restoreFeatures(plan.snapshot);
     expect(getFeature(f.id)).toMatchObject({ where: "A 仓", corrected: [] });
+  });
+
+  it("owners 按键合并，空串删键，未知键被拒", async () => {
+    writeMemoryFile("projects", seed);
+    const f = createFeature("KbApp", { name: "负责人", owners: { backend: "甲", pm: "乙", design: "丙" } }, "task");
+    await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { owners: { backend: "丁" } } });
+    expect(getFeature(f.id)!.owners).toEqual({ backend: "丁", pm: "乙", design: "丙" });
+    expect(getFeature(f.id)!.corrected).toContain("owners");
+    await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { owners: { pm: "" } } });
+    expect(getFeature(f.id)!.owners).toEqual({ backend: "丁", design: "丙" });
+    expect(await callIn(undefined, "knowledge_update", { op: "edit", id: f.id, patch: { owners: { frontend: "戊" } } })).toContain("不能改");
+    expect(getFeature(f.id)!.owners).toEqual({ backend: "丁", design: "丙" });
   });
 
   it("找不到、空 patch、未知键都回文本不抛", async () => {

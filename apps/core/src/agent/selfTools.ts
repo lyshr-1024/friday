@@ -25,6 +25,9 @@ type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, settingsShape[k]])) as Pick<typeof settingsShape, SettingsKey>).strict();
 
+const SCHEDULED_CONFIG = "定时任务里不能改 Friday 的配置，等用户回来。";
+const inSchedule = (conversationId?: string) => Boolean(conversationId && scheduleByConversation(conversationId));
+
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
 function lastUserMessage(conversationId?: string): { id: string | null; text: string } {
@@ -46,7 +49,7 @@ const featurePatch = z
     aliases: z.array(z.string()).optional(),
     where: z.string().optional(),
     paths: z.array(z.string()).optional(),
-    owners: z.object({ frontend: z.string(), backend: z.string(), pm: z.string(), qa: z.string() }).partial().strict().optional(),
+    owners: z.object({ backend: z.string(), pm: z.string(), design: z.string(), qa: z.string() }).partial().strict().optional(),
     summary: z.string().optional(),
   })
   .strict();
@@ -81,6 +84,7 @@ export const selfToolList = (conversationId?: string) => [
     `改 Friday 的设置，只能改这些键：${SETTINGS_KEYS.join("、")}。可撤销、会记账。用户明确要改才调；改完把「键：旧 → 新」告诉他。`,
     { patch: settingsPatch },
     async (args) => {
+      if (inSchedule(conversationId)) return text(SCHEDULED_CONFIG);
       const parsed = settingsPatch.safeParse(args.patch);
       if (!parsed.success) return text(`不能改：${parsed.error.issues.map((i) => `${i.path.join(".") || "patch"} ${i.message}`).join("；")}。能改的键只有 ${SETTINGS_KEYS.join("、")}。`);
       const next = parsed.data as SettingsUpdate;
@@ -99,7 +103,7 @@ export const selfToolList = (conversationId?: string) => [
         risk: "reversible",
         undo: { kind: "restore_settings", before },
       });
-      if (keys.includes("theme")) publish({ type: "settings" });
+      publish({ type: "settings" });
       return text(`改好了：${how}（可在操作记录里撤销）`);
     },
   ),
@@ -112,30 +116,41 @@ export const selfToolList = (conversationId?: string) => [
       create: z.boolean().optional(),
     },
     async ({ project, fields, create }) => {
+      if (inSchedule(conversationId)) return text(SCHEDULED_CONFIG);
       const entries = Object.entries(fields).filter(([, v]) => v !== undefined) as [ProjectFieldKey, string][];
       if (!entries.length && !create) return text("没有要改的字段。");
       if (create) {
         const n = project.trim();
-        if (!n || /[\r\n]/.test(n) || n.startsWith("#")) return text("项目名不能为空、不能换行、不能以 # 开头。");
+        if (!n || /[\r\n\u2028\u2029]/.test(n) || n.startsWith("#")) return text("项目名不能为空、不能换行、不能以 # 开头。");
       }
       if (fields.目录 !== undefined && !fields.目录.trim()) return text("目录不能清空，项目会从注册表里消失。");
+      const registered = loadProjects();
       const res = resolveProject(project);
+      const known = res.kind === "match" && registered.some((p) => p.name === res.project.name);
       let name: string;
-      if (res.kind === "match") name = res.project.name;
+      if (create) {
+        const same = registered.find((p) => p.name.toLowerCase() === project.trim().toLowerCase());
+        if (same) name = same.name;
+        else if (res.kind === "match" && known) return text(`已有相近的项目「${res.project.name}」，要改它就不带 create，要新建就换个名字`);
+        else if (res.kind === "ambiguous") return text(`已有相近的项目：${res.candidates.map((c) => c.name).join("、")}，要改其中一个就不带 create，要新建就换个名字`);
+        else {
+          name = project.trim();
+          if (!fields.目录?.trim()) return text("新建项目必须给目录。");
+        }
+      } else if (res.kind === "match" && known) name = res.project.name;
       else if (res.kind === "ambiguous") return text(`「${project}」对上了好几个项目：${res.candidates.map((c) => c.name).join("、")}，说清是哪个。`);
-      else if (create) {
-        name = project.trim();
-        if (!fields.目录?.trim()) return text("新建项目必须给目录。");
-      } else return text(`找不到项目「${project}」；要新建的话带 create: true 并给目录。`);
+      else return text(`找不到项目「${project}」；要新建的话带 create: true 并给目录。`);
       const dir = fields.目录?.trim();
       if (dir) {
+        if (!dir.startsWith("/") && !dir.startsWith("~")) return text("目录要写绝对路径（/ 或 ~ 开头）");
         const p = expandHome(dir);
         if (!existsSync(p) || !statSync(p).isDirectory()) return text(`目录不存在：${p}`);
       }
       const level = fields.方案送审?.trim();
       if (level && !REVIEW_LEVELS.includes(level)) return text(`方案送审只认：${REVIEW_LEVELS.join(" / ")}。`);
-      const snapshot = { decisions: readMemoryFile("decisions"), people: readMemoryFile("people"), projects: readMemoryFile("projects") };
-      let next = snapshot.projects;
+      const current = readMemoryFile("projects");
+      const before = projectSection(current, name);
+      let next = current;
       try {
         for (const [k, v] of entries) next = setProjectField(next, name, k, v);
       } catch (e) {
@@ -148,7 +163,7 @@ export const selfToolList = (conversationId?: string) => [
         how: `${name}：${entries.map(([k, v]) => `${k}=${v || "（删除）"}`).join("；")}`,
         evidence: { quote: saidLast(conversationId), project: name, fields },
         risk: "reversible",
-        undo: { kind: "restore_memory", snapshot },
+        undo: { kind: "restore_project", name, before },
       });
       return text(`改好了（可在操作记录里撤销）：\n${projectSection(next, name) ?? ""}`);
     },
@@ -169,6 +184,7 @@ export const selfToolList = (conversationId?: string) => [
     "改一条手册规则的文字（1–120 字），改完算手改、之后自动提炼不会再动它。可撤销、会记账。用户明确要改才调；先用 rules_list 拿 id。",
     { id: z.string().min(1), text: z.string().min(1).max(120) },
     async ({ id, text: t }) => {
+      if (inSchedule(conversationId)) return text(SCHEDULED_CONFIG);
       const before = getRule(id);
       if (!before) return text("没有这条规则");
       if (before.status === "retired") return text("这条已经退役了");
@@ -195,6 +211,7 @@ export const selfToolList = (conversationId?: string) => [
     "退役一条手册规则，必须写一句原因 why。可撤销、会记账。用户明确要删 / 不要这条才调；先用 rules_list 拿 id。",
     { id: z.string().min(1), why: z.string().min(1).max(200) },
     async ({ id, why }) => {
+      if (inSchedule(conversationId)) return text(SCHEDULED_CONFIG);
       const before = getRule(id);
       if (!before) return text("没有这条规则");
       if (before.status === "retired") return text("这条已经退役了");
@@ -217,7 +234,7 @@ export const selfToolList = (conversationId?: string) => [
   ),
   tool(
     "knowledge_update",
-    "纠正项目知识库（功能条目）。op: edit（id + patch，可改 name/aliases/where/paths/owners/summary，改过的字段之后收工学习不会再覆盖）、merge（keep + drop，同一项目，drop 的历史和名字并进 keep）、move（historyId + to，把一条历史挪到另一个功能）、delete（id，连历史一起删）。id / keep / drop / to 接功能 id 或「项目:功能名」。可撤销、会记账。用户明确要改才调。",
+    "纠正项目知识库（功能条目）。op: edit（id + patch，可改 name/aliases/where/paths/owners/summary，改过的字段之后收工学习不会再覆盖。aliases / paths 是整组替换：先 knowledge_search 或 memory_read knowledge:<项目> 看当前值，再传完整数组；owners 按键合并，键只有 backend/pm/design/qa，值给空串删掉该键）、merge（keep + drop，同一项目，drop 的历史和名字并进 keep）、move（historyId + to，把一条历史挪到另一个功能）、delete（id，连历史一起删）。id / keep / drop / to 接功能 id 或「项目:功能名」。可撤销、会记账。用户明确要改才调。",
     {
       op: z.enum(["edit", "merge", "move", "delete"]),
       id: z.string().optional(),
@@ -228,6 +245,7 @@ export const selfToolList = (conversationId?: string) => [
       to: z.string().optional(),
     },
     async (a) => {
+      if (inSchedule(conversationId)) return text(SCHEDULED_CONFIG);
       const need = (v: string | undefined, name: string): string | undefined => (v?.trim() ? undefined : `${a.op} 需要 ${name}。`);
       const pick = (v: string): Feature | string => resolveFeature(v);
       let involved: Feature[];

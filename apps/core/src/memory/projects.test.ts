@@ -149,3 +149,10 @@ describe("setProjectField 重复键", () => {
     expect(setProjectField(md, "app", "别名", "")).not.toContain("别名");
   });
 });
+
+describe("setProjectField 值里的换行", () => {
+  it("\r 和 U+2028 当分隔，保护分支解析成两项", () => {
+    const md = setProjectField("## p\n- 目录：/p\n", "p", "保护分支", "main\rsit\u2028uat");
+    expect(parseProjects(md)[0]!.protected).toEqual(["main", "sit", "uat"]);
+  });
+});

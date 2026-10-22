@@ -19,9 +19,9 @@ import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { startTask } from "../agent/taskStart.js";
 import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
-import { undoWrite } from "../memory/files.js";
+import { readMemoryFile, undoWrite, writeMemoryFile } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
-import { loadProjects, resolveProject } from "../memory/projects.js";
+import { loadProjects, replaceProjectSection, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
 import { needOf } from "../agent/needs.js";
 import { autostartEnv, autostartPlan, runningAutonomous } from "../agent/autostart.js";
@@ -612,12 +612,17 @@ export const tasks = new Hono()
     }
     if (plan.kind === "restore_settings") {
       updateSettings(plan.before);
-      if (plan.before.theme !== undefined) publish({ type: "settings" });
+      publish({ type: "settings" });
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
     if (plan.kind === "restore_rules") {
       for (const project of restoreRules(plan.snapshot)) writeHandbook(project, renderHandbook(project));
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_project") {
+      writeMemoryFile("projects", replaceProjectSection(readMemoryFile("projects"), plan.name, plan.before));
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

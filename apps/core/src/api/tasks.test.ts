@@ -8,7 +8,12 @@ import { addInboxItems } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { setTmuxRunner } from "../agent/tmux.js";
 import { openSession, setLauncher, worktreeReady } from "../agent/sessions.js";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
+import { fridayToolList } from "../agent/tools.js";
+import { updateSettings } from "../settings.js";
+import { subscribe } from "../bus.js";
 import { join } from "node:path";
 import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
@@ -247,5 +252,51 @@ describe("GET /tasks/:id/related", () => {
   it("任务不存在回 404", async () => {
     const res = await app.request("/tasks/nope/related");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("撤销项目登记、设置", () => {
+  const callTool = async (name: string, args: Record<string, unknown>) => {
+    const t = fridayToolList().find((x) => x.name === name)!;
+    return ((await t.handler(args as never, {})).content[0] as { text: string }).text;
+  };
+  const dir = mkdtempSync(join(tmpdir(), "undo-proj-"));
+  const seed = `# 项目\n\n## A\n- 目录：${dir}\n- 别名：老\n\n## B\n- 目录：${dir}\n`;
+  const lastEvent = (action: string) => listAudit({ limit: 100 }).find((e) => e.action === action)!;
+
+  it("只还原这一段，之后别处的改动留着", async () => {
+    writeMemoryFile("projects", seed);
+    writeMemoryFile("people", "# 人物\n");
+    await callTool("project_update", { project: "A", fields: { 说明: "改了" } });
+    const ev = lastEvent("project_updated");
+    writeMemoryFile("people", `${readMemoryFile("people")}- 甲：同事\n`);
+    await callTool("project_update", { project: "B", fields: { 说明: "B 的" } });
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    const md = readMemoryFile("projects");
+    expect(md).not.toContain("改了");
+    expect(md).toContain("- 别名：老");
+    expect(md).toContain("- 说明：B 的");
+    expect(readMemoryFile("people")).toContain("- 甲：同事");
+    expect(getEvent(ev.id)!.status).toBe("undone");
+  });
+
+  it("新建项目的撤销是删掉那一段", async () => {
+    writeMemoryFile("projects", seed);
+    await callTool("project_update", { project: "C", create: true, fields: { 目录: dir } });
+    expect(readMemoryFile("projects")).toContain("## C");
+    const ev = lastEvent("project_updated");
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    expect(readMemoryFile("projects")).toBe(seed);
+  });
+
+  it("设置撤销发 settings 事件", async () => {
+    updateSettings({ model: "" });
+    await callTool("settings_update", { patch: { model: "opus" } });
+    const ev = lastEvent("settings_changed");
+    const seen: string[] = [];
+    const stop = subscribe((e) => seen.push(e.type));
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    stop();
+    expect(seen).toContain("settings");
   });
 });

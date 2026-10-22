@@ -138,7 +138,7 @@ export function correctFeature(id: string, patch: Partial<Pick<FeatureInput, Cor
     aliases: patch.aliases ?? cur.aliases,
     where: patch.where ?? cur.where,
     paths: patch.paths ?? cur.paths,
-    owners: patch.owners ?? cur.owners,
+    owners: patch.owners ? Object.fromEntries(Object.entries({ ...cur.owners, ...patch.owners }).filter(([, v]) => v)) : cur.owners,
     summary: patch.summary ?? cur.summary,
   };
   db()

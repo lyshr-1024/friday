@@ -28,6 +28,7 @@ export type Undo =
   | { kind: "meegle_state"; projectKey: string; workItemId: string; backTo: string }
   | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
   | { kind: "restore_memory"; snapshot: { rules?: RulesSnapshot; handbooks?: Record<string, string>; decisions: string; people: string; projects: string } }
+  | { kind: "restore_project"; name: string; before: string | null }
   | { kind: "restore_task"; row: Record<string, string | number | null> }
   | { kind: "stage_set"; taskId: string; stage: string | null }
   | { kind: "delete_okr_reports"; ids: number[] }

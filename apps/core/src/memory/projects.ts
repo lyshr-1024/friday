@@ -159,18 +159,42 @@ export function protectedBranches(project?: string, projects = loadProjects()): 
 
 export type ProjectFieldKey = "目录" | "别名" | "说明" | "保护分支" | "方案送审" | "环境" | "频道";
 
-export function projectSection(markdown: string, project: string): string | undefined {
-  const lines = markdown.split("\n");
+function sectionRange(lines: string[], project: string): { start: number; end: number } | null {
   const start = lines.findIndex((l) => /^##\s+(.+?)\s*$/.exec(l)?.[1] === project);
-  if (start < 0) return undefined;
+  if (start < 0) return null;
   let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
   if (end < 0) end = lines.length;
-  return lines.slice(start, end).join("\n").trimEnd();
+  return { start, end };
+}
+
+export function projectSection(markdown: string, project: string): string | null {
+  const lines = markdown.split("\n");
+  const r = sectionRange(lines, project);
+  return r ? lines.slice(r.start, r.end).join("\n").trimEnd() : null;
+}
+
+/** section 为 null 删掉这一段；段不存在时追加到文件末尾 */
+export function replaceProjectSection(markdown: string, project: string, section: string | null): string {
+  const lines = markdown.split("\n");
+  const r = sectionRange(lines, project);
+  if (!r) {
+    if (section === null) return markdown;
+    const base = markdown.replace(/\n*$/, "");
+    return `${base ? `${base}\n\n` : ""}${section}\n`;
+  }
+  if (section === null) {
+    lines.splice(r.start, r.end - r.start);
+    return lines.join("\n");
+  }
+  let contentEnd = r.end;
+  while (contentEnd > r.start + 1 && !lines[contentEnd - 1]!.trim()) contentEnd--;
+  lines.splice(r.start, contentEnd - r.start, ...section.split("\n"));
+  return lines.join("\n");
 }
 
 /** 纯文本改写：替换 / 追加 / 删除 `- key：` 行；项目段不存在时在文件末尾新建（必须同时给目录） */
 export function setProjectField(markdown: string, project: string, key: ProjectFieldKey, value: string): string {
-  const v = value.replace(/\s*\n\s*/g, " ").trim();
+  const v = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
   const lines = markdown.split("\n");
   const start = lines.findIndex((l) => /^##\s+(.+?)\s*$/.exec(l)?.[1] === project);
   if (start < 0) {
