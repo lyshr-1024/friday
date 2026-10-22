@@ -13,7 +13,7 @@ import { surfaceContext } from "./surface.js";
 import { decide } from "./permission.js";
 import { getJob, listJobs, recentDuplicate } from "../memory/jobs.js";
 import { addMessage, conversationExists, listMessages } from "../memory/conversations.js";
-import { approvePending, rejectTask, startInteractiveJob } from "./pipeline.js";
+import { approvePending, NO_TASK, rejectTask, startAutonomousJob } from "./pipeline.js";
 import { closeJobTerminal, say } from "./terminal.js";
 import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
@@ -300,9 +300,10 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "run_claude",
-      "在 Friday 的终端里为该项目建好 worktree 并启动交互式 Claude Code，可附带任务描述。用户说“起个终端”“让 Claude 去改/去查”“跑一下 X”时用它。",
+      "让 Friday 在该项目上开工：建好 worktree，起 Claude Code 去做 task 说的事，做完交给用户验收，中途用户随时能在终端里插话。用户说“让 Claude 去改/去查”“跑一下 X”时用它。必须有 task；用户只想自己开个终端就让他去项目页。",
       { project, task: z.string().max(4000).optional().describe("对方或用户要什么，照原话转达，保留关键词、报错、路径、工单号。不要写改哪个文件、什么方案、分几步——那由终端自己看代码判断") },
       async ({ project, task }) => {
+        if (!task?.trim()) return text(NO_TASK);
         const r = resolveOrExplain(project);
         if (typeof r === "string") return text(r);
         if (!decide("reversible").allowed) return text("操作被拒绝");
@@ -315,7 +316,7 @@ export const fridayToolList = (conversationId?: string) => [
         const t =
           linked ??
           createTask({
-            title: task ? `${r.name}：${task}`.slice(0, 80) : `${r.name}：交互式会话`,
+            title: `${r.name}：${task}`.slice(0, 80),
             kind: "code",
             // 带上来源：从 Slack 待办派生出来的代码任务，干完要能找回该回复谁、该关掉哪条
             source: {
@@ -325,12 +326,12 @@ export const fridayToolList = (conversationId?: string) => [
             },
             project: r.name,
             status: "understood",
-            understanding: task ?? "会话里让 Friday 开的终端",
+            understanding: task,
           });
-        const started = await startInteractiveJob(t, r.name, r.dir, task ?? "", conversationId);
-        const id = started.source.jobId ?? t.id;
-        console.log(`[tool] run_claude ${r.name} ${task ?? "(交互)"}`);
-        return text(`已在 Friday 里打开 ${r.name}（${r.dir}）的终端${task ? `，任务：${task}` : ""}。任务 id ${id}，结束后会回报。`);
+        const started = await startAutonomousJob(t, r.name, r.dir, task, "user");
+        if (started.status === "blocked") return text(`没开成：${started.progress ?? "开工前体检没过"}`);
+        console.log(`[tool] run_claude ${r.name} ${task}`);
+        return text(`已在 ${r.name} 上开工，任务：${task}。任务 id ${t.id.slice(0, 8)}，做完会交给用户验收，中途用户可以在终端里插话。`);
       },
     ),
     tool(
@@ -485,15 +486,15 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "task_start",
-      "用户在这条任务的会话里说「开始做 / 开工」时 mode=interactive：在任务详情里开一个交互式终端，他自己驱动；说「交给 Friday 改 / 你来改」时 mode=autonomous：Friday 自主在 worktree 里改完交给他审。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。只对这条会话绑定的任务有效。",
-      { mode: z.enum(["interactive", "autonomous"]) },
-      async ({ mode }) => {
+      "用户在这条任务的会话里说「开工 / 开始做 / 你来改」时调：Friday 在 worktree 里开工，做完交给他验收，中途他随时能在终端里插话。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。只对这条会话绑定的任务有效。",
+      {},
+      async () => {
         const t = boundTask(conversationId);
         if (!t) return text("这条会话没有绑定任务。");
-        const { startTask, handToFriday } = await import("./taskStart.js");
-        const r = mode === "interactive" ? await startTask(t) : await handToFriday(t);
+        const { startTask } = await import("./taskStart.js");
+        const r = await startTask(t);
         if ("error" in r) return text(`没开成：${r.error}`);
-        return text(mode === "interactive" ? `终端开好了（在 ${r.task.project} 上），用户在任务详情里就能看到。` : `交给 Friday 了：在 ${r.task.project} 上自主开工，改完交报告给用户审。`);
+        return text(`开工了：在 ${r.task.project} 上做，做完交给用户验收；用户在任务详情里能看到终端、随时插话。`);
       },
     ),
     tool(

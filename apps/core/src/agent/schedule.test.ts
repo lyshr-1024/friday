@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./pipeline.js", () => ({
   startAutonomousJob: vi.fn(async (t) => t),
-  startInteractiveJob: vi.fn(async (t) => t),
   reopenTask: vi.fn(async (id) => ({ task: { id }, terminal: false })),
 }));
 vi.mock("./runs.js", () => ({ startRun: vi.fn(), subscribe: vi.fn(() => () => {}), isRunning: vi.fn(() => false) }));
@@ -11,7 +10,7 @@ vi.mock("../memory/projects.js", async (orig) => ({
   resolveProject: (q: string) => (q === "whale-console" ? { kind: "match", project: { name: "whale-console", dir: "/tmp/wc" } } : { kind: "none" }),
 }));
 
-import { startAutonomousJob, startInteractiveJob, reopenTask } from "./pipeline.js";
+import { startAutonomousJob, reopenTask } from "./pipeline.js";
 import { startRun, isRunning, subscribe } from "./runs.js";
 import { busyReason, fireSchedule, validateSchedule } from "./schedule.js";
 import { createSchedule, getSchedule, updateSchedule } from "../memory/schedules.js";
@@ -62,12 +61,14 @@ describe("project 执行方", () => {
     expect(reopenTask).toHaveBeenCalledWith(anchor, expect.objectContaining({ fresh: true }));
   });
 
-  it("fresh + 有人值守：每次新卡、走交互式", async () => {
+  it("fresh + 有人值守：每次新卡、也由 Friday 开工，通知说已开工", async () => {
     const s = createSchedule({ title: "b", cron: "0 10 * * *", executor: "project", project: "whale-console", prompt: "p", mode: "fresh", attended: true });
+    vi.mocked(startAutonomousJob).mockClear();
     const a = await fireSchedule(s, "due");
     const b = await fireSchedule(getSchedule(s.id)!, "due");
     expect(a.ref).not.toBe(b.ref);
-    expect(startInteractiveJob).toHaveBeenCalledTimes(2);
+    expect(startAutonomousJob).toHaveBeenCalledTimes(2);
+    expect(a.result).toBe("已开工，干完交审");
   });
 
   it("项目没了：不抛，返回失败", async () => {

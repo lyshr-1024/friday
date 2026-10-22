@@ -14,7 +14,7 @@ import { getSchedule, listSchedules, pushHistory, setLastRun, updateSchedule } f
 import { describeCron, lastDue, nextDue, validateCron } from "../scheduler/cron.js";
 import { state } from "../scheduler/index.js";
 import { callTool, mcpEndpoint } from "../connectors/mcp.js";
-import { reopenTask, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { reopenTask, startAutonomousJob } from "./pipeline.js";
 import { friday } from "./prompt.js";
 import { taskSession } from "./sessionState.js";
 import { isRunning, startRun, subscribe } from "./runs.js";
@@ -91,11 +91,10 @@ async function fireProject(s: Schedule, by: "due" | "manual"): Promise<Fired> {
     task = createTask({ title: `[定时] ${s.title}`, kind: "code", project: r.project.name, status: "understood", ...(s.prompt ? { understanding: s.prompt } : {}), source: { scheduleId: s.id } });
     if (s.mode === "continue") updateSchedule(s.id, { anchorTaskId: task.id });
   }
-  const t = s.attended
-    ? await startInteractiveJob(task, r.project.name, r.project.dir, detail)
-    : await startAutonomousJob(task, r.project.name, r.project.dir, detail, "schedule");
-  if (s.attended) state.notices.push({ title: "到点了", body: `已在 ${r.project.name} 开好终端：${s.title}`, taskId: t.id });
-  return { ok: true, result: s.attended ? "终端已开好，等你接手" : "已开工，干完交审", ref: t.id };
+  // 有人值守只表示「到点告诉你开了」，干活一律由 Friday 驾驶，你随时能在终端里插话
+  const t = await startAutonomousJob(task, r.project.name, r.project.dir, detail, "schedule");
+  if (s.attended) state.notices.push({ title: "到点了", body: `已在 ${r.project.name} 开工：${s.title}`, taskId: t.id });
+  return { ok: true, result: "已开工，干完交审", ref: t.id };
 }
 
 function fireFriday(s: Schedule): Fired {

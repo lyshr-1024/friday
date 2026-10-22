@@ -39,3 +39,10 @@ describe("Friday MCP server", () => {
     expect(await call("knowledge_search", { project: "p-ks", query: "毫不相干" })).toContain("没有");
   });
 });
+
+describe("run_claude", () => {
+  it("没给任务：不开终端，指去项目页", async () => {
+    const out = await call("run_claude", { project: "whatever" });
+    expect(out).toBe("没说要做什么。想自己在项目里干活去项目页开 Claude；要 Friday 做就说做什么。");
+  });
+});

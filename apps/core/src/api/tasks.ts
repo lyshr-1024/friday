@@ -14,7 +14,7 @@ import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
-import { handToFriday, startTask } from "../agent/taskStart.js";
+import { startTask } from "../agent/taskStart.js";
 import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
 import { undoWrite } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
@@ -375,7 +375,7 @@ export const tasks = new Hono()
     record({ taskId: t.id, action: base ? "base_set" : "base_cleared", why: "二期要在一期分支上接着开", how: base ? `基线改成任务 ${base}` : "解除基线", evidence: { baseTaskId: base }, risk: "reversible" });
     return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
   })
-  // 我自己做：开个交互式终端，把需求交代进去。状态归 Friday 管，活儿归我干。
+  // 开工：Friday 在 worktree 里做，做完交你验收，中途你随时能在终端里插话
   .post("/tasks/:id/start", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
@@ -402,12 +402,6 @@ export const tasks = new Hono()
     }
     record({ taskId: t.id, action: "root_adopted", why: "你确认了 Friday 推断的归属", how: "去掉「推断」标记，进需求的会话", evidence: { rootId }, risk: "reversible" });
     return c.json(r.task);
-  })
-  .post("/tasks/:id/retry", async (c) => {
-    const t = getTask(c.req.param("id"));
-    if (!t) return c.json({ error: "任务不存在" }, 404);
-    const r = await handToFriday(t);
-    return "error" in r ? c.json({ error: r.error }, r.status) : c.json(r.task);
   })
   // 「通过前请确认」勾选状态；全部勾完 = 这轮验收通过，Friday 推进下一步
   .post("/tasks/:id/verify", async (c) => {

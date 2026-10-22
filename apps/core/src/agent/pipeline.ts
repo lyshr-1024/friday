@@ -127,32 +127,10 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   return { task: getTask(id)!, terminal };
 }
 
-/**
- * 我自己做：在 tmux 会话里起交互式 Claude Code，准备段先按项目规则建好 worktree，再把这条任务的上下文交代给它。
- * 和自主开工的区别只有一处——没有自主提示词、没有 guard、没有自动收尾：
- * 分支、要不要测、什么时候算完，都是我在终端里说了算，Friday 只负责开会话和跟状态。
- */
-export async function startInteractiveJob(task: Task, project: string, dir: string, detail: string, conversationId?: string): Promise<Task> {
-  const root = resolveRoot(task);
-  if (root.id !== task.id) {
-    if ((await joinRootSession(task, root, detail)) === "joined") return getTask(task.id)!;
-    if (!root.project) updateTask(root.id, { project });
-    if (await continueRootSession(root, `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`)) return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
-    const jobId = await openSession(root, root, { kind: "interactive", project, repoDir: dir, task: `我要开始做这条需求：${root.title}\n\n先做名下这条缺陷：\n${detail}`, ...baseBranchOf(root) });
-    updateTask(root.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } });
-    record({ taskId: root.id, action: "terminal_opened", why: "你点了名下缺陷的「开始做」，需求还没有会话", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
-    return updateTask(task.id, { status: "processing", progress: `在需求「${root.title.slice(0, 24)}」的会话里改`, source: { rootId: root.id } })!;
-  }
-  if (await continueRootSession(task, detail)) {
-    record({ taskId: task.id, action: "terminal_continued", why: "这条任务已经有会话，不再开第二个", how: "把这次的话送进原来的 tmux 会话", evidence: { project, dir }, risk: "reversible" });
-    return updateTask(task.id, { status: "processing" })!;
-  }
-  const jobId = await openSession(task, task, { kind: "interactive", project, repoDir: dir, task: detail, ...(conversationId ? { conversationId } : {}), ...baseBranchOf(task) });
-  record({ taskId: task.id, action: "terminal_opened", why: "你点了「开始做」，这条需求自己动手", how: "在 tmux 会话里起交互式 Claude Code，先按项目规则建 worktree", evidence: { jobId, project, dir }, risk: "reversible" });
-  return updateTask(task.id, { status: "processing", source: { jobId, autonomous: false, repoDir: dir } })!;
-}
+/** 让 Friday 开工却没说做什么：不开空终端（你自己干活的终端在项目页） */
+export const NO_TASK = "没说要做什么。想自己在项目里干活去项目页开 Claude；要 Friday 做就说做什么。";
 
-/** 自主开工：在分支上改、跑测试、写报告，结束后由 job exit 回调收报告进审核。 */
+/** 自主开工：在 worktree 里起 Friday 驾驶的交互式 Claude，做完用 friday_done 交付，中途你随时能插话。 */
 export async function startAutonomousJob(task: Task, project: string, dir: string, detail: string, trigger: RunTrigger = "retry"): Promise<Task> {
   const root = resolveRoot(task);
   const exited = getTermSession(root.id)?.status === "exited";
@@ -348,7 +326,7 @@ export function rejectTask(id: string, reason?: string): Task | undefined {
     void handToStorySession(updated, root, { rejected: reason ?? "无说明", trigger: "retry" })
       .then((h) => {
         if (h === "handed") return;
-        const why = { busy: "打回了，但需求会话里的 Claude 还在跑，没能重交，点「交给 Friday 改」再试", asking: "打回了，但需求终端在等你回答，没能重交，答完点「交给 Friday 改」", "no-session": "打回了，但需求会话已不在，没能重交，先给需求开终端" }[h];
+        const why = { busy: "打回了，但需求会话里的 Claude 正在干活，没能重交，等它这一轮交付后点「开工」", asking: "打回了，但需求终端在等你回答，没能重交，答完点「开工」", "no-session": "打回了，但需求会话已不在，没能重交，先给需求开终端" }[h];
         updateTask(t.id, { status: "blocked", progress: why });
       })
       .catch((e) => {

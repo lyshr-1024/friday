@@ -6,14 +6,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./pipeline.js", async (orig) => ({
   ...(await orig<typeof import("./pipeline.js")>()),
   startAutonomousJob: vi.fn(async (t) => t),
-  startInteractiveJob: vi.fn(async (t) => t),
 }));
 vi.mock("../memory/projects.js", async (orig) => ({
   ...(await orig<typeof import("../memory/projects.js")>()),
   resolveProject: () => ({ kind: "match", project: { name: "demo", dir: "/repo" } }),
 }));
 
-import { startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { startAutonomousJob } from "./pipeline.js";
 import { listAudit } from "../memory/audit.js";
 import { fireSchedule } from "./schedule.js";
 import { setClaudeFinder } from "./runner.js";
@@ -73,7 +72,7 @@ describe("continue 的长期卡已收工、worktree 还在", () => {
     expect(getTask(t.id)!.source.branch).toBeUndefined();
   });
 
-  it("有人值守：同样不接回旧 worktree 里的会话，交给 startInteractiveJob 从主干新开", async () => {
+  it("有人值守：同样不接回旧 worktree 里的会话，由 Friday 从主干新开", async () => {
     const s = createSchedule({ title: "修验收", cron: "0 10 * * *", executor: "project", project: "demo", prompt: "去修", attended: true });
     const t = mergedAnchor(s.id, "sr-2");
     await fireSchedule(getSchedule(s.id)!, "manual");
@@ -81,7 +80,7 @@ describe("continue 的长期卡已收工、worktree 还在", () => {
     expect(getTermSession(t.id)!.status).toBe("closed");
     expect(runByJob("sr-2")!.outcome).toBe("merged_as_is");
     expect(listAudit({ taskId: t.id }).find((e) => e.action === "task_reopened")!.why).toMatch(/现在跑一次/);
-    const call = vi.mocked(startInteractiveJob).mock.calls[0]!;
+    const call = vi.mocked(startAutonomousJob).mock.calls.at(-1)!;
     expect(call[0]).toMatchObject({ id: t.id, status: "understood" });
     expect(call[0].source.branch).toBeUndefined();
   });

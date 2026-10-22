@@ -19,7 +19,7 @@ import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sess
 import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "./pipeline.js";
 import { syncMeegleOnce } from "./meegle.js";
 import { state } from "../scheduler/index.js";
-import { handToFriday, startTask } from "./taskStart.js";
+import { startTask } from "./taskStart.js";
 import { AUTOSTART_SETTLE_MS, autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
@@ -375,7 +375,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
     calls = [];
     rejectTask(bug.id, "没修好");
     await vi.waitFor(() => expect(getTask(bug.id)!.status).toBe("blocked"));
-    expect(getTask(bug.id)!.progress).toContain("需求会话里的 Claude 还在跑");
+    expect(getTask(bug.id)!.progress).toContain("需求会话里的 Claude 正在干活");
     expect(typed()).toEqual([]);
   });
 
@@ -401,17 +401,17 @@ describe("测试阶段缺陷交代进需求会话", () => {
     const bug = mk();
     calls = [];
     launched = [];
-    const r = await handToFriday(getTask(bug.id)!);
+    const r = await startTask(getTask(bug.id)!);
     expect("task" in r && r.task.source.handedAt).toBeTruthy();
     expect(launched).toEqual([]);
     expect(getTask(bug.id)!.source.rootId).toBe(root.id);
     expect(openRunForTask(bug.id)).toMatchObject({ trigger: "retry" });
     updateTermSession(root.id, { status: "closed" });
     const bug2 = mk(2);
-    expect(await handToFriday(getTask(bug2.id)!)).toMatchObject({ status: 409, error: "需求会话已不在，先给需求开终端" });
+    expect(await startTask(getTask(bug2.id)!)).toMatchObject({ status: 409, error: "需求会话已不在，先给需求开终端" });
   });
 
-  it("交代过的缺陷还在处理中：开始做、再交给 Friday 改都 409；交付后点开始做 = 你接手，清掉交接标记", async () => {
+  it("交代过的缺陷还在处理中：开工 409；交付后再点开工 = 重新交代进需求会话", async () => {
     const dir = repo("sbguard");
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## sbguard\n- 目录：${dir}\n`);
     const { root, bug: mk } = await testingStory("sbguard");
@@ -419,17 +419,17 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     calls = [];
     launched = [];
-    expect(await handToFriday(getTask(bug.id)!)).toMatchObject({ status: 409, error: "这条已经交代进需求会话了" });
-    expect(await startTask(getTask(bug.id)!)).toMatchObject({ status: 409, error: "这条缺陷在需求会话里由 Friday 修，要接手就在需求终端里说" });
+    expect(await startTask(getTask(bug.id)!)).toMatchObject({ status: 409, error: "这条缺陷在需求会话里由 Friday 修，要插话就在需求终端里说" });
     expect(typed()).toEqual([]);
     expect(launched).toEqual([]);
     updateTask(bug.id, { status: "review" });
+    idle(root.id);
     const r = await startTask(getTask(bug.id)!);
     expect("task" in r).toBe(true);
     const after = getTask(bug.id)!;
-    expect(after.source.handedAt).toBeUndefined();
-    expect(after.source.autonomous).toBeUndefined();
+    expect(after.source.handedAt).toBeTruthy();
     expect(after.status).toBe("processing");
+    expect(typed().at(-1)).toContain(bug.id.slice(0, 8));
     updateTask(bug.id, { status: "ignored" });
   });
 
@@ -546,10 +546,10 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     expect(await handToStorySession(a, root)).toBe("handed");
     updateTask(root.id, { attention: "question" });
     const b = mk(2);
-    expect(await handToFriday(getTask(b.id)!)).toMatchObject({ status: 409, error: "需求终端在等你回答它的问题，答完再交" });
+    expect(await startTask(getTask(b.id)!)).toMatchObject({ status: 409, error: "需求终端在等你回答它的问题，答完再交" });
     rejectTask(a.id, "没修好");
     await vi.waitFor(() => expect(getTask(a.id)!.status).toBe("blocked"));
-    expect(getTask(a.id)!.progress).toBe("打回了，但需求终端在等你回答，没能重交，答完点「交给 Friday 改」");
+    expect(getTask(a.id)!.progress).toBe("打回了，但需求终端在等你回答，没能重交，答完点「开工」");
     for (const t of [a, b]) updateTask(t.id, { status: "ignored" });
   });
 
@@ -562,7 +562,7 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "review" });
     idle(root.id);
-    const r = await handToFriday(getTask(bug.id)!);
+    const r = await startTask(getTask(bug.id)!);
     expect("task" in r).toBe(true);
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
     expect(old.outcome).toBe("rejected");
@@ -659,7 +659,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "review" });
     working(root.id);
-    expect(await handToFriday(getTask(bug.id)!)).toMatchObject({ status: 409 });
+    expect(await startTask(getTask(bug.id)!)).toMatchObject({ status: 409 });
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
     expect(old.outcome).toBe("pending");
     expect(old.endedAt).toBeFalsy();
@@ -675,7 +675,7 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
     const first = openRunForTask(bug.id)!;
     updateTask(bug.id, { status: "blocked" });
     idle(root.id);
-    expect("task" in (await handToFriday(getTask(bug.id)!))).toBe(true);
+    expect("task" in (await startTask(getTask(bug.id)!))).toBe(true);
     const old = runsForTask(bug.id).find((x) => x.id === first.id)!;
     expect(old.outcome).toBe("pending");
     expect(old.endedAt).toBeTruthy();

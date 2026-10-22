@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRetry, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
@@ -217,7 +217,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
         <div className="modal" onMouseDown={() => setSwitching(null)}>
           <div className="modal__box modal__box--ask" onMouseDown={(e) => e.stopPropagation()} role="alertdialog" aria-label="切换项目">
             <strong className="modal__title">改到 {switching.to ?? "没定"}？现在这个终端会关掉</strong>
-            <p className="modal__note">终端开在 {t.project} 的目录里，换了项目它就用不上了。里面没提交的改动要自己去收——关掉之后 Friday 接不回来。任务会退回待办，等你点「开始做」在新项目上重开。</p>
+            <p className="modal__note">终端开在 {t.project} 的目录里，换了项目它就用不上了。里面没提交的改动要自己去收——关掉之后 Friday 接不回来。任务会退回待办，等你点「开工」在新项目上重开。</p>
             <div className="modal__foot">
               <button className="b b--primary" autoFocus onClick={() => { const v = switching.to; setSwitching(null); void onAct(t, () => taskSetProject(t.id, v)); }}>关掉终端，改项目</button>
               <button className="b b--text" onClick={() => setSwitching(null)}>取消</button>
@@ -518,7 +518,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     };
   }, [menu]);
 
-  // 同一条任务同时只跑一个动作：连点会把「开始做」开出两个会话、「完成当前节点」流转两次。
+  // 同一条任务同时只跑一个动作：连点会把「开工」开出两个会话、「完成当前节点」流转两次。
   // 锁放 ref 里，state 要等下一次渲染才生效，同一帧的第二次点击拦不住
   const inFlight = useRef(new Set<string>());
   const setBusy = (key: string, on: boolean) => {
@@ -570,8 +570,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const close = () => setDialogFor(null);
     const run = (fn: () => Promise<unknown>) => () => { close(); void act(t, fn); };
     return [
-      ...(canStart(t) ? [{ label: "开始做", run: run(() => taskStart(t.id)) }] : []),
-      ...(canStart(t) || canRehand(t) ? [{ label: "交给 Friday 改", run: run(() => taskRetry(t.id)) }] : []),
+      ...(canStart(t) || canRehand(t) ? [{ label: "开工", run: run(() => taskStart(t.id)) }] : []),
       ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
       ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
       ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : [{ label: "重新打开", run: run(() => taskReopen(t.id)) }]),
@@ -887,7 +886,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
       {termVisible || panel ? null : notStarted(t) ? (
         <>
           <IdleState t={t} />
-          <div className="detail__chat"><TaskChat t={t} placeholder="开始做 / 交给 Friday 改 / 这条不用管了" /></div>
+          <div className="detail__chat"><TaskChat t={t} placeholder="开工 / 这条不用管了" /></div>
         </>
       ) : (
         <>
@@ -916,8 +915,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
     <div className="ctx" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
       <button role="menuitem" onClick={() => run(() => taskPin(t.id, !t.pinned))}>{t.pinned ? "取消关注" : "关注任务"}</button>
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
-      {canStart(t) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开始做</button>}
-      {(canStart(t) || canRehand(t)) && <button role="menuitem" onClick={() => run(() => taskRetry(t.id))}>交给 Friday 改</button>}
+      {(canStart(t) || canRehand(t)) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开工</button>}
       {canResume(t) && <button role="menuitem" onClick={() => run(() => jobReopen(t.source.jobId!))}>接着聊</button>}
       {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
@@ -1166,10 +1164,10 @@ function IdleState({ t }: { t: Task }) {
         </div>
         <div className="idle__hint">
           {!t.project && !inRoot
-            ? `在下面告诉 Friday 改哪个项目${guess ? `（它判的是 ${guess}）` : ""}，再说「开始做」自己改，或「交给 Friday 改」让它改完交给你审。`
+            ? `在下面告诉 Friday 改哪个项目${guess ? `（它判的是 ${guess}）` : ""}，再说「开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。`
             : asked
               ? "先在下面回答 Friday 的问题，它记下就能开工。"
-              : "在下面跟 Friday 说「开始做」，就在这里开终端你自己改；说「交给 Friday 改」，它改完交给你审。"}
+              : "在会话里说「开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。"}
           <br />也可以从右上「···」开工或定项目。
         </div>
       </div>

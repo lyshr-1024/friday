@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import type { Snapshot, SummonAction, SummonRelayResult } from "@friday/shared";
 import { summon } from "../agent/summon/index.js";
 import { pagePath } from "../agent/summon/match.js";
-import { finishTask, startInteractiveJob } from "../agent/pipeline.js";
+import { finishTask, startAutonomousJob } from "../agent/pipeline.js";
 import { addMeegleByRef } from "../agent/meegle.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
@@ -77,10 +77,10 @@ async function relayToTerminal(text: string, taskId?: string, scene?: string, ur
   const resolved = resolveProject(task.project);
   if (resolved.kind !== "match") return undefined;
   const detail = [text, pageHint(url, resolved.project.dir), attachmentHint(attachments), scene ? untrusted("当前场景", scene) : ""].filter(Boolean).join("\n\n");
-  const started = await startInteractiveJob(task, resolved.project.name, resolved.project.dir, detail);
+  const started = await startAutonomousJob(task, resolved.project.name, resolved.project.dir, detail, "user");
   return {
     kind: "started",
-    message: `已在 ${resolved.project.name} 开终端`,
+    message: `已在 ${resolved.project.name} 开工`,
     taskId: task.id,
     ...(started.source.jobId ? { jobId: started.source.jobId } : {}),
   };

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import { startInteractiveJob } from "../agent/pipeline.js";
+import { NO_TASK, startAutonomousJob } from "../agent/pipeline.js";
 import { recentDuplicate } from "../memory/jobs.js";
 import { createTask } from "../memory/tasks.js";
 import { resolveProject } from "../memory/projects.js";
@@ -19,6 +19,7 @@ export const run = new Hono().post("/run", async (c) => {
   const parsed = body.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "project 不能为空" }, 400);
   const { project, task, conversationId } = parsed.data;
+  if (!task?.trim()) return c.json({ error: NO_TASK }, 400);
   const conv = conversationId && conversationExists(conversationId) ? conversationId : undefined;
   if (conv) addMessage(conv, { role: "user", kind: "run", content: `跑 ${project}${task ? ` ${task}` : ""}` });
 
@@ -34,7 +35,7 @@ export const run = new Hono().post("/run", async (c) => {
     return c.json(res);
   }
 
-  // 拉起的是交互式 Claude Code，写操作由它在终端里再向用户确认，因此归为可逆操作：放行并记日志。
+  // Friday 在 worktree 里干活、守卫只拦保护分支，合并要你点头，因此归为可逆操作：放行并记日志。
   if (!decide("reversible").allowed) return c.json({ error: "操作被拒绝" }, 403);
 
   const dup = recentDuplicate(resolved.project.dir, task);
@@ -42,14 +43,15 @@ export const run = new Hono().post("/run", async (c) => {
     const res: RunResponse = { status: "launched", project: dup.project, dir: dup.dir, jobId: dup.id, ...(dup.task ? { task: dup.task } : {}) };
     return c.json(res);
   }
-  const id = startSession("run", `${resolved.project.name}: ${task ?? "(交互)"}`);
+  const id = startSession("run", `${resolved.project.name}: ${task}`);
   try {
-    const t = createTask({ title: task ? `${resolved.project.name}：${task}`.slice(0, 80) : `在 ${resolved.project.name} 上开个终端`, kind: "code", source: conv ? { conversationId: conv } : {}, project: resolved.project.name, status: "understood", understanding: task ?? "你手动开的终端会话" });
-    const started = await startInteractiveJob(t, resolved.project.name, resolved.project.dir, task ?? "", conv);
-    const jobId = started.source.jobId!;
+    const t = createTask({ title: `${resolved.project.name}：${task}`.slice(0, 80), kind: "code", source: conv ? { conversationId: conv } : {}, project: resolved.project.name, status: "understood", understanding: task });
+    const started = await startAutonomousJob(t, resolved.project.name, resolved.project.dir, task, "user");
+    if (started.status === "blocked" || !started.source.jobId) throw new Error(started.progress ?? "没开成");
+    const jobId = started.source.jobId;
     finishSession(id, `launched tmux ${jobId}`);
     const res: RunResponse = { status: "launched", project: resolved.project.name, dir: resolved.project.dir, jobId, ...(task ? { task } : {}) };
-    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 Friday 里打开 ${res.project} 的终端`, payload: res });
+    if (conv) addMessage(conv, { role: "assistant", kind: "run", content: `已在 ${res.project} 上开工`, payload: res });
     return c.json(res);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

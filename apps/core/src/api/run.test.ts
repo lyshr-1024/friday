@@ -7,6 +7,7 @@ import { createTask, getTask, listTasks } from "../memory/tasks.js";
 import { createConversation, listMessages } from "../memory/conversations.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
+import { mainRepo } from "../agent/testRepos.js";
 
 let tmuxInstalled = true;
 beforeEach(() => {
@@ -19,13 +20,19 @@ beforeEach(() => {
     return "";
   });
   setLauncher(async () => {});
-  writeMemoryFile("projects", "## runproj\n- 目录：/tmp\n");
+  writeMemoryFile("projects", `## runproj\n- 目录：${mainRepo("runproj")}\n`);
 });
 
 const post = (path: string, body?: unknown) =>
   app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
 
 describe("POST /run", () => {
+  it("没给任务：400，指去项目页", async () => {
+    const res = await post("/run", { project: "runproj" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("没说要做什么。想自己在项目里干活去项目页开 Claude；要 Friday 做就说做什么。");
+  });
+
   it("没装 tmux：返回 tmux 的错误，建出来的任务不是 processing", async () => {
     tmuxInstalled = false;
     const res = await post("/run", { project: "runproj", task: "查一下导出" });
@@ -36,15 +43,15 @@ describe("POST /run", () => {
     expect(t!.status).not.toBe("processing");
   });
 
-  it("带 conversationId：job 记着它，退出时往那段会话追加 run 消息", async () => {
+  it("带 conversationId：任务挂在那段会话上，交付消息落到那里；开工记一条", async () => {
     const conv = createConversation();
     const res = await post("/run", { project: "runproj", task: "跑个测试", conversationId: conv.id });
     expect(res.status).toBe(200);
     const { jobId } = (await res.json()) as { jobId: string };
-    expect(getJob(jobId)?.conversationId).toBe(conv.id);
-    expect(getTask(getJob(jobId)!.taskId!)?.source.conversationId).toBe(conv.id);
-    await post(`/jobs/${jobId}/exit`, { code: 0 });
-    expect(listMessages(conv.id).some((m) => m.kind === "run" && m.content.includes("已结束"))).toBe(true);
+    const t = getTask(getJob(jobId)!.taskId!)!;
+    expect(t.source.conversationId).toBe(conv.id);
+    expect(t.source.autonomous).toBe(true);
+    expect(listMessages(conv.id).some((m) => m.kind === "run" && m.content.includes("开工"))).toBe(true);
   });
 });
 

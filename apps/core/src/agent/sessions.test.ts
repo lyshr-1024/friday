@@ -8,7 +8,7 @@ import { getJob, listJobs } from "../memory/jobs.js";
 import { getTermSession, updateTermSession } from "../memory/termSessions.js";
 import { setTmuxRunner } from "./tmux.js";
 import { flushQueued, joinRootSession, openSession, prepareFailed, resolveRoot, resumeInSession, sayToSession, setLauncher, worktreeReady } from "./sessions.js";
-import { startInteractiveJob } from "./pipeline.js";
+import { startAutonomousJob } from "./pipeline.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 import { listAudit } from "../memory/audit.js";
 
@@ -69,11 +69,11 @@ describe("根任务与会话", () => {
     expect(resolveRoot(loose).id).toBe(loose.id);
   });
 
-  it("tmux 没装：开始做直接报错，任务状态不变、不留 job", async () => {
+  it("tmux 没装：开工直接报错，任务状态不变、不留 job", async () => {
     tmuxInstalled = false;
     const t = createTask({ title: "没 tmux", kind: "verbal", source: {}, status: "understood", project: "app" });
     const before = listJobs(1000).length;
-    await expect(startInteractiveJob(t, "app", R, "做一下")).rejects.toThrow("brew install tmux");
+    await expect(startAutonomousJob(t, "app", R, "做一下")).rejects.toThrow("brew install tmux");
     expect(getTask(t.id)!.status).toBe("understood");
     expect(listJobs(1000).length).toBe(before);
   });
@@ -238,40 +238,27 @@ describe("worktree / 分支不许被两个会话共用", () => {
 });
 
 describe("一个根任务只有一个会话", () => {
-  it("同一个根连点两次开始做：只有一个 job 和一个会话，第二次把话送进去", async () => {
+  it("同一个根连点两次开工：只有一个 job 和一个会话，第二次把话送进去", async () => {
     const t = createTask({ title: "重复开工", kind: "verbal", source: {}, status: "understood", project: "app" });
-    const first = await startInteractiveJob(t, "app", R, "第一次");
+    const first = await startAutonomousJob(t, "app", R, "第一次");
     await worktreeReady(first.source.jobId!, addTestWorktree(R, "app-feat-dup"));
     const jobs = listJobs(1000).length;
-    await startInteractiveJob(getTask(t.id)!, "app", R, "第二次的话");
+    await startAutonomousJob(getTask(t.id)!, "app", R, "第二次的话");
     expect(listJobs(1000).length).toBe(jobs);
     expect(getTermSession(t.id)!.jobId).toBe(first.source.jobId);
     expect(sent().at(-1)).toBe("第二次的话");
     expect(getTask(t.id)!.status).toBe("processing");
   });
-
-  it("会话已 exited：再开始做是接回（zsh 跑 resume 脚本），不新开会话", async () => {
-    const t = createTask({ title: "退出后再来", kind: "verbal", source: {}, status: "understood", project: "app" });
-    const first = await startInteractiveJob(t, "app", R, "第一次");
-    const jobId = first.source.jobId!;
-    await worktreeReady(jobId, addTestWorktree(R, "app-feat-resume"));
-    updateTermSession(t.id, { status: "exited" });
-    const jobs = listJobs(1000).length;
-    await startInteractiveJob(getTask(t.id)!, "app", R, "接着做");
-    expect(listJobs(1000).length).toBe(jobs);
-    expect(sent().some((x) => x!.includes("/bin/zsh") && x!.includes(`/runs/${jobId}.resume.sh`))).toBe(true);
-    expect(getTermSession(t.id)!.status).toBe("running");
-  });
 });
 
 describe("准备段失败 / 被拒收之后还能再开工", () => {
-  it("prepareFailed 之后再开始做：同名的旧 tmux 会话先 kill，再开出新会话", async () => {
+  it("prepareFailed 之后再开工：同名的旧 tmux 会话先 kill，再开出新会话", async () => {
     const t = createTask({ title: "失败后重来", kind: "verbal", source: {}, status: "understood", project: "app" });
-    const first = await startInteractiveJob(t, "app", R, "第一次");
+    const first = await startAutonomousJob(t, "app", R, "第一次");
     const name = getTermSession(t.id)!.tmuxName;
     prepareFailed(first.source.jobId!);
     calls = [];
-    const again = await startInteractiveJob(getTask(t.id)!, "app", R, "再来");
+    const again = await startAutonomousJob(getTask(t.id)!, "app", R, "再来");
     expect(calls.some((c) => c[4] === "kill-session" && c.includes(`=${name}`))).toBe(true);
     expect(again.source.jobId).not.toBe(first.source.jobId);
     expect(getTermSession(t.id)).toMatchObject({ status: "preparing", tmuxName: name, jobId: again.source.jobId });
