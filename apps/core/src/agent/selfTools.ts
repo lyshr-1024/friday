@@ -16,7 +16,7 @@ import { leftoverWorktrees } from "../api/worktrees.js";
 import { removeWorktree } from "./git.js";
 import { scheduleByConversation } from "../memory/schedules.js";
 import { getTask } from "../memory/tasks.js";
-import { consents } from "./tools.js";
+import { consents } from "./consent.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -31,6 +31,8 @@ export function saidLast(conversationId?: string): string {
   if (!conversationId) return "";
   return (listMessages(conversationId).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
 }
+
+const asked = new Map<string, { path: string; dirty: boolean }>();
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
@@ -330,14 +332,17 @@ export const selfToolList = (conversationId?: string) => [
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
       const said = saidLast(conversationId);
-      const ok = entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]);
+      const key = conversationId ?? "";
+      const ok = asked.get(key)?.path === entry.path && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
       if (!ok) {
+        asked.set(key, { path: entry.path, dirty: entry.dirty });
         return text(
           entry.dirty
             ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
             : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
         );
       }
+      asked.delete(key);
       const r = await removeWorktree(entry.repoDir, entry.path, entry.dirty);
       const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
       record({

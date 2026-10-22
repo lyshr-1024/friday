@@ -35,6 +35,7 @@ import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
 import { selfToolList } from "./selfTools.js";
+import { consents } from "./consent.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
 
@@ -699,10 +700,6 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   brief_approve: ["方案可以", "按这个做", "可以", "通过", "开工"],
 };
 
-export function consents(said: string, forms: string[]): boolean {
-  if (/[？?]/.test(said)) return false;
-  return forms.includes(said.replace(/[。！!～~\s]+$/, "").trim());
-}
 
 const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);
 
