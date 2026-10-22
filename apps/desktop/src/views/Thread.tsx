@@ -63,7 +63,7 @@ function MentionText({ text }: { text: string }) {
 const NOTICE_DOT: Array<[string, string]> = [["· 方案待审", "dot--review"], ["· 待验收", "dot--done"], ["· 卡住", "dot--blocked"]];
 
 /** Friday 主动发的消息：首行 `#N 标题 · 状态` 带状态色点、可点；离开摘要（多条任务）原样分行 */
-function NoticeCard({ m, onOpenTask }: { m: Message; onOpenTask?: (taskId: string) => void }) {
+export function NoticeCard({ m, onOpenTask }: { m: Message; onOpenTask?: (taskId: string) => void }) {
   const [first = "", ...rest] = m.content.split("\n");
   const taskId = m.taskIds?.length === 1 ? m.taskIds[0] : undefined;
   const dot = NOTICE_DOT.find(([suffix]) => first.endsWith(suffix))?.[1] ?? "";

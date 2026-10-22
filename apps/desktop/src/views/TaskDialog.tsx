@@ -1,3 +1,4 @@
+import { Related } from "./Related";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Task } from "@friday/shared";
@@ -187,17 +188,16 @@ export function Modal({ label, title, sub, actions, onClose, className = "", chi
   );
 }
 
-export function TaskDialog({ t, slots, chat, actions, onClose }: {
+export function TaskDialog({ t, slots, actions, onClose }: {
   t: Task;
   slots: DetailSlots;
-  chat: ReactNode;
   actions: DialogAction[];
   onClose: () => void;
 }) {
   return (
     <Modal label="任务详情" title={t.title} sub="详情" actions={actions} onClose={onClose}>
       <TaskDetails t={t} {...slots} />
-      <div className="tdlg__chat">{chat}</div>
+      <div className="tdlg__chat"><Related taskId={t.id} /></div>
     </Modal>
   );
 }

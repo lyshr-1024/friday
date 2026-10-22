@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds } from "@friday/shared";
+import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -189,6 +189,12 @@ export async function newConversation(): Promise<Conversation> {
 export async function mainConversation(): Promise<{ id: string }> {
   const res = await fetch(`${await coreBaseUrl()}/main`);
   if (!res.ok) throw new Error(`main ${res.status}`);
+  return res.json();
+}
+
+export async function taskRelated(id: string): Promise<Message[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${id}/related`);
+  if (!res.ok) throw new Error(`related ${res.status}`);
   return res.json();
 }
 

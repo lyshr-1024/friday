@@ -228,3 +228,24 @@ describe("Slack 对话里每条消息带自己的发送人", () => {
     expect(conv.items.map((i) => i.userName)).toEqual(["佳成 (Zhou Jiacheng)", "拂晓 (Chen Xiaofu)"]);
   });
 });
+
+describe("GET /tasks/:id/related", () => {
+  it("主对话里挂了它的 + 它旧会话的消息，按时间排；不相干的不出现", async () => {
+    const { addMessage, createConversation } = await import("../memory/conversations.js");
+    const { mainConversationId } = await import("../memory/mainConversation.js");
+    const own = createConversation().id;
+    const t = createTask({ title: "x", kind: "verbal", source: { conversationId: own } });
+    const m1 = addMessage(own, { role: "user", kind: "ask", content: "own1" });
+    await new Promise((r) => setTimeout(r, 3));
+    const m2 = addMessage(mainConversationId(), { role: "user", kind: "ask", content: "hit", taskIds: [t.id] });
+    addMessage(mainConversationId(), { role: "user", kind: "ask", content: "miss", taskIds: ["other"] });
+    const res = await app.request(`/tasks/${t.id}/related`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Array<{ id: string }>).map((m) => m.id)).toEqual([m1.id, m2.id]);
+  });
+
+  it("任务不存在回 404", async () => {
+    const res = await app.request("/tasks/nope/related");
+    expect(res.status).toBe(404);
+  });
+});

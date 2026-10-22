@@ -9,7 +9,7 @@ import { BriefCard } from "./Brief";
 import { Resources } from "./Resources";
 import { KIND, TaskHeader, shownState, hhmm, stateLabel, waitedFor } from "./TaskHeader";
 import { Terminal } from "./Terminal";
-import { Thread } from "./Thread";
+import { Related } from "./Related";
 import { Modal, TaskDetails, TaskDialog, type DetailSlots, type DialogAction } from "./TaskDialog";
 
 export type BoardView = "queue" | "ledger";
@@ -46,7 +46,7 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
     return "合完撤不回，要退得自己 revert。";
   }
   if (a.type === "reproject") {
-    return `删掉的 worktree、分支和里面的改动撤不回。在会话里说「撤掉」执行；说「算了，还是 ${String(a.payload.from ?? "原来的")}」就不改。`;
+    return `删掉的 worktree、分支和里面的改动撤不回。在主对话里说「撤掉」执行；说「算了，还是 ${String(a.payload.from ?? "原来的")}」就不改。`;
   }
   if (a.type === "discard_changes") {
     return "删掉的 worktree、分支和里面的改动撤不回。不想撤就点「完成，不执行」，只收卡、改动留着。";
@@ -176,7 +176,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
             value={t.project ?? ""}
             options={[{ value: "", label: "没定" }, ...projects.map((p) => ({ value: p.name, label: p.name, hint: p.dir.replace(/^\/Users\/[^/]+/, "~") }))]}
             onPick={(v) => {
-              // Friday 自主干过活的不弹框：后端挂一条回退清单，在会话里说「撤掉」才执行
+              // Friday 自主干过活的不弹框：后端挂一条回退清单，在主对话里说「撤掉」才执行
               if (fridayWork(t)) void onAct(t, () => taskSetProject(t.id, v || null));
               // 你自己的终端还开着就先问一句：关掉它意味着里面没提交的改动要自己去收
               else if (hasTerm && (v || null) !== (t.project ?? null)) setSwitching({ to: v || null });
@@ -184,7 +184,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
             }}
           />
           {reproject ? (
-            <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在会话里说「撤掉」执行</span>
+            <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在主对话里说「撤掉」执行</span>
           ) : !t.project && <span className="fx__meta-dim">{t.autostart?.kind === "gate" && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
         </div>
       </div>
@@ -601,9 +601,14 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
   const derived = (t: Task) => Boolean(t.source.fromTaskId && liveIds.has(t.source.fromTaskId));
   // 列表只按五个开发阶段分组。「要不要你拍板」不再单独列一组——状态位已经在每一行上说了。
   const onBoard = rest.filter((t) => !closed(t) && !nested(t) && !derived(t));
-  const byStage = (st: Stage) => onBoard.filter((t) => t.stage === st).sort(byActivity(active));
+  // 先按「要你」分组，第一个命中的算；都不中的进「其他」，里面再按阶段分
+  const needGroupOf = (t: Task): string | null =>
+    t.need === "brief" ? "方案待审" : t.need === "review" ? "待验收" : t.need === "blocked" ? "卡住" : t.status === "processing" ? "在干" : t.autostart ? "排队" : null;
+  const NEED_GROUPS = ["方案待审", "待验收", "卡住", "在干", "排队"];
+  const other = onBoard.filter((t) => needGroupOf(t) === null);
+  const byStage = (st: Stage) => other.filter((t) => t.stage === st).sort(byActivity(active));
   // 没有阶段的（Slack 回消息这类）单独兜底一组，否则它们会从列表里消失
-  const noStage = onBoard.filter((t) => !t.stage).sort(byActivity(active));
+  const noStage = other.filter((t) => !t.stage).sort(byActivity(active));
   const doneTasks = tasks.filter(closed).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   // 按来源计数给外面用（Slack / 缺陷 / 需求 / 其他）。这里必须复制一份再排，
   // sort 是原地改——直接排 onBoard 会把上面按阶段分好的顺序搅乱
@@ -622,8 +627,9 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const raw: Array<{ label: string; items: Array<{ t: Task; child: boolean }> }> =
       [
             { label: "关注", items: withKids(pinned) },
-            ...STAGE_GROUP_ORDER.map((st) => ({ label: STAGE_LABEL[st], items: withKids(byStage(st)) })),
-            { label: "没有阶段", items: withKids(noStage) },
+            ...NEED_GROUPS.map((label) => ({ label, items: withKids(onBoard.filter((t) => needGroupOf(t) === label).sort(byActivity(active))) })),
+            ...STAGE_GROUP_ORDER.map((st) => ({ label: `其他 · ${STAGE_LABEL[st]}`, items: withKids(byStage(st)) })),
+            { label: "其他 · 没有阶段", items: withKids(noStage) },
             ...(showDone ? [{ label: "已完成", items: doneTasks.map((t) => ({ t, child: false })) }] : []),
           ];
     const k = q.trim().toLowerCase();
@@ -786,7 +792,6 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
         <TaskDialog
           t={dialogTask}
           slots={detailSlots(dialogTask)}
-          chat={<TaskChat t={dialogTask} placeholder="标记完成 / 这条不用管了 / 把拂晓那条挂进来…" onEscape={() => setDialogFor(null)} />}
           actions={dialogActions(dialogTask)}
           onClose={() => setDialogFor(null)}
         />
@@ -881,20 +886,20 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
               )}
             </>
           )}
-          <div className="detail__chat"><TaskChat t={t} placeholder={chatHint(t)} /></div>
+          <div className="detail__chat"><Related taskId={t.id} /></div>
         </>
       )}
       {termVisible || panel ? null : notStarted(t) ? (
         <>
           <IdleState t={t} onAct={onAct} />
-          <div className="detail__chat"><TaskChat t={t} placeholder={t.pending?.some((a) => a.type === "brief_approve") ? chatHint(t) : "开工 / 这条不用管了"} /></div>
+          <div className="detail__chat"><Related taskId={t.id} /></div>
         </>
       ) : (
         <>
           <div className="detail__card">
             <Focus t={t} all={all} onAct={onAct} onPick={onPick} onStartPack={onStartPack} packBusy={packBusy} onLedger={onLedger} />
           </div>
-          {idle && <div className="detail__chat"><TaskChat t={t} placeholder="继续做 / 修一下测试提的 bug / 标记完成" /></div>}
+          {idle && <div className="detail__chat"><Related taskId={t.id} /></div>}
         </>
       )}
     </section>
@@ -1133,7 +1138,7 @@ function actionNote(a: PendingAction, conv?: SlackConversation): string {
   return [detail, consequence(a, conv) ?? ""].join(detail.includes("\n") ? "\n" : "");
 }
 
-/** 没开工的任务：写清还差什么、Friday 为什么没自己动手。开工在下面跟 Friday 说，右上「···」里也有 */
+/** 没开工的任务：写清还差什么、Friday 为什么没自己动手。开工在主对话里说，右上「···」里也有 */
 function IdleState({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const asked = t.attention === "intake" && t.progress ? t.progress : "";
   const pending = t.pending?.find((a) => a.type !== "brief_approve");
@@ -1167,10 +1172,10 @@ function IdleState({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<u
         </div>
         <div className="idle__hint">
           {!t.project && !inRoot
-            ? `在下面告诉 Friday 改哪个项目${guess ? `（它判的是 ${guess}）` : ""}，再说「开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。`
+            ? `在主对话里告诉 Friday #${t.seq} 改哪个项目${guess ? `（它判的是 ${guess}）` : ""}，再说「#${t.seq} 开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。`
             : asked
-              ? "先在下面回答 Friday 的问题，它记下就能开工。"
-              : "在会话里说「开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。"}
+              ? `在主对话里回答 Friday 的问题（带上 #${t.seq}），它记下就能开工。`
+              : `在主对话里说「#${t.seq} 开工」，Friday 在 worktree 里做完交给你验收，中途你随时能在终端里插话。`}
           <br />也可以从右上「···」开工或定项目。
         </div>
       </div>
@@ -1191,19 +1196,8 @@ function foldSummary(t: Task, defects: number): string {
   ].filter(Boolean).join(" · ");
 }
 
-/** 会话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
+/** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
 const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", brief_approve: "按这个做" };
-
-function chatHint(t: Task): string {
-  if (reprojectOf(t)) return `撤掉 / 算了，还是 ${t.project ?? "原来的"}`;
-  if (t.autostart?.kind === "story") return "先别做 / 这条我来";
-  if (t.pending?.some((a) => a.type === "discard_changes")) return "撤掉 / 完成，不执行";
-  if (t.pending?.some((a) => a.type === "brief_approve")) return "按这个做 / 打回：原因";
-  if (t.autostart) return "先别做 / 这条我来 / 项目不对，是 …";
-  if (t.source.headless) return "发吧 / 草稿改成… / 不用回了";
-  if (t.source.handedAt) return "标记完成 / 打回：原因";
-  return "合并吧 / 打回，中途关页面进度接不上 / 完成，不执行";
-}
 
 /**
  * Friday 自主任务面板最上面那块：要你拍板的事（待审动作）、或者排队中「什么时候开、凭什么判的」。
@@ -1219,7 +1213,7 @@ function FridayTop({ t }: { t: Task }) {
       {pending.map((p) => (
         <div key={p.id} className="ac__pend">
           <div className="ftop__row"><span className="ac__k">等你点头</span><span className="ac__pend-t">{p.label}</span></div>
-          <div className="ac__pend-d">{actionNote(p, t.conversations?.[0])}{SAY[p.type] ? `${actionNote(p, t.conversations?.[0]).includes("\n") ? "\n" : ""}在会话里说「${SAY[p.type]}」执行。` : ""}</div>
+          <div className="ac__pend-d">{actionNote(p, t.conversations?.[0])}{SAY[p.type] ? `${actionNote(p, t.conversations?.[0]).includes("\n") ? "\n" : ""}在主对话里说「#${t.seq} ${SAY[p.type]}」执行。` : ""}</div>
         </div>
       ))}
       {a && (
@@ -1239,31 +1233,12 @@ function FridayTop({ t }: { t: Task }) {
           {v && a.kind === "gate" && (
             <div className="qc__rows">
               <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} />{v.confidence !== undefined && <span className="qc__dim">把握 {v.confidence}</span>}</span></div>
-              {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在会话里说"}</span></span></div>}
+              {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在主对话里说"}</span></span></div>}
               {v.detail && <div className="qc__row"><span className="qc__k">打算</span><span className="qc__v"><Linkified text={v.detail} /></span></div>}
             </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function TaskChat({ t, placeholder, onEscape }: { t: Task; placeholder: string; onEscape?: () => void }) {
-  return (
-    <div className="taskchat">
-      <div className="taskchat__k">和 Friday 聊这条任务</div>
-      <Thread
-        conversationId={t.source.conversationId ?? null}
-        emptyTitle=""
-        emptyHint=""
-        placeholder={placeholder}
-        compact
-        mentionsFor={t.id}
-        noJobCards
-        {...(onEscape ? { onEscape, escLeavesDraft: true } : {})}
-        {...(t.status === "done" || t.status === "ignored" ? { disabledNote: "任务已收工，右上「···」里重新打开后可以继续聊" } : {})}
-      />
     </div>
   );
 }
@@ -1390,7 +1365,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
         <div className="fx__ask">
           <span className="k">Friday 要问你</span>
           <div className="fx__ask-q">{t.progress}</div>
-          <div className="fx__ask-how">在下面「和 Friday 聊这条任务」里回一句就行，它记下就继续。</div>
+          <div className="fx__ask-how">在主对话里带上 #{t.seq} 回一句就行，它记下就继续。</div>
         </div>
       )}
 

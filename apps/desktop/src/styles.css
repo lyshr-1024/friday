@@ -5264,8 +5264,10 @@ body:has(.hud)::-webkit-scrollbar {
 .fx__conv-name { color: var(--fg-3); }
 
 /* 会话组件：弹窗底部、自主卡底部、「问 Friday」同一套消息两列与输入框 */
-.taskchat { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-.taskchat__k { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-4); }
+.related { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line-1); }
+.related__head { display: flex; justify-content: space-between; align-items: center; padding: 0; border: 0; background: none; font: inherit; font-size: 11px; letter-spacing: 0.1em; color: var(--fg-4); }
+.related__head:hover { color: var(--fg-2); }
+.related__list { display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; }
 .detail__card--auto:has(+ .detail__chat) { margin-bottom: 12px; }
 .detail__chat { flex: none; margin: 0 20px 16px; }
 .thread .chat__body { gap: 12px; }
@@ -5276,7 +5278,6 @@ body:has(.hud)::-webkit-scrollbar {
 .tm__text { white-space: pre-wrap; }
 .tm__body .mention { color: #38d6ff; }
 .tm__body .attach { margin: 6px 0 0; }
-.detail__chat .thread--compact .chat__body { max-height: 180px; }
 .tm__body.thinking { flex: none; height: 20px; padding: 0; }
 /* 你发的靠右、带底，一眼分得出谁说的；底要够实，背景图上也看得清 */
 .tm--user { justify-content: flex-end; }
@@ -5356,10 +5357,6 @@ body:has(.hud)::-webkit-scrollbar {
 
 /* 自主任务面板：交付内容在会话里，会话要占得住地方 */
 .detail--panel .detail__card--auto { flex: 0 1 auto; max-height: 50%; margin-bottom: 8px; }
-.detail--panel .detail__chat { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
-.detail--panel .detail__chat .taskchat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.detail--panel .detail__chat .thread { flex: 1; min-height: 0; }
-.detail--panel .detail__chat .thread--compact .chat__body { max-height: none; }
 .answer--pre { white-space: pre-wrap; }
 .detail--panel .thread--compact .thread__scroll { flex: 1; min-height: 0; }
 .detail--panel .thread--compact .chat__body { flex: 1; min-height: 0; }

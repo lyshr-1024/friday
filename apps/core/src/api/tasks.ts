@@ -1,5 +1,6 @@
 import { restoreFeatures, writeKnowledge } from "../memory/features.js";
 import { Hono } from "hono";
+import { listMessagesForTask } from "../memory/conversations.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, resolve, sep } from "node:path";
@@ -159,6 +160,7 @@ export const tasks = new Hono()
     return c.json({ skip });
   })
   .get("/routines", (c) => c.json({ weekly: listTasksByKind("okr_weekly"), learn: listTasksByKind("handbook") }))
+  .get("/tasks/:id/related", (c) => (getTask(c.req.param("id")) ? c.json(listMessagesForTask(c.req.param("id"))) : c.json({ error: "任务不存在" }, 404)))
   .get("/tasks/:id", (c) => {
     const t = getTask(c.req.param("id"));
     return t ? c.json(t) : c.json({ error: "任务不存在" }, 404);
