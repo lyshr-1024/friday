@@ -27,6 +27,7 @@ import { transitionToInProgress } from "./meegle.js";
 import { postDelivery } from "./delivery.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
 import { storeBrief } from "./briefJob.js";
+import { renderBrief } from "./brief.js";
 import { readChunk } from "./web.js";
 
 const execFileP = promisify(execFile);
@@ -259,10 +260,13 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
   const project = loadProjects().find((p) => p.name === projectName);
   const knowledge = projectName ? knowledgeBlock(projectName, [task.title, task.understanding].join("\n")) : "";
   const person = who ? personNote(who) : undefined;
+  const brief = task.source.brief && renderBrief(task.source.brief);
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
     task.understanding ? `这件事是什么：\n${untrusted(task.source.meegleId ? "meegle-understanding" : "task-understanding", task.understanding)}` : "",
-    audience === "friday" && task.plan ? `和用户聊定的方案：${task.plan}` : "",
+    brief ? `理解卡：\n${untrusted("brief", brief)}` : "",
+    // plan 默认就是理解卡的渲染文本，一样的不重复带
+    audience === "friday" && task.plan && task.plan !== brief ? `和用户聊定的方案：${task.plan}` : "",
     task.progress ? `目前进展：${task.progress}` : "",
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",

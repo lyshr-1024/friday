@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
 import { finishBootstrap } from "./knowledgeBootstrap.js";
-import { finishBriefJob } from "./briefJob.js";
+import { finishBriefJob, rejectBrief } from "./briefJob.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { isQueryTask } from "@friday/shared";
@@ -359,6 +359,7 @@ function getTaskByJob(jobId: string): { task: Task; dir: string } | undefined {
 export function rejectTask(id: string, reason?: string): Task | undefined {
   const t = getTask(id);
   if (!t) return undefined;
+  if (t.pending?.some((p) => p.type === "brief_approve")) return rejectBrief(id, reason ?? "无说明");
   record({ taskId: t.id, action: "review_rejected", why: reason ?? "你打回了", how: "任务退回处理中，待审核动作作废", evidence: { reason: reason ?? null, dropped: (t.pending ?? []).map((p) => p.label) }, risk: "read" });
   for (const r of pendingRunsForTask(t.id)) setRunOutcome(r.id, "rejected", reason ?? "无说明");
   const updated = updateTask(t.id, { status: "processing", pending: [], progress: `被打回：${reason ?? "无说明"}`, source: { rejectedAt: new Date().toISOString() } });
@@ -440,6 +441,13 @@ export async function executePending(
       record({ taskId, action: "intake_start", why: "你点了开工", how: `在 ${p.project} 上自主开工`, evidence: { project: p.project, confidence: p.confidence ?? null, detail: p.detail.slice(0, 500) }, risk: "reversible", status: "approved" });
       // 开工不是收尾：任务要留在「Friday 在做」，不能跟着下面的收尾逻辑标完成、关终端
       return getTask(taskId)!;
+    } else if (action.type === "brief_approve") {
+      const b = getTask(taskId)?.source.brief;
+      if (!b) throw new Error("理解卡不在了");
+      const t = updateTask(taskId, { progress: "理解卡你看过了，照它开工", source: { brief: { ...b, review: "approved", stale: undefined } } })!;
+      record({ taskId, action: "brief_approved", why: "你审核通过", how: "理解卡标成已审，开工照它做", evidence: { size: b.size, rejections: b.rejections ?? 0 }, risk: "reversible", status: "approved" });
+      // 审过理解卡不是收尾：需求还没开工
+      return t;
     } else if (action.type === "reproject") {
       const { rollbackAndRestart } = await import("./reproject.js");
       // 回退完直接在新项目上重开：任务回到「Friday 在做」，不走下面的收尾

@@ -14,8 +14,11 @@ import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
 import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
-import { briefPrompt, briefTick, finishBriefJob, startBriefJob, storeBrief } from "./briefJob.js";
-import { onJobExit } from "./pipeline.js";
+import { briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
+import { executePending, onJobExit, rejectTask } from "./pipeline.js";
+import { brief as briefApi } from "../api/brief.js";
+import { addMessage } from "../memory/conversations.js";
+import { fridayToolList } from "./tools.js";
 import { TmuxMissingError } from "./tmux.js";
 import { db } from "../memory/db.js";
 import { updateSettings } from "../settings.js";
@@ -389,5 +392,142 @@ describe("建卡队列", () => {
     const bad = story("p-gone", { due: "1998-01-01" });
     expect(await briefTick()).toBe("busy");
     expect(getTask(bad.id)!.source.briefFailed?.why).toContain("p-gone");
+  });
+});
+
+describe("审核、打回、改档、依赖", () => {
+  const withApprove = (project: string, extra: object = {}) => {
+    const t = story(project);
+    storeBrief(t.id, { ...goodBrief, ...extra });
+    return getTask(t.id)!;
+  };
+  const approveAction = (id: string) => getTask(id)!.pending?.find((p) => p.type === "brief_approve");
+  const tool = async (conv: string, name: string, args: Record<string, unknown>) =>
+    ((await fridayToolList(conv).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> }).content[0]!.text;
+
+  it("brief_approve 执行：review approved、stale 清掉、任务不收工、记账", async () => {
+    writeProjects({ name: "p-ap" });
+    const t = withApprove("p-ap");
+    updateTask(t.id, { source: { brief: { ...t.source.brief!, stale: true } } });
+    const done = await executePending(t.id, approveAction(t.id)!.id, { slackPost: vi.fn() });
+    expect(done.status).toBe("understood");
+    expect(done.source.brief?.review).toBe("approved");
+    expect(done.source.brief?.stale).toBeUndefined();
+    expect(done.pending ?? []).toEqual([]);
+    expect(listAudit({ taskId: t.id }).find((e) => e.action === "brief_approved")).toMatchObject({ status: "approved" });
+  });
+
+  it("打回第一次：rejected + 原因，自动重建一次（提示词带原因）", async () => {
+    writeProjects({ name: "p-rej1" });
+    const t = withApprove("p-rej1");
+    vi.mocked(openSession).mockResolvedValueOnce("job-rej1");
+    const calls = vi.mocked(openSession).mock.calls.length;
+    const after = rejectTask(t.id, "接口不对")!;
+    expect(after.status).toBe("understood");
+    expect(after.source.brief).toMatchObject({ review: "rejected", reviewNote: "接口不对", rejections: 1 });
+    expect((after.pending ?? []).some((p) => p.type === "brief_approve")).toBe(false);
+    await vi.waitFor(() => expect(vi.mocked(openSession).mock.calls.length).toBe(calls + 1));
+    expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("接口不对");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "brief_rejected")).toBe(true);
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "review_rejected")).toBe(false);
+    storeBrief(t.id, goodBrief);
+    expect(getTask(t.id)!.source.brief?.rejections).toBe(1);
+  });
+
+  it("打回后自动重建起不来：记 briefFailed，不抛", async () => {
+    writeProjects({ name: "p-rejf" });
+    const t = withApprove("p-rejf");
+    vi.mocked(openSession).mockRejectedValueOnce(new Error("内嵌终端需要 tmux"));
+    rejectTask(t.id, "范围不对");
+    await vi.waitFor(() => expect(getTask(t.id)!.source.briefFailed?.why).toContain("tmux"));
+  });
+
+  it("打回第二次：停下不重建", async () => {
+    writeProjects({ name: "p-rej2" });
+    const t = withApprove("p-rej2");
+    updateTask(t.id, { source: { brief: { ...t.source.brief!, rejections: 1 } } });
+    const calls = vi.mocked(openSession).mock.calls.length;
+    const after = rejectTask(t.id, "还是不对")!;
+    expect(after.source.brief).toMatchObject({ review: "rejected", reviewNote: "还是不对", rejections: 2 });
+    expect(after.progress).toBe("方案被打回两次，等你在会话里说怎么改，说完点「重建」");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(vi.mocked(openSession).mock.calls.length).toBe(calls);
+  });
+
+  it("rejectTask 对没有 brief_approve 的卡照旧", () => {
+    const t = createTask({ title: "改列宽", kind: "code", status: "review", source: {} });
+    addPending(t.id, { type: "git_merge", label: "合并", detail: "", payload: {} }, { keepStatus: true });
+    const after = rejectTask(t.id, "改错页面")!;
+    expect(after.status).toBe("processing");
+    expect(after.pending ?? []).toEqual([]);
+    expect(after.progress).toBe("被打回：改错页面");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "review_rejected")).toBe(true);
+  });
+
+  it("改档重算送审", () => {
+    writeProjects({ name: "p-size", extra: ["方案送审：大的"] });
+    const t = withApprove("p-size", { size: "large" });
+    expect(t.source.brief?.review).toBe("pending");
+    const small = setBriefSize(t.id, "small") as Task;
+    expect(small.source.brief).toMatchObject({ size: "small", review: "none" });
+    expect((small.pending ?? []).some((p) => p.type === "brief_approve")).toBe(false);
+    expect(small.plan).toContain("规模：小");
+    const large = setBriefSize(t.id, "large") as Task;
+    expect(large.source.brief).toMatchObject({ size: "large", review: "pending" });
+    expect(large.pending?.filter((p) => p.type === "brief_approve")).toHaveLength(1);
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_resized")).toHaveLength(2);
+
+    updateTask(t.id, { pending: [], source: { brief: { ...large.source.brief!, review: "approved" } } });
+    const kept = setBriefSize(t.id, "small") as Task;
+    expect(kept.source.brief).toMatchObject({ size: "small", review: "approved" });
+    expect(kept.pending ?? []).toEqual([]);
+
+    expect(setBriefSize(story("p-size").id, "small")).toContain("理解卡");
+  });
+
+  it("重建撤掉旧的待审动作", async () => {
+    writeProjects({ name: "p-rb" });
+    const t = withApprove("p-rb");
+    vi.mocked(openSession).mockResolvedValueOnce("job-rb");
+    const res = await briefApi.request(`/tasks/${t.id}/brief`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect((getTask(t.id)!.pending ?? []).some((p) => p.type === "brief_approve")).toBe(false);
+  });
+
+  it("标依赖到了：按下标、按关键词；关键词没对上回错", () => {
+    writeProjects({ name: "p-dep" });
+    const t = withApprove("p-dep", { deps: [{ what: "行情接口", from: "后端小李", status: "pending" }, { what: "设计稿", status: "pending" }] });
+    const a = markDepReady(t.id, 1) as Task;
+    expect(a.source.brief!.deps[1]).toMatchObject({ status: "ready", evidence: { source: "user", text: "你标的到了" } });
+    expect(a.source.brief!.deps[0]!.status).toBe("pending");
+    const b = markDepReady(t.id, "行情") as Task;
+    expect(b.source.brief!.deps[0]).toMatchObject({ status: "ready", evidence: { source: "user", text: "你标的到了" } });
+    expect(b.plan).toContain("✓ 行情接口");
+    expect(approveAction(t.id)!.detail).toContain("✓ 行情接口");
+    expect(markDepReady(t.id, "不存在的")).toEqual(expect.any(String));
+    expect(markDepReady(t.id, 5)).toEqual(expect.any(String));
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_dep_ready")).toHaveLength(2);
+  });
+
+  it("task_update rebuildBrief：起重建会话；不能建的回原因", async () => {
+    writeProjects({ name: "p-tu" });
+    const t = withApprove("p-tu");
+    vi.mocked(openSession).mockResolvedValueOnce("job-tu");
+    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("在后台重建");
+    expect(anchorOf(t.id)?.source.jobId).toBe("job-tu");
+    const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-tu", status: "understood", source: { meegleType: "defect" } });
+    expect(await tool(defect.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("缺陷");
+  });
+
+  it("会话里「按这个做」批准 brief_approve", async () => {
+    writeProjects({ name: "p-say" });
+    const t = withApprove("p-say");
+    const conv = t.source.conversationId!;
+    addMessage(conv, { role: "user", kind: "ask", content: "按这个做吗？" });
+    expect(await tool(conv, "task_approve", {})).toContain("不执行");
+    addMessage(conv, { role: "user", kind: "ask", content: "按这个做" });
+    expect(await tool(conv, "task_approve", {})).toContain("已执行");
+    expect(getTask(t.id)!.source.brief?.review).toBe("approved");
+    expect(getTask(t.id)!.status).toBe("understood");
   });
 });
