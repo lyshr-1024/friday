@@ -10,7 +10,7 @@ import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
-import { protectedBranches } from "../memory/projects.js";
+import { isFridayProject, protectedBranches } from "../memory/projects.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
 
@@ -39,6 +39,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     "6. 验证时要碰远端数据（canary / staging 接口写入、改配置）只碰工单里给的造数数据，没给就不写；改过的一律还原，还原步骤和回读结果写进报告的「测试过程」。生产环境一律不写。",
     "7. 提交后 git push 当前分支，按项目规范建 draft MR（项目有 harua-deploy 之类的 skill 就用它，否则用 glab / gh），链接写进「概要」。不要 merge 进保护分支、不要推保护分支，合进主干由用户在 Friday 里审核。",
     "8. 交付后用户可能在这个终端里追问，Friday 也可能把打回原因敲进来；接着改，改完再调一次 friday_done。",
+    ...(isFridayProject(project) ? ["9. 这是 Friday 自己的代码。合并由用户做，你只交付分支；交付报告的「请验证」里写明「要重启 Friday（开发时重跑 pnpm dev，打包版要重新打包）才生效」。不要改守卫（agent/guard.ts）和权限分级（agent/permission.ts）去放宽限制，需要放宽的写进 decisions 里说明为什么，交给用户定。"] : []),
     ...(knowledge ? ["", untrusted("knowledge", knowledge)] : []),
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,

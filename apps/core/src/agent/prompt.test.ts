@@ -4,6 +4,10 @@ import { friday } from "./prompt.js";
 afterEach(() => vi.useRealTimers());
 
 describe("系统提示", () => {
+  it("改自己行为：配置调不了的在 friday 项目上建任务", () => {
+    expect(friday(undefined, false)).toContain("在 friday 项目上建一条任务");
+  });
+
   it("绑了任务的会话把卡片当第一上下文注入", () => {
     const s = friday(undefined, false, "任务：修登录（processing）\n进展：改到一半");
     expect(s).toContain("【任务板】");

@@ -44,6 +44,8 @@ describe("送审档位", () => {
     expect(briefPolicy(undefined)).toBe("全部");
     expect(briefPolicy(project({ 方案送审: "大的" }))).toBe("大的");
     expect(briefPolicy(project({ 方案送审: "随便" }))).toBe("全部");
+    expect(briefPolicy({ ...project({ 方案送审: "不用" }), name: "friday" })).toBe("全部");
+    expect(briefPolicy({ ...project({ 方案送审: "大的" }), name: " Friday " })).toBe("全部");
     expect(reviewFor("small", "全部")).toBe("pending");
     expect(reviewFor("small", "大的")).toBe("none");
     expect(reviewFor("large", "大的")).toBe("pending");

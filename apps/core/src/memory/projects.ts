@@ -25,6 +25,11 @@ export interface ProjectEnv {
   url: string;
 }
 
+export function isFridayProject(p: Project | string | undefined): boolean {
+  const name = typeof p === "string" ? p : p?.name;
+  return name?.trim().toLowerCase() === "friday";
+}
+
 export function expandHome(p: string): string {
   return p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
 }

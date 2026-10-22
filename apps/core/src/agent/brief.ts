@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Brief, BriefDep, Task } from "@friday/shared";
-import type { Project } from "../memory/projects.js";
+import { isFridayProject, type Project } from "../memory/projects.js";
 
 export { briefable } from "@friday/shared";
 import { briefable } from "@friday/shared";
@@ -20,6 +20,7 @@ export function pickBriefQueue(tasks: Task[]): Task | undefined {
 }
 
 export function briefPolicy(p: Project | undefined): BriefPolicy {
+  if (isFridayProject(p)) return "全部";
   const v = p?.extra["方案送审"]?.trim();
   return v === "大的" || v === "不用" ? v : "全部";
 }

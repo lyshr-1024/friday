@@ -80,6 +80,18 @@ describe("autonomousPrompt 知识库", () => {
   });
 });
 
+describe("autonomousPrompt friday 项目", () => {
+  it("friday 项目多一条：合并由用户做、要重启、不许放宽守卫；别的项目没有", () => {
+    const s = autonomousPrompt("j", "x", "friday");
+    expect(s).toContain("合并由用户做");
+    expect(s).toContain("要重启 Friday");
+    expect(s).toContain("agent/guard.ts");
+    const other = autonomousPrompt("j", "x", "p-ap");
+    expect(other).not.toContain("合并由用户做");
+    expect(other).not.toContain("要重启 Friday");
+  });
+});
+
 describe("Friday 驾驶的会话怎么拉起 claude", () => {
   const files = { settings: "/s", mcp: "/m" };
   it("Friday 驾驶的会话跑交互式：带 --model opus，不带 -p", () => {
