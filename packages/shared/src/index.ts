@@ -488,7 +488,6 @@ export interface TaskDoc {
 }
 
 export type AutostartPlan =
-  | { kind: "gate"; at: string; behind: number }
   | { kind: "story"; at: string; root: { id: string; title: string }; waiting?: string }
   | { kind: "brief"; at: string; behind: number };
 

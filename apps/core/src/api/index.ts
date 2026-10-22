@@ -26,7 +26,6 @@ import { slack } from "./slack.js";
 import { usage } from "./usage.js";
 import { runs } from "./runs.js";
 import { schedules } from "./schedules.js";
-import { autostart } from "./autostart.js";
 import { summonApi } from "./summon.js";
 import { worktrees } from "./worktrees.js";
 
@@ -58,7 +57,6 @@ export const app = new Hono()
   .route("/", slack)
   .route("/", usage)
   .route("/", runs)
-  .route("/", autostart)
   .route("/", activity)
   .route("/", schedules)
   .route("/", knowledge)

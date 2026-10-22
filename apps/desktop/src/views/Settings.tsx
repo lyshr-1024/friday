@@ -6,7 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { Row } from "./shared";
-import { autostartPreview, coreBaseUrl, health, leftoverWorktrees, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
+import { coreBaseUrl, health, leftoverWorktrees, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 import { AUTOSTART_CONFIDENCE } from "@friday/shared";
@@ -24,18 +24,7 @@ export function Settings() {
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
   const [bgNote, setBgNote] = useState("");
   const [coreUrl, setCoreUrl] = useState("");
-  const [gate, setGate] = useState<{ pass: number; candidates: number } | null>(null);
   const ime = useImeGuard();
-
-  // 拖门槛时跟着看「按这个值能放进几条」，停手 250ms 再问 core，不必每一格都请求
-  const minConfidence = prefs?.autonomousMinConfidence;
-  useEffect(() => {
-    if (minConfidence === undefined) return;
-    const timer = window.setTimeout(() => {
-      autostartPreview(minConfidence).then((r) => setGate(r)).catch(() => setGate(null));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [minConfidence]);
 
   /** 存背景图；core 会校验类型/大小，失败就把原因显示出来，不动当前设置。 */
   async function saveBackground(path: string) {
@@ -145,9 +134,7 @@ export function Settings() {
           {prefs && (
             <Row
               label="把握门槛"
-              hint={`Friday 判断「照工单描述一次就能改对」的把握不低于这个值才自己开工。调低放进来的多、白干的也多；${
-                gate ? (gate.candidates ? `排队里判成能开工的缺陷 ${gate.candidates} 条，按 ${prefs.autonomousMinConfidence} 能放进 ${gate.pass} 条` : "排队里现在没有判成能开工的缺陷") : "正在数排队的缺陷…"
-              }`}
+              hint="Friday 判断「照工单描述一次就能改对」的把握不低于这个值才自己开工。调低放进来的多、白干的也多。"
             >
               <div className="bgpick">
                 <input

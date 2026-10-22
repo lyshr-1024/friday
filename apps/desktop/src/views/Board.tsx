@@ -185,7 +185,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
           />
           {reproject ? (
             <span className="fx__meta-dim">要改到 {String(reproject.payload.to)}，得先撤掉 Friday 在 {t.project} 上做的。清单在任务卡上，在主对话里说「撤掉」执行</span>
-          ) : !t.project && <span className="fx__meta-dim">{t.autostart?.kind === "gate" && t.source.intake?.project ? `Friday 判的是 ${t.source.intake.project}，开工时写到卡上；不对就在这儿选` : "Friday 不猜项目——选了才能开工"}</span>}
+          ) : !t.project && <span className="fx__meta-dim">还没定项目：选了才能建理解卡、开工</span>}
         </div>
       </div>
       {bases.length > 0 && (
@@ -1149,7 +1149,7 @@ function IdleState({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<u
   // 为什么 Friday 没自己动手：intake 的原话。判成能改但把握不够的，说清差在哪
   const v = t.source.intake;
   const judged = !v ? "" : v.kind === "start"
-    ? `能改，但把握只有 ${v.confidence ?? "?"}，没到自动开工的门槛：${v.why}`
+    ? `能改：${v.why}`
     : v.kind === "ask" ? `得先问清楚：${v.why}` : `得你来：${v.why}`;
   const guess = !t.project && !inRoot ? v?.project : undefined;
   return (
@@ -1205,7 +1205,6 @@ const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发"
  */
 function FridayTop({ t }: { t: Task }) {
   const pending = t.pending ?? [];
-  const v = t.source.intake;
   const a = t.autostart;
   if (!pending.length && !a) return null;
   return (
@@ -1221,22 +1220,10 @@ function FridayTop({ t }: { t: Task }) {
           <div className="ftop__row"><span className="ac__k">什么时候开</span>
             <span className="ac__text">
               {a.kind === "story"
-                ? `需求在测试中，Friday 直接在它的分支上修，不走把握分${a.waiting ? `。${a.waiting}` : ""}`
-                : a.kind === "brief"
-                ? `理解卡${t.source.brief?.review === "approved" ? "审过" : "不用审"}、依赖齐了，轮到就开。`
-                : <>
-                    {Date.parse(a.at) > Date.now() ? `描述刚进来时常被改，等 15 分钟稳定后 ${hhmm(a.at)} 开工。` : "已经过了稳定期，轮到就开。"}
-                    {a.behind ? `前面有 ${a.behind} 条自主任务在跑，一次只跑一条。` : ""}
-                  </>}
+                ? `需求在测试中，Friday 直接在它的分支上修，不走理解卡${a.waiting ? `。${a.waiting}` : ""}`
+                : `理解卡${t.source.brief?.review === "approved" ? "审过" : "不用审"}、依赖齐了，轮到就开。${a.behind ? `前面有 ${a.behind} 条自主任务在跑。` : ""}`}
             </span>
           </div>
-          {v && a.kind === "gate" && (
-            <div className="qc__rows">
-              <div className="qc__row"><span className="qc__k">为什么</span><span className="qc__v"><Linkified text={v.why} />{v.confidence !== undefined && <span className="qc__dim">把握 {v.confidence}</span>}</span></div>
-              {(t.project ?? v.project) && <div className="qc__row"><span className="qc__k">项目</span><span className="qc__v">{t.project ?? v.project}<span className="qc__dim">{t.project && t.source.projectBy === "user" ? "你定的" : t.project ? "卡上的" : "Friday 判的，开工时写到卡上 · 不对就在主对话里说"}</span></span></div>}
-              {v.detail && <div className="qc__row"><span className="qc__k">打算</span><span className="qc__v"><Linkified text={v.detail} /></span></div>}
-            </div>
-          )}
         </div>
       )}
     </div>
