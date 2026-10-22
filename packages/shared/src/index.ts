@@ -168,7 +168,7 @@ export interface Desk {
   generatedAt: string;
 }
 
-export type MessageKind = "ask" | "today" | "note" | "run" | "error";
+export type MessageKind = "ask" | "today" | "note" | "run" | "error" | "notice";
 
 export interface Message {
   id: string;
@@ -176,6 +176,7 @@ export interface Message {
   kind: MessageKind;
   content: string;
   payload?: unknown;
+  taskIds?: string[];
   createdAt: string;
 }
 

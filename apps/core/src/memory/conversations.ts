@@ -17,6 +17,7 @@ interface MsgRow {
   kind: MessageKind;
   content: string;
   payload: string | null;
+  task_ids: string | null;
   created_at: string;
 }
 
@@ -29,6 +30,7 @@ function toMessage(r: MsgRow): Message {
     kind: r.kind,
     content: r.content,
     ...(r.payload ? { payload: JSON.parse(r.payload) as unknown } : {}),
+    ...(r.task_ids ? { taskIds: JSON.parse(r.task_ids) as string[] } : {}),
     createdAt: r.created_at,
   };
 }
@@ -66,9 +68,13 @@ export function listMessages(conversationId: string): Message[] {
   return rows.map(toMessage);
 }
 
+export function setMessageTaskIds(messageId: string, taskIds: string[]): void {
+  db().prepare("UPDATE messages SET task_ids = ? WHERE id = ?").run(taskIds.length ? JSON.stringify(taskIds) : null, messageId);
+}
+
 export function addMessage(
   conversationId: string,
-  input: { role: "user" | "assistant"; kind: MessageKind; content: string; payload?: unknown },
+  input: { role: "user" | "assistant"; kind: MessageKind; content: string; payload?: unknown; taskIds?: string[] },
 ): Message {
   const row: MsgRow = {
     id: randomUUID(),
@@ -77,11 +83,12 @@ export function addMessage(
     kind: input.kind,
     content: input.content,
     payload: input.payload === undefined ? null : JSON.stringify(input.payload),
+    task_ids: input.taskIds?.length ? JSON.stringify(input.taskIds) : null,
     created_at: now(),
   };
   const d = db();
-  d.prepare("INSERT INTO messages (id, conversation_id, role, kind, content, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-    row.id, row.conversation_id, row.role, row.kind, row.content, row.payload, row.created_at,
+  d.prepare("INSERT INTO messages (id, conversation_id, role, kind, content, payload, task_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+    row.id, row.conversation_id, row.role, row.kind, row.content, row.payload, row.task_ids, row.created_at,
   );
   d.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(row.created_at, conversationId);
   return toMessage(row);
@@ -117,4 +124,13 @@ export function deleteConversation(id: string): boolean {
 
 export function renameConversation(id: string, title: string): boolean {
   return db().prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title.trim() || null, id).changes > 0;
+}
+
+export function listMessagesForTask(taskId: string): Message[] {
+  const row = db().prepare("SELECT source FROM tasks WHERE id = ?").get(taskId) as { source: string } | undefined;
+  const own = row ? (JSON.parse(row.source) as { conversationId?: string }).conversationId ?? "" : "";
+  const rows = db()
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? OR task_ids LIKE ? ORDER BY created_at, rowid")
+    .all(own, `%"${taskId}"%`) as unknown as MsgRow[];
+  return rows.map(toMessage);
 }

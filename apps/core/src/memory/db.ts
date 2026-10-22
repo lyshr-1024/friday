@@ -69,6 +69,8 @@ export function migrate(d: DatabaseSync): void {
   }
   const cols = (d.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!cols.includes("title")) d.exec("ALTER TABLE conversations ADD COLUMN title TEXT");
+  const msgCols = (d.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!msgCols.includes("task_ids")) d.exec("ALTER TABLE messages ADD COLUMN task_ids TEXT");
   const inboxCols = (d.prepare("PRAGMA table_info(inbox)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!inboxCols.includes("thread_ts")) d.exec("ALTER TABLE inbox ADD COLUMN thread_ts TEXT");
   if (!inboxCols.includes("prior")) d.exec("ALTER TABLE inbox ADD COLUMN prior TEXT");

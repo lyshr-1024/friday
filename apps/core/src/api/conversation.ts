@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { isRunning, partialAnswer, runningIds } from "../agent/runs.js";
+import { mainConversationId } from "../memory/mainConversation.js";
 import { z } from "zod";
 import { createConversation, currentConversation, deleteConversation, getConversation, listConversations, renameConversation } from "../memory/conversations.js";
 
@@ -8,6 +9,7 @@ export const conversation = new Hono()
     const running = new Set(runningIds());
     return c.json(listConversations().map((conv) => ({ ...conv, running: running.has(conv.id) })));
   })
+  .get("/main", (c) => c.json({ id: mainConversationId() }))
   .get("/conversation", (c) => {
     const conv = currentConversation();
     return c.json({ ...conv, running: isRunning(conv.id), partial: partialAnswer(conv.id) ?? "" });

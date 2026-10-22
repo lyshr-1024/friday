@@ -10,7 +10,8 @@ import { contextFor } from "../agent/bridge.js";
 import { jobStateLabel } from "../agent/sessionState.js";
 import { getJob } from "../memory/jobs.js";
 import { findTaskBySource } from "../memory/tasks.js";
-import { claudeSessionId, conversationExists, createConversation } from "../memory/conversations.js";
+import { claudeSessionId, conversationExists } from "../memory/conversations.js";
+import { mainConversationId, mainResume } from "../memory/mainConversation.js";
 import { userSettings } from "../settings.js";
 import { existsSync } from "node:fs";
 import { transcriptPath } from "../agent/runner.js";
@@ -63,13 +64,13 @@ export const ask = new Hono()
     const parsed = body.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "prompt 不能为空" }, 400);
     const { prompt } = parsed.data;
-    const conv = parsed.data.conversationId && conversationExists(parsed.data.conversationId) ? parsed.data.conversationId : createConversation().id;
+    const conv = parsed.data.conversationId && conversationExists(parsed.data.conversationId) ? parsed.data.conversationId : mainConversationId();
     if (isRunning(conv)) return c.json({ error: "这个会话正在生成，先等它结束或按 Esc 中断" }, 409);
 
     const prefs = userSettings();
     // 路由到很久前的会话时 transcript 可能已被清掉，这时不带 resume 新开 Claude 会话，Friday 自己的消息记录还在
     const session = claudeSessionId(conv);
-    const resume = session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
+    const resume = conv === mainConversationId() ? mainResume() : session && existsSync(transcriptPath(config.dataDir, session)) ? session : undefined;
     startRun(
       conv,
       prompt,
