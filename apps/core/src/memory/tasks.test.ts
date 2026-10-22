@@ -1,9 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addPending, createTask, findTaskByRef, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, tasksByIdPrefix, updateTask } from "./tasks.js";
+import { addPending, createTask, deleteTask, findTaskByRef, getTask, restoreTask, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, tasksByIdPrefix, updateTask } from "./tasks.js";
+import { db } from "./db.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
+  it("全数字的 id 前缀不被当成短号吃掉；#N 仍优先按短号", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "数字 id", kind: "verbal", source: {} });
+    const id = "20261022-aaaa-4bbb-8ccc-000000000001";
+    db().prepare("UPDATE tasks SET id = ? WHERE id = ?").run(id, t.id);
+    expect(findTaskByRef("20261022")!.id).toBe(id);
+    expect(findTaskByRef(`#${t.seq}`)!.id).toBe(id);
+  });
+
+  it("撤销删除：快照没有 seq 就取新号，有且没被占用就保留，被占用也取新号", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const a = createTask({ title: "删我", kind: "verbal", source: {} });
+    const row = deleteTask(a.id)!;
+    const old = { ...row } as Record<string, unknown>;
+    delete old.seq;
+    const next = createTask({ title: "后来的", kind: "verbal", source: {} });
+    expect(restoreTask(old as never)).toBe(true);
+    const back = getTask(a.id)!;
+    expect(back.seq).toBeGreaterThan(next.seq);
+
+    const b = createTask({ title: "再删", kind: "verbal", source: {} });
+    const rowB = deleteTask(b.id)!;
+    restoreTask(rowB);
+    expect(getTask(b.id)!.seq).toBe(b.seq);
+
+    const c = createTask({ title: "占号", kind: "verbal", source: {} });
+    const rowC = deleteTask(c.id)!;
+    const d = createTask({ title: "顶号", kind: "verbal", source: {} });
+    db().prepare("UPDATE tasks SET seq = ? WHERE id = ?").run(c.seq, d.id);
+    restoreTask(rowC);
+    expect(getTask(c.id)!.seq).not.toBe(c.seq);
+    expect(getTask(d.id)!.seq).toBe(c.seq);
+  });
+
   it("新任务按顺序拿短号，#N / 数字 / id 前缀都能找回", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const a = createTask({ title: "甲", kind: "verbal", source: {} });

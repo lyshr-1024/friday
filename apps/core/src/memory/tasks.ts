@@ -165,10 +165,11 @@ export function deleteTask(id: string): TaskRow | undefined {
 
 /** 按 deleteTask 交出的快照把行放回去。 */
 export function restoreTask(row: TaskRow): boolean {
-  const cols = Object.keys(row);
+  const cols = Object.keys(row).filter((c) => c !== "seq");
   if (!cols.length) return false;
+  const kept = typeof row.seq === "number" ? (db().prepare("SELECT 1 FROM tasks WHERE seq = ? AND id != ?").get(row.seq, row.id as string) ? undefined : row.seq) : undefined;
   db()
-    .prepare(`INSERT OR REPLACE INTO tasks (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`)
+    .prepare(`INSERT OR REPLACE INTO tasks (seq, ${cols.join(", ")}) VALUES (${kept ?? "(SELECT COALESCE(MAX(seq), 0) + 1 FROM tasks)"}, ${cols.map(() => "?").join(", ")})`)
     .run(...cols.map((c) => row[c] as never));
   publish({ type: "tasks" });
   return true;
@@ -192,7 +193,8 @@ export function findTaskByRef(ref: string): Task | undefined {
   const m = /^#?(\d+)$/.exec(r);
   if (m) {
     const row = db().prepare("SELECT * FROM tasks WHERE seq = ?").get(Number(m[1])) as unknown as Row | undefined;
-    return row ? toTask(row) : undefined;
+    if (row) return toTask(row);
+    if (r.startsWith("#")) return undefined;
   }
   const exact = getTask(r);
   if (exact) return exact;

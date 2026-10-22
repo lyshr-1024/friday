@@ -24,6 +24,20 @@ const SLACK_LINKS = OLD_LINKS
   .replace(/'project'\)\)/g, "'project', 'slack'))");
 
 describe("老库迁移", () => {
+  it("补 seq 不撞已有号：空号接在 MAX 之后，同 created_at 按 rowid", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    d.exec("ALTER TABLE tasks ADD COLUMN seq INTEGER");
+    const add = (id: string, at: string, seq: number | null) => d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at, seq) VALUES (?, ?, 'verbal', '{}', 'understood', ?, ?, ?)").run(id, id, at, at, seq);
+    add("x", "2026-09-05T00:00:00Z", 7);
+    add("p", "2026-09-02T00:00:00Z", null);
+    add("q", "2026-09-02T00:00:00Z", null);
+    add("o", "2026-09-01T00:00:00Z", null);
+    migrate(d);
+    const seqs = (d.prepare("SELECT id, seq FROM tasks ORDER BY seq").all() as Array<{ id: string; seq: number }>).map((r) => `${r.id}${r.seq}`);
+    expect(seqs).toEqual(["x7", "o8", "p9", "q10"]);
+  });
+
   it("老库补 seq：按 created_at 回填，从 1 开始不重复", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);

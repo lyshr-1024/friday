@@ -96,7 +96,13 @@ export function migrate(d: DatabaseSync): void {
   if (!taskCols.includes("stage_hint")) d.exec("ALTER TABLE tasks ADD COLUMN stage_hint TEXT");
   if (!taskCols.includes("released_at")) d.exec("ALTER TABLE tasks ADD COLUMN released_at TEXT");
   if (!taskCols.includes("seq")) d.exec("ALTER TABLE tasks ADD COLUMN seq INTEGER");
-  d.exec(`UPDATE tasks SET seq = (SELECT COUNT(*) FROM tasks t2 WHERE t2.created_at < tasks.created_at OR (t2.created_at = tasks.created_at AND t2.rowid <= tasks.rowid)) WHERE seq IS NULL`);
+  const unnumbered = d.prepare("SELECT rowid AS r FROM tasks WHERE seq IS NULL ORDER BY created_at, rowid").all() as Array<{ r: number }>;
+  if (unnumbered.length) {
+    let next = (d.prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM tasks").get() as { m: number }).m;
+    const set = d.prepare("UPDATE tasks SET seq = ? WHERE rowid = ?");
+    for (const { r } of unnumbered) set.run(++next, r);
+  }
+  d.exec("CREATE UNIQUE INDEX IF NOT EXISTS tasks_seq ON tasks (seq) WHERE seq IS NOT NULL");
   // 开工提案曾经会把工单推进 review，于是「待我决定」里堆的全是还没开工的工单，
   // 而「缺陷」分组反而是空的。挂着开工提案、没有别的待审动作的，放回待办里。
   d.exec(`UPDATE tasks SET status = 'understood'
