@@ -96,16 +96,22 @@ export function pickStoryBugs(tasks: Task[], env: StoryEnv = defaultStoryEnv): A
   return [...byRoot.values()];
 }
 
+/** 缺陷挂在测试中的需求下：不管此刻交代得了交代不了，都走需求会话那条路，不建卡、不走通用门禁 */
+export function yieldsToStory(t: Task, root: (t: Task) => Task | undefined = defaultRoot): boolean {
+  return taskCategory(t.source) === "defect" && root(t)?.stage === "testing";
+}
+
 /** 缺陷和需求同一条：理解卡审过（或按项目规则不用审）、没过期、依赖齐了就自己开，不看 intake */
 export function codeEligible(t: Task, root: (t: Task) => Task | undefined = defaultRoot, session: (t: Task) => TermSession | undefined = defaultSession): string | undefined {
   if (t.status !== "understood" && t.status !== "collected") return "不在排队里";
   const refusal = briefRefusal(t);
   if (refusal) return refusal;
-  if (taskCategory(t.source) === "defect" && root(t)?.stage === "testing") return "需求在测试中，走需求会话那条路";
+  if (yieldsToStory(t, root)) return "需求在测试中，走需求会话那条路";
   const b = t.source.brief;
   if (!b) return "还没有理解卡";
   if (b.review === "pending") return "理解卡等你审";
   if (b.review === "rejected") return "方案被打回了";
+  if (b.project && b.project !== t.project) return "项目改了，理解卡要重建";
   if (b.stale || b.basis !== briefBasis(t)) return "需求变了，理解卡要重看";
   if (briefBuilding(t.id)) return "理解卡在重写";
   if (t.source.briefFailed) return "理解卡重建失败";

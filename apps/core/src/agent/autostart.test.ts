@@ -10,7 +10,7 @@ import { updateSettings } from "../settings.js";
 import { setTmuxRunner } from "./tmux.js";
 import { type Brief, type Task, type TermSession } from "@friday/shared";
 
-import { autostartPlan, autostartTick, codeEligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, type AutostartEnv, type StoryEnv } from "./autostart.js";
+import { autostartPlan, autostartTick, codeEligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, yieldsToStory, type AutostartEnv, type StoryEnv } from "./autostart.js";
 import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { createJob, finishJob } from "../memory/jobs.js";
 import { createTermSession } from "../memory/termSessions.js";
@@ -56,6 +56,23 @@ const req = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["sou
 const bug = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["source"] = {}): Task => req({ id: "b1", title: "上市日提交不落库", ...over }, b, { meegleType: "issue", ...source });
 const register = (name: string, ...extra: string[]) =>
   writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## ${name}\n- 目录：/tmp\n${extra.map((l) => `- ${l}\n`).join("")}`);
+
+describe("yieldsToStory：测试中需求名下的缺陷一律不建卡", () => {
+  it("需求在测试中、名下已有一条在处理：第二条缺陷虽然交代不了（等前一条），也让路", () => {
+    const first = bug({ id: "b0", status: "processing" }, {}, { handedAt: settled, rootId: "r1" });
+    const second = bug({ id: "b2" });
+    const env: StoryEnv = { root: () => story(), session: () => sess(), occupied: () => true };
+    expect(testingStoryBug(second, env)).toBe("等前一条修完");
+    expect(yieldsToStory(second, env.root)).toBe(true);
+    expect(first.source.handedAt).toBeTruthy();
+  });
+  it("需求会话不在也让路；需求不在测试中、不是缺陷、没挂需求都不让", () => {
+    expect(yieldsToStory(bug(), () => story())).toBe(true);
+    expect(yieldsToStory(bug(), () => story({ stage: "dev" }))).toBe(false);
+    expect(yieldsToStory(bug(), () => undefined)).toBe(false);
+    expect(yieldsToStory(req(), () => story())).toBe(false);
+  });
+});
 
 describe("codeEligible：缺陷和需求同一条门禁，看理解卡", () => {
   it("缺陷有 review: none 的理解卡、依赖齐 → 放行，intake 为空也放行", () => {
@@ -247,6 +264,12 @@ describe("codeEligible：终审修正", () => {
     expect(codeEligible(req({}, { review: "none", size: "large" }))).toBe("项目改成要审了");
     expect(codeEligible(req({}, { review: "none", size: "small" }))).toBeUndefined();
     expect(codeEligible(req({}, { review: "approved", size: "large" }))).toBeUndefined();
+  });
+  it("none 卡按项目 A 写的、项目改成 B（不等 checkBasis）：不开；老卡没有 project 当一致", () => {
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), "# 项目\n\n## whale-console\n- 目录：/tmp\n- 方案送审：不用\n\n## other\n- 目录：/tmp\n- 方案送审：不用\n");
+    expect(codeEligible(req({ project: "other" }, { review: "none", project: "whale-console" }))).toBe("项目改了，理解卡要重建");
+    expect(codeEligible(req({ project: "whale-console" }, { review: "none", project: "whale-console" }))).toBeUndefined();
+    expect(codeEligible(req({ project: "other" }, { review: "none" }))).toBeUndefined();
   });
   it("重建失败、需求变了（不等 briefTick 标过期）：不开", () => {
     register("whale-console", "方案送审：不用");

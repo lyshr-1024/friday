@@ -4,6 +4,7 @@ import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { getTask, updateTask } from "../memory/tasks.js";
 import { finishRun, openRunForTask, pendingRunsForTask, setRunOutcome } from "../memory/runs.js";
+import { usableBriefDetail } from "./brief.js";
 import { clearHanded } from "./handedBugs.js";
 import { handToStorySession, startAutonomousJob } from "./pipeline.js";
 import { resolveRoot } from "./sessions.js";
@@ -41,8 +42,9 @@ export async function startTask(t: Task, trigger: RunTrigger = "retry"): Promise
   // understanding 是「Meegle Requirement #x，节点「y」在等你」这种元信息复述，拿它当任务描述等于什么都没说；
   // intake 判过就用它写的描述，其次方案第一行，最后才是标题
   const detail = mine.source.intake?.detail ?? mine.plan?.split("\n").find((l) => l.trim()) ?? mine.title;
+  const brief = usableBriefDetail(mine);
   try {
-    const next = await startAutonomousJob(mine, r.project.name, r.project.dir, `${detail}\n\n背景：${mine.understanding ?? ""}`, trigger);
+    const next = await startAutonomousJob(mine, r.project.name, r.project.dir, brief ?? `${detail}\n\n背景：${mine.understanding ?? ""}`, trigger);
     record({ taskId: t.id, action: "retry", why: "你点了开工", how: "Friday 在 worktree 里开工，中途你随时能在终端里插话", evidence: { previousJobId: t.source.jobId ?? null }, risk: "reversible" });
     return { task: next };
   } catch (e) {

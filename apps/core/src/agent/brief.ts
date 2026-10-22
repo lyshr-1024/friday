@@ -113,3 +113,11 @@ export function briefDetail(t: Task, b: Brief): string {
     ].join("\n"),
   ].join("\n\n");
 }
+
+/** 手动开工、回退重开：理解卡审过（或不用审）、没过期、项目一致就用它交代，否则返回 undefined 走原来的说法 */
+export function usableBriefDetail(t: Task): string | undefined {
+  const b = t.source.brief;
+  if (!b || (b.review !== "approved" && b.review !== "none") || b.stale || b.basis !== briefBasis(t)) return undefined;
+  if (b.project && b.project !== t.project) return undefined;
+  return briefDetail(t, b);
+}

@@ -820,6 +820,53 @@ describe("终审修正", () => {
     expect(ev.why).toBe("friday 项目的方案一律要你审");
   });
 
+  it("7：理解卡记着建卡时的项目；老卡没有就当一致", async () => {
+    idle();
+    writeProjects({ name: "f7" });
+    const t = story("f7");
+    store(t.id, goodBrief);
+    expect(getTask(t.id)!.source.brief!.project).toBe("f7");
+    updateTask(t.id, { source: { brief: { ...getTask(t.id)!.source.brief!, project: undefined } } });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toBeTruthy();
+  });
+
+  it("7b：开工前改了项目，待审的卡撤掉（连同批准）", async () => {
+    idle();
+    writeProjects({ name: "f7a" }, { name: "f7b" });
+    const t = story("f7a");
+    store(t.id, goodBrief);
+    expect(approves(t.id)).toHaveLength(1);
+    updateTask(t.id, { project: "f7b" });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toBeUndefined();
+    expect(approves(t.id)).toHaveLength(0);
+  });
+
+  it("7c：已批准的卡改了项目：标过期并重新挂批准，文案写明 A 改成 B；被打回的只标过期", async () => {
+    idle();
+    writeProjects({ name: "f7c" }, { name: "f7d" });
+    const t = story("f7c");
+    store(t.id, goodBrief);
+    await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    updateTask(t.id, { project: "f7d" });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
+    expect(approves(t.id)).toHaveLength(1);
+    expect(approves(t.id)[0]!.detail).toContain("项目从 f7c 改成了 f7d，这张卡是按 f7c 写的");
+    await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    await briefTick();
+    expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", project: "f7d" });
+    expect(getTask(t.id)!.source.brief!.stale).toBeFalsy();
+    const r = story("f7c");
+    store(r.id, goodBrief);
+    updateTask(r.id, { pending: [], source: { brief: { ...getTask(r.id)!.source.brief!, review: "rejected", reviewNote: "不对" } } });
+    updateTask(r.id, { project: "f7d" });
+    await briefTick();
+    expect(getTask(r.id)!.source.brief).toMatchObject({ review: "rejected", stale: true, reviewNote: "不对" });
+    expect(approves(r.id)).toHaveLength(0);
+  });
+
   it("6：建卡记一行 runs（kind brief、算在需求名下），收尾关掉；之后打回交付不把它记成打回", async () => {
     idle();
     writeProjects({ name: "f6" });

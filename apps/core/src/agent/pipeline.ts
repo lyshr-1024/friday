@@ -429,7 +429,7 @@ export async function executePending(
       const b = cur.source.brief;
       if (!b) return cur;
       // 只有过期的卡批准才算你认了新正文；没过期时刷指纹会把你没看到的改动一起认掉
-      const t = updateTask(taskId, { progress: "理解卡你看过了，照它开工", source: { brief: { ...b, review: "approved", stale: undefined, basis: b.stale ? briefBasis(cur) : b.basis } } })!;
+      const t = updateTask(taskId, { progress: "理解卡你看过了，照它开工", source: { brief: { ...b, review: "approved", stale: undefined, basis: b.stale ? briefBasis(cur) : b.basis, ...(b.stale ? { project: cur.project } : {}) } } })!;
       record({ taskId, action: "brief_approved", why: "你审核通过", how: "理解卡标成已审，开工照它做", evidence: { size: b.size, rejections: b.rejections ?? 0 }, risk: "reversible", status: "approved" });
       // 审过理解卡不是收尾：需求还没开工
       return t;
@@ -553,6 +553,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
   updateTask(task.id, {
     status: "processing",
     attention: undefined,
+    pending: withoutApprove(task),
     progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
     source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: undefined },
   });

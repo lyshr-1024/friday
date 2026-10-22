@@ -509,6 +509,8 @@ export interface Brief {
   rejections?: number;
   stale?: boolean;
   basis: string;
+  /** 建卡开始那一刻卡上的项目；老卡没有，当作一致 */
+  project?: string;
   at: string;
   features: string[];
 }
@@ -623,7 +625,7 @@ export interface TaskSource {
   briefFor?: string;
   briefFailed?: { at: string; why: string; log?: string };
   /** 锚点上记的这次建卡开工时的需求指纹和带进提示词的原话：交上来的卡按它算过期，不按交卡那一刻 */
-  briefBuild?: { basis: string; note?: string };
+  briefBuild?: { basis: string; project?: string; note?: string };
   /** 你让重建时说的原话，下一次建卡带进提示词，带上它的那次交卡后清掉 */
   briefNote?: string;
   /** 测试阶段缺陷被交代进需求会话的时刻；有它就是测试阶段缺陷 */

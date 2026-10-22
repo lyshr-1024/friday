@@ -7,6 +7,7 @@ import { resolveProject } from "../memory/projects.js";
 import { runByJob, setRunOutcome } from "../memory/runs.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { addPending, getTask, listTasks, removePending, updateTask } from "../memory/tasks.js";
+import { usableBriefDetail } from "./brief.js";
 import { commitsAheadSync, isMergedSync } from "./git.js";
 import { liveRootId } from "./sessions.js";
 import { closeJobTerminal } from "./terminal.js";
@@ -276,5 +277,5 @@ export async function rollbackAndRestart(taskId: string, to: string): Promise<Ta
   const { startAutonomousJob } = await import("./pipeline.js");
   const v = next.source.intake;
   const detail = v?.detail ?? next.plan?.split("\n").find((l) => l.trim()) ?? next.title;
-  return startAutonomousJob(next, target.project.name, target.project.dir, `${detail}\n\n背景：${next.understanding ?? ""}`, "retry");
+  return startAutonomousJob(next, target.project.name, target.project.dir, usableBriefDetail(next) ?? `${detail}\n\n背景：${next.understanding ?? ""}`, "retry");
 }

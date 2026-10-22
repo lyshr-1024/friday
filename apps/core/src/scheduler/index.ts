@@ -5,7 +5,7 @@ import { classifyQuery } from "../agent/slack/query.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
 import { archiveStaleTasks, settleQueryTasks } from "../agent/slack/settle.js";
 import { syncMeegleOnce } from "../agent/meegle.js";
-import { autostartTick, testingStoryBug } from "../agent/autostart.js";
+import { autostartTick, yieldsToStory } from "../agent/autostart.js";
 import { briefTick } from "../agent/briefJob.js";
 import { watchStageSignals } from "../agent/stageWatch.js";
 import { onSlackAccepted } from "../agent/stage.js";
@@ -165,7 +165,7 @@ export function startScheduler(): void {
   setTimeout(tick, 5_000).unref();
   const meegleTick = async () => {
     await syncMeegleOnce();
-    await briefTick((t) => typeof testingStoryBug(t) !== "string").catch((e) => console.error(`[brief] ${e instanceof Error ? e.message : e}`));
+    await briefTick((t) => yieldsToStory(t)).catch((e) => console.error(`[brief] ${e instanceof Error ? e.message : e}`));
     await autostartTick().catch((e) => console.error(`[autostart] ${e instanceof Error ? e.message : e}`));
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };

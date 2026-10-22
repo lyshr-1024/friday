@@ -21,6 +21,7 @@ import { syncMeegleOnce } from "./meegle.js";
 import { state } from "../scheduler/index.js";
 import { startTask } from "./taskStart.js";
 import { autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
+import { needOf } from "./needs.js";
 import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
@@ -324,6 +325,18 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     expect(typed().at(-1)).toContain(bug.id.slice(0, 8));
     expect(openRunForTask(bug.id)).toMatchObject({ jobId: `${rootJobId}#${bug.id.slice(0, 8)}` });
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("带待审理解卡的缺陷交代进需求会话：撤掉 brief_approve，交付进 review 后 needOf 是 review", async () => {
+    const { root, bug: mk } = await testingStory("sbapprove", "autonomous");
+    const bug = updateTask(mk().id, { pending: [{ id: "ap1", type: "brief_approve", label: "方案看过，开工", detail: "d", payload: {} }] as never })!;
+    expect(needOf(bug)?.kind).toBe("brief");
+    calls = [];
+    expect(await handToStorySession(bug, root)).toBe("handed");
+    expect(getTask(bug.id)!.pending?.some((a) => a.type === "brief_approve")).toBeFalsy();
+    const done = updateTask(bug.id, { status: "review", report: { at: "R1", summary: "改好了" } as never })!;
+    expect(needOf(done)?.kind).toBe("review");
     updateTask(bug.id, { status: "ignored" });
   });
 

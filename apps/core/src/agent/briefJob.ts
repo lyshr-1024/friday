@@ -104,7 +104,7 @@ export async function startBriefJob(taskId: string, trigger: RunTrigger = "user"
   try {
     const anchor = found ?? createTask({ title: `理解卡：${t.title}`, kind: "project", project: p.name, source: { briefFor: t.id, repoDir: p.dir, headless: true } });
     const note = t.source.briefNote ?? (t.source.brief?.review === "rejected" ? t.source.brief.reviewNote : undefined);
-    updateTask(anchor.id, { source: { briefBuild: { basis: briefBasis(t), ...(t.source.briefNote ? { note: t.source.briefNote } : {}) } } });
+    updateTask(anchor.id, { source: { briefBuild: { basis: briefBasis(t), project: t.project, ...(t.source.briefNote ? { note: t.source.briefNote } : {}) } } });
     const jobId = await openSession(anchor, anchor, { kind: "query", project: p.name, repoDir: p.dir, task: briefPrompt(t, p, note) });
     updateTask(anchor.id, { status: "processing", source: { jobId } });
     createRun({ id: jobId, jobId, taskId: t.id, project: p.name, kind: "brief", trigger });
@@ -127,7 +127,7 @@ export function storeBrief(taskId: string, raw: unknown, build: NonNullable<Task
   const size = parsed.size;
   const review = reviewFor(size, policy);
   const rejections = t.source.brief?.rejections;
-  const brief: Brief = { ...parsed, ...(defect ? { sizeWhy: "缺陷一律按小" } : {}), review, ...(rejections ? { rejections } : {}) };
+  const brief: Brief = { ...parsed, project: build.project ?? t.project, ...(defect ? { sizeWhy: "缺陷一律按小" } : {}), review, ...(rejections ? { rejections } : {}) };
   const text = renderBrief(brief);
   updateTask(t.id, {
     plan: text,
@@ -253,27 +253,29 @@ function checkBasis(): void {
   for (const t of listTasks(["collected", "understood"])) {
     const b = t.source.brief;
     if (!b || briefBuilding(t.id)) continue;
-    if (b.basis === briefBasis(t)) {
+    const moved = Boolean(b.project && b.project !== t.project);
+    if (b.basis === briefBasis(t) && !moved) {
       if (b.review === "none" && reviewFor(b.size, briefPolicy(projects.find((x) => x.name === t.project))) === "pending") requireReview(t, b);
       continue;
     }
+    const what = moved ? `项目从 ${b.project} 改成了 ${t.project}，这张卡是按 ${b.project} 写的` : "需求变了，这张卡写在变之前";
     if (b.review === "rejected") {
       if (b.stale) continue;
       // 打回的卡丢了就丢了打回次数，下一次打回又会自动重建，「两次就停」形同虚设
       updateTask(t.id, { source: { brief: { ...b, stale: true } } });
-      record({ taskId: t.id, action: "brief_stale", why: "需求正文在理解卡被打回之后变了", how: "卡上标「已过期」，打回原因和次数留着，等你重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
+      record({ taskId: t.id, action: "brief_stale", why: moved ? "项目在理解卡被打回之后改了" : "需求正文在理解卡被打回之后变了", how: "卡上标「已过期」，打回原因和次数留着，等你重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
     } else if (b.review === "approved") {
       const asking = t.pending?.some((a) => a.type === "brief_approve");
       if (b.stale && asking) continue;
       if (!b.stale) {
         updateTask(t.id, { source: { brief: { ...b, stale: true } } });
-        record({ taskId: t.id, action: "brief_stale", why: "需求正文在理解卡审过之后变了", how: "卡上标「已过期」，不自动重建，挂「方案看过，开工」等你再批一次或重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
+        record({ taskId: t.id, action: "brief_stale", why: moved ? "项目在理解卡审过之后改了" : "需求正文在理解卡审过之后变了", how: "卡上标「已过期」，不自动重建，挂「方案看过，开工」等你再批一次或重建", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "read" });
       }
       // 不挂的话「按这个做」和卡上的批准都没东西可批，过期只能靠重建解除
-      if (!asking) addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: `需求变了，这张卡写在变之前。还按这个做就批准，不然点重建。\n\n${renderBrief(b)}`, payload: {} }, { keepStatus: true });
+      if (!asking) addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: `${what}。还按这个做就批准，不然点重建。\n\n${renderBrief(b)}`, payload: {} }, { keepStatus: true });
     } else {
       updateTask(t.id, { pending: withoutApprove(t), source: { brief: undefined } });
-      record({ taskId: t.id, action: "brief_stale_rebuild", why: "需求正文在理解卡审过之前变了", how: "撤掉旧理解卡和待审动作；自主开工开着就进队列重建，关着等你手点「建理解卡」", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "reversible" });
+      record({ taskId: t.id, action: "brief_stale_rebuild", why: moved ? "项目在理解卡审过之前改了" : "需求正文在理解卡审过之前变了", how: "撤掉旧理解卡和待审动作；自主开工开着就进队列重建，关着等你手点「建理解卡」", evidence: { basis: b.basis, now: briefBasis(t) }, risk: "reversible" });
     }
   }
 }
