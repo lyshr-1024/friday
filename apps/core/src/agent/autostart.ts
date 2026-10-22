@@ -24,6 +24,8 @@ export interface AutostartEnv {
   max: number;
   /** 缺陷所属的需求；缺省按 resolveRoot 找 */
   root?: (t: Task) => Task | undefined;
+  /** 任务根会话；缺省按 resolveRoot 找 */
+  session?: (t: Task) => TermSession | undefined;
 }
 
 export interface StoryEnv {
@@ -37,6 +39,8 @@ const defaultRoot = (t: Task): Task | undefined => {
   return r.id === t.id ? undefined : r;
 };
 
+const defaultSession = (t: Task): TermSession | undefined => getTermSession(resolveRoot(t).id);
+
 const defaultStoryEnv: StoryEnv = {
   root: defaultRoot,
   session: getTermSession,
@@ -45,7 +49,7 @@ const defaultStoryEnv: StoryEnv = {
 
 export function testingStoryBug(t: Task, env: StoryEnv = defaultStoryEnv): { root: Task } | string {
   if (t.status !== "understood" || t.kind !== "meegle") return "不在排队里";
-  if (t.source.meegleType !== "issue") return "不是缺陷";
+  if (taskCategory(t.source) !== "defect") return "不是缺陷";
   if (t.source.jobId) return "已经有终端";
   if (t.stage && t.stage !== "todo") return `已经在${STAGE_LABEL[t.stage]}`;
   if (t.attention) return "卡上还挂着要你回答的问题";
@@ -93,7 +97,7 @@ export function pickStoryBugs(tasks: Task[], env: StoryEnv = defaultStoryEnv): A
 }
 
 /** 缺陷和需求同一条：理解卡审过（或按项目规则不用审）、没过期、依赖齐了就自己开，不看 intake */
-export function codeEligible(t: Task, root: (t: Task) => Task | undefined = defaultRoot): string | undefined {
+export function codeEligible(t: Task, root: (t: Task) => Task | undefined = defaultRoot, session: (t: Task) => TermSession | undefined = defaultSession): string | undefined {
   if (t.status !== "understood" && t.status !== "collected") return "不在排队里";
   const refusal = briefRefusal(t);
   if (refusal) return refusal;
@@ -110,6 +114,10 @@ export function codeEligible(t: Task, root: (t: Task) => Task | undefined = defa
   if (waiting) return `等 ${waiting.from ?? "别人"} 给 ${waiting.what}`;
   if (t.attention) return "卡上还挂着要你回答的问题";
   if (t.source.autostartOff) return "你说了先别做";
+  const r = resolveProject(t.project!);
+  if (r.kind !== "match") return `项目 ${t.project} 不在注册表里`;
+  const s = session(t);
+  if (s?.kind === "interactive" && s.status !== "closed") return "开着你的交互式会话，不往里敲字";
   return undefined;
 }
 
@@ -118,7 +126,7 @@ export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean })
   if (!env.enabled) return undefined;
   const story = storyPlan(t, { ...defaultStoryEnv, enabled: true }, env.now);
   if (story) return story;
-  return codeEligible(t, env.root) ? undefined : { kind: "brief", at: new Date(env.now).toISOString(), behind: env.running };
+  return codeEligible(t, env.root, env.session) ? undefined : { kind: "brief", at: new Date(env.now).toISOString(), behind: env.running };
 }
 
 /** 从排队的任务里挑出这一轮可以开的，按优先级、再按进来的先后，受并发约束。 */
@@ -127,7 +135,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
   if (slots <= 0) return [];
   const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
   return tasks
-    .filter((t) => !codeEligible(t, env.root))
+    .filter((t) => !codeEligible(t, env.root, env.session))
     .sort((a, b) => (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || a.createdAt.localeCompare(b.createdAt))
     .slice(0, slots);
 }
@@ -159,11 +167,6 @@ export async function autostartTick(now = Date.now()): Promise<number> {
     const brief = t.source.brief!;
     const r = resolveProject(t.project!);
     if (r.kind !== "match") continue;
-    const s = getTermSession(resolveRoot(t).id);
-    if (s?.kind === "interactive" && s.status !== "closed") {
-      console.log(`[autostart] ${t.title.slice(0, 40)}：开着你的交互式会话，不往里敲字，跳过`);
-      continue;
-    }
     try {
       await startAutonomousJob(t, r.project.name, r.project.dir, briefDetail(t, brief), "autostart");
     } catch (e) {

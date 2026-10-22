@@ -17,7 +17,7 @@ describe("工单进来判断能不能直接做", () => {
     expect(bad.why).toContain("注册表里没有");
   });
 
-  it("没给置信度或给了非法值当 0——宁可落在阈值下面挂起，也不因字段缺失就开工", () => {
+  it("没给置信度或给了非法值当 0——缺字段不显示成高把握", () => {
     expect(parseIntake('{"kind":"start","project":"whale-console","detail":"x","why":"y"}', projects)).toMatchObject({ confidence: 0 });
     expect(parseIntake('{"kind":"start","project":"whale-console","detail":"x","confidence":"高","why":"y"}', projects)).toMatchObject({ confidence: 0 });
     // 超出范围的夹到 0-100

@@ -45,7 +45,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   const state = shownState(t);
   const label = stateLabel(t);
   const waiting = !s?.name && (t.status === "collected" || t.status === "understood");
-  const project = t.project ?? (t.autostart ? t.source.intake?.project : undefined);
+  const project = t.project;
   const noProject = waiting && !project;
   const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, project ?? (noProject ? "项目没定" : ""), t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
   const hint = [counts.defects ? `${counts.defects} 条缺陷` : "", counts.docs ? `${counts.docs} 份资料` : "", counts.convs ? `${counts.convs} 段 Slack 讨论` : ""].filter(Boolean).join(" · ");

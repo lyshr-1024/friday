@@ -152,6 +152,7 @@ describe("runningAutonomous", () => {
   });
 
   it("按 env.max 放", () => {
+    register("whale-console");
     const many = [1, 2, 3, 4, 5].map((i) => bug({ id: `m${i}` }));
     expect(pickAutostart(many, { ...env, running: 1, max: 3 })).toHaveLength(2);
   });
@@ -173,6 +174,9 @@ const senv = (root?: Task, s?: TermSession, occupied = false): StoryEnv => ({ ro
 const fresh = defect({ createdAt: new Date(NOW).toISOString() }, { intake: { kind: "queue", why: "模糊", at: settled }, linkedStoryId: "24642659" });
 
 describe("testingStoryBug", () => {
+  it("meegleType bug / defect 也算缺陷", () => {
+    for (const meegleType of ["bug", "defect"]) expect(testingStoryBug(defect({}, { meegleType, linkedStoryId: "24642659" }), senv(story(), sess()))).toEqual({ root: story() });
+  });
   it("需求在测试中、会话在：不看 intake、不等稳定期", () => expect(testingStoryBug(fresh, senv(story(), sess()))).toEqual({ root: story() }));
   it("需求不在测试中 / 没会话 / 会话关了 / 没 worktree / 前一条没修完，各给原因", () => {
     expect(testingStoryBug(fresh, senv(story({ stage: "dev" }), sess()))).toBe("需求「养牛1.2」不在测试中");
@@ -261,6 +265,32 @@ describe("需求和缺陷共用一条门禁", () => {
     const d = bug({ id: "d" });
     expect(pickAutostart([d, r], env).map((t) => t.id)).toEqual(["r"]);
     expect(pickAutostart([d, r], { ...env, running: 1 })).toEqual([]);
+  });
+});
+
+describe("交互式会话开着：codeEligible 就拒，不占名额", () => {
+  const interactive = (): AutostartEnv => ({ ...env, session: () => sess({ kind: "interactive", status: "running" }) });
+  it("codeEligible 回「开着你的交互式会话」；关了的不挡", () => {
+    register("whale-console");
+    expect(codeEligible(req(), undefined, () => sess())).toBe("开着你的交互式会话，不往里敲字");
+    expect(codeEligible(req(), undefined, () => sess({ status: "closed" }))).toBeUndefined();
+    expect(codeEligible(req(), undefined, () => sess({ kind: "autonomous" }))).toBeUndefined();
+  });
+  it("队首开着交互式会话、并发 1：挑中后面那条合格的", () => {
+    register("whale-console");
+    const head = req({ id: "head", priority: "high" });
+    const next = req({ id: "next" });
+    const e: AutostartEnv = { ...env, session: (t) => (t.id === "head" ? sess() : undefined) };
+    expect(pickAutostart([head, next], e).map((t) => t.id)).toEqual(["next"]);
+  });
+  it("autostartPlan 对开着交互式会话的不给计划", () => {
+    register("whale-console");
+    expect(autostartPlan(req(), { ...interactive(), enabled: true })).toBeUndefined();
+  });
+  it("项目不在注册表里：codeEligible 拒，不占名额", () => {
+    register("other");
+    expect(codeEligible(req({ project: "nope" }))).toBe("项目 nope 不在注册表里");
+    expect(pickAutostart([req({ id: "x", project: "nope", priority: "high" }), req({ id: "y", project: "other" })], env).map((t) => t.id)).toEqual(["y"]);
   });
 });
 

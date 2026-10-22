@@ -47,7 +47,7 @@ export function intakePrompt(
       "你在判断一条 Meegle 工单能不能直接交给终端里的 Claude Code 去做。用户是前端工程师，这些工单大多是他要改的后台页面。",
       "输出三选一：",
       '- {"kind":"start","project":"项目名","detail":"交给 Claude Code 的一段话","confidence":0-100,"why":"一句话依据"}：问题说得够具体（改哪个页面、什么现象或什么要求），而且能对上注册表里的某个项目。detail 要把工单里的现象、复现步骤、页面链接原样带上，不要压缩成一句话。',
-      "confidence 是「让 Claude Code 照这段描述去改，一次就能改对」的把握，要如实给：现象、复现步骤、涉及页面都写清楚了才给 80 以上；只能从标题推断的给 50 上下；拿不准宁可给低。它会和用户设的阈值比，给虚了会让用户白白收一堆改错的交付。",
+      "confidence 是「让 Claude Code 照这段描述去改，一次就能改对」的把握，要如实给：现象、复现步骤、涉及页面都写清楚了才给 80 以上；只能从标题推断的给 50 上下；拿不准宁可给低。它只用来在卡上展示 Friday 的判断，不决定开不开工；给虚了会误导用户。",
       '- {"kind":"ask","question":"要问用户的一句话","why":"一句话依据"}：只缺一个具体信息就能开工时用它，最常见的是归不到项目。question 要问得用户一句话能答，比如「这条工单是哪个项目的？」，不要问「要不要开工」。',
       '- {"kind":"queue","why":"一句话依据"}：描述太模糊、要先对齐方案、或者明显该由人先判断的，就排队不动。',
       "宁可 queue 也不要硬猜：开错项目会在错的仓库里改代码。需求类（story）除非描述里已经把要做什么写死了，否则一律 queue——需求通常要先对方案。",
@@ -77,7 +77,7 @@ export function parseIntake(text: string, projects: Project[]): Intake {
       const hit = projects.find((p) => p.name === r.project);
       if (!hit) return { kind: "queue", why: `说是 ${r.project ?? "?"} 但注册表里没有这个项目` };
       if (!r.detail?.trim()) return { kind: "queue", why: "没给出能交给终端的任务描述" };
-      // 没给置信度当 0：宁可落在阈值下面挂起等人点，也不要因为字段缺失就直接开工
+      // 没给置信度当 0：没给置信度当 0，别把缺字段显示成高把握
       const confidence = typeof r.confidence === "number" && Number.isFinite(r.confidence) ? Math.max(0, Math.min(100, Math.round(r.confidence))) : 0;
       return { kind: "start", project: hit.name, detail: r.detail.trim().slice(0, 4000), why, confidence };
     }

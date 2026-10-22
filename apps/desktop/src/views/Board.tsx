@@ -313,7 +313,7 @@ function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
   if (t.status === "done" || t.status === "ignored") return anchorSub(t);
   const a = t.autostart;
   if (a?.kind === "story") return `跟着需求「${a.root.title.slice(0, 16)}」修 · ${a.waiting ?? "等它会话空闲"}`;
-  if (a) return ["Friday 会自己开工", hhmm(a.at), a.behind ? `前面 ${a.behind} 条在跑` : ""].filter(Boolean).join(" · ");
+  if (a) return ["Friday 会自己开工", hhmm(a.at), a.behind ? `另有 ${a.behind} 条在跑` : ""].filter(Boolean).join(" · ");
   if (t.source.handedAt && t.status === "processing") {
     const root = all.find((x) => x.id === t.source.rootId);
     return root ? `在需求「${root.title.slice(0, 16)}」的会话里修` : "在需求的会话里改";
@@ -1146,7 +1146,7 @@ function IdleState({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<u
   // 缺陷在需求的会话里改：项目跟需求走
   const inRoot = Boolean(t.source.rootId);
   const ready = Boolean(t.project || inRoot) && !asked;
-  // 为什么 Friday 没自己动手：intake 的原话。判成能改但把握不够的，说清差在哪
+  // intake 的判断只做展示：Friday 开不开工看理解卡，不看这里
   const v = t.source.intake;
   const judged = !v ? "" : v.kind === "start"
     ? `能改：${v.why}`
@@ -1221,7 +1221,7 @@ function FridayTop({ t }: { t: Task }) {
             <span className="ac__text">
               {a.kind === "story"
                 ? `需求在测试中，Friday 直接在它的分支上修，不走理解卡${a.waiting ? `。${a.waiting}` : ""}`
-                : `理解卡${t.source.brief?.review === "approved" ? "审过" : "不用审"}、依赖齐了，轮到就开。${a.behind ? `前面有 ${a.behind} 条自主任务在跑。` : ""}`}
+                : `理解卡${t.source.brief?.review === "approved" ? "审过" : "不用审"}、依赖齐了，轮到就开。${a.behind ? `另有 ${a.behind} 条在跑。` : ""}`}
             </span>
           </div>
         </div>
