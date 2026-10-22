@@ -36,7 +36,7 @@ function slackText(t: Task): string {
 const isDefect = (t: Task): boolean => taskCategory(t.source) === "defect";
 
 const DEFECT_RULE =
-  "这是缺陷：先复现、定位。todo 写清现象、预期、改哪里；用例就是复现步骤反过来（修好后按复现步骤走一遍应该看到预期），至少一条；plan 落到具体文件。规模按小处理，不用判。";
+  "这是缺陷：先复现、定位。todo 写清现象、预期、改哪里；用例就是复现步骤反过来（修好后按复现步骤走一遍应该看到预期），至少一条；plan 落到具体文件。";
 
 export function briefPrompt(t: Task, p: Project, note?: string): string {
   const features = matchFeatures(p.name, `${t.title}\n${t.source.description ?? ""}`);
@@ -63,7 +63,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     "2. 在仓库里 grep 定位要改哪里（页面、组件、接口、路由），方案落到具体文件。",
     "3. 用例：按上面「用例从哪来」导出；没有现成的就自己写，覆盖 golden path、边界、回归，至少一条。",
     isDefect(t) ? DEFECT_RULE : undefined,
-    `4. 规模 size：${SIZE_RULE}`,
+    isDefect(t) ? undefined : `4. 规模 size：${SIZE_RULE}`,
     "5. 依赖 deps：只列确定要别人给的（接口、设计稿、配置、数据）；已经给了的写 status: ready，并在 evidence 里带上出处（链接或原话）。没亲自验证能拿到的（链接打不开、还在申请权限、只听说给了）一律写 pending。",
     "命令一律前台跑，不要放到后台（run_in_background 或末尾加 &）：会话要等后台命令结束才退出，放了就一直挂着。",
     "",
@@ -73,7 +73,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     "- acceptance：{ source: cases|prd|own（用例来自现成用例 / PRD / 你自己写的）, cases: [用例，一条一句], note? }",
     "- release：怎么发（跟版本、单独发、要不要开关）",
     "- plan：方案（改哪些文件、怎么改；读不到、拿不准的写在「要你拍板」那段）",
-    "- size：small | large；sizeWhy：一句话依据",
+    isDefect(t) ? undefined : "- size：small | large；sizeWhy：一句话依据",
     "- features：涉及的知识库功能 id",
     "friday_brief 回错就照错误改了再调。成功后直接退出：不写报告文件、不调 friday_done，也不要问用户问题——没人在终端前。",
     UNTRUSTED_NOTE,
@@ -121,12 +121,13 @@ export function storeBrief(taskId: string, raw: unknown, build: NonNullable<Task
   if (!t?.project) return { ok: false, error: "Friday 找不到这条需求" };
   if (!briefable(t)) return { ok: false, error: "需求已经开工或收工，理解卡不挂了" };
   const policy = briefPolicy(loadProjects().find((x) => x.name === t.project));
-  const parsed = parseBrief(raw, { featureIds: new Set(listFeatures(t.project).map((f) => f.id)), basis: build.basis });
+  const defect = isDefect(t);
+  const parsed = parseBrief(defect && raw && typeof raw === "object" ? { ...raw, size: "small" } : raw, { featureIds: new Set(listFeatures(t.project).map((f) => f.id)), basis: build.basis });
   if (typeof parsed === "string") return { ok: false, error: parsed };
-  const size = isDefect(t) ? "small" : parsed.size;
+  const size = parsed.size;
   const review = reviewFor(size, policy);
   const rejections = t.source.brief?.rejections;
-  const brief: Brief = { ...parsed, size, review, ...(rejections ? { rejections } : {}) };
+  const brief: Brief = { ...parsed, ...(defect ? { sizeWhy: "缺陷一律按小" } : {}), review, ...(rejections ? { rejections } : {}) };
   const text = renderBrief(brief);
   updateTask(t.id, {
     plan: text,

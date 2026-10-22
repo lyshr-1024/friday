@@ -287,6 +287,13 @@ describe("建卡会话", () => {
     expect(briefRefusal(getTask(a.id)!)).toBeUndefined();
     expect(store(a.id, { ...goodBrief, size: "large" })).toEqual({ ok: true, review: "pending" });
     expect(getTask(a.id)!.source.brief).toMatchObject({ size: "small", review: "pending" });
+    const c = bug("p-bug-all");
+    expect(store(c.id, { ...goodBrief, size: "large", sizeWhy: "涉及公共组件" })).toEqual({ ok: true, review: "pending" });
+    expect(getTask(c.id)!.source.brief).toMatchObject({ size: "small", sizeWhy: "缺陷一律按小" });
+    const d = bug("p-bug-all");
+    const { size: _s, sizeWhy: _w, ...noSize } = goodBrief;
+    expect(store(d.id, noSize)).toEqual({ ok: true, review: "pending" });
+    expect(getTask(d.id)!.source.brief).toMatchObject({ size: "small", sizeWhy: "缺陷一律按小" });
     const b = bug("p-bug-big");
     expect(store(b.id, { ...goodBrief, size: "large" })).toEqual({ ok: true, review: "none" });
     expect(getTask(b.id)!.source.brief).toMatchObject({ size: "small", review: "none" });
@@ -302,6 +309,9 @@ describe("建卡会话", () => {
     const text = briefPrompt(bug, p);
     expect(text).toContain("复现");
     expect(text).toContain("friday_brief");
+    expect(text).not.toContain("size：small | large");
+    expect(text).not.toContain("规模 size");
+    expect(briefPrompt(story("p-bp"), p)).toContain("size：small | large");
     expect(briefPrompt(story("p-bp"), p)).not.toContain("复现");
   });
 
