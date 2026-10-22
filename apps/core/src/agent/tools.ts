@@ -18,7 +18,7 @@ import { closeJobTerminal, say } from "./terminal.js";
 import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
-import { startBriefJob } from "./briefJob.js";
+import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
@@ -475,7 +475,10 @@ export const fridayToolList = (conversationId?: string) => [
           .optional()
           .describe("只在往回拨时填，必须问清楚是哪种：misjudged=Friday 之前推错了阶段（会学，下次别再这么判），bounced=确实被打回了（客观事实，不学）。分不清就问用户"),
         depReady: z.string().max(100).optional().describe("用户说理解卡上某个依赖到了（「接口给了」「设计稿到了」）时填依赖名里的关键词，那条标成已到"),
-        rebuildBrief: z.boolean().optional().describe("用户说完方案怎么改、让 Friday 重写理解卡时填 true：后台重建，提示词带上最近一次打回的原因"),
+        rebuildBrief: z
+          .union([z.boolean(), z.string().max(2000)])
+          .optional()
+          .describe("用户让 Friday 重写理解卡时填：他说了怎么改就原样填他的原话（会放在重建提示词的最前面），没说就填 true（沿用最近一次打回的原因）"),
       },
       async ({ rebuildBrief, ...patch }) => {
         const t = conversationId ? findTaskBySource((s) => s.conversationId === conversationId) : undefined;
@@ -486,7 +489,7 @@ export const fridayToolList = (conversationId?: string) => [
         let rebuilt = "";
         if (rebuildBrief) {
           try {
-            const s = await startBriefJob(t.id);
+            const s = await rebuildBriefJob(t.id, typeof rebuildBrief === "string" ? rebuildBrief.trim() || undefined : undefined);
             rebuilt = "error" in s ? `理解卡没重建：${s.error}。` : "理解卡在后台重建，建好了卡上会换成新的。";
           } catch (e) {
             rebuilt = `理解卡没重建：${e instanceof Error ? e.message : String(e)}。`;

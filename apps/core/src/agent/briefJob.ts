@@ -73,7 +73,7 @@ export function briefPrompt(t: Task, p: Project, rejected?: string): string {
     .join("\n");
 }
 
-const withoutApprove = (t: Task) => (t.pending ?? []).filter((a) => a.type !== "brief_approve");
+export const withoutApprove = (t: Task) => (t.pending ?? []).filter((a) => a.type !== "brief_approve");
 
 const BUSY = { error: "这条需求的理解卡正在建", status: 409 } as const;
 // 锚点的 jobId 要等 openSession 返回才写得上，这段空档里定时 tick 和手点会撞
@@ -133,6 +133,13 @@ export function storeBrief(taskId: string, raw: unknown): { ok: true; review: Br
   return { ok: true, review };
 }
 
+export function rebuildBrief(taskId: string, note?: string): ReturnType<typeof startBriefJob> {
+  const t = getTask(taskId);
+  const b = t?.source.brief;
+  if (t && b && note && briefable(t)) updateTask(t.id, { pending: withoutApprove(t), source: { brief: { ...b, review: "rejected", reviewNote: note } } });
+  return startBriefJob(taskId);
+}
+
 export function rejectBrief(taskId: string, reason: string): Task | undefined {
   const t = getTask(taskId);
   const b = t?.source.brief;
@@ -165,9 +172,11 @@ export function setBriefSize(taskId: string, size: Brief["size"]): Task | string
   if (!t) return "没有这条任务";
   const b = t.source.brief;
   if (!b) return "这条任务还没有理解卡";
+  const refused = briefRefusal(t);
+  if (refused) return refused;
   const policy = briefPolicy(loadProjects().find((x) => x.name === t.project));
-  const review = b.review === "approved" ? "approved" : reviewFor(size, policy);
-  let updated = saveBrief(t, { ...b, size, review }, review === "none" ? withoutApprove(t) : t.pending);
+  const review = b.review === "approved" || b.review === "rejected" ? b.review : reviewFor(size, policy);
+  let updated = saveBrief(t, { ...b, size, review }, review === "pending" ? t.pending : withoutApprove(t));
   if (review === "pending" && !t.pending?.some((a) => a.type === "brief_approve")) updated = addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: updated.plan!, payload: {} }, { keepStatus: true })!;
   record({ taskId: t.id, action: "brief_resized", why: "你改了规模", how: `${b.size === "small" ? "小" : "大"} → ${size === "small" ? "小" : "大"}，送审「${policy}」→ ${review}`, evidence: { from: b.size, to: size, policy, review }, risk: "reversible" });
   return updated;
@@ -181,6 +190,7 @@ export function markDepReady(taskId: string, match: string | number): Task | str
   const i = typeof match === "number" ? match : b.deps.findIndex((d) => d.what.includes(match));
   const dep = b.deps[i];
   if (!dep) return typeof match === "number" ? `没有第 ${match + 1} 条依赖` : `理解卡的依赖里没有「${match}」：${b.deps.map((d) => d.what).join("、") || "一条都没有"}`;
+  if (dep.status === "ready") return t;
   const deps = b.deps.map((d, j) => (j === i ? { ...d, status: "ready" as const, evidence: { source: "user" as const, at: new Date().toISOString(), text: "你标的到了" } } : d));
   const updated = saveBrief(t, { ...b, deps });
   record({ taskId: t.id, action: "brief_dep_ready", why: "你标了依赖到了", how: dep.what, evidence: { index: i, what: dep.what }, risk: "reversible" });

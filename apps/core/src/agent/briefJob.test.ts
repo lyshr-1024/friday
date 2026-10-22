@@ -15,7 +15,9 @@ import { addPending, createTask, findTaskBySource, getTask, updateTask } from ".
 import { briefBasis, pickBriefQueue } from "./brief.js";
 import { bridgeToolsFor, callBridge } from "./bridge.js";
 import { briefPrompt, briefTick, finishBriefJob, markDepReady, setBriefSize, startBriefJob, storeBrief } from "./briefJob.js";
-import { executePending, onJobExit, rejectTask } from "./pipeline.js";
+import { executePending, onJobExit, rejectTask, startAutonomousJob, startInteractiveJob } from "./pipeline.js";
+import { createRun, runsForTask } from "../memory/runs.js";
+import { execFileSync } from "node:child_process";
 import { brief as briefApi } from "../api/brief.js";
 import { addMessage } from "../memory/conversations.js";
 import { fridayToolList } from "./tools.js";
@@ -529,5 +531,80 @@ describe("审核、打回、改档、依赖", () => {
     expect(await tool(conv, "task_approve", {})).toContain("已执行");
     expect(getTask(t.id)!.source.brief?.review).toBe("approved");
     expect(getTask(t.id)!.status).toBe("understood");
+  });
+  it("修 1：交付后打回，卡上残留的 brief_approve 不劫持，走原来的打回", () => {
+    writeProjects({ name: "p-left" });
+    const t = withApprove("p-left");
+    updateTask(t.id, { status: "review", source: { jobId: "job-left" } });
+    addPending(t.id, { type: "git_merge", label: "合并 fix/x", detail: "", payload: {} }, { keepStatus: true });
+    createRun({ id: "run-left", jobId: "job-left", taskId: t.id, project: "p-left", kind: "autonomous", trigger: "retry" });
+    const after = rejectTask(t.id, "改错页面")!;
+    expect(after.status).toBe("processing");
+    expect(after.source.rejectedAt).toBeTruthy();
+    expect(after.source.briefFailed).toBeUndefined();
+    expect(after.source.brief?.review).toBe("pending");
+    expect(runsForTask(t.id).find((r) => r.id === "run-left")?.outcome).toBe("rejected");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "brief_rejected")).toBe(false);
+  });
+
+  it("修 1：开过工的卡不能改档", () => {
+    writeProjects({ name: "p-sz-start" });
+    const t = withApprove("p-sz-start");
+    updateTask(t.id, { status: "processing", source: { jobId: "job-sz" } });
+    expect(setBriefSize(t.id, "large")).toContain("开过工");
+    expect(getTask(t.id)!.source.brief?.size).toBe("small");
+  });
+
+  it("修 1：开工（交互式 / 自主）撤掉 brief_approve", async () => {
+    writeProjects({ name: "p-go" });
+    const a = withApprove("p-go");
+    vi.mocked(openSession).mockResolvedValueOnce("job-go-i");
+    const ai = await startInteractiveJob(a, "p-go", repo, "做");
+    expect((ai.pending ?? []).some((p) => p.type === "brief_approve")).toBe(false);
+    const git = mkdtempSync(join(tmpdir(), "brief-go-"));
+    execFileSync("git", ["init", "-q", git]);
+    const b = withApprove("p-go");
+    vi.mocked(openSession).mockResolvedValueOnce("job-go-a");
+    const bi = await startAutonomousJob(b, "p-go", git, "做");
+    expect(bi.status).toBe("processing");
+    expect((bi.pending ?? []).some((p) => p.type === "brief_approve")).toBe(false);
+  });
+
+  it("修 2：rebuildBrief 带用户原话，进提示词最前面；光给 true 照样重建", async () => {
+    writeProjects({ name: "p-note" });
+    const t = withApprove("p-note");
+    vi.mocked(openSession).mockResolvedValueOnce("job-note");
+    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: "接口改用 v2，别动公共组件" })).toContain("在后台重建");
+    const prompt = vi.mocked(openSession).mock.lastCall![2].task!;
+    expect(prompt.indexOf("接口改用 v2，别动公共组件")).toBeLessThan(prompt.indexOf("基金筛选加排序"));
+    expect(getTask(t.id)!.source.brief?.reviewNote).toBe("接口改用 v2，别动公共组件");
+  });
+
+  it("修 3：被打回的卡改档只改 size，不送审", () => {
+    writeProjects({ name: "p-sz-rej" });
+    const t = withApprove("p-sz-rej");
+    updateTask(t.id, { pending: [], source: { brief: { ...t.source.brief!, review: "rejected", reviewNote: "不对", rejections: 2 } } });
+    const after = setBriefSize(t.id, "large") as Task;
+    expect(after.source.brief).toMatchObject({ size: "large", review: "rejected", reviewNote: "不对" });
+    expect(after.pending ?? []).toEqual([]);
+  });
+
+  it("修 4：批准时 basis 换成当前正文指纹，stale 清掉后不会再被标回去", async () => {
+    writeProjects({ name: "p-basis" });
+    const t = withApprove("p-basis");
+    updateTask(t.id, { source: { brief: { ...t.source.brief!, basis: "old", stale: true } } });
+    const done = await executePending(t.id, approveAction(t.id)!.id, { slackPost: vi.fn() });
+    expect(done.source.brief?.basis).toBe(briefBasis(done));
+    expect(done.source.brief?.stale).toBeUndefined();
+  });
+
+  it("修 6：已经到了的依赖再标一次不改证据、不记账", () => {
+    writeProjects({ name: "p-dep2" });
+    const t = withApprove("p-dep2", { deps: [{ what: "行情接口", status: "pending" }] });
+    const first = markDepReady(t.id, 0) as Task;
+    const at = first.source.brief!.deps[0]!.evidence!.at;
+    const again = markDepReady(t.id, "行情") as Task;
+    expect(again.source.brief!.deps[0]!.evidence!.at).toBe(at);
+    expect(listAudit({ taskId: t.id }).filter((e) => e.action === "brief_dep_ready")).toHaveLength(1);
   });
 });
