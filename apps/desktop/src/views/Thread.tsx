@@ -37,6 +37,7 @@ interface Props {
   mentionsFor?: string;
   /** 有值时输入框不可用，框里就显示这句为什么 */
   disabledNote?: string;
+  readOnly?: boolean;
   /** 输入框里有没发出去的字时，Esc 先让光标离开输入框（内容留着），不直接交给 onEscape——详情弹窗里防误关丢字 */
   escLeavesDraft?: boolean;
   /** 任务里的会话：不在消息下挂终端卡片——头部已经有耗时和成本，卡上那句是上面消息的缩略版 */
@@ -92,14 +93,16 @@ export function NoticeCard({ m, onOpenTask, readOnly }: { m: Message; onOpenTask
 const isLocal = (m: Message) => m.id.startsWith("local-");
 // 空闲时按服务端刷新；本地错误气泡之类服务端没有的消息接在后面
 const mergeIdle = (server: Message[], cur: Message[]) =>
-  server.length !== cur.filter((m) => !isLocal(m)).length ? [...server, ...cur.filter(isLocal)] : cur;
+  server.length !== cur.filter((m) => !isLocal(m)).length || server[server.length - 1]?.id !== cur.filter((m) => !isLocal(m)).at(-1)?.id
+    ? [...server, ...cur.filter(isLocal)]
+    : cur;
 
 let localId = 0;
 const local = (m: Omit<Message, "id" | "createdAt">): Message => ({ ...m, id: `local-${++localId}`, createdAt: new Date().toISOString() });
 
 /** 一段会话：消息流 + 输入框 + 附件。任务卡里和「问 Friday」视图各用一份，会话归谁由挂在哪决定。 */
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
-  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, noJobCards, escLeavesDraft, onOpenTask },
+  { conversationId, resolve, resolvingText, onConversation, emptyTitle, emptyHint, placeholder, hint, banner, onEscape, autoFocus, compact, mentionsFor, disabledNote, readOnly, noJobCards, escLeavesDraft, onOpenTask },
   ref,
 ) {
   // 起始为空：绑定的会话由下面的 effect 去 load，才会把历史消息拉出来
@@ -133,8 +136,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const lastLenRef = useRef(0);
 
   useEffect(() => {
-    if (disabledNote) readOnlyRef.current?.focus();
-  }, [Boolean(disabledNote), conversationId]);
+    if (readOnly) readOnlyRef.current?.focus();
+  }, [Boolean(readOnly), conversationId]);
 
   function scrollToBottom(smooth = false) {
     const el = bodyRef.current;
@@ -332,9 +335,11 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     const refreshQueue = () => void askQueue(id).then((q) => { if (convRef.current === id) setQueued(q); });
     const fail = (e: unknown, bubbleId?: string) => {
       if (bubbleId) setMessages((ms) => ms.filter((m) => m.id !== bubbleId));
-      setInput(text);
+      const typed = Boolean(inputRef.current?.value.trim());
+      if (!typed) setInput(text);
       setPending(attachments);
-      push({ role: "assistant", kind: "error", content: e instanceof Error ? e.message : String(e) });
+      const why = e instanceof Error ? e.message : String(e);
+      push({ role: "assistant", kind: "error", content: typed ? `没发出去：${why}（原文：${text.trim().slice(0, 60)}）` : why });
     };
     if (busyRef.current) {
       // 正在生成：不抢占当前的订阅，让 core 排队
@@ -460,7 +465,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   return (
     <div
       className={`thread${compact ? " thread--compact" : ""}${dragging ? " thread--drop" : ""}`}
-      {...(disabledNote ? { tabIndex: -1, ref: readOnlyRef, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onEscape?.(); } } } : {})}
+      {...(readOnly ? { tabIndex: -1, ref: readOnlyRef, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onEscape?.(); } } } : {})}
       onDragEnter={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         dragDepth.current += 1;

@@ -343,6 +343,7 @@ export function Chat() {
                   emptyTitle=""
                   emptyHint=""
                   disabledNote="旧会话，只读。有事在主对话里说"
+                  readOnly
                   onEscape={() => setHistConv(null)}
                   onOpenTask={(id) => void openTask(id)}
                 />
