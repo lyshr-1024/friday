@@ -4,7 +4,6 @@ import type { DeliveryReport, Job, Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
-import { addMessage, conversationExists } from "../memory/conversations.js";
 import { clearAwaiting, getJob, setJobMessage } from "../memory/jobs.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
@@ -24,7 +23,6 @@ import { replyLanguageLine } from "./lang.js";
 const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, closeRunForTask, recordRound, startRound } from "./runLog.js";
 import { transitionToInProgress } from "./meegle.js";
-import { postDelivery } from "./delivery.js";
 import { collectShots } from "./report.js";
 import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
@@ -234,12 +232,8 @@ function targetTask(job: Job, args: Record<string, unknown>, strict = false): Ta
   return taskFor(job);
 }
 
-function notify(task: Task, job: Job, title: string, body: string, status: "finished" | "blocked" | "progress", message = true): void {
+function notify(task: Task, job: Job, title: string, body: string): void {
   state.notices.push({ title: `${title} · ${job.project}`, body: body.slice(0, 200), taskId: task.id });
-  const conv = task.source.conversationId ?? job.conversationId;
-  if (message && conv && conversationExists(conv)) {
-    addMessage(conv, { role: "assistant", kind: "run", content: `${title}：${body}`, payload: { status, jobId: job.id } });
-  }
 }
 
 async function currentBranch(dir: string): Promise<string> {
@@ -315,16 +309,11 @@ export async function setVerified(taskId: string, index: number, checked: boolea
 
   record({ taskId, action: "verified_all", why: "用户逐项确认完交付报告的全部验证点", how: `${list.length} 项全部勾选`, evidence: { verify: task.report.verify }, risk: "read" });
   const jobId = t.source.jobId;
-  // /run 建的任务把会话记在 job 上
-  const conv = t.source.conversationId ?? (jobId ? getJob(jobId)?.conversationId : undefined);
   const hasPending = (t.pending ?? []).length > 0;
   if (jobId && !hasPending && t.status === "processing") {
     const r = await say(jobId, `用户已逐项确认你上一轮列的 ${list.length} 条验证点，全部通过。继续下一步（该提交就提交，按项目流程建 draft MR，不要 push 到主分支、不要 merge），做完调 friday_done。`);
     const note = r === "no-terminal" ? "你已确认全部验证点；终端窗口已经关掉了" : "你已确认全部验证点，已让终端继续下一步";
     t = updateTask(taskId, { attention: undefined, progress: note })!;
-    if (conv && conversationExists(conv)) addMessage(conv, { role: "assistant", kind: "run", content: `→ ${note}`, payload: { status: "relayed", jobId } });
-  } else if (conv && conversationExists(conv)) {
-    addMessage(conv, { role: "assistant", kind: "ask", content: hasPending ? `全部验证点已确认。下一步是「${t.pending![0]!.label}」，卡片上点通过就行。` : "全部验证点已确认，这条任务可以标记完成了。" });
   }
   return t;
 }
@@ -357,10 +346,6 @@ export function terminalAsking(jobId: string, question: string, weak = false): v
   if (weak && task.attention === "question") return;
   const t = updateTask(task.id, { attention: "question", progress: `终端在问：${question.slice(0, 200)}` })!;
   record({ taskId: t.id, action: "terminal_question", why: "终端里的 Claude Code 弹了交互式提问，等用户回答", how: question.slice(0, 300), evidence: { jobId }, risk: "read" });
-  const conv = t.source.conversationId ?? job.conversationId;
-  if (conv && conversationExists(conv)) {
-    addMessage(conv, { role: "assistant", kind: "run", content: `终端在问你（它停下了，回答前不会继续）：\n${question}\n\n直接告诉我选哪个或怎么回，我敲进去；或者点「聚焦终端」自己答。`, payload: { status: "question", jobId } });
-  }
   state.notices.push({ title: `终端在等你回答 · ${job.project}`, body: question.slice(0, 200), taskId: t.id });
 }
 
@@ -461,8 +446,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "需求会话交付了缺陷" });
       const m = await transitionToInProgress(t);
       record({ taskId: t.id, action: "terminal_done", why: "需求会话里的 Claude Code 报告缺陷修完", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
-      notify(t, job, "修完了，等你核验", `${report.summary}${m.moved ? "" : `\nMeegle 状态没动：${m.why}`}`, "finished", false);
-      postDelivery(t, jobId, report);
+      notify(t, job, "修完了，等你核验", `${report.summary}${m.moved ? "" : `\nMeegle 状态没动：${m.why}`}`);
       return { text: `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。交付完就结束。${lang()}` };
     }
     if (!task.source.autonomous) {
@@ -473,7 +457,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       onSignal(t.id, { signal: "terminal_delivered", to: "dev", ask: "开始动手了？", why: "终端交付了一轮" });
       record({ taskId: t.id, action: "terminal_round_done", why: "终端里的 Claude Code 报告这一轮做完", how: "friday_done", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       // 后台查询的交付消息等退出时解析完报告再写（带依据和回复草稿），这里只发通知
-      notify(t, job, "这轮做完了，等你看", report.summary, "finished", !task.source.headless);
+      notify(t, job, "这轮做完了，等你看", report.summary);
       // 窗口不关：一个任务常要来回好几轮，用户看完多半就在这个窗口里接着追问。
       // 关窗口只在用户标完成 / 忽略，或 MR 合并后终端自己调 friday_finish
       return { text: `已交给用户看。用户可能就在这个终端里接着追问；等 MR 合并、本地 worktree 清理完再调 friday_finish 收工。${lang()}` };
@@ -498,8 +482,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       })!;
     }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
-    notify(t, job, "做完了，等你验收", report.summary, "finished", false);
-    postDelivery(t, jobId, report);
+    notify(t, job, "做完了，等你验收", report.summary);
     return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
   }
 
@@ -508,7 +491,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (!summary) return { text: "summary 不能为空", isError: true };
     updateTask(task.id, { progress: `收工：${summary}` });
     record({ taskId: task.id, action: "terminal_finish", why: "终端里的 Claude Code 报告 MR 已合并、本地已清理", how: summary, evidence: { jobId }, risk: "reversible" });
-    notify(task, job, "收工了", summary, "finished");
+    notify(task, job, "收工了", summary);
     // 不 await：关窗口会连带结束发起这次调用的 Claude Code，先把结果回给它
     void finishTask(task.id, "done", "终端报告 MR 已合并、本地已清理");
     return { text: "任务已标完成，这个终端窗口马上关闭。" };
@@ -527,7 +510,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       ? updateTask(task.id, { status: "blocked", progress: `卡住：${reason}` })!
       : updateTask(task.id, { attention: "blocked", progress: `卡住：${reason}` })!;
     record({ taskId: t.id, action: "terminal_blocked", why: "终端里的 Claude Code 报告卡住", how: reason, evidence: { jobId }, risk: "read" });
-    notify(t, job, "卡住了，需要你", reason, "blocked");
+    notify(t, job, "卡住了，需要你", reason);
     return { text: `已通知用户，等用户处理。${lang()}` };
   }
 

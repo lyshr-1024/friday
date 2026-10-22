@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { app } from "./index.js";
 import { addPending, createTask, findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
-import { addMessage, conversationExists } from "../memory/conversations.js";
+import { addMessage, conversationExists, createConversation } from "../memory/conversations.js";
 import { listAudit } from "../memory/audit.js";
 import { migrate } from "../memory/db.js";
 import { SCHEMA } from "../memory/schema.js";
@@ -56,10 +56,12 @@ async function callTool(conversationId: string | undefined, name: string, args: 
 }
 
 describe("任务会话与 @ 引入", () => {
-  it("建任务就有且只有一段会话", () => {
-    const t = createTask({ title: "有会话", kind: "verbal", source: {} });
-    expect(t.source.conversationId).toBeTruthy();
-    expect(conversationExists(t.source.conversationId!)).toBe(true);
+  it("建任务不再建会话；带进来的会话原样保留", () => {
+    expect(createTask({ title: "没会话", kind: "verbal", source: {} }).source.conversationId).toBeUndefined();
+    const c = createConversation();
+    const t = createTask({ title: "有会话", kind: "verbal", source: { conversationId: c.id } });
+    expect(t.source.conversationId).toBe(c.id);
+    expect(conversationExists(c.id)).toBe(true);
   });
 
   it("@ 列出 worktree 里的文件、资料、截图；选文件变成附件", async () => {
@@ -117,7 +119,7 @@ describe("存量任务补会话", () => {
 
 describe("会话里批准和打回", () => {
   it("打回：待审动作作废、退回处理中、原因进账本", async () => {
-    const t = createTask({ title: "打回我", kind: "code", source: { autonomous: true }, status: "review" });
+    const t = createTask({ title: "打回我", kind: "code", source: { autonomous: true, conversationId: createConversation().id }, status: "review" });
     addPending(t.id, { type: "git_merge", label: "合并分支", detail: "", payload: {} }, { keepStatus: true });
     const out = await callTool(t.source.conversationId, "task_reject", { reason: "中途关页面进度接不上" });
     expect(out).toContain("已打回");
@@ -138,7 +140,7 @@ describe("会话里批准和打回", () => {
   };
 
   function slackTask() {
-    const t = createTask({ title: "回拂晓", kind: "verbal", source: {}, status: "review" });
+    const t = createTask({ title: "回拂晓", kind: "verbal", source: { conversationId: createConversation().id }, status: "review" });
     addPending(t.id, { type: "slack_reply", label: "回复拂晓", detail: "明天上线", payload: { channel: "D1", text: "明天上线" } }, { keepStatus: true });
     return t;
   }
@@ -199,7 +201,7 @@ describe("会话里批准和打回", () => {
 
   it("「能合并吗？」「合并前先跑下测试」都不合；「合并吧！」才合", async () => {
     const repo = scratchRepo();
-    const t = createTask({ title: "合并我 2", kind: "code", source: { autonomous: true }, status: "review" });
+    const t = createTask({ title: "合并我 2", kind: "code", source: { autonomous: true, conversationId: createConversation().id }, status: "review" });
     addPending(t.id, { type: "git_merge", label: "合并 fix/y", detail: "", payload: { dir: repo, branch: "fix/y" } }, { keepStatus: true });
     const conv = t.source.conversationId!;
     for (const said of ["能合并吗？", "合并前先跑下测试"]) {
@@ -214,7 +216,7 @@ describe("会话里批准和打回", () => {
 
   it("合并：你说「好的」不合，说「合并吧」才合", async () => {
     const repo = scratchRepo();
-    const t = createTask({ title: "合并我", kind: "code", source: { autonomous: true }, status: "review" });
+    const t = createTask({ title: "合并我", kind: "code", source: { autonomous: true, conversationId: createConversation().id }, status: "review" });
     addPending(t.id, { type: "git_merge", label: "合并 fix/y", detail: "", payload: { dir: repo, branch: "fix/y" } }, { keepStatus: true });
     const conv = t.source.conversationId!;
     say(conv, "user", "好的");
@@ -227,13 +229,10 @@ describe("会话里批准和打回", () => {
 });
 
 describe("收工的任务重新打开", () => {
-  it("没会话的任务一回到没收工的状态就补一段会话", () => {
+  it("没会话的任务回到没收工的状态也不补会话", () => {
     const t = createTask({ title: "老任务", kind: "verbal", source: {}, status: "done" });
-    db().prepare("UPDATE tasks SET source = json_remove(source, '$.conversationId') WHERE id = ?").run(t.id);
-    expect(getTask(t.id)!.source.conversationId).toBeUndefined();
     const back = updateTask(t.id, { status: "understood" })!;
-    expect(back.source.conversationId).toBeTruthy();
-    expect(conversationExists(back.source.conversationId!)).toBe(true);
+    expect(back.source.conversationId).toBeUndefined();
   });
 });
 

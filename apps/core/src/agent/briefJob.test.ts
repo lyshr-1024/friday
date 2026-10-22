@@ -20,7 +20,7 @@ import { executePending, onJobExit, rejectTask, startAutonomousJob } from "./pip
 import { createRun, runByJob, runsForTask } from "../memory/runs.js";
 import { execFileSync } from "node:child_process";
 import { brief as briefApi } from "../api/brief.js";
-import { addMessage, listMessages } from "../memory/conversations.js";
+import { addMessage, createConversation, listMessages } from "../memory/conversations.js";
 import { fridayToolList } from "./tools.js";
 import { TmuxMissingError } from "./tmux.js";
 import { db } from "../memory/db.js";
@@ -44,6 +44,8 @@ const writeProjects = (...ps: Array<{ name: string; extra?: string[] }>) =>
 
 const story = (project: string, extra: Partial<Parameters<typeof createTask>[0]> = {}) =>
   createTask({ title: "基金筛选加排序", kind: "verbal", project, status: "understood", source: { description: "按收益率排序" }, ...extra });
+
+const chat = (t: { id: string }) => getTask(t.id)!.source.conversationId ?? updateTask(t.id, { source: { conversationId: createConversation().id } })!.source.conversationId!;
 
 const anchorOf = (id: string) => findTaskBySource((s) => s.briefFor === id, true);
 
@@ -546,17 +548,17 @@ describe("审核、打回、改档、依赖", () => {
     writeProjects({ name: "p-tu" });
     const t = withApprove("p-tu");
     vi.mocked(openSession).mockResolvedValueOnce("job-tu");
-    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("在后台重建");
+    expect(await tool(chat(t), "task_update", { rebuildBrief: true })).toContain("在后台重建");
     expect(anchorOf(t.id)?.source.jobId).toBe("job-tu");
-    expect(listMessages(t.source.conversationId!).some((m) => m.kind === "run" && m.content === `→ ${taskTag(getTask(t.id)!)}：理解卡在后台重建` && m.taskIds?.[0] === t.id)).toBe(true);
+    expect(listMessages(chat(t)).some((m) => m.kind === "run" && m.content === `→ ${taskTag(getTask(t.id)!)}：理解卡在后台重建` && m.taskIds?.[0] === t.id)).toBe(true);
     const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-tu", status: "understood", source: { meegleType: "defect" } });
-    expect(await tool(defect.source.conversationId!, "task_update", { rebuildBrief: true })).toContain("缺陷");
+    expect(await tool(chat(defect), "task_update", { rebuildBrief: true })).toContain("缺陷");
   });
 
   it("会话里「按这个做」批准 brief_approve", async () => {
     writeProjects({ name: "p-say" });
     const t = withApprove("p-say");
-    const conv = t.source.conversationId!;
+    const conv = chat(t);
     addMessage(conv, { role: "user", kind: "ask", content: `#${t.seq} 按这个做吗？` });
     expect(await tool(conv, "task_approve", {})).toContain("不执行");
     addMessage(conv, { role: "user", kind: "ask", content: `#${t.seq} 按这个做` });
@@ -602,7 +604,7 @@ describe("审核、打回、改档、依赖", () => {
     writeProjects({ name: "p-note" });
     const t = withApprove("p-note");
     vi.mocked(openSession).mockResolvedValueOnce("job-note");
-    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: "接口改用 v2，别动公共组件" })).toContain("在后台重建");
+    expect(await tool(chat(t), "task_update", { rebuildBrief: "接口改用 v2，别动公共组件" })).toContain("在后台重建");
     const prompt = vi.mocked(openSession).mock.lastCall![2].task!;
     expect(prompt.indexOf("接口改用 v2，别动公共组件")).toBeLessThan(prompt.indexOf("基金筛选加排序"));
     expect(getTask(t.id)!.source.brief?.reviewNote).toBe("接口改用 v2，别动公共组件");
@@ -791,7 +793,7 @@ describe("终审修正", () => {
     vi.mocked(openSession).mockResolvedValueOnce("job-f10a");
     await startBriefJob(t.id);
     createJob({ id: "job-f10a", project: "f10", dir: repo, logPath: "/tmp/f10a.log", taskId: anchorOf(t.id)!.id });
-    const said = await tool(t.source.conversationId!, "task_update", { rebuildBrief: "接口改用 v2" });
+    const said = await tool(chat(t), "task_update", { rebuildBrief: "接口改用 v2" });
     expect(said).toContain("正在建");
     expect(said).toContain("记下");
     expect(getTask(t.id)!.source.briefNote).toBe("接口改用 v2");
@@ -811,7 +813,7 @@ describe("终审修正", () => {
     writeProjects({ name: "f10c" });
     const t = story("f10c", { source: { description: "按收益率排序", briefFailed: { at: "2026-10-01T00:00:00.000Z", why: "会话异常退出" } } });
     vi.mocked(openSession).mockResolvedValueOnce("job-f10c");
-    expect(await tool(t.source.conversationId!, "task_update", { rebuildBrief: "PRD 在第二个链接" })).toContain("在后台重建");
+    expect(await tool(chat(t), "task_update", { rebuildBrief: "PRD 在第二个链接" })).toContain("在后台重建");
     expect(vi.mocked(openSession).mock.lastCall![2].task).toContain("PRD 在第二个链接");
   });
 });

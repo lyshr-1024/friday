@@ -88,8 +88,8 @@ describe("消息挂任务", () => {
 
   it("listMessagesForTask：主对话里挂了它的 + 它自己的旧会话，按时间排", async () => {
     const main = mainConversationId();
-    const t = createTask({ title: "x", kind: "verbal", source: {} });
-    const own = t.source.conversationId!;
+    const own = createConversation().id;
+    const t = createTask({ title: "x", kind: "verbal", source: { conversationId: own } });
     const m1 = addMessage(own, { role: "user", kind: "ask", content: "own1" });
     await new Promise((r) => setTimeout(r, 3));
     const m2 = addMessage(main, { role: "user", kind: "ask", content: "main-hit", taskIds: [t.id, "other"] });

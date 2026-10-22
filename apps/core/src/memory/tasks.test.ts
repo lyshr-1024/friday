@@ -5,6 +5,19 @@ import { db } from "./db.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
+  it("建任务不再建会话", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    expect(createTask({ title: "x", kind: "verbal", source: {} }).source.conversationId).toBeUndefined();
+  });
+
+  it("重新打开没会话的任务也不补", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "重开", kind: "verbal", source: {} });
+    updateTask(t.id, { status: "done" });
+    const re = updateTask(t.id, { status: "understood" })!;
+    expect(re.source.conversationId).toBeUndefined();
+  });
+
   it("全数字的 id 前缀不被当成短号吃掉；#N 仍优先按短号", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const t = createTask({ title: "数字 id", kind: "verbal", source: {} });

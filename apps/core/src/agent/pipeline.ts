@@ -20,7 +20,6 @@ import { hasSession } from "./tmux.js";
 import { state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
-import { postDelivery, postShots } from "./delivery.js";
 import { onSignal } from "./stage.js";
 import { sessionCost } from "./transcript.js";
 import { onTaskDone } from "./knowledge.js";
@@ -181,8 +180,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
     if (!job.task.report.screenshots.length) {
       const shots = collectShots(jobId);
       if (shots.length) {
-        const t = updateTask(job.task.id, { report: { ...job.task.report, screenshots: shots } })!;
-        postShots(t, jobId, shots);
+        updateTask(job.task.id, { report: { ...job.task.report, screenshots: shots } });
       }
     }
     record({ taskId: job.task.id, action: "claude_code_finish", why: "终端任务结束", how: `退出码 ${exitCode}，已经用 friday_done 交付过`, evidence: { jobId, exitCode }, risk: "read", status: exitCode === 0 ? "done" : "failed" });
@@ -234,7 +232,6 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
         },
       })!;
     }
-    if (report) postDelivery(t, jobId, report);
     record({ taskId: t.id, action: "slack_query_done", why: "查询任务结束", how: report ? "已生成答案与草稿" : `退出码 ${exitCode}，没有报告`, evidence: { jobId, exitCode }, risk: "read", status: report ? "done" : "failed" });
     return t;
   }
@@ -264,7 +261,6 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   if (report && branch && branch !== "main" && branch !== "master" && ahead > 0 && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
-  if (report) postDelivery(task, jobId, report);
   if (task.status === "review" || task.status === "done") reportBackToOrigin(task);
   return task;
 }

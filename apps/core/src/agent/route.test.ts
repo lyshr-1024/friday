@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ConversationSummary } from "@friday/shared";
 import { parseRoute, routeCandidates, routePrompt } from "./route.js";
 import { createTask } from "../memory/tasks.js";
+import { createConversation } from "../memory/conversations.js";
 import { createSchedule, updateSchedule } from "../memory/schedules.js";
 
 const conv = (id: string, title: string, messageCount = 4): ConversationSummary => ({ id, title, messageCount, createdAt: "2026-09-05T02:00:00Z", updatedAt: "2026-09-07T02:00:00Z" });
@@ -28,7 +29,7 @@ describe("会话路由", () => {
   });
 
   it("绑了任务的会话不进候选：自由会话不能被路由进任务会话", () => {
-    const t = createTask({ title: "合并那个分支", kind: "verbal", source: {}, status: "review" });
+    const t = createTask({ title: "合并那个分支", kind: "verbal", source: { conversationId: createConversation().id }, status: "review" });
     const bound = t.source.conversationId!;
     expect(bound).toBeTruthy();
     const out = routeCandidates([conv(bound, "合并那个分支"), conv("free", "随便聊聊")], []);

@@ -42,7 +42,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect((await rpc("nope", "ping")).status).toBe(404);
   });
 
-  it("friday_progress 写进任务卡，friday_done 只标「这轮做完了」、通知、往会话追加消息；任务仍在 processing", async () => {
+  it("friday_progress 写进任务卡，friday_done 只标「这轮做完了」、通知、不往会话写消息；任务仍在 processing", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-mcp-2", project: "demo", dir: "/tmp", task: "修登录", conversationId: conv.id, logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：修登录", kind: "code", source: { jobId: "job-mcp-2", conversationId: conv.id }, project: "demo", status: "processing" });
@@ -66,8 +66,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     // 点开通知要能定位回这条任务
     expect(notices.some((n) => n.title.includes("这轮做完了") && n.title.includes("demo") && n.taskId === task.id)).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ kind: string; content: string }> };
-    expect(c.messages.at(-1)).toMatchObject({ kind: "run" });
-    expect(c.messages.at(-1)!.content).toContain("补了 token 刷新");
+    expect(c.messages).toHaveLength(0);
   });
 
   it("friday_finish：MR 合并、本地清理完才调，任务标完成、终端收尾", async () => {
@@ -159,7 +158,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(c.messages.some((m) => m.content.includes("这轮说完了"))).toBe(false);
   });
 
-  it("勾选验证点落在任务上；全部勾完记账并在会话里说下一步", async () => {
+  it("勾选验证点落在任务上；全部勾完记账，不往任何会话写消息", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-v", project: "demo", dir: "/tmp", task: "x", conversationId: conv.id, logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：x", kind: "code", source: { jobId: "job-v" }, project: "demo", status: "processing" });
@@ -173,13 +172,13 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(t.attention).toBeUndefined();
     const audit = (await (await app.request(`/audit?taskId=${task.id}`)).json()) as Array<{ action: string }>;
     expect(audit.some((e) => e.action === "verified_all")).toBe(true);
-    // 任务建立就有自己的会话，留痕落在任务会话里，不落到 job 记的那段
-    const c = (await (await app.request(`/conversation/${task.source.conversationId}`)).json()) as { messages: Array<{ content: string }> };
-    expect(c.messages.at(-1)!.content).toContain("确认全部验证点");
+    expect(task.source.conversationId).toBeUndefined();
+    const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
+    expect(c.messages).toHaveLength(0);
     expect(await setVerified("nope", 0, true)).toBeUndefined();
   });
 
-  it("终端弹选项题（PreToolUse AskUserQuestion）：任务标 question、通知、会话留问题；PostToolUse 解除", async () => {
+  it("终端弹选项题（PreToolUse AskUserQuestion）：任务标 question、通知，不往会话写问题；PostToolUse 解除", async () => {
     const conv = (await (await app.request("/conversation/new", { method: "POST" })).json()) as { id: string };
     createJob({ id: "job-q", project: "demo", dir: "/tmp", task: "x", conversationId: conv.id, logPath: "/tmp/x.log" });
     const task = createTask({ title: "demo：q", kind: "code", source: { jobId: "job-q", conversationId: conv.id }, project: "demo", status: "processing" });
@@ -194,7 +193,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const notices = (await (await app.request("/notifications")).json()) as Array<{ title: string; taskId?: string }>;
     expect(notices.some((n) => n.title.includes("终端在等你回答") && n.taskId === task.id)).toBe(true);
     const c = (await (await app.request(`/conversation/${conv.id}`)).json()) as { messages: Array<{ content: string }> };
-    expect(c.messages.at(-1)!.content).toContain("终端在问你");
+    expect(c.messages).toHaveLength(0);
     // 紧跟着来的泛化 Notification 不能把具体问题盖掉
     await app.request("/jobs/job-q/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "Notification", notificationType: "permission_prompt", message: "Claude needs your permission" }) });
     expect(getTask(task.id)!.progress).toContain("用哪个方案");

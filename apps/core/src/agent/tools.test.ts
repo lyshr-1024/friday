@@ -5,11 +5,13 @@ import { fridayToolList, fridayTools } from "./tools.js";
 import { addFeatureHistory, createFeature, writeKnowledge } from "../memory/features.js";
 import { addMessage, createConversation, listMessages } from "../memory/conversations.js";
 import { addPending, createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { mainConversationId } from "../memory/mainConversation.js";
 
 const sayMock = vi.hoisted(() => vi.fn(async () => "sent"));
 const approveMock = vi.hoisted(() => vi.fn());
+const startMock = vi.hoisted(() => vi.fn());
 vi.mock("./terminal.js", async (orig) => ({ ...(await orig<typeof import("./terminal.js")>()), say: sayMock }));
-vi.mock("./pipeline.js", async (orig) => ({ ...(await orig<typeof import("./pipeline.js")>()), approvePending: approveMock }));
+vi.mock("./pipeline.js", async (orig) => ({ ...(await orig<typeof import("./pipeline.js")>()), approvePending: approveMock, startAutonomousJob: startMock }));
 
 const call = async (name: string, args: Record<string, unknown>) => {
   const t = fridayToolList().find((x) => x.name === name)!;
@@ -148,7 +150,19 @@ describe("会话工具点名任务", () => {
     const c = open();
     await callIn(c, "task_add", { title: "新来的一条" });
     const t = (await import("../memory/tasks.js")).listTasks().find((x) => x.title === "新来的一条")!;
-    expect(t.source.conversationId).not.toBe(c);
+    expect(t.source.conversationId).toBeUndefined();
+  });
+
+  it("主对话 id 不会出现在任何任务上：task_add / todo_add / run_claude 都不挂", async () => {
+    const main = mainConversationId();
+    startMock.mockImplementation(async (t: { id: string }) => getTask(t.id)!);
+    await callIn(main, "task_add", { title: "主对话建的任务" });
+    await callIn(main, "todo_add", { text: "主对话记的待办" });
+    await callIn(main, "run_claude", { project: process.cwd(), task: "主对话派的活" });
+    expect(startMock).toHaveBeenCalled();
+    const all = listTasks(undefined, 1000);
+    expect(all.some((x) => x.title.includes("主对话派的活"))).toBe(true);
+    expect(all.some((x) => x.source.conversationId === main)).toBe(false);
   });
 
   const clearWaiting = () => listTasks(["collected", "understood", "processing", "review", "blocked"], 1000).filter((x) => x.pending?.length).forEach((x) => updateTask(x.id, { status: "done" }));
