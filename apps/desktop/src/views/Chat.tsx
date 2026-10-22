@@ -89,7 +89,11 @@ export function Chat() {
     window.addEventListener("blur", onWindowBlur);
     const stopEvents = connectEvents();
     // 会话生成开始 / 结束：左栏青条要立刻变
-    const onEvent = (e: Event) => { if ((e as CustomEvent<FridayEvent>).detail.type === "conversation") void refreshList(); };
+    const onEvent = (e: Event) => {
+      const type = (e as CustomEvent<FridayEvent>).detail.type;
+      if (type === "conversation") void refreshList();
+      if (type === "settings") void loadSettings(1);
+    };
     window.addEventListener("friday:event", onEvent);
     return () => {
       loadCancel.cancelled = true;

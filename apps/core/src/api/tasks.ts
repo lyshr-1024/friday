@@ -23,7 +23,8 @@ import { loadProjects, resolveProject } from "../memory/projects.js";
 import { requestProjectChange } from "../agent/reproject.js";
 import { needOf } from "../agent/needs.js";
 import { autostartEnv, autostartPlan, runningAutonomous } from "../agent/autostart.js";
-import { userSettings } from "../settings.js";
+import { updateSettings, userSettings } from "../settings.js";
+import { publish } from "../bus.js";
 import { matchProject } from "../agent/meegle.js";
 import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
@@ -604,6 +605,12 @@ export const tasks = new Hono()
     }
     if (plan.kind === "restore_features") {
       for (const project of restoreFeatures(plan.snapshot)) writeKnowledge(project);
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_settings") {
+      updateSettings(plan.before);
+      if (plan.before.theme !== undefined) publish({ type: "settings" });
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

@@ -6,7 +6,7 @@ import { loadProjects } from "../memory/projects.js";
 import { updateSettings, userSettings } from "../settings.js";
 import { checkBackground } from "./background.js";
 
-const patch = z.object({
+export const settingsShape = {
   terminal: z.enum(["ghostty", "terminal"]).optional(),
   model: z.enum(MODEL_OPTIONS.map((m) => m.id) as [string, ...string[]]).optional(),
   skills: z.boolean().optional(),
@@ -26,7 +26,9 @@ const patch = z.object({
     screenshotFallback: z.boolean().optional(),
     urlAllowlist: z.array(z.string()).optional(),
   }).optional(),
-});
+};
+
+const patch = z.object(settingsShape);
 
 function respond(): SettingsResponse {
   return {

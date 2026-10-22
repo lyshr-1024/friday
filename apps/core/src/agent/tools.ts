@@ -34,6 +34,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
+import { selfToolList } from "./selfTools.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
 
@@ -667,6 +668,7 @@ export const fridayToolList = (conversationId?: string) => [
         return text(all.map((v) => `${v.id} ${v.enabled ? "" : "[暂停] "}${v.title}｜${v.when}｜${v.executorLabel}｜上次：${v.lastRunAt ? `${v.lastOk ? "✓" : "✗"} ${v.lastResult ?? ""}`.slice(0, 80) : "还没跑过"}`).join("\n"));
       },
     ),
+    ...selfToolList(conversationId),
   ];
 
 const TASK_ID = z.string().min(1).max(64).describe("任务短号 #N、id 前 8 位或完整 id");
@@ -696,7 +698,7 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   brief_approve: ["方案可以", "按这个做", "可以", "通过", "开工"],
 };
 
-function consents(said: string, forms: string[]): boolean {
+export function consents(said: string, forms: string[]): boolean {
   if (/[？?]/.test(said)) return false;
   return forms.includes(said.replace(/[。！!～~\s]+$/, "").trim());
 }
