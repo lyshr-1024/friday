@@ -756,6 +756,8 @@ export interface DeliveryReport {
 
 export interface Task {
   id: string;
+  /** 短号，建任务时取号，全局递增；界面和会话里写 #N */
+  seq: number;
   title: string;
   kind: TaskKind;
   source: TaskSource;

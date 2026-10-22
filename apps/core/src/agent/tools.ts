@@ -22,7 +22,7 @@ import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
 import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
-import { createTask, findTaskBySource, getTask, listTasks } from "../memory/tasks.js";
+import { createTask, findTaskByRef, findTaskBySource, getTask, listTasks } from "../memory/tasks.js";
 import { listAudit, record } from "../memory/audit.js";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, scheduleByConversation, updateSchedule } from "../memory/schedules.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -227,7 +227,7 @@ export const fridayToolList = (conversationId?: string) => [
       "看一条任务卡的完整内容：状态、阶段、理解、方案、进展、等用户点头的动作、链接，以及 Friday 在这条任务上做过的最近几件事。id 用 tasks_list 给的前 8 位即可。",
       { id: z.string().min(4).max(64) },
       async ({ id }) => {
-        const t = findTaskById(id);
+        const t = findTaskByRef(id);
         if (!t) return text(`没有 id 以 ${id} 开头的任务。`);
         const s = t.source;
         const links = [s.url, ...(s.docs ?? []).map((d) => d.url)].filter(Boolean);
@@ -255,7 +255,7 @@ export const fridayToolList = (conversationId?: string) => [
         limit: z.number().int().min(1).max(50).optional().describe("默认 15"),
       },
       async ({ action, taskId, limit }) => {
-        const t = taskId ? findTaskById(taskId) : undefined;
+        const t = taskId ? findTaskByRef(taskId) : undefined;
         if (taskId && !t) return text(`没有 id 以 ${taskId} 开头的任务。`);
         const rows = listAudit({ ...(t ? { taskId: t.id } : {}), limit: action ? 1000 : (limit ?? 15) })
           .filter((e) => !action || e.action === action)
@@ -684,13 +684,9 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 
 const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);
 
-function findTaskById(id: string): Task | undefined {
-  return getTask(id) ?? listTasks(undefined, 2000).find((t) => t.id.startsWith(id));
-}
-
 function taskLine(t: Task): string {
   const tags = [STATUS_LABEL[t.status], t.stage && STAGE_LABEL[t.stage], t.project, t.due && `截止 ${t.due}`, t.priority !== "normal" && t.priority].filter(Boolean);
-  return `- ${t.id.slice(0, 8)} ${t.title}（${tags.join(" · ")}）`;
+  return `- #${t.seq} ${t.id.slice(0, 8)} ${t.title}（${tags.join(" · ")}）`;
 }
 
 function auditLine(e: AuditEvent): string {

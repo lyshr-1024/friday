@@ -3,7 +3,7 @@ import type { Task } from "@friday/shared";
 import { MIN_OVERLAP, matchChannelTask, overlapLen } from "./channelMatch.js";
 
 const task = (id: string, title: string): Task => ({
-  id, title, kind: "meegle", source: {}, status: "understood",
+  id, seq: 1, title, kind: "meegle", source: {}, status: "understood",
   priority: "normal", createdAt: "2026-09-20T00:00:00Z", updatedAt: "2026-09-20T00:00:00Z",
 });
 

@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addPending, createTask, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, tasksByIdPrefix, updateTask } from "./tasks.js";
+import { addPending, createTask, findTaskByRef, findTaskBySource, listTasks, listTasksByKind, takePending, taskBoard, tasksByIdPrefix, updateTask } from "./tasks.js";
 import { listAudit, record, setEventStatus, undoPlan } from "./audit.js";
 
 describe("任务中枢", () => {
+  it("新任务按顺序拿短号，#N / 数字 / id 前缀都能找回", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const a = createTask({ title: "甲", kind: "verbal", source: {} });
+    const b = createTask({ title: "乙", kind: "verbal", source: {} });
+    expect(b.seq).toBe(a.seq + 1);
+    expect(findTaskByRef(`#${b.seq}`)!.id).toBe(b.id);
+    expect(findTaskByRef(String(a.seq))!.id).toBe(a.id);
+    expect(findTaskByRef(b.id.slice(0, 8))!.id).toBe(b.id);
+    expect(findTaskByRef(b.id)!.id).toBe(b.id);
+    expect(findTaskByRef("#999999")).toBeUndefined();
+  });
+
+
   it("建任务、按来源去重、推进状态、待审核动作进出", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const t = createTask({ title: "回复灵雨：登录报错", kind: "slack", source: { threadId: "th-1" }, project: "whale-console", priority: "high", understanding: "灵雨追问工单 #1" });

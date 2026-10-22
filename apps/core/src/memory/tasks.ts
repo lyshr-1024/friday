@@ -7,6 +7,7 @@ import { publish } from "../bus.js";
 
 interface Row {
   id: string;
+  seq: number;
   title: string;
   kind: TaskKind;
   source: string;
@@ -33,6 +34,7 @@ interface Row {
 
 const toTask = (r: Row): Task => ({
   id: r.id,
+  seq: r.seq,
   title: r.title,
   kind: r.kind,
   source: JSON.parse(r.source) as TaskSource,
@@ -77,7 +79,7 @@ export function createTask(input: {
   const source = { ...input.source, conversationId: input.source.conversationId ?? createConversation().id };
   db()
     .prepare(
-      "INSERT INTO tasks (id, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tasks (id, seq, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM tasks), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(id, input.title.slice(0, 200), input.kind, JSON.stringify(source), input.project ?? null, input.status ?? "collected", input.priority ?? "normal", input.understanding ?? null, input.plan ?? null, input.due ?? null, input.stage ?? null, input.stage ? "auto" : null, t, t);
   publish({ type: "tasks" });
@@ -180,6 +182,23 @@ export function listTasks(status?: TaskStatus | TaskStatus[], limit = 200): Task
       : db().prepare("SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ?").all(limit)
   ) as unknown as Row[];
   return rows.map(toTask);
+}
+
+export const taskTag = (t: Task): string => `#${t.seq} ${t.title.slice(0, 30)}`;
+
+/** `#12` / `12` 按短号；否则完整 id 或 ≥6 位的 id 前缀（唯一命中才返回） */
+export function findTaskByRef(ref: string): Task | undefined {
+  const r = ref.trim();
+  const m = /^#?(\d+)$/.exec(r);
+  if (m) {
+    const row = db().prepare("SELECT * FROM tasks WHERE seq = ?").get(Number(m[1])) as unknown as Row | undefined;
+    return row ? toTask(row) : undefined;
+  }
+  const exact = getTask(r);
+  if (exact) return exact;
+  if (r.length < 6) return undefined;
+  const hits = tasksByIdPrefix(r);
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 export function tasksByIdPrefix(prefix: string): Task[] {

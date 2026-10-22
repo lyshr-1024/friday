@@ -11,6 +11,7 @@ const projects: Project[] = [
 function task(over: Partial<Task> = {}): Task {
   return {
     id: "t1",
+    seq: 1,
     title: "提现规则 tab 错位",
     kind: "meegle",
     source: { meegleId: "1234" },

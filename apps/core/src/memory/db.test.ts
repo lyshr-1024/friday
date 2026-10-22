@@ -24,6 +24,18 @@ const SLACK_LINKS = OLD_LINKS
   .replace(/'project'\)\)/g, "'project', 'slack'))");
 
 describe("老库迁移", () => {
+  it("老库补 seq：按 created_at 回填，从 1 开始不重复", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    const add = (id: string, at: string) => d.prepare("INSERT INTO tasks (id, title, kind, source, status, created_at, updated_at) VALUES (?, ?, 'verbal', '{}', 'understood', ?, ?)").run(id, id, at, at);
+    add("c", "2026-09-03T00:00:00Z");
+    add("a", "2026-09-01T00:00:00Z");
+    add("b", "2026-09-02T00:00:00Z");
+    migrate(d);
+    const seqs = (d.prepare("SELECT id, seq FROM tasks ORDER BY seq").all() as Array<{ id: string; seq: number }>).map((r) => `${r.id}${r.seq}`);
+    expect(seqs).toEqual(["a1", "b2", "c3"]);
+  });
+
   it("线程、经验、阈值三张表清掉，inbox 补 prior 列", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SCHEMA);

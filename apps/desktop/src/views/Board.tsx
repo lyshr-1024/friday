@@ -750,7 +750,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
                         >
                           <span className={`sdot sdot--${child ? "none" : st}`} />
                           <span className="an__main">
-                            <span className="an__t">{guess && <span className="an__guess">Friday 推断</span>}{t.title}</span>
+                            <span className="an__t"><span className="mono an__seq">#{t.seq}</span> {guess && <span className="an__guess">Friday 推断</span>}{t.title}</span>
                             {guess ? (
                               <span className="an__sub">
                                 {t.kind === "slack" ? "Slack" : "任务"} · 还没进会话 ·{" "}

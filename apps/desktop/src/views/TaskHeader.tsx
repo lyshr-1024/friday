@@ -64,7 +64,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
         <button className={`th__pin ${t.pinned ? "is-on" : ""}`} onClick={onPin}>{t.pinned ? "★ 已关注" : "☆ 关注"}</button>
       </div>
       <div className="th__title">
-        <h2 title={t.title}>{t.title}</h2>
+        <h2 title={t.title}><span className="mono an__seq">#{t.seq}</span> {t.title}</h2>
         {actions ? (
           <>
             {keepDetail && <button className="th__detail" onClick={onDetail}><Icon name="panel" />详情</button>}
