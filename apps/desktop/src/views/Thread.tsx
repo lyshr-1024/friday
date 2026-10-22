@@ -63,18 +63,20 @@ function MentionText({ text }: { text: string }) {
 const NOTICE_DOT: Array<[string, string]> = [["· 方案待审", "dot--review"], ["· 待验收", "dot--done"], ["· 卡住", "dot--blocked"]];
 
 /** Friday 主动发的消息：首行 `#N 标题 · 状态` 带状态色点、可点；离开摘要（多条任务）原样分行 */
-export function NoticeCard({ m, onOpenTask }: { m: Message; onOpenTask?: (taskId: string) => void }) {
+export function NoticeCard({ m, onOpenTask, readOnly }: { m: Message; onOpenTask?: (taskId: string) => void; readOnly?: boolean }) {
   const [first = "", ...rest] = m.content.split("\n");
   const taskId = m.taskIds?.length === 1 ? m.taskIds[0] : undefined;
   const dot = NOTICE_DOT.find(([suffix]) => first.endsWith(suffix))?.[1] ?? "";
   const shots = (m.payload as { attachments?: Attachment[] } | undefined)?.attachments;
   return (
     <div className="notice">
-      {taskId ? (
+      {taskId && !readOnly ? (
         <button className="notice__head" onClick={() => onOpenTask?.(taskId)} title="去这条任务">
           <span className={`dot ${dot}`} />
           <span className="notice__title">{first}</span>
         </button>
+      ) : taskId ? (
+        <div className="notice__head notice__head--ro"><span className={`dot ${dot}`} /><span className="notice__title">{first}</span></div>
       ) : (
         <div className="notice__text"><Linkified text={m.content} /></div>
       )}

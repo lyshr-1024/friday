@@ -68,4 +68,10 @@ describe("定时任务工具", () => {
     expect(getSchedule(s.id)).toBeTruthy();
     expect(await call("schedules_list", {}, "conv-sched2")).toMatch(s.id);
   });
+  it.each(["terminal_say", "task_update", "task_start", "task_reject", "task_approve"])("定时会话里 %s 不能动任务", async (name) => {
+    const s = createSchedule({ title: "h", cron: "0 9 * * *", executor: "friday", prompt: "p" });
+    updateSchedule(s.id, { conversationId: "conv-sched3" });
+    const out = await call(name, { taskId: "#1", text: "x", reason: "x" }, "conv-sched3");
+    expect(out).toBe("定时任务里不能动任务，等用户回来。");
+  });
 });

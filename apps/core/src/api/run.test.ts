@@ -8,6 +8,7 @@ import { createConversation, listMessages } from "../memory/conversations.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { mainRepo } from "../agent/testRepos.js";
+import { mainConversationId } from "../memory/mainConversation.js";
 
 let tmuxInstalled = true;
 beforeEach(() => {
@@ -52,6 +53,25 @@ describe("POST /run", () => {
     expect(t.source.conversationId).toBe(conv.id);
     expect(t.source.autonomous).toBe(true);
     expect(listMessages(conv.id).some((m) => m.kind === "run" && m.content.includes("开工"))).toBe(true);
+  });
+});
+
+describe("主对话 id 不写进任务", () => {
+  it("/run 带主对话 id：任务不挂 conversationId，消息照写主对话", async () => {
+    const main = mainConversationId();
+    const res = await post("/run", { project: "runproj", task: "主对话里跑", conversationId: main });
+    expect(res.status).toBe(200);
+    const { jobId } = (await res.json()) as { jobId: string };
+    expect(getTask(getJob(jobId)!.taskId!)!.source.conversationId).toBeUndefined();
+    expect(listMessages(main).some((m) => m.kind === "run" && m.content.includes("开工"))).toBe(true);
+  });
+
+  it("/note 带主对话 id：任务不挂 conversationId，消息照写主对话", async () => {
+    const main = mainConversationId();
+    const res = await post("/note", { text: "主对话里记一条独特待办xyz", conversationId: main });
+    const task = (await res.json()) as { id: string };
+    expect(getTask(task.id)!.source.conversationId).toBeUndefined();
+    expect(listMessages(main).some((m) => m.kind === "note" && m.content.includes("独特待办xyz"))).toBe(true);
   });
 });
 

@@ -17,6 +17,18 @@ vi.mock("../agent/claude.js", () => ({
   },
 }));
 
+const boardFail = vi.hoisted(() => ({ left: 0 }));
+vi.mock("../agent/needs.js", async (orig) => ({
+  ...(await orig<typeof import("../agent/needs.js")>()),
+  boardBlock: () => {
+    if (boardFail.left > 0) {
+      boardFail.left--;
+      throw new Error("板读不出来");
+    }
+    return "";
+  },
+}));
+
 const { app } = await import("./index.js");
 
 const post = (prompt: string, conversationId: string) =>
@@ -79,5 +91,21 @@ describe("生成中再发", () => {
     expect(started).toContain("q3-third");
     gates.get("q3-third")!.release();
     await tick();
+  });
+});
+
+describe("排队开跑出错", () => {
+  it("不崩、不丢：放回队首，会话里留一条 error", async () => {
+    const conv = await newConv();
+    void post("q4-first", conv);
+    await tick();
+    await post("q4-second", conv);
+    boardFail.left = 1;
+    gates.get("q4-first")!.release();
+    await tick();
+    expect(started).not.toContain("q4-second");
+    expect((await queue(conv)).map((q) => q.prompt)).toEqual(["q4-second"]);
+    const err = listMessages(conv).find((m) => m.kind === "error");
+    expect(err?.content).toBe("排队的这句没能开跑：板读不出来");
   });
 });

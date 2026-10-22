@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { mainConversationId } from "../memory/mainConversation.js";
 import type { RunResponse } from "@friday/shared";
 import { decide } from "../agent/permission.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
@@ -45,7 +46,7 @@ export const run = new Hono().post("/run", async (c) => {
   }
   const id = startSession("run", `${resolved.project.name}: ${task}`);
   try {
-    const t = createTask({ title: `${resolved.project.name}：${task}`.slice(0, 80), kind: "code", source: conv ? { conversationId: conv } : {}, project: resolved.project.name, status: "understood", understanding: task });
+    const t = createTask({ title: `${resolved.project.name}：${task}`.slice(0, 80), kind: "code", source: conv && conv !== mainConversationId() ? { conversationId: conv } : {}, project: resolved.project.name, status: "understood", understanding: task });
     const started = await startAutonomousJob(t, resolved.project.name, resolved.project.dir, task, "user");
     if (started.status === "blocked" || !started.source.jobId) throw new Error(started.progress ?? "没开成");
     const jobId = started.source.jobId;

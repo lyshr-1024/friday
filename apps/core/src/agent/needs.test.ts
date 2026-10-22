@@ -31,7 +31,8 @@ describe("needOf", () => {
   });
 
   it("blocked 状态", () => {
-    expect(needOf(mk({ status: "blocked", progress: "没权限" }))).toEqual({ kind: "blocked", key: "blocked:没权限", reason: "没权限" });
+    expect(needOf(mk({ status: "blocked", progress: "没权限", source: { blockedAt: "T1" } }))).toEqual({ kind: "blocked", key: "blocked:T1", reason: "没权限" });
+    expect(needOf(mk({ id: "tx", status: "blocked", progress: "没权限" }))?.key).toBe("blocked:tx");
   });
 
   it("attention 是 question / intake", () => {

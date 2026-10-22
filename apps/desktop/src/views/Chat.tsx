@@ -320,7 +320,7 @@ export function Chat() {
                   onConversation={() => void refreshList()}
                   emptyTitle="说吧"
                   emptyHint="问题直接答；要干的活我先说判断，你点头我再开工。任务有进展、要你拍板时我会在这里主动说。"
-                  hint="Enter 发送 · Shift+Enter 换行 · Esc 回工作台"
+                  hint="Enter 发送 · Shift+Enter 换行 · Esc 中断生成，空闲时回工作台"
                   onEscape={() => go("queue")}
                   onOpenTask={(id) => void openTask(id)}
                   autoFocus

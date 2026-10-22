@@ -2901,6 +2901,9 @@ body,
 .notice__head:hover .notice__title {
   text-decoration: underline;
 }
+.notice__head--ro:hover .notice__title {
+  text-decoration: none;
+}
 .notice__text {
   font-size: var(--t-sm);
   color: var(--fg-2);

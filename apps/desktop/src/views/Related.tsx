@@ -36,7 +36,7 @@ export function Related({ taskId }: { taskId: string }) {
             <div key={m.id} className={`tm${m.role === "user" ? " tm--user" : ""}`}>
               {m.role !== "user" && <span className="tm__who is-friday">Friday</span>}
               <div className="tm__body">
-                {m.role === "user" ? <span className="tm__text"><Linkified text={m.content} /></span> : m.kind === "notice" ? <NoticeCard m={m} /> : <AssistantBody m={m} />}
+                {m.role === "user" ? <span className="tm__text"><Linkified text={m.content} /></span> : m.kind === "notice" ? <NoticeCard m={m} readOnly /> : <AssistantBody m={m} />}
               </div>
             </div>
           ))}

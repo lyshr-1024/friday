@@ -56,6 +56,48 @@ describe("postNotices", () => {
     expect(postNotices()).toBe(1);
   });
 
+  it("同一次卡住改 progress 不重发；离开再进入再发", async () => {
+    postNotices();
+    const t = createTask({ title: "卡", kind: "code", status: "processing", source: {} });
+    updateTask(t.id, { status: "blocked", progress: "a" });
+    expect(postNotices()).toBe(1);
+    updateTask(t.id, { progress: "b" });
+    expect(postNotices()).toBe(0);
+    updateTask(t.id, { progress: "c" });
+    expect(postNotices()).toBe(0);
+    updateTask(t.id, { status: "processing" });
+    postNotices();
+    await new Promise((r) => setTimeout(r, 5));
+    updateTask(t.id, { status: "blocked", progress: "d" });
+    expect(postNotices()).toBe(1);
+  });
+
+  it("旧终端：attention=blocked 发卡住；attention=review 带报告的 processing 发待验收", () => {
+    postNotices();
+    const a = createTask({ title: "旧卡住", kind: "code", status: "processing", source: {} });
+    updateTask(a.id, { attention: "blocked", progress: "缺权限" });
+    expect(needOf(getTask(a.id)!)).toMatchObject({ kind: "blocked", key: "blocked-attn:缺权限", reason: "缺权限" });
+    expect(postNotices()).toBe(1);
+    const r = createTask({ title: "旧交付", kind: "code", status: "processing", source: {} });
+    updateTask(r.id, { attention: "review", report: report("R9") });
+    expect(needOf(getTask(r.id)!)).toMatchObject({ kind: "review", key: "review:R9", reason: "改好了" });
+    expect(postNotices()).toBe(1);
+    expect(last().content).toContain("· 待验收");
+  });
+
+  it("待验收按挂着的动作提示怎么收下", () => {
+    const m = createTask({ title: "合", kind: "code", status: "review", source: {} });
+    updateTask(m.id, { report: report("R1") });
+    addPending(m.id, { type: "git_merge", label: "合并", detail: "d", payload: {} } as never);
+    const mt = getTask(m.id)!;
+    expect(noticeText(mt, needOf(mt)!)).toBe(`#${mt.seq} 合 · 待验收\n交付了：改好了\n测试结果：ok\n说「#${mt.seq} 合并吧」收下，或说哪里不对。`);
+    const s = createTask({ title: "发", kind: "code", status: "review", source: {} });
+    updateTask(s.id, { report: report("R1") });
+    addPending(s.id, { type: "slack_reply", label: "回复", detail: "d", payload: {} } as never);
+    const st = getTask(s.id)!;
+    expect(noticeText(st, needOf(st)!)).toBe(`#${st.seq} 发 · 待验收\n交付了：改好了\n测试结果：ok\n说「#${st.seq} 发」发出去，或说怎么改。`);
+  });
+
   it("方案待审的文案带开工提示", () => {
     postNotices();
     const t = createTask({ title: "方案", kind: "code", status: "review", plan: "先改 A 再改 B", source: {} });
@@ -146,10 +188,21 @@ describe("presence", () => {
     const m = presence(true, min(20))!;
     expect(m.kind).toBe("notice");
     expect(m.content.split("\n")[0]).toBe("离开这 20 分钟，1 件要你：");
-    expect(m.content).toContain(`卡住      #${getTask(b.id)!.seq} 卡住的 · 没权限`);
+    expect(m.content).toContain(`【卡住】#${getTask(b.id)!.seq} 卡住的 · 没权限`);
     expect(m.content).toContain(`还在干：#${getTask(w.id)!.seq} 自主在跑`);
     expect(m.taskIds).toEqual([b.id]);
     expect(presence(true, min(21))).toBeUndefined();
+  });
+
+  it("要你的条数为 0（只有在干的）不发汇总，但清掉离开标记", () => {
+    presence(false, T0);
+    vi.setSystemTime(T0 + 1000);
+    const b = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });
+    updateTask(b.id, { progress: "x" });
+    postNotices();
+    updateTask(b.id, { status: "processing" });
+    expect(presence(true, min(20))).toBeUndefined();
+    expect(presence(true, min(40))).toBeUndefined();
   });
 
   it("没有新 notice 不发；不足 15 分钟不发；没记离开不发", () => {

@@ -224,11 +224,12 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "task_get",
-      "看一条任务卡的完整内容：状态、阶段、理解、方案、进展、等用户点头的动作、链接，以及 Friday 在这条任务上做过的最近几件事。id 用 tasks_list 给的前 8 位即可。",
-      { id: z.string().min(4).max(64) },
+      "看一条任务卡的完整内容：状态、阶段、理解、方案、进展、等用户点头的动作、链接，以及 Friday 在这条任务上做过的最近几件事。id 用任务短号 #N、id 前 8 位或完整 id。",
+      { id: z.string().min(1).max(64).describe("任务短号 #N、id 前 8 位或完整 id") },
       async ({ id }) => {
         const t = findTaskByRef(id);
         if (!t) return text(`没有 id 以 ${id} 开头的任务。`);
+        if (conversationId) touchTask(conversationId, t.id);
         const s = t.source;
         const links = [s.url, ...(s.docs ?? []).map((d) => d.url)].filter(Boolean);
         const acts = listAudit({ taskId: t.id, limit: 8 });
@@ -332,6 +333,7 @@ export const fridayToolList = (conversationId?: string) => [
         text: z.string().min(1).max(4000).describe("要对终端里的 Claude Code 说的话，用户的原意，可以稍加整理"),
       },
       async ({ taskId, text: msg }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能动任务，等用户回来。");
         const t = resolveTask(taskId);
         if (typeof t === "string") return text(t);
         const jobId = t.source.jobId;
@@ -482,6 +484,7 @@ export const fridayToolList = (conversationId?: string) => [
           .describe("用户让 Friday 重写理解卡时填：他说了怎么改就原样填他的原话（会放在重建提示词的最前面），没说就填 true（沿用最近一次打回的原因）"),
       },
       async ({ taskId, rebuildBrief, ...patch }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能动任务，等用户回来。");
         const t = resolveTask(taskId);
         if (typeof t === "string") return text(t);
         if (!decide("reversible").allowed) return text("操作被拒绝");
@@ -509,6 +512,7 @@ export const fridayToolList = (conversationId?: string) => [
       "用户说「开工 / 开始做 / 你来改」时对点名的任务调：Friday 在 worktree 里开工，做完交给他验收，中途他随时能在终端里插话。项目还没定就先问他是哪个项目，用 task_update 的 project 定下来再调。",
       { taskId: TASK_ID },
       async ({ taskId }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能动任务，等用户回来。");
         const t = resolveTask(taskId);
         if (typeof t === "string") return text(t);
         const { startTask } = await import("./taskStart.js");
@@ -523,6 +527,7 @@ export const fridayToolList = (conversationId?: string) => [
       "用户在会话里明确说「合并吧 / 就这么发 / 通过」时，执行点名任务上等他点头的动作。有多个待审动作时用 actionId 指定（先用 task_get 看）；是 Slack 回复时必须先把要发的原文完整贴给用户、他说「发」之后才调，text 填最终原文。没得到明确同意不要调。同时有几条任务在等点头时，用户得说「#N 通过」点名。",
       { taskId: TASK_ID, actionId: z.string().max(80).optional(), text: z.string().max(4000).optional() },
       async ({ taskId, actionId, text: override }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能动任务，等用户回来。");
         const t = resolveTask(taskId);
         if (typeof t === "string") return text(t);
         const pending = t.pending ?? [];
@@ -566,6 +571,7 @@ export const fridayToolList = (conversationId?: string) => [
       "用户在会话里说「打回，原因是…」时，把点名的任务打回：作废待审动作，退回处理中，原因记下来（会进 Friday 的学习）。reason 用用户的原话。",
       { taskId: TASK_ID, reason: z.string().min(1).max(500) },
       async ({ taskId, reason }) => {
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能动任务，等用户回来。");
         const t = resolveTask(taskId);
         if (typeof t === "string") return text(t);
         rejectTask(t.id, reason);

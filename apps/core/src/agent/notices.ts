@@ -10,7 +10,10 @@ import { needOf } from "./needs.js";
 
 export function noticeText(t: Task, need: NonNullable<ReturnType<typeof needOf>>): string {
   if (need.kind === "brief") return `${taskTag(t)} · 方案待审\n${need.reason}\n说「#${t.seq} 按这个做」开工，或说哪里要改。`;
-  if (need.kind === "review") return `${taskTag(t)} · 待验收\n${deliveryText(t.report!, Boolean(t.source.headless))}`;
+  if (need.kind === "review") {
+    const how = t.pending?.some((a) => a.type === "git_merge") ? `\n说「#${t.seq} 合并吧」收下，或说哪里不对。` : t.pending?.some((a) => a.type === "slack_reply") ? `\n说「#${t.seq} 发」发出去，或说怎么改。` : "";
+    return `${taskTag(t)} · 待验收\n${deliveryText(t.report!, Boolean(t.source.headless))}${how}`;
+  }
   return `${taskTag(t)} · 卡住\n${need.reason}`;
 }
 
@@ -92,10 +95,9 @@ function digestText(minutes: number, needs: MainNeeds): string {
   const lines: string[] = [];
   let n = 0;
   for (const kind of NEED_ORDER) {
-    const label = NEED_LABEL[kind];
     for (const i of needs[kind]) {
       n++;
-      lines.push(`${label}${" ".repeat(label.length === 4 ? 2 : label.length === 3 ? 4 : 6)}#${i.seq} ${i.title.slice(0, 30)} · ${cut(i.reason ?? "")}`);
+      lines.push(`【${NEED_LABEL[kind]}】#${i.seq} ${i.title.slice(0, 30)} · ${cut(i.reason ?? "")}`);
     }
   }
   const doing = [...needs.working.map((i) => `#${i.seq} ${i.title.slice(0, 30)}`), ...needs.queued.map((i) => `#${i.seq} ${i.title.slice(0, 30)}（排队）`)];
@@ -115,6 +117,7 @@ export function presence(active: boolean, now = Date.now()): Message | undefined
   const id = mainConversationId();
   if (!listMessages(id).some((m) => m.kind === "notice" && Date.parse(m.createdAt) > away)) return undefined;
   const needs = mainNeeds();
+  if (!NEED_ORDER.some((k) => needs[k].length)) return undefined;
   const msg = addMessage(id, {
     role: "assistant",
     kind: "notice",

@@ -9,7 +9,7 @@ import { cancelRun, isRunning, startRun, subscribe } from "../agent/runs.js";
 import { subscribe as subscribeBus } from "../bus.js";
 import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
-import { claudeSessionId, conversationExists } from "../memory/conversations.js";
+import { addMessage, claudeSessionId, conversationExists } from "../memory/conversations.js";
 import { mainConversationId, mainResume } from "../memory/mainConversation.js";
 import { userSettings } from "../settings.js";
 import { existsSync } from "node:fs";
@@ -74,7 +74,16 @@ subscribeBus((ev) => {
   const next = queues.get(ev.id)?.shift();
   if (!next) return;
   if (!queues.get(ev.id)?.length) queues.delete(ev.id);
-  startRun(ev.id, next.prompt, askOptions(ev.id), next.attachments);
+  try {
+    startRun(ev.id, next.prompt, askOptions(ev.id), next.attachments);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.warn(`[ask] 排队的这句没能开跑：${reason}`);
+    queues.set(ev.id, [next, ...(queues.get(ev.id) ?? [])]);
+    try {
+      addMessage(ev.id, { role: "assistant", kind: "error", content: `排队的这句没能开跑：${reason}` });
+    } catch {}
+  }
 });
 
 export const ask = new Hono()

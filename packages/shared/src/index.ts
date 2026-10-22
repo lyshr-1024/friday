@@ -518,6 +518,8 @@ export interface Brief {
 }
 
 export interface TaskSource {
+  /** 最近一次进入 blocked 的时间，通知按它去重 */
+  blockedAt?: string;
   /** 知识库冷启动的锚点卡，值是项目名 */
   knowledgeBootstrap?: string;
   threadId?: string;

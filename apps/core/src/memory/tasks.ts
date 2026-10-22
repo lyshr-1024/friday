@@ -114,6 +114,7 @@ export function updateTask(
   const cur = getTask(id);
   if (!cur) return undefined;
   const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
+  if (cur.status !== "blocked" && next.status === "blocked") next.source.blockedAt = now();
   db()
     .prepare(
       "UPDATE tasks SET title = ?, project = ?, status = ?, priority = ?, understanding = ?, plan = ?, progress = ?, report = ?, pending = ?, due = ?, source = ?, attention = ?, pinned = ?, stage = ?, stage_by = ?, stage_at = ?, stage_prev = ?, stage_hint = ?, released_at = ?, updated_at = ? WHERE id = ?",

@@ -195,3 +195,18 @@ describe("会话工具点名任务", () => {
     expect(out).toBe(`这条任务的终端已经关掉了，转达不进去。要继续就对 #${t.seq} 丁 调 task_start 重开。`);
   });
 });
+
+describe("task_get 短号", () => {
+  it("两位数短号 #12 能查到", async () => {
+    let t = createTask({ title: "短号任务", kind: "verbal", source: {} });
+    while (t.seq < 12) t = createTask({ title: `填充${t.seq}`, kind: "verbal", source: {} });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await fridayTools().instance.connect(a);
+    const client = new Client({ name: "test", version: "1" });
+    await client.connect(b);
+    const r = await client.callTool({ name: "task_get", arguments: { id: "#12" } });
+    await client.close();
+    expect(r.isError).toBeFalsy();
+    expect((r.content as { text: string }[])[0]!.text).toContain("#12");
+  });
+});
