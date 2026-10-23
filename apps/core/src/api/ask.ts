@@ -10,7 +10,7 @@ import { subscribe as subscribeBus } from "../bus.js";
 import { config } from "../config.js";
 import { loadMemoryContext } from "../memory/context.js";
 import { addMessage, claudeSessionId, conversationExists } from "../memory/conversations.js";
-import { mainConversationId, mainResume } from "../memory/mainConversation.js";
+import { mainConversationId, mainResume, recentDialogue } from "../memory/mainConversation.js";
 import { userSettings } from "../settings.js";
 import { existsSync } from "node:fs";
 import { transcriptPath } from "../agent/runner.js";
@@ -57,9 +57,10 @@ const existingTranscript = (session: string | undefined) => (session && existsSy
 function askOptions(conv: string) {
   const prefs = userSettings();
   // 路由到很久前的会话时 transcript 可能已被清掉，这时不带 resume 新开 Claude 会话，Friday 自己的消息记录还在
-  const resume = conv === mainConversationId() ? mainResume() : existingTranscript(claudeSessionId(conv));
+  const main = conv === mainConversationId();
+  const resume = main ? mainResume() : existingTranscript(claudeSessionId(conv));
   return {
-    systemPrompt: friday(loadMemoryContext(), prefs.skills, boardBlock(conv)),
+    systemPrompt: friday(loadMemoryContext(), prefs.skills, boardBlock(conv), undefined, main && !resume ? recentDialogue(conv) : undefined),
     cwd: config.dataDir,
     skills: prefs.skills,
     skillList: prefs.skillList,
