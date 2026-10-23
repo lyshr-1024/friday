@@ -482,6 +482,13 @@ export async function taskApprove(id: string, actionId: string, text?: string): 
   return res.json();
 }
 
+/** 挂着的 tool_call 不执行：只撤这一条，任务状态不动 */
+export async function taskDismissPending(id: string, actionId: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pending/${encodeURIComponent(actionId)}/dismiss`, { method: "POST" });
+  if (!res.ok) throw await errOf(res, "撤不掉");
+  return res.json();
+}
+
 export async function taskReject(id: string, reason: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) });
   if (!res.ok) throw await errOf(res, "打回失败");
