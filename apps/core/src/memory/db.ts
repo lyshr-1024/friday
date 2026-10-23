@@ -62,7 +62,13 @@ function migrateTaskDocs(d: DatabaseSync): void {
 function backupBeforeMigrate(d: DatabaseSync): string {
   const file = (d.prepare("PRAGMA database_list").all() as Array<{ name: string; file: string }>).find((r) => r.name === "main")?.file;
   if (!file) return "";
-  const path = backupDb(d, dirname(file));
+  let path: string;
+  try {
+    path = backupDb(d, dirname(file));
+  } catch (e) {
+    // 没有备份不迁：抛出去 core 起不来，至少日志和崩溃通知里写的是人能照着做的话
+    throw new Error(`迁移前备份数据库失败（${e instanceof Error ? e.message : String(e)}），没有动任何数据；腾出磁盘空间后重启 Friday`);
+  }
   console.log(`[migrate] 迁移前备份：${path}`);
   return path;
 }

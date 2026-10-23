@@ -154,6 +154,18 @@ describe("外部引用库迁移", () => {
     expect(backups(dir)).toContain("note.txt");
   });
 
+  it("备份失败（备份目录写不进去）：抛出说清怎么办的错，一点数据都没动", () => {
+    const { d, dir } = oldDb(true);
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES ('l1', 'meegle', '24440539', 'task', 'm1', 'rule', '旧边', ?, ?)").run(AT, AT);
+    writeFileSync(join(dir, "backups"), "不是目录");
+    const before = raw(d, "m1");
+    expect(() => migrate(d)).toThrow(/^迁移前备份数据库失败（.+），没有动任何数据；腾出磁盘空间后重启 Friday$/);
+    expect(marker(d)).toBeUndefined();
+    expect(raw(d, "m1")).toEqual(before);
+    expect(d.prepare("SELECT from_kind FROM links WHERE id = 'l1'").get()).toEqual({ from_kind: "meegle" });
+    expect(d.prepare("SELECT trigger FROM runs WHERE id = 'run1'").get()).toEqual({ trigger: "slack" });
+  });
+
   it("有一行 source 是坏 JSON：整体回滚、不写标记、启动照常；好行读出来仍是新形状", () => {
     const d = db();
     d.prepare("DELETE FROM sync_state WHERE source = ?").run(MIGRATION_KEY);
