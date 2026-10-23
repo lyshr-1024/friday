@@ -505,7 +505,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
-  it("Meegle Reopen、需求已不在测试中：照旧回进行中，只清交接标记", async () => {
+  it("Meegle Reopen、需求已不在测试中：同样回未开始重新排，带上没过的原因", async () => {
     const { root, bug: mk } = await testingStory("sbreopen2");
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
@@ -513,9 +513,21 @@ describe("交给需求会话修过的缺陷被重开", () => {
     updateTask(root.id, { stage: "released" });
     await syncMeegleOnce(reopened(bug.source.meegleId!));
     const after = getTask(bug.id)!;
-    expect(after).toMatchObject({ status: "understood", stage: "dev" });
+    expect(after).toMatchObject({ status: "understood", stage: "todo" });
     expect(after.source.handedAt).toBeUndefined();
-    expect(after.source.handBackNote).toBeUndefined();
+    expect(after.source.handBackNote).toContain("Reopen");
+    expect(typeof defectRoute(after)).not.toBe("string");
+    updateTask(bug.id, { status: "ignored" });
+  });
+
+  it("老版本自己开过工的缺陷（留着 jobId、没交接标记）被 Reopen：清掉 jobId 重新排", async () => {
+    const { root, bug: mk } = await testingStory("sbreopen5");
+    const bug = updateTask(mk().id, { status: "done", stage: "dev", source: { jobId: "old-own-job", autonomous: true, rootId: root.id } })!;
+    await syncMeegleOnce(reopened(bug.source.meegleId!));
+    const after = getTask(bug.id)!;
+    expect(after).toMatchObject({ status: "understood", stage: "todo" });
+    expect(after.source.jobId).toBeUndefined();
+    expect(defectRoute(after)).toMatchObject({ kind: "hand" });
     updateTask(bug.id, { status: "ignored" });
   });
 
@@ -541,7 +553,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
-  it("Friday 里重新打开、需求不在测试中：回待办，只清交接标记", async () => {
+  it("Friday 里重新打开、需求不在测试中：同样回待办未开始，重新排", async () => {
     const { root, bug: mk } = await testingStory("sbreopen4");
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
@@ -549,9 +561,10 @@ describe("交给需求会话修过的缺陷被重开", () => {
     updateTask(root.id, { stage: "released" });
     await reopenTask(bug.id);
     const after = getTask(bug.id)!;
-    expect(after).toMatchObject({ status: "understood", stage: "testing" });
+    expect(after).toMatchObject({ status: "understood", stage: "todo" });
     expect(after.source.handedAt).toBeUndefined();
-    expect(after.source.handBackNote).toBeUndefined();
+    expect(after.source.handBackNote).toBe("你在 Friday 里重新打开了它");
+    expect(typeof defectRoute(after)).not.toBe("string");
     updateTask(bug.id, { status: "ignored" });
   });
 });

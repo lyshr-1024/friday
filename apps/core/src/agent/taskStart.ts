@@ -7,7 +7,8 @@ import { finishRun, openRunForTask, pendingRunsForTask, setRunOutcome } from "..
 import { usableBriefDetail } from "./brief.js";
 import { clearHanded } from "./handedBugs.js";
 import { createFixCard, handToStorySession, startAutonomousJob, startFixCard } from "./pipeline.js";
-import { defectRoute, fixCardOf, storyOf } from "./autostart.js";
+import { defectRoute } from "./autostart.js";
+import { fixCardOf, storyOf } from "./story.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { TmuxMissingError } from "./tmux.js";
 

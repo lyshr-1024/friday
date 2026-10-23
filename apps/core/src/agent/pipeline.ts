@@ -20,6 +20,7 @@ import { autonomousPrompt, storyBugPrompt } from "./runner.js";
 import { untrusted } from "./fence.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
 import { hasSession } from "./tmux.js";
+import { storyOf } from "./story.js";
 import { kickAutostart, state } from "../scheduler/index.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { collectReport, collectShots, queryReplyDraft } from "./report.js";
@@ -112,16 +113,15 @@ export async function reopenTask(id: string, opts: { revive?: boolean; why?: str
   const was = t.source.priorWorktrees ?? [];
   const kept = was.filter((w) => existsSync(w.path));
   const prior = tree && repo && !kept.some((w) => w.path === tree) ? [...kept, { path: tree, repoDir: repo }] : kept;
-  // 交给需求会话修过的缺陷：旧 jobId 是需求会话里早退了的一次 -p，回待办让门禁重新交代
-  const handed = Boolean(t.source.handedAt) && !opts.fresh;
-  const story = handed ? resolveRoot(t) : undefined;
-  const rehand = story && story.id !== t.id && story.stage === "testing";
+  // 挂在需求下的缺陷（交代过的、或老版本自己开过工的）：回待办未开始，下一轮按路由重新交给需求会话或修复卡
+  const handed = (Boolean(t.source.handedAt) || Boolean(storyOf(t))) && !opts.fresh;
+  const rehand = handed && Boolean(storyOf(t));
   const task = updateTask(id, {
     status: t.source.jobId && !opts.fresh && !handed ? "processing" : "understood",
     attention: undefined,
     releasedAt: undefined,
     ...(opts.fresh ? { source: { branch: undefined, worktree: undefined, ...(prior.length !== was.length || prior.some((w, i) => w !== was[i]) ? { priorWorktrees: prior } : {}) } } : {}),
-    ...(handed ? { source: { ...clearHanded(t).source, ...(rehand ? { handBackNote: "你在 Friday 里重新打开了它" } : {}) } } : {}),
+    ...(handed ? { source: { ...clearHanded(t).source, jobId: undefined, autonomous: undefined, ...(rehand ? { handBackNote: "你在 Friday 里重新打开了它" } : {}) } } : {}),
     ...(rehand ? { stage: "todo" as const } : {}),
   })!;
   if (!opts.fresh) for (const r of runsForTask(id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified" || r.outcome === "abandoned") setRunOutcome(r.id, "reopened", "你在 Friday 里重新打开");

@@ -3,7 +3,8 @@ import { record } from "../memory/audit.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { getJob } from "../memory/jobs.js";
 import { isFridayProject, loadProjects, resolveProject } from "../memory/projects.js";
-import { findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { listTasks, updateTask } from "../memory/tasks.js";
+import { OPEN_STATUS, fixCardOf, storyOf } from "./story.js";
 import { state } from "../scheduler/index.js";
 import { userSettings } from "../settings.js";
 import { getTermSession } from "../memory/termSessions.js";
@@ -43,19 +44,7 @@ export interface StoryEnv {
   batchAt: string;
 }
 
-const OPEN_STATUS = new Set<Task["status"]>(["collected", "understood", "processing", "review", "blocked"]);
 const isOpenTask = (t: Task | undefined): t is Task => Boolean(t && OPEN_STATUS.has(t.status));
-
-/** 缺陷挂在哪张需求下：rootId 指的那张（修复卡换回它替的需求），没有就按 Meegle 关联的需求号找 */
-export function storyOf(t: Task): Task | undefined {
-  if (taskCategory(t.source) !== "defect") return undefined;
-  const r = t.source.rootId ? getTask(t.source.rootId) : undefined;
-  if (r) return r.source.fixFor ? (getTask(r.source.fixFor) ?? r) : r;
-  const id = t.source.linkedStoryId;
-  return id ? findTaskBySource((s) => s.meegleId === id || (s.mergedMeegleIds ?? []).includes(id), true) : undefined;
-}
-
-export const fixCardOf = (story: Task): Task | undefined => listTasks([...OPEN_STATUS], 2000).find((x) => x.source.fixFor === story.id);
 
 const liveSession = (id: string): TermSession | undefined => {
   const s = getTermSession(id);

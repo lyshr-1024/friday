@@ -17,6 +17,7 @@ import { holdClosedDefect, isFridayWork } from "./reproject.js";
 import { clearHanded } from "./handedBugs.js";
 import { getJob } from "../memory/jobs.js";
 import { liveRootId, resolveRoot } from "./sessions.js";
+import { storyOf } from "./story.js";
 
 export const meegleState = { lastSyncAt: null as string | null, lastError: null as string | null, running: false };
 
@@ -306,10 +307,10 @@ export async function syncMeegleOnce(items?: WorkItemsRole): Promise<{ added: nu
         if (existing.source.handedAt && existing.source.jobId && getJob(existing.source.jobId)?.status === "running") continue;
         const { status: _s, ...patch } = input;
         // 阶段也得跟着回退，留着「已上线」这类旧阶段是个早就不成立的结论：一般回「进行中」等你重新判；
-        // 交给需求会话修过、需求还在测试中的回「未开始」，门禁下一轮把它重新交代进去，带上这句没过的原因
-        const story = existing.source.handedAt ? resolveRoot(existing) : undefined;
-        const rehand = story && story.id !== existing.id && story.stage === "testing";
-        const source = { ...input.source, ...clearHanded(existing).source, ...(rehand ? { handBackNote: `测试在 Meegle 里把它 Reopen 了（${item.status}），上一轮的修法没过` } : {}) };
+        // 挂在需求下的缺陷（不管需求在哪个阶段）回「未开始」，下一轮按路由重新交给需求会话或修复卡，带上这句没过的原因。
+        // 老版本自己开过工留着的 jobId 一并清掉，不然路由当它「已经开过工」
+        const rehand = Boolean(storyOf(existing));
+        const source = { ...input.source, ...clearHanded(existing).source, ...(rehand ? { jobId: undefined, autonomous: undefined, handBackNote: `测试在 Meegle 里把它 Reopen 了（${item.status}），上一轮的修法没过` } : {}) };
         updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source, stage: rehand ? "todo" : "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
         record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
         // 合进去的改动被打回来了：这是比「被你改过」更强的负信号
