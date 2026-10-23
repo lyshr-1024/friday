@@ -49,7 +49,7 @@ const defaultStoryEnv: StoryEnv = {
 
 export function testingStoryBug(t: Task, env: StoryEnv = defaultStoryEnv): { root: Task } | string {
   if (t.status !== "understood" || t.kind !== "work_item") return "不在排队里";
-  if (taskCategory(t.source) !== "defect") return "不是缺陷";
+  if (taskCategory(t) !== "defect") return "不是缺陷";
   if (t.source.jobId) return "已经有终端";
   if (t.stage && t.stage !== "todo") return `已经在${STAGE_LABEL[t.stage]}`;
   if (t.attention) return "卡上还挂着要你回答的问题";
@@ -98,7 +98,7 @@ export function pickStoryBugs(tasks: Task[], env: StoryEnv = defaultStoryEnv): A
 
 /** 缺陷挂在测试中的需求下：不管此刻交代得了交代不了，都走需求会话那条路，不建卡、不走通用门禁 */
 export function yieldsToStory(t: Task, root: (t: Task) => Task | undefined = defaultRoot): boolean {
-  return taskCategory(t.source) === "defect" && root(t)?.stage === "testing";
+  return taskCategory(t) === "defect" && root(t)?.stage === "testing";
 }
 
 /** 缺陷和需求同一条：理解卡审过（或按项目规则不用审）、没过期、依赖齐了就自己开，不看 intake */

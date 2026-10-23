@@ -82,8 +82,8 @@ function dueLabel(iso: string): string {
   return `${days} 天后到期`;
 }
 
-const isIssue = (t: Task) => taskCategory(t.source) === "defect";
-const isStory = (t: Task) => taskCategory(t.source) === "story";
+const isIssue = (t: Task) => taskCategory(t) === "defect";
+const isStory = (t: Task) => taskCategory(t) === "story";
 const isClosed = (t: Task) => t.status === "done" || t.status === "ignored";
 const canStart = (t: Task) => !isClosed(t) && !(t.source.handedAt && t.status === "processing") && Boolean(t.project) && (!t.session?.name || t.session.status === "exited");
 /** 交代进需求会话的缺陷：只能再交代一次，不能自己开工（会另开会话、卡住需求的串行名额） */
@@ -176,7 +176,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能并进来的：别的任务，不看项目也不看状态。Slack 线程除外——那是一段对话，
   // 并进来没有意义。项目多数还没定，要合的那条也可能已经收工了，都不拦。
-  const bases = all.filter((x) => x.id !== t.id && taskCategory(x.source) !== "conversation" && x.status !== "done" && x.status !== "ignored");
+  const bases = all.filter((x) => x.id !== t.id && taskCategory(x) !== "conversation" && x.status !== "done" && x.status !== "ignored");
   return (
     <div className="fx__story">
       <MeegleChips t={t} />
@@ -628,7 +628,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
   const queued = [...onBoard].sort(byTier);
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
   const QUEUE_GROUPS: TaskCategory[] = ["conversation", "defect", "story", "other"];
-  const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
+  const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t) === c);
   const queueCounts = Object.fromEntries(QUEUE_GROUPS.map((c) => [c, queuedBy(c).length])) as Record<TaskCategory, number>;
   const queueKey = QUEUE_GROUPS.map((c) => queueCounts[c]).join(",");
   useEffect(() => {

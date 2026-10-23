@@ -707,9 +707,13 @@ export function isFridayRun(source: TaskSource): boolean {
   return Boolean(source.autonomous || source.headless);
 }
 
-/** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
-export function taskCategory(source: TaskSource): TaskCategory {
-  if (source.external?.type === "conversation" || source.fromTaskId) return "conversation";
+/**
+ * 工单类型 → 分组。列表之外的自定义类型（Project 等）都算「其他」。
+ * 「Slack」一类只认对话任务本身（查询任务、老线程卡，kind 是 conversation）和情境卡派生的待办；
+ * HUD「建成任务」的口头任务也挂着对话，但它是普通任务（能当合并目标），不算这类
+ */
+export function taskCategory({ kind: taskKind, source }: { kind: TaskKind; source: TaskSource }): TaskCategory {
+  if (taskKind === "conversation" || source.fromTaskId) return "conversation";
   const kind = workItemOf(source)?.kind;
   if (kind === "story" || kind === "defect") return kind;
   return "other";

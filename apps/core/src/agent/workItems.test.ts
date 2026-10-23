@@ -150,20 +150,25 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
 
 describe("需求与缺陷分组", () => {
   it("story 归需求，issue 归缺陷，自定义类型和没有类型的归其他", () => {
-    const of = (typeKey: string) => ({ external: ref("1", { kind: rules.kindOf(typeKey) }) });
+    const of = (typeKey: string) => ({ kind: "work_item" as const, source: { external: ref("1", { kind: rules.kindOf(typeKey) }) } });
     expect(taskCategory(of("story"))).toBe("story");
     expect(taskCategory(of("issue"))).toBe("defect");
     expect(taskCategory(of("6a0d931f3129fdef6aba3188"))).toBe("other");
-    expect(taskCategory({})).toBe("other");
+    expect(taskCategory({ kind: "verbal", source: {} })).toBe("other");
     expect(TASK_CATEGORY_LABEL[taskCategory(of("story"))]).toBe("需求");
   });
 
-  it("Slack 线程单独一类，看 external 是不是对话认", () => {
-    const conv = { external: { tool: "slack", type: "conversation" as const, id: "C1:1.2" } };
-    expect(taskCategory(conv)).toBe("conversation");
-    expect(TASK_CATEGORY_LABEL[taskCategory(conv)]).toBe("Slack");
+  it("Slack 一类只认对话任务本身（查询任务、老线程卡）和情境卡派生的待办", () => {
+    const external = { tool: "slack", type: "conversation" as const, id: "C1:1.2" };
+    const query = { kind: "conversation" as const, source: { external, headless: true } };
+    expect(taskCategory(query)).toBe("conversation");
+    expect(TASK_CATEGORY_LABEL[taskCategory(query)]).toBe("Slack");
+    expect(taskCategory({ kind: "conversation", source: { external: { ...external, attrs: { legacy: "thread" } } } })).toBe("conversation");
+    expect(taskCategory({ kind: "verbal", source: { fromTaskId: "t1" } })).toBe("conversation");
+    // HUD「建成任务」：口头任务挂着一段对话，仍是普通任务，能被选作合并目标
+    expect(taskCategory({ kind: "verbal", source: { external } })).toBe("other");
     // Meegle 工单不是对话，不受影响
-    expect(taskCategory({ external: ref("1", { kind: "defect" }) })).toBe("defect");
+    expect(taskCategory({ kind: "work_item", source: { external: ref("1", { kind: "defect" }) } })).toBe("defect");
   });
 });
 

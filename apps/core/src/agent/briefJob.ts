@@ -33,7 +33,7 @@ function slackText(t: Task): string {
   return msgs.map((i) => `- ${i.channelName || "私聊"} · ${i.userName}：${i.text}`).join("\n").slice(0, 4000);
 }
 
-const isDefect = (t: Task): boolean => taskCategory(t.source) === "defect";
+const isDefect = (t: Task): boolean => taskCategory(t) === "defect";
 
 const DEFECT_RULE =
   "这是缺陷：先复现、定位。todo 写清现象、预期、改哪里；用例就是复现步骤反过来（修好后按复现步骤走一遍应该看到预期），至少一条；plan 落到具体文件。";
