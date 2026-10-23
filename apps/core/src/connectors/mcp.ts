@@ -63,6 +63,14 @@ async function post(ep: McpEndpoint, msg: Record<string, unknown>, label: string
   return { res, body };
 }
 
+async function handshake(ep: McpEndpoint, label: string, timeoutMs: number): Promise<string | undefined> {
+  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, label, timeoutMs);
+  const session = init.res.headers.get("mcp-session-id") ?? undefined;
+  parseRpcBody(init.body, label);
+  await post(ep, { method: "notifications/initialized" }, label, timeoutMs, session);
+  return session;
+}
+
 export async function callTool(
   server: string,
   tool: string,
@@ -72,10 +80,7 @@ export async function callTool(
   const label = opts.label ?? server;
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const ep = mcpEndpoint(server, opts.file);
-  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, label, timeoutMs);
-  const session = init.res.headers.get("mcp-session-id") ?? undefined;
-  parseRpcBody(init.body, label);
-  await post(ep, { method: "notifications/initialized" }, label, timeoutMs, session);
+  const session = await handshake(ep, label, timeoutMs);
   const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/call", params: { name: tool, arguments: args } }, label, timeoutMs, session)).body, label);
   if (msg.error) throw new McpError(`${tool} 失败：${msg.error.message}`);
   const blocks = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.filter((c) => c.type === "text").map((c) => c.text ?? "") ?? [];
@@ -85,10 +90,7 @@ export async function callTool(
 export async function listTools(server: string, opts: { file?: string; timeoutMs?: number } = {}): Promise<McpToolInfo[]> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const ep = mcpEndpoint(server, opts.file);
-  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, server, timeoutMs);
-  const session = init.res.headers.get("mcp-session-id") ?? undefined;
-  parseRpcBody(init.body, server);
-  await post(ep, { method: "notifications/initialized" }, server, timeoutMs, session);
+  const session = await handshake(ep, server, timeoutMs);
   const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/list", params: {} }, server, timeoutMs, session)).body, server);
   if (msg.error) throw new McpError(`列工具失败：${msg.error.message}`);
   return ((msg.result?.tools ?? []) as Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>).map((t) => ({ name: t.name, description: t.description ?? "", inputSchema: t.inputSchema ?? {} }));
