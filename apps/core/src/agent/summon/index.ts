@@ -10,7 +10,8 @@ import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
 import { identifyUrl, isLocalHost, sourceLine } from "../../connectors/urlSource.js";
 import { resolveLocalDev } from "../../connectors/localDev.js";
-import { docExcerpt, fetchLarkDoc } from "../../connectors/lark.js";
+import "../../connectors/lark/tool.js";
+import { role } from "../../connectors/roles.js";
 
 /** 文档正文的预算：到点没回来就不带正文直接问模型，卡上也只晚这么多 */
 const DOC_TIMEOUT_MS = 3_000;
@@ -92,8 +93,9 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const source = sourceLine(identified, snapshot.browser?.lane, localDev?.dir);
   // Lark 文档的正文页面 DOM 拿不到（虚拟渲染 + 目录评论栏混在一起），走 lark-cli；
   // 规则卡已经发出去了，这里等的只是模型那张卡
-  const larkDoc = identified?.kind === "lark_doc" ? await fetchLarkDoc(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
-  const doc = larkDoc ? docExcerpt(larkDoc, snapshot.selection) : undefined;
+  const docs = identified?.kind === "lark_doc" ? (() => { try { return role("docs"); } catch { return undefined; } })() : undefined;
+  const larkDoc = docs && identified?.kind === "lark_doc" ? await docs.read(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
+  const doc = docs && larkDoc ? docs.excerpt(larkDoc, snapshot.selection) : undefined;
 
   try {
     const card = await summonCard({

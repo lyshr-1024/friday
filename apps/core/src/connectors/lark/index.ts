@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 /**
  * Lark 云文档正文，走本机 lark-cli（登录态归 CLI 管，Friday 不碰凭证），和 Meegle 连接器同一个模式。
@@ -106,4 +107,24 @@ export function docExcerpt(doc: LarkDoc, selection?: string, max = 4000): string
     body = doc.text.length > budget ? `${doc.text.slice(0, budget)}…` : doc.text;
   }
   return [head, body].filter(Boolean).join("\n");
+}
+
+const LARK_HOST = /(^|\.)(feishu\.cn|larksuite\.com|larkoffice\.com)$/;
+
+export function ownsLarkUrl(url: string): boolean {
+  try {
+    return LARK_HOST.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function larkTitle(out: string): string | undefined {
+  const raw = out.trim().startsWith('"') ? (JSON.parse(out) as string) : out;
+  return raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || undefined;
+}
+
+export async function fetchLarkTitle(url: string): Promise<string | undefined> {
+  const { stdout } = await promisify(execFile)("lark-cli", ["docs", "+fetch", "--doc", url, "--jq", ".data.document.content"], { timeout: 15_000, maxBuffer: 32 * 1024 * 1024 });
+  return larkTitle(stdout);
 }

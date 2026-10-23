@@ -28,7 +28,9 @@ import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
 import { closeAfterReport, storeBrief } from "./briefJob.js";
 import { renderBrief } from "./brief.js";
-import { readChunk } from "./web.js";
+import "../connectors/web/tool.js";
+import { invokeTool } from "../connectors/invoke.js";
+import type { Chunk } from "../connectors/web/index.js";
 
 const execFileP = promisify(execFile);
 
@@ -172,12 +174,14 @@ export function bridgeToolsFor(jobId: string): BridgeTool[] {
   return BRIDGE_TOOLS;
 }
 
-async function webRead(args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
+async function webRead(jobId: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const url = String(args.url ?? "").trim();
   if (!/^https?:\/\//.test(url)) return { text: "url 只支持 http / https", isError: true };
   const offset = Number.isInteger(args.offset) && (args.offset as number) > 0 ? (args.offset as number) : 0;
   try {
-    const r = await readChunk(url, offset);
+    const res = await invokeTool({ kind: "model", why: "终端里的 Claude 读网页", jobId }, "web", "read", { url, offset });
+    if (res.kind !== "ok") return { text: res.kind === "refused" ? res.why : "没读到：网页读取不该走到这里", isError: true };
+    const r = res.value as Chunk;
     if (r.kind === "login") return { text: `读不到，要登录：${r.url}，写进 plan 的要你拍板` };
     const rest = r.next !== undefined ? `还没读完，下一段 offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
     return { text: `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）\n${untrusted("web", `标题：${r.title}\n地址：${r.url}\n\n${r.text}`)}\n${rest}` };
@@ -389,7 +393,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     const anchor = ownerOf(job);
     const taskId = anchor?.source.briefFor;
     if (!taskId) return { text: "这个工具只给建理解卡用", isError: true };
-    if (name === "friday_web_read") return webRead(args);
+    if (name === "friday_web_read") return webRead(jobId, args);
     const r = storeBrief(taskId, args, anchor!.source.briefBuild!);
     if (!r.ok) return { text: `${r.error}。照这个改了再调一次 friday_brief。`, isError: true };
     closeAfterReport(job.id, anchor!.id);

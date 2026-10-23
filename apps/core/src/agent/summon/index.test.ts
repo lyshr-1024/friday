@@ -8,9 +8,11 @@ vi.mock("../../memory/projects.js", async (orig) => ({ ...(await orig<object>())
 const larkMock = vi.fn();
 const localDevMock = vi.fn();
 vi.mock("../../connectors/localDev.js", async (orig) => ({ ...(await orig<object>()), resolveLocalDev: localDevMock }));
-vi.mock("../../connectors/lark.js", async (orig) => ({ ...(await orig<object>()), fetchLarkDoc: larkMock }));
+vi.mock("../../connectors/lark/index.js", async (orig) => ({ ...(await orig<object>()), fetchLarkDoc: larkMock }));
 
 const { summon, trimUrl } = await import("./index.js");
+const { seedBuiltins } = await import("../../connectors/builtin.js");
+seedBuiltins();
 
 function snap(over: Partial<Snapshot> = {}): Snapshot {
   return {

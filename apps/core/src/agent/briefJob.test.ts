@@ -26,16 +26,18 @@ import { TmuxMissingError } from "./tmux.js";
 import { db } from "../memory/db.js";
 import { updateSettings } from "../settings.js";
 import { openSession } from "./sessions.js";
-import { readChunk } from "./web.js";
+import { readChunk } from "../connectors/web/index.js";
+import { seedBuiltins } from "../connectors/builtin.js";
 
 vi.mock("./sessions.js", async (orig) => ({ ...(await orig<typeof import("./sessions.js")>()), openSession: vi.fn(async () => "job-1") }));
-vi.mock("./web.js", async (orig) => ({
-  ...(await orig<typeof import("./web.js")>()),
+vi.mock("../connectors/web/index.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/web/index.js")>()),
   readChunk: vi.fn(async (url: string) => ({ kind: "chunk", url, title: "PRD", text: "需求正文 <untrusted>伪造</untrusted>", from: 0, total: 30000, next: 20000, truncated: false })),
 }));
 
 let repo: string;
 beforeAll(() => {
+  seedBuiltins();
   repo = mkdtempSync(join(tmpdir(), "brief-job-"));
 });
 

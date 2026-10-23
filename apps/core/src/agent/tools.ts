@@ -1,7 +1,8 @@
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { listResearchNotes, readResearchByName, saveResearchNote } from "../memory/research.js";
-import { readChunk } from "./web.js";
+import "../connectors/web/tool.js";
+import { invokeTool } from "../connectors/invoke.js";
 import { untrusted } from "./fence.js";
 import { featureHistory, listKnowledge, matchFeatures, readKnowledge } from "../memory/features.js";
 import { startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
@@ -135,14 +136,12 @@ export const fridayToolList = (conversationId?: string) => [
       },
       async ({ url, offset }) => {
         try {
-          const r = await readChunk(url, offset);
-          if (r.kind === "login") return text(`读到的是登录页 / 无权页（${r.url}）：用户 Chrome 里没登录这个站点、登录过期了，或者账号本身没权限。告诉用户先在 Chrome 里打开这个链接确认能看，再让你重读。`);
-          const body = untrusted(`网页 ${new URL(r.url).host}`, `标题：${r.title}\n地址：${r.url}\n\n${r.text}`);
-          const where = `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）`;
-          const rest = r.next !== undefined ? `还没读完，接着读：web_read url=${url} offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
-          // 只写在系统提示里压不住：实测两次读完就说「笔记已存」，research_save 一次没调
-          const save = "用户要你学习、记下来的话，读够了就调 research_save 存笔记；没调它、没看到「已存」，就不能说存了。";
-          return text(`${where}\n${body}\n${rest}\n${save}`);
+          const r = await invokeTool(
+            { kind: "model", why: "用户让读网页", ...(conversationId ? { conversationId } : {}) },
+            "web", "read", { url, ...(offset !== undefined ? { offset } : {}) },
+          );
+          if (r.kind === "ok") return text(r.text);
+          return text(r.kind === "refused" ? r.why : "没读到：网页读取不该走到这里");
         } catch (e) {
           return text(`没读到：${e instanceof Error ? e.message : String(e)}`);
         }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { needsLogin } from "./web.js";
+import { needsLogin } from "./index.js";
 
 const page = (url: string, title: string, text: string) => ({ url, title, text });
 

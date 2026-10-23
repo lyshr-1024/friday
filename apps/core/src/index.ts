@@ -3,6 +3,9 @@ import { handleUpgrade, terminalSockets } from "./api/terminalSocket.js";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
+import { seedBuiltins } from "./connectors/builtin.js";
+import "./connectors/web/tool.js";
+import "./connectors/lark/tool.js";
 import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
@@ -13,6 +16,7 @@ import { writeTmuxConf } from "./agent/tmux.js";
 import { startNoticeWatcher } from "./agent/notices.js";
 
 initMemory();
+seedBuiltins();
 writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
 // 上次进程没了，库里还标着 running 的挨个问一句会话在不在：tmux 不跟着
