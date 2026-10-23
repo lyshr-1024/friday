@@ -3,7 +3,7 @@ import { SESSION_STATE_LABEL, STAGE_LABEL } from "@friday/shared";
 import { Icon } from "./Icon";
 import { MoreMenu, type DialogAction } from "./TaskDialog";
 
-export const KIND: Record<string, string> = { slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
+export const KIND: Record<string, string> = { conversation: "Slack", work_item: "Meegle", slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
 export const hhmm = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const mmdd = (d?: string) => (d ? d.slice(5) : "");
 

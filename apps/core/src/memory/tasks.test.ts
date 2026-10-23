@@ -163,3 +163,14 @@ describe("迁移期间新老两套来源键对齐", () => {
     expect(after.source.meegleTags).toEqual(["x"]);
   });
 });
+
+describe("同步整组写老键", () => {
+  it("清成 undefined 的节点、报告人经 updateTask 落库后重读也没有", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "节点", kind: "meegle", source: { meegleId: "888", nodeKey: "fe", nodeName: "前端", reporter: "r" } });
+    expect(t.source.external?.attrs).toMatchObject({ nodeKey: "fe", nodeName: "前端", reporter: "r" });
+    const after = updateTask(t.id, { source: { meegleId: "888", nodeKey: undefined, nodeName: undefined, reporter: undefined } })!;
+    expect(after.source.external?.attrs).toBeUndefined();
+    expect(getTask(t.id)!.source.external?.attrs).toBeUndefined();
+  });
+});

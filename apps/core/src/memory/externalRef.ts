@@ -25,6 +25,7 @@ const WORK_ATTRS = [
 ] as const;
 
 const WORK = new Set<string>(WORK_KEYS);
+const DERIVED_ATTRS = new Set<string>(["typeKey", ...WORK_ATTRS.map(([, a]) => a)]);
 const CHAT = new Set<string>(CHAT_KEYS);
 
 function parentOf(r: Raw): ExternalRef["parent"] {
@@ -146,7 +147,9 @@ function patchWorkItem(s: Raw, touched: string[]): void {
   const ext = s.external as ExternalRef | undefined;
   if (!ext || ext.type !== "work_item" || touched.includes("meegleId")) {
     const fresh = workItemFromLegacy(s);
-    if (fresh) s.external = { ...fresh, ...(ext?.type === "work_item" && ext.attrs ? { attrs: { ...ext.attrs, ...fresh.attrs } } : {}) };
+    const kept = ext?.type === "work_item" ? Object.fromEntries(Object.entries(ext.attrs ?? {}).filter(([k]) => !DERIVED_ATTRS.has(k))) : {};
+    const attrs = { ...kept, ...fresh?.attrs };
+    if (fresh) s.external = { ...fresh, ...(Object.keys(attrs).length ? { attrs } : {}) };
     else if (ext?.type === "work_item") s.external = conversationFromLegacy(s);
     return;
   }

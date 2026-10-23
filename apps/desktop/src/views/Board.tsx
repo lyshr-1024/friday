@@ -1200,7 +1200,7 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { chat_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { chat_reply: "发", slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
 
 /** 挂着的外部工具调用：只撤这一条，不打回整条任务（打回会作废别的待审、把这一轮记成被打回） */
 function DismissToolCall({ t, a, onAct }: { t: Task; a: PendingAction; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {

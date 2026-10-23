@@ -207,3 +207,32 @@ describe("syncSourcePatch 边界", () => {
     expect(s.statusKey).toBe("CLOSED");
   });
 });
+
+describe("老键清空不留旧值", () => {
+  it("带 meegleId 的整组补丁把 attrs 清成 undefined 的键一起清掉，重读一致", () => {
+    const cur = normalizeSource(meegleDefect);
+    const patch = { meegleId: "24420780", nodeKey: undefined, nodeName: undefined, reporter: undefined, linkedStoryId: undefined, linkedStoryName: undefined, feDue: undefined, beDue: undefined, meegleTags: undefined, statusKey: undefined } as Partial<TaskSource>;
+    const s = syncSourcePatch(cur, patch);
+    expect(s.external?.attrs).toEqual({ typeKey: "issue", space: "projectlb" });
+    for (const k of ["parent", "schedule", "tags", "state"] as const) expect(s.external?.[k], k).toBeUndefined();
+    const reread = normalizeSource(JSON.parse(JSON.stringify(s)) as Record<string, unknown>);
+    expect(reread.external).toEqual(s.external);
+  });
+
+  it("工具自己加的 attrs 在重建时留着", () => {
+    const cur = normalizeSource({ ...meegleDefect, external: { ...normalizeSource(meegleDefect).external!, attrs: { ...normalizeSource(meegleDefect).external!.attrs, extra: "x" } } });
+    const s = syncSourcePatch(cur, { meegleId: "24420780", reporter: undefined } as Partial<TaskSource>);
+    expect(s.external?.attrs?.extra).toBe("x");
+    expect(s.external?.attrs?.reporter).toBeUndefined();
+  });
+
+  it("对话侧：channelId / threadTs / userName 清空后 external 里也没有", () => {
+    const cur = normalizeSource(slackQuery);
+    const patch = { channelId: undefined, threadTs: undefined, userName: undefined } as Partial<TaskSource>;
+    const s = syncSourcePatch(cur, patch);
+    expect(s.external).toEqual({ tool: "slack", type: "conversation", id: "C1:1.2" });
+    expect(normalizeSource(JSON.parse(JSON.stringify(s)) as Record<string, unknown>).external).toEqual(s.external);
+    const s2 = syncSourcePatch(cur, { conversation: "C1:1.2", channelId: undefined, userName: undefined } as Partial<TaskSource>);
+    expect(s2.external).toEqual({ tool: "slack", type: "conversation", id: "C1:1.2", attrs: { threadTs: "1.2" } });
+  });
+});
