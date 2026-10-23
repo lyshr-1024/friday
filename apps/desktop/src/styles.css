@@ -1836,6 +1836,13 @@ body,
   margin: 1px;
   background: var(--green);
 }
+/* 健康点：上面的 .dot 基础规则在后面，会盖掉前面的 .dot--ok / .dot--down */
+.dot--ok {
+  background: var(--ok);
+}
+.dot--down {
+  background: var(--bad);
+}
 
 /* 「待验收」：和其他状态点同尺寸，绿色 */
 .dot--accept {

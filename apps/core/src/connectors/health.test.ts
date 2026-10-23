@@ -1,12 +1,19 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import "./meegle/index.js";
 import { seedBuiltins } from "./builtin.js";
 import { getTool, saveTool } from "./registry.js";
 import { role } from "./roles.js";
 import { checkHealth } from "./health.js";
 import { fridayToolList } from "../agent/tools.js";
+
+const prevClaudeJson = process.env.FRIDAY_CLAUDE_JSON;
+
+afterEach(() => {
+  if (prevClaudeJson === undefined) delete process.env.FRIDAY_CLAUDE_JSON;
+  else process.env.FRIDAY_CLAUDE_JSON = prevClaudeJson;
+});
 
 describe("工具健康检查", () => {
   it("登记了 okr 但 ~/.claude.json 里没有：失败、不影响 builtin、主对话不抛", async () => {
