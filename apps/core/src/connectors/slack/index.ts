@@ -25,6 +25,8 @@ import { liveConversation } from "./live.js";
 import { displayNames, priorContext, priorText, userNames, type PriorContext } from "./roster.js";
 import { ownsApp, parseTitle } from "./title.js";
 
+export const SLACK_NOT_CONNECTED = "Slack 未接入";
+
 // 同步链路缓存登录态，失效时 resetAuth 丢掉；发送、撤回、呼出每次现读钥匙串
 let creds: SlackCreds | undefined;
 
@@ -35,7 +37,7 @@ async function syncApi() {
 
 async function freshApi() {
   const c = await loadSlackCreds();
-  if (!c) throw new Error("Slack 未接入");
+  if (!c) throw new Error(SLACK_NOT_CONNECTED);
   return slackCaller(c);
 }
 
@@ -128,13 +130,13 @@ implementRole("chat", "slack", {
   },
   async pull(me, cursors, now, teamUrl) {
     const api = await syncApi();
-    if (!api) throw new Error("Slack 未接入");
+    if (!api) throw new Error(SLACK_NOT_CONNECTED);
     return fetchSlack(api, me, cursors, now, teamUrl);
   },
   context,
   async settledChecker(me) {
     const api = await syncApi();
-    if (!api) throw new Error("Slack 未接入");
+    if (!api) throw new Error(SLACK_NOT_CONNECTED);
     const lastRead = await fetchLastRead(api);
     return async (item) => isRead(item, lastRead, item.channelId) || (await repliedSince(api, me, item));
   },

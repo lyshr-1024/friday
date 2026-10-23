@@ -131,7 +131,11 @@ export async function syncSlackOnce(): Promise<number> {
     return added.length;
   } catch (e) {
     state.lastError = e instanceof Error ? e.message : String(e);
-    if (/invalid_auth|not_authed|token_revoked/.test(state.lastError)) chat?.resetAuth();
+    if (/invalid_auth|not_authed|token_revoked/.test(state.lastError)) {
+      // 下一轮从 self() 重来：钥匙串空了就安静标没接入，换了账号也能认出新的 me
+      chat?.resetAuth();
+      me = "";
+    }
     console.error(`[slack] ${state.lastError}`);
     return 0;
   } finally {

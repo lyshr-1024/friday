@@ -33,7 +33,7 @@ import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
-import "../connectors/slack/index.js";
+import { SLACK_NOT_CONNECTED } from "../connectors/slack/index.js";
 import { getJob } from "../memory/jobs.js";
 import { closeProjectAnchor, openProjectShell, openProjectTerminal, projectOverview, projectTerminals } from "../agent/projectTerminal.js";
 import { invokeTool } from "../connectors/invoke.js";
@@ -554,11 +554,14 @@ export const tasks = new Hono()
     if (getEvent(c.req.param("id"))?.status === "undone") return c.json({ error: "这条已经撤销过了" }, 409);
     if (plan.kind === "delete_slack_message") {
       const chat = chatRole();
-      if (!chat || !(await chat.configured())) return c.json({ error: "Slack 未接入" }, 400);
+      if (!chat) return c.json({ error: SLACK_NOT_CONNECTED }, 400);
+      const taskId = getEvent(c.req.param("id"))?.taskId;
       try {
-        await chat.remove({ channel: plan.channel, ts: plan.ts }, { kind: "user", why: "你点了撤销" });
+        await chat.remove({ channel: plan.channel, ts: plan.ts }, { kind: "user", why: "你点了撤销", ...(taskId ? { taskId } : {}) });
       } catch (e) {
-        return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg === SLACK_NOT_CONNECTED) return c.json({ error: msg }, 400);
+        return c.json({ error: `撤回失败：${msg}` }, 409);
       }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
