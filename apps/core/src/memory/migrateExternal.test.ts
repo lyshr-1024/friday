@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -129,24 +129,29 @@ describe("外部引用库迁移", () => {
     expect(existsSync(join(dir, "backups"))).toBe(false);
   });
 
-  it("连续四次迁移失败：备份只留最新 3 份，别的文件不碰", () => {
-    const { d, dir } = oldDb();
+  it("连续五次迁移失败：备份留最早那份（迁移前的原样）加最新 2 份，别的文件不碰", () => {
+    const { d, dir } = oldDb(true);
+    d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES ('l1', 'meegle', '24440539', 'task', 'm1', 'rule', '旧边', ?, ?)").run(AT, AT);
     addTask(d, "bad", "verbal", "{not json");
     d.exec("ALTER TABLE tasks ADD COLUMN stage TEXT");
     d.exec("ALTER TABLE tasks ADD COLUMN stage_by TEXT");
     d.prepare("UPDATE tasks SET stage = 'todo', stage_by = 'auto' WHERE id = 'bad'").run();
+    mkdirSync(join(dir, "backups"));
+    writeFileSync(join(dir, "backups", "note.txt"), "");
     const seen: string[][] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const before = new Set(backups(dir));
       migrate(d);
       seen.push(backups(dir).filter((f) => !before.has(f)));
     }
     expect(marker(d)).toBeUndefined();
-    expect(seen.map((s) => s.length)).toEqual([1, 1, 1, 1]);
+    expect(seen.map((s) => s.length)).toEqual([1, 1, 1, 1, 1]);
     const left = backups(dir).filter((f) => f.startsWith("todos-"));
-    expect(left).toHaveLength(3);
-    expect(left).not.toContain(seen[0]![0]);
-    for (const s of seen.slice(1)) expect(left).toContain(s[0]);
+    expect(left.sort()).toEqual([seen[0]![0]!, seen[3]![0]!, seen[4]![0]!].sort());
+    const first = new DatabaseSync(join(dir, "backups", seen[0]![0]!), { readOnly: true });
+    expect(first.prepare("SELECT from_kind, from_ref FROM links").all()).toEqual([{ from_kind: "meegle", from_ref: "24440539" }]);
+    first.close();
+    expect(backups(dir)).toContain("note.txt");
   });
 
   it("有一行 source 是坏 JSON：整体回滚、不写标记、启动照常；好行读出来仍是新形状", () => {

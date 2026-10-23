@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { PendingAction } from "@friday/shared";
@@ -16,17 +16,25 @@ export function backupDb(d: DatabaseSync, dir: string): string {
   mkdirSync(folder, { recursive: true });
   const t = new Date();
   const stamp = `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
-  let path = join(folder, `todos-${stamp}.db`);
-  for (let n = 2; existsSync(path); n++) path = join(folder, `todos-${stamp}-${n}.db`);
+  // 同一秒里的序号接着最大的往后排：中间那份被清掉后复用它的号，新备份会排在旧的前面被当成旧的删掉
+  const taken = readdirSync(folder)
+    .map((f) => BACKUP_NAME.exec(f))
+    .filter((m) => m?.[1] === stamp)
+    .map((m) => Number(m![2] ?? 1));
+  const n = taken.length ? Math.max(...taken) + 1 : 1;
+  const path = join(folder, n === 1 ? `todos-${stamp}.db` : `todos-${stamp}-${n}.db`);
   d.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
   pruneBackups(folder);
   return path;
 }
 
-const KEEP_BACKUPS = 3;
+const KEEP_NEWEST = 2;
 const BACKUP_NAME = /^todos-(\d{8}-\d{6})(?:-(\d+))?\.db$/;
 
-/** 迁移一直失败时每次启动都会备份一次，只留最新 3 份；只碰本函数起名格式的文件 */
+/**
+ * 迁移一直失败时每次启动都会备份一次。最早那份是唯一没被失败后继续跑的 Friday 改过的原样，一直留着；
+ * 另外只留最新 2 份。只碰本函数起名格式的文件
+ */
 function pruneBackups(folder: string): void {
   const key = (name: string) => {
     const m = BACKUP_NAME.exec(name)!;
@@ -40,7 +48,7 @@ function pruneBackups(folder: string): void {
       const [tb, nb] = key(b);
       return ta < tb ? -1 : ta > tb ? 1 : na - nb;
     });
-  for (const f of files.slice(0, -KEEP_BACKUPS)) rmSync(join(folder, f));
+  for (const f of files.slice(1, -KEEP_NEWEST)) rmSync(join(folder, f));
 }
 
 export function externalRefsMigrated(d: DatabaseSync): boolean {
