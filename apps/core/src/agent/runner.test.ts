@@ -125,3 +125,12 @@ describe("自主任务提示词", () => {
     expect(deny).toContain("friday_blocked");
   });
 });
+
+describe("--strict-mcp-config", () => {
+  const files = { settings: "/s.json", mcp: "/m.json" } as Parameters<typeof claudeArgs>[0];
+  it("Friday 驾驶的会话带，用户驾驶的不带", () => {
+    expect(claudeArgs(files, { kind: "autonomous" })).toContain("--strict-mcp-config");
+    expect(claudeArgs(files, { kind: "query", print: true })).toContain("--strict-mcp-config");
+    expect(claudeArgs(files, { kind: "interactive" })).not.toContain("--strict-mcp-config");
+  });
+});

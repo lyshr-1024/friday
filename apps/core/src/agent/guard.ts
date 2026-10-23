@@ -39,8 +39,17 @@ export function protectedRules(patterns: string[]): Array<[pattern: string, why:
   ];
 }
 
-export function forbidden(command: string, patterns: string[] = DEFAULT_PROTECTED): string | undefined {
-  for (const [pattern, why] of [...FORBIDDEN, ...protectedRules(patterns)]) if (new RegExp(pattern).test(command)) return why;
+/** 已登记工具的命令行：只在命令位置（行首、; && || | ( 反引号 $( 之后，可带路径，或 npx / pnpm dlx / bunx 的第一个参数）才拦，作参数或文件名不拦 */
+export function binaryRules(binaries: string[]): Array<[pattern: string, why: string]> {
+  return binaries.map((b) => {
+    const esc = b.replace(/[.+?^${}()|[\]\\*-]/g, "\\$&");
+    const lead = "(?:^|[;&|(`]|\\$\\()\\s*(?:(?:npx|bunx|pnpm\\s+dlx)\\s+(?:-\\S+\\s+)*)?";
+    return [`${lead}(?:\\S*/)?${esc}(?=\\s|$|[;&|)\`])`, `${b} 已登记为 Friday 的外部工具，经 tool_call 调用，不要在 Bash 里直接跑`];
+  });
+}
+
+export function forbidden(command: string, patterns: string[] = DEFAULT_PROTECTED, binaries: string[] = []): string | undefined {
+  for (const [pattern, why] of [...FORBIDDEN, ...protectedRules(patterns), ...binaryRules(binaries)]) if (new RegExp(pattern).test(command)) return why;
   return undefined;
 }
 

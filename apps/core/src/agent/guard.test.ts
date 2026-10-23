@@ -73,3 +73,14 @@ describe("只读任务的工具守卫", () => {
     expect(forbiddenTool("Bash")).toBeUndefined();
   });
 });
+
+describe("已登记工具的命令行", () => {
+  const b = ["meegle", "lark-cli"];
+  it("命令位置出现就拦", () => {
+    for (const c of ["meegle mywork todo", "/opt/homebrew/bin/meegle workitem get", "cd x && meegle auth status", "npx lark-cli docs +fetch --doc u", "echo $(lark-cli docs +fetch)", "pnpm dlx meegle x"])
+      expect(forbidden(c, [], b), c).toContain("已登记为 Friday 的外部工具");
+  });
+  it("作为参数或文件名不拦", () => {
+    for (const c of ["cat meegle.md", "grep -rn lark-cli docs/", "git commit -m 'fix meegle sync'"]) expect(forbidden(c, [], b), c).toBeUndefined();
+  });
+});

@@ -8,9 +8,10 @@ import { config } from "../config.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
+import { guardedBinaries } from "../connectors/registry.js";
 import { preselect } from "./toolCatalog.js";
 import { HEADLESS_MODEL } from "./claude.js";
-import { FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
+import { binaryRules, FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
 import { isFridayProject, protectedBranches } from "../memory/projects.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
@@ -175,7 +176,7 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
 export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, patterns: string[] = protectedBranches()): string {
-  const rules = [...FORBIDDEN, ...protectedRules(patterns)];
+  const rules = [...FORBIDDEN, ...protectedRules(patterns), ...binaryRules(guardedBinaries())];
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`
@@ -251,6 +252,7 @@ export function claudeArgs(files: ClaudeFiles, launch: { kind: TermSessionKind; 
     files.settings,
     "--mcp-config",
     files.mcp,
+    ...(fridayDriven ? ["--strict-mcp-config"] : []),
     "--append-system-prompt",
     terminalBridgePrompt(fridayDriven ? undefined : project, fridayDriven),
   ];
