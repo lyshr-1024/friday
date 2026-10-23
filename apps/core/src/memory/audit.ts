@@ -37,6 +37,7 @@ export type Undo =
   | { kind: "restore_features"; snapshot: FeaturesSnapshot }
   | { kind: "restore_settings"; before: SettingsUpdate }
   | { kind: "restore_rules"; snapshot: RulesSnapshot }
+  | { kind: "tool_undo"; tool: string; op: string; args: Record<string, unknown> }
   | { kind: "none" };
 
 const toEvent = (r: Row): AuditEvent => ({

@@ -61,7 +61,8 @@ export function saveTool(reg: Omit<ToolRegistration, "createdAt" | "updatedAt">)
     d.prepare("DELETE FROM tool_ops WHERE tool = ?").run(reg.name);
     const ins = d.prepare("INSERT INTO tool_ops (tool, name, description, input_schema, level, level_by, template, undo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     for (const o of reg.ops) {
-      const level = o.level === "reversible" && !o.undo ? "irreversible" : o.level;
+      // builtin 的撤销由 run 返回，登记里不写 undo 说明
+      const level = o.level === "reversible" && !o.undo && reg.transport !== "builtin" ? "irreversible" : o.level;
       ins.run(reg.name, o.name, o.description, JSON.stringify(o.inputSchema), level, o.levelBy, o.template ? JSON.stringify(o.template) : null, o.undo ? JSON.stringify(o.undo) : null);
     }
     d.exec("COMMIT");

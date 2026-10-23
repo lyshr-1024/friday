@@ -36,6 +36,7 @@ import { priorContext, priorText } from "../memory/roster.js";
 import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
 import { getJob } from "../memory/jobs.js";
 import { closeProjectAnchor, openProjectShell, openProjectTerminal, projectOverview, projectTerminals } from "../agent/projectTerminal.js";
+import { invokeTool } from "../connectors/invoke.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
@@ -619,6 +620,16 @@ export const tasks = new Hono()
     }
     if (plan.kind === "restore_rules") {
       for (const project of restoreRules(plan.snapshot)) writeHandbook(project, renderHandbook(project));
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "tool_undo") {
+      try {
+        const r = await invokeTool({ kind: "user", why: "你点了撤销" }, plan.tool, plan.op, plan.args);
+        if (r.kind !== "ok") return c.json({ error: `撤销失败：${r.kind === "refused" ? r.why : r.kind}` }, 409);
+      } catch (e) {
+        return c.json({ error: `撤销失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+      }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
