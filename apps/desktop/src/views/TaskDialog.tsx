@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Task } from "@friday/shared";
-import { STAGE_LABEL } from "@friday/shared";
+import type { ClientTask as Task } from "@friday/shared";
+import { STAGE_LABEL, workItemOf } from "@friday/shared";
 import { Related } from "./Related";
 
 export interface DialogAction { label: string; run: () => void }
@@ -10,7 +10,7 @@ const FOCUSABLE = "button:not([disabled]), a[href], input:not([disabled]), texta
 
 function defectMeta(d: Task): string {
   const tail = d.stage === "testing" ? "已提测" : d.source.rootId ? "已在这个终端里改" : "";
-  return [`#${d.source.meegleId ?? d.id.slice(0, 6)}`, d.stage ? STAGE_LABEL[d.stage] : "", tail].filter(Boolean).join(" · ");
+  return [`#${workItemOf(d.source)?.id ?? d.id.slice(0, 6)}`, d.stage ? STAGE_LABEL[d.stage] : "", tail].filter(Boolean).join(" · ");
 }
 
 /** 「···」菜单：弹窗标题栏和 Friday 自主任务的头部共用 */

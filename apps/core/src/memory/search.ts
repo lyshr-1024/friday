@@ -1,5 +1,6 @@
 import { taskCategory, type SearchHit, type SearchResult } from "@friday/shared";
 import { db } from "./db.js";
+import { normalizeSource } from "./externalRef.js";
 
 /** LIKE 的通配符要转义，否则搜「100%」会把 % 当成通配。 */
 function likePattern(q: string): string {
@@ -75,7 +76,7 @@ export function search(query: string): SearchResult {
       kind: "task",
       id: r.id,
       title: r.title,
-      category: taskCategory(source as never),
+      category: taskCategory(normalizeSource(source)),
       status: r.status,
       ...(r.project ? { project: r.project } : {}),
       ...(inTitle ? {} : { snippet: snippet(body, q) }),

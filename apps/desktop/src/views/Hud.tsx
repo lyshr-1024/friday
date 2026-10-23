@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import type { Attachment, Snapshot, SummonAction, SummonCard, SummonRules, Task } from "@friday/shared";
+import type { Attachment, Snapshot, SummonAction, SummonCard, SummonRules, ClientTask as Task } from "@friday/shared";
 import { attachConversation, coreBaseUrl, settings, summonRelay, taskBoard, taskMention, taskMentions, uploadAttachment, type MentionItem } from "../lib/core";
 import { runAction, summonStream } from "../lib/summon";
 import { Icon } from "./Icon";

@@ -1,9 +1,9 @@
-import type { Task } from "@friday/shared";
-import { SESSION_STATE_LABEL, STAGE_LABEL } from "@friday/shared";
+import type { ClientTask as Task } from "@friday/shared";
+import { SESSION_STATE_LABEL, STAGE_LABEL, workItemOf } from "@friday/shared";
 import { Icon } from "./Icon";
 import { MoreMenu, type DialogAction } from "./TaskDialog";
 
-export const KIND: Record<string, string> = { conversation: "Slack", work_item: "Meegle", slack: "Slack", meegle: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
+export const KIND: Record<string, string> = { conversation: "Slack", work_item: "Meegle", verbal: "口头", doc: "文档", code: "代码", learn: "自学", handbook: "手册", okr_weekly: "OKR 周报", other: "其他" };
 export const hhmm = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const mmdd = (d?: string) => (d ? d.slice(5) : "");
 
@@ -47,7 +47,7 @@ export function TaskHeader({ t, counts, onDetail, onToggleTerminal, showingTermi
   const waiting = !s?.name && (t.status === "collected" || t.status === "understood");
   const project = t.project;
   const noProject = waiting && !project;
-  const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, project ?? (noProject ? "项目没定" : ""), t.source.feDue ? `排期 ${mmdd(t.source.feDue)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
+  const meta = [t.stage ? STAGE_LABEL[t.stage] : "", KIND[t.kind] ?? t.kind, project ?? (noProject ? "项目没定" : ""), workItemOf(t.source)?.schedule?.frontend ? `排期 ${mmdd(workItemOf(t.source)!.schedule!.frontend!)}` : "", s?.lastStopAt ? `最近一轮 ${hhmm(s.lastStopAt)}` : ""].filter(Boolean);
   const hint = [counts.defects ? `${counts.defects} 条缺陷` : "", counts.docs ? `${counts.docs} 份资料` : "", counts.convs ? `${counts.convs} 段 Slack 讨论` : ""].filter(Boolean).join(" · ");
   const d = s?.delivery;
   const branchLine = t.autostart?.kind === "story"

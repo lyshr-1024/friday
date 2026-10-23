@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, type AuditEvent, type ExternalRef, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, workItemOf, type AuditEvent, type ExternalRef, type PendingAction, type Stage, type ClientTask as Task, type ClientTaskBoard as TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen, taskDismissPending } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -38,9 +38,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   if (a.type === "chat_reply") {
     const to = a.payload.to as ExternalRef | undefined;
     const who = to?.author ?? "对方";
-    const where = to?.attrs?.threadTs
-      ? `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`
-      : `发到与 ${who} 的私聊`;
+    const where = conv?.kind === "dm"
+      ? `发到与 ${who} 的私聊`
+      : `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`;
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
   if (a.type === "git_merge") {
@@ -92,15 +92,21 @@ const reprojectOf = (t: Task) => t.pending?.find((a) => a.type === "reproject");
 const fridayWork = (t: Task) => t.source.autonomous === true && !t.source.headless && Boolean(t.source.jobId);
 const canResume = (t: Task) => !isClosed(t) && Boolean(t.source.jobId) && t.session?.status === "exited" && Boolean(t.session.worktree || t.session.kind === "query");
 
+const itemId = (t: Task) => workItemOf(t.source)?.id;
+const parentId = (t: Task) => workItemOf(t.source)?.parent?.id;
+const ownItemIds = (t: Task) => [...(itemId(t) ? [itemId(t)!] : []), ...(t.source.mergedIds ?? [])];
+const scheduleOf = (t: Task) => workItemOf(t.source)?.schedule;
+const nodeOf = (t: Task) => ({ key: workItemOf(t.source)?.attrs?.nodeKey, name: workItemOf(t.source)?.attrs?.nodeName });
+
 function defectsOf(t: Task, all: Task[]): Task[] {
-  const ids = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
-  return all.filter((x) => x.id !== t.id && !isClosed(x) && (x.source.rootId === t.id || (x.source.linkedStoryId !== undefined && ids.has(x.source.linkedStoryId))));
+  const ids = new Set(ownItemIds(t));
+  return all.filter((x) => x.id !== t.id && !isClosed(x) && (x.source.rootId === t.id || (parentId(x) !== undefined && ids.has(parentId(x)!))));
 }
 
 function meegleLine(t: Task): string {
-  if (!t.source.meegleId) return "";
-  const due = t.source.feDue ?? t.source.beDue;
-  return [`Meegle：${t.source.meegleId}`, t.source.nodeName ? `节点 ${t.source.nodeName}` : "", t.priority === "high" ? "高优先级" : "", due ? `排期 ${due.slice(5)}` : ""].filter(Boolean).join(" · ");
+  if (!itemId(t)) return "";
+  const due = scheduleOf(t)?.frontend ?? scheduleOf(t)?.backend;
+  return [`Meegle：${itemId(t)}`, nodeOf(t).name ? `节点 ${nodeOf(t).name}` : "", t.priority === "high" ? "高优先级" : "", due ? `排期 ${due.slice(5)}` : ""].filter(Boolean).join(" · ");
 }
 // 交付报告和验收点是 Friday 自己跑完一轮后写的，只有它自己派出去的任务才有可验之物。
 // Meegle 同步来的需求状态在多方节点上流转，本机勾不出结论。
@@ -167,7 +173,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
   useEffect(() => { void projectList().then(setProjects).catch(() => {}); }, []);
   // 能并进来的：别的任务，不看项目也不看状态。Slack 线程除外——那是一段对话，
   // 并进来没有意义。项目多数还没定，要合的那条也可能已经收工了，都不拦。
-  const bases = all.filter((x) => x.id !== t.id && taskCategory(x.source) !== "slack" && x.status !== "done" && x.status !== "ignored");
+  const bases = all.filter((x) => x.id !== t.id && taskCategory(x.source) !== "conversation" && x.status !== "done" && x.status !== "ignored");
   return (
     <div className="fx__story">
       <MeegleChips t={t} />
@@ -200,7 +206,7 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
               label="把另一条需求并进这条"
               placeholder="选一条并进来…"
               resetAfterPick
-              options={bases.map((x) => ({ value: x.id, label: x.title.slice(0, 34), ...(x.source.meegleId ? { hint: `#${x.source.meegleId}` } : {}) }))}
+              options={bases.map((x) => ({ value: x.id, label: x.title.slice(0, 34), ...(itemId(x) ? { hint: `#${itemId(x)}` } : {}) }))}
               onPick={(v) => { const from = bases.find((x) => x.id === v); if (from) setMerging(from); }}
             />
             {(t.source.merged ?? []).length > 0 && (
@@ -208,9 +214,9 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
                 已并入
                 {(t.source.merged ?? []).map((m) =>
                   m.url ? (
-                    <OpenLink key={m.meegleId} href={m.url}>#{m.meegleId} {m.title.slice(0, 22)}</OpenLink>
+                    <OpenLink key={m.id} href={m.url}>#{m.id} {m.title.slice(0, 22)}</OpenLink>
                   ) : (
-                    <span key={m.meegleId}>#{m.meegleId} {m.title.slice(0, 22)}</span>
+                    <span key={m.id}>#{m.id} {m.title.slice(0, 22)}</span>
                   ),
                 )}
               </span>
@@ -248,9 +254,9 @@ function TaskBody({ t, all, onAct }: { t: Task; all: Task[]; onAct: (t: Task, fn
 
 /** 0 后台前端已排期 · 1 仅服务端已排期 · 2 标签含后台迭代/纳入 · 3 其余 */
 function todoTier(t: Task): number {
-  if (t.source.feDue) return 0;
-  if (t.source.beDue) return 1;
-  if (t.source.meegleTags?.some((x) => BACKEND_TAGS.includes(x))) return 2;
+  if (scheduleOf(t)?.frontend) return 0;
+  if (scheduleOf(t)?.backend) return 1;
+  if (workItemOf(t.source)?.tags?.some((x) => BACKEND_TAGS.includes(x))) return 2;
   return 3;
 }
 
@@ -258,7 +264,7 @@ function todoTier(t: Task): number {
 function byTier(a: Task, b: Task): number {
   const tier = todoTier(a);
   if (tier !== todoTier(b)) return tier - todoTier(b);
-  const due = (t: Task) => (tier === 0 ? t.source.feDue : tier === 1 ? t.source.beDue : "") ?? "";
+  const due = (t: Task) => (tier === 0 ? scheduleOf(t)?.frontend : tier === 1 ? scheduleOf(t)?.backend : "") ?? "";
   return (
     due(a).localeCompare(due(b)) ||
     (PRIORITY[a.priority] ?? 1) - (PRIORITY[b.priority] ?? 1) ||
@@ -285,14 +291,14 @@ function factRight(t: Task): string {
   const bits: string[] = [];
   if (t.pending?.length) bits.push(`${t.pending.length} 个动作等你点头`);
   if (selfRun(t) && t.report?.verify.length) bits.push(`${t.report.verify.length} 个验收点`);
-  const { feDue, beDue } = t.source;
+  const { frontend: feDue, backend: beDue } = scheduleOf(t) ?? {};
   const due = feDue ?? beDue ?? t.due;
   if (due) bits.push(dueLabel(due.length === 10 ? `${due}T00:00:00` : due));
   return bits.join(" · ");
 }
 
 function queuedRight(t: Task): string {
-  const { feDue, beDue } = t.source;
+  const { frontend: feDue, backend: beDue } = scheduleOf(t) ?? {};
   if (feDue) {
     const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
     return d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天到期" : `排期 ${feDue.slice(5)}`;
@@ -305,7 +311,7 @@ function queuedRight(t: Task): string {
 }
 
 function dueBits(t: Task): string[] {
-  const feDue = t.source.feDue;
+  const feDue = scheduleOf(t)?.frontend;
   if (!feDue) return [];
   const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
   return [`排期 ${feDue.slice(5)}`, ...(d < 0 ? [`逾期 ${-d} 天`] : [])];
@@ -329,7 +335,7 @@ function anchorLine(t: Task, kids = 0, all: Task[] = []): string {
     return ["卡住了", root ? `在需求「${root.title.slice(0, 16)}」的会话里` : "在需求的会话里", why].filter(Boolean).join(" · ");
   }
   if (t.source.handedAt && t.status === "review" && t.report) return ["交付了", "等你核验", t.report.verify.length ? `${t.report.verify.length} 个验收点` : ""].filter(Boolean).join(" · ");
-  if (t.source.rootId || t.source.linkedStoryId) return [`缺陷 #${t.source.meegleId ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
+  if (t.source.rootId || parentId(t)) return [`缺陷 #${itemId(t) ?? t.id.slice(0, 6)}`, t.stage ? STAGE_LABEL[t.stage] : "", t.source.rootId ? "在需求的会话里改" : ""].filter(Boolean).join(" · ");
   if (s?.state === "asking" && t.progress) return `${SESSION_STATE_LABEL.asking}：${t.progress.replace(/^终端在问：/, "")}`;
   if (s?.state === "deciding") return [SESSION_STATE_LABEL.deciding, t.pending?.[0]?.label ?? "", s.waitingSince ? waitedFor(s.waitingSince) : ""].filter(Boolean).join(" · ");
   if (t.source.autonomous && t.report) {
@@ -491,7 +497,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
    * 后面几条留在原地——闷头跑完只会让人不知道哪几条真的开起来了。
    */
   async function startPack(items: Task[]) {
-    const key = items[0]?.source.linkedStoryId ?? "";
+    const key = items[0] ? parentId(items[0]) ?? "" : "";
     setPackBusy(key);
     try {
       for (const t of items) {
@@ -577,7 +583,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     return [
       ...(canStart(t) || canRehand(t) ? [{ label: "开工", run: run(() => taskStart(t.id)) }] : []),
       ...(canResume(t) ? [{ label: "接着聊", run: run(() => jobReopen(t.source.jobId!)) }] : []),
-      ...(!isClosed(t) && isStory(t) && t.source.nodeKey ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
+      ...(!isClosed(t) && isStory(t) && nodeOf(t).key ? [{ label: "完成当前节点", run: run(() => taskConfirmNode(t.id)) }] : []),
       ...(!isClosed(t) ? [{ label: "标记完成", run: run(() => taskSet(t.id, "done")) }, { label: "忽略", run: run(() => taskSet(t.id, "ignore")) }] : [{ label: "重新打开", run: run(() => taskReopen(t.id)) }]),
       { label: "归到项目…", run: () => { close(); setEditing(t); } },
       { label: "操作记录", run: () => { close(); openLedger(t.id); } },
@@ -593,9 +599,9 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
   const liveIds = new Set(tasks.filter((t) => !closed(t)).map((t) => t.id));
   // 缺陷嵌在它的需求下面缩进一级，不各自占分组里的一行。需求不在（没分派也没我的角色）的缺陷仍然独立显示
   const storyOf = new Map<string, string>();
-  for (const t of tasks) if (!closed(t)) for (const m of [...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]) storyOf.set(m, t.id);
+  for (const t of tasks) if (!closed(t)) for (const m of ownItemIds(t)) storyOf.set(m, t.id);
   const parentOf = (t: Task): string | undefined => {
-    const root = t.source.rootId && liveIds.has(t.source.rootId) ? t.source.rootId : t.source.linkedStoryId ? storyOf.get(t.source.linkedStoryId) : undefined;
+    const root = t.source.rootId && liveIds.has(t.source.rootId) ? t.source.rootId : parentId(t) ? storyOf.get(parentId(t)!) : undefined;
     return root && root !== t.id ? root : undefined;
   };
   const nested = (t: Task) => Boolean(parentOf(t));
@@ -618,7 +624,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
   // sort 是原地改——直接排 onBoard 会把上面按阶段分好的顺序搅乱
   const queued = [...onBoard].sort(byTier);
   // 待办按来源拆开：Slack 一组、Meegle 的需求与缺陷各一组，口头 / 自学等归「其他」。
-  const QUEUE_GROUPS: TaskCategory[] = ["slack", "defect", "story", "other"];
+  const QUEUE_GROUPS: TaskCategory[] = ["conversation", "defect", "story", "other"];
   const queuedBy = (c: TaskCategory) => queued.filter((t) => taskCategory(t.source) === c);
   const queueCounts = Object.fromEntries(QUEUE_GROUPS.map((c) => [c, queuedBy(c).length])) as Record<TaskCategory, number>;
   const queueKey = QUEUE_GROUPS.map((c) => queueCounts[c]).join(",");
@@ -639,7 +645,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const k = q.trim().toLowerCase();
     const hit = (t: Task) =>
       !k ||
-      [t.title, t.project, t.understanding, t.source.branch, t.session?.branch, t.source.meegleId, t.source.linkedStoryName]
+      [t.title, t.project, t.understanding, t.source.branch, t.session?.branch, itemId(t), workItemOf(t.source)?.parent?.name]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(k));
     return raw.map((g) => ({ ...g, items: g.items.filter((x) => hit(x.t)) })).filter((g) => g.items.length);
@@ -927,7 +933,7 @@ function TaskMenu({ t, at, onClose, onAct, onEdit, onDelete }: {
       <button role="menuitem" onClick={() => { onClose(); onEdit(t); }}>编辑任务…</button>
       {(canStart(t) || canRehand(t)) && <button role="menuitem" onClick={() => run(() => taskStart(t.id))}>开工</button>}
       {canResume(t) && <button role="menuitem" onClick={() => run(() => jobReopen(t.source.jobId!))}>接着聊</button>}
-      {!closed && isStory(t) && t.source.nodeKey && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
+      {!closed && isStory(t) && nodeOf(t).key && <button role="menuitem" onClick={() => run(() => taskConfirmNode(t.id))}>完成当前节点</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "done"))}>标记完成</button>}
       {!closed && <button role="menuitem" onClick={() => run(() => taskSet(t.id, "ignore"))}>忽略</button>}
       {closed && <button role="menuitem" onClick={() => run(() => taskReopen(t.id))}>重新打开</button>}
@@ -1201,7 +1207,7 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { chat_reply: "发", slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { chat_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
 
 /** 挂着的外部工具调用：只撤这一条，不打回整条任务（打回会作废别的待审、把这一轮记成被打回） */
 function DismissToolCall({ t, a, onAct }: { t: Task; a: PendingAction; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
@@ -1336,9 +1342,10 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
   const rightHas = Boolean(r) || pending.length > 1 || links.length > 0;
 
   // Meegle 的关联需求：缺陷往上找它的需求，需求往下找名下的缺陷
-  const parentStory = t.source.linkedStoryId ? all.find((x) => x.source.meegleId === t.source.linkedStoryId) : undefined;
-  const ownIds = new Set([...(t.source.meegleId ? [t.source.meegleId] : []), ...(t.source.mergedMeegleIds ?? [])]);
-  const childIssues = ownIds.size ? all.filter((x) => x.source.linkedStoryId && ownIds.has(x.source.linkedStoryId)) : [];
+  const parent = workItemOf(t.source)?.parent;
+  const parentStory = parent ? all.find((x) => itemId(x) === parent.id) : undefined;
+  const ownIds = new Set(ownItemIds(t));
+  const childIssues = ownIds.size ? all.filter((x) => parentId(x) && ownIds.has(parentId(x)!)) : [];
   const openChildren = childIssues.filter((c) => c.status !== "done" && c.status !== "ignored").length;
   const startable = childIssues.filter((c) => c.pending?.some((a) => a.type === "start_job"));
   // Friday 从这条线程的情境卡里记下的待办：列表里不单独占行，在这儿看
@@ -1350,10 +1357,10 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
     <article className="fx">
       <StageBar t={t} onAct={onAct} />
       {/* Meegle 那边的状态只作参考：它依赖别人及时更新，不参与 Friday 的阶段判断 */}
-      {t.source.statusKey && (
+      {workItemOf(t.source)?.state?.key && (
         <div className="fx__meegle-state">
-          Meegle: {t.source.statusKey}
-          {t.source.nodeName ? ` · 节点 ${t.source.nodeName}` : ""}
+          Meegle: {workItemOf(t.source)?.state?.key}
+          {nodeOf(t).name ? ` · 节点 ${nodeOf(t).name}` : ""}
           <span className="fx__meegle-note">仅供参考，不影响上面的阶段</span>
         </div>
       )}
@@ -1367,7 +1374,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
       )}
 
       {/* 缺陷挂在哪个需求下 / 需求名下有哪些缺陷。Meegle 里填好的关联，点一下就能跳过去 */}
-      {t.source.linkedStoryId && (
+      {parent && (
         <div className="fx__rel">
           <span className="k">MEEGLE</span>
           {/* 需求没分派给用户时任务板里没有它，只显示名字（或工单号）不给跳转 */}
@@ -1375,7 +1382,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
             <button className="link" onClick={() => onPick?.(parentStory.id)}>{parentStory.title}</button>
           ) : (
             <span className="fx__rel-plain">
-              {t.source.linkedStoryName ?? `Meegle #${t.source.linkedStoryId}`}
+              {parent?.name ?? `Meegle #${parent?.id}`}
               <span className="fx__rel-note">（没分派给你，不在任务板里）</span>
             </span>
           )}
@@ -1408,11 +1415,11 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
           {onStartPack && startable.length > 0 && (
             <button
               className="b fx__pack-start"
-              disabled={packBusy === (t.source.meegleId ?? t.id)}
+              disabled={packBusy === (itemId(t) ?? t.id)}
               onClick={() => onStartPack(startable)}
               title="同一个需求下的缺陷走同一个终端、同一个分支，各开各的必冲突"
             >
-              {packBusy === (t.source.meegleId ?? t.id) ? "开工中…" : `一起开工（${startable.length} 条）`}
+              {packBusy === (itemId(t) ?? t.id) ? "开工中…" : `一起开工（${startable.length} 条）`}
             </button>
           )}
           <ul>

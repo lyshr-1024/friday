@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { OkrRow, OkrWeeklyDraft, ScheduleView, SettingsResponse, Task } from "@friday/shared";
+import type { OkrRow, OkrWeeklyDraft, ScheduleView, SettingsResponse, ClientTask as Task } from "@friday/shared";
 import { learnHistory, listHandbooks, listSchedules, okrWeeklyNow, removeSchedule, runSchedule, setScheduleEnabled, settings, taskApprove, taskSet, updateSettings } from "../lib/core";
 import { Modal } from "./TaskDialog";
 import { OkrWeekly, flushOkrDraft } from "./OkrWeekly";

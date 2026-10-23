@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ToolLevel, ToolRegistration, UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
+import type { ToolLevel, ToolRegistration, UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, ClientTask as Task, ClientTaskBoard as TaskBoard, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 

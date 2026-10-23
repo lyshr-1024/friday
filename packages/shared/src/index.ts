@@ -732,9 +732,9 @@ export const TAG_LABELS: Record<string, string> = {
 
 
 /** slack 是迁移前的老值 */
-export type TaskCategory = "conversation" | "slack" | "defect" | "story" | "other";
+export type TaskCategory = "conversation" | "defect" | "story" | "other";
 
-export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { conversation: "Slack", slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
+export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { conversation: "Slack", defect: "缺陷", story: "需求", other: "其他" };
 
 export const workItemOf = (s: TaskSource): ExternalRef | undefined => (s.external?.type === "work_item" ? s.external : undefined);
 export const conversationOf = (s: TaskSource): ExternalRef | undefined => (s.external?.type === "conversation" ? s.external : undefined);
@@ -745,16 +745,16 @@ export const conversationOf = (s: TaskSource): ExternalRef | undefined => (s.ext
  * conversation 单独判断：HUD 手动建的任务也带 conversation，会被误判。
  */
 export function isQueryTask(source: TaskSource): boolean {
-  return Boolean(source.headless && (source.external?.type === "conversation" || source.conversation));
+  return Boolean(source.headless && (source.external?.type === "conversation"));
 }
 
 /** 为什么不能给这条任务建理解卡；能建回 undefined。只给要写代码的需求类、项目已定、还没开工也没收工的建 */
 export function briefRefusal(t: Task): string | undefined {
-  if (t.kind !== "work_item" && t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
+  if (t.kind !== "work_item" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
   if (!t.project) return "还没定项目，先定项目再建理解卡";
   if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
   if (t.source.scheduleId) return "定时任务的卡不建理解卡";
-  if (t.source.container || t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
+  if (t.source.container) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
   if (t.source.jobId) return "已经开过工了，不建理解卡";
   if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
   if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";
@@ -770,13 +770,9 @@ export function isFridayRun(source: TaskSource): boolean {
 
 /** Meegle 工单类型键 → 分组。列表之外的自定义类型（Project 等）都算「其他」。 */
 export function taskCategory(source: TaskSource): TaskCategory {
-  // Slack 来的没有 meegleType：线程本身靠 threadId 认，情境卡派生的待办靠 fromTaskId
-  if (source.threadId || source.fromTaskId) return "slack";
+  if (source.external?.type === "conversation" || source.fromTaskId) return "conversation";
   const kind = workItemOf(source)?.kind;
-  if (kind) return kind;
-  const t = source.meegleType;
-  if (t === "story") return "story";
-  if (t === "issue" || t === "defect" || t === "bug") return "defect";
+  if (kind === "story" || kind === "defect") return kind;
   return "other";
 }
 
@@ -802,6 +798,12 @@ export interface DeliveryReport {
   /** 方案没写到、Claude 替用户定了的事 */
   decisions?: string[];
 }
+
+export type LegacySourceKey = "threadId" | "conversation" | "channelId" | "userName" | "threadTs" | "meegleId" | "mergedMeegleIds" | "meegleType" | "linkedStoryId" | "linkedStoryName" | "storyContainer" | "meegleClosed" | "meegleProject" | "statusKey" | "meegleTags" | "feDue" | "beDue" | "reporter" | "nodeKey" | "nodeName";
+
+export type ClientMergedItem = Omit<MergedItem, "meegleId">;
+
+export type ClientTaskSource = Omit<TaskSource, LegacySourceKey | "merged"> & { merged?: ClientMergedItem[] };
 
 export interface Task {
   id: string;
@@ -962,6 +964,9 @@ export interface StateTransition {
   stateKey: string;
   label: string;
 }
+
+/** 前端看到的任务：来源只剩新字段，老键读不到（类型层面强制；核心读取已归一化） */
+export type ClientTask = Omit<Task, "source"> & { source: ClientTaskSource };
 
 export interface TaskBoard {
   tasks: Task[];
@@ -1278,3 +1283,5 @@ export interface ScheduleView extends Schedule {
 
 export type ScheduleInput = Pick<Schedule, "title" | "cron" | "executor"> &
   Partial<Pick<Schedule, "project" | "prompt" | "mode" | "attended" | "server" | "tool" | "args" | "enabled">>;
+
+export type ClientTaskBoard = Omit<TaskBoard, "tasks"> & { tasks: ClientTask[] };

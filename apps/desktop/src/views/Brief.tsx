@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { briefable, type Brief, type Task } from "@friday/shared";
+import { briefable, type Brief, type ClientTask as Task } from "@friday/shared";
 import { briefBuild, briefDepReady, projectKnowledge, taskApprove, taskReject } from "../lib/core";
 import { useImeGuard } from "../lib/ime";
 import { Linkified } from "./shared";

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { HandbookDraftItem, HandbookDraftView, Task } from "@friday/shared";
+import type { HandbookDraftItem, HandbookDraftView, ClientTask as Task } from "@friday/shared";
 import { handbookDraft, saveHandbookSkip, taskApprove, taskSet } from "../lib/core";
 import { Icon } from "./Icon";
 

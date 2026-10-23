@@ -158,10 +158,11 @@ describe("需求与缺陷分组", () => {
     expect(TASK_CATEGORY_LABEL[taskCategory(of("story"))]).toBe("需求");
   });
 
-  it("Slack 线程单独一类，看 threadId 认，它没有 meegleType", () => {
-    expect(taskCategory({ threadId: "th-1" })).toBe("slack");
-    expect(TASK_CATEGORY_LABEL[taskCategory({ threadId: "th-1" })]).toBe("Slack");
-    // Meegle 工单不会有 threadId，不受影响
+  it("Slack 线程单独一类，看 external 是不是对话认", () => {
+    const conv = { external: { tool: "slack", type: "conversation" as const, id: "C1:1.2" } };
+    expect(taskCategory(conv)).toBe("conversation");
+    expect(TASK_CATEGORY_LABEL[taskCategory(conv)]).toBe("Slack");
+    // Meegle 工单不是对话，不受影响
     expect(taskCategory({ external: ref("1", { kind: "defect" }) })).toBe("defect");
   });
 });
