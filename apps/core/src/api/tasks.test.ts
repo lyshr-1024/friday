@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskBoard } from "@friday/shared";
 import { createTask } from "../memory/tasks.js";
-import { getEvent, listAudit } from "../memory/audit.js";
-import { getTask, updateTask } from "../memory/tasks.js";
+import { getEvent, listAudit, record } from "../memory/audit.js";
+import { deleteTask, getTask, updateTask } from "../memory/tasks.js";
 import { initMemory } from "../memory/db.js";
 import { addInboxItems } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
@@ -339,5 +339,44 @@ describe("撤销项目登记、设置", () => {
     expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
     stop();
     expect(seen).toContain("settings");
+  });
+});
+
+describe("合并的撤销", () => {
+  const workItem = (id: string, title: string) =>
+    createTask({ title, kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id, kind: "story", attrs: { typeKey: "story", space: "pk" } } }, status: "understood" });
+
+  it("撤销把被并掉的工单号从宿主上摘掉", async () => {
+    const into = workItem("30000001", "一期");
+    const from = workItem("30000002", "二期");
+    expect((await post(`/tasks/${into.id}/merge`, { fromTaskId: from.id })).status).toBe(200);
+    expect(getTask(into.id)!.source.mergedIds).toContain("30000002");
+    const ev = listAudit({ taskId: into.id }).find((e) => e.action === "task_merged")!;
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    expect(getTask(from.id)).toBeTruthy();
+    const host = getTask(into.id)!;
+    expect(host.source.mergedIds ?? []).not.toContain("30000002");
+    expect((host.source.merged ?? []).map((m) => m.id)).not.toContain("30000002");
+  });
+
+  it("老账（evidence 写的是 fromMeegleId）撤销同样摘掉", async () => {
+    const into = workItem("30000011", "一期");
+    const from = workItem("30000012", "二期");
+    updateTask(into.id, { source: { mergedIds: ["30000012"], merged: [{ id: "30000012", title: "二期" }] } });
+    const row = deleteTask(from.id)!;
+    const ev = record({
+      taskId: into.id,
+      action: "task_merged",
+      why: "旧版合并",
+      how: "旧版合并",
+      evidence: { fromTaskId: from.id, fromMeegleId: "30000012", mergedIds: ["30000012"] },
+      risk: "reversible",
+      undo: { kind: "restore_task", row },
+    });
+    expect((await post(`/audit/${ev.id}/undo`)).status).toBe(200);
+    expect(getTask(from.id)).toBeTruthy();
+    const host = getTask(into.id)!;
+    expect(host.source.mergedIds ?? []).not.toContain("30000012");
+    expect((host.source.merged ?? []).map((m) => m.id)).not.toContain("30000012");
   });
 });

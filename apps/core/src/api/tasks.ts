@@ -581,7 +581,9 @@ export const tasks = new Hono()
       if (!restoreTask(plan.row)) return c.json({ error: "撤销失败（任务已不能恢复）" }, 409);
       const ev = getEvent(c.req.param("id"));
       if (ev?.action === "task_merged" && ev.taskId) {
-        const back = String((ev.evidence as { fromMeegleId?: string }).fromMeegleId ?? "");
+        // 老账里这个键叫 fromMeegleId
+        const evidence = ev.evidence as { fromWorkItemId?: string | null; fromMeegleId?: string };
+        const back = String(evidence.fromWorkItemId ?? evidence.fromMeegleId ?? "");
         const into = getTask(ev.taskId);
         if (into && back) {
           updateTask(into.id, {
