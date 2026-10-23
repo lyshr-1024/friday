@@ -262,4 +262,25 @@ describe("mainNeeds", () => {
     expect(n.brief).toEqual([]);
     expect(n.queued).toEqual([]);
   });
+
+  it("挂在需求下的缺陷不单独占一行：收进需求那一行，需求落在名下最急的那一组", () => {
+    const story = createTask({ title: "清结算需求", kind: "meegle", status: "understood", source: { meegleType: "story", meegleId: "fold-1" } });
+    const report = { at: "R", summary: "修好了", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [] };
+    const a = createTask({ title: "缺陷 A", kind: "meegle", status: "review", source: { meegleType: "issue", rootId: story.id, handedAt: "x" } });
+    updateTask(a.id, { report } as never);
+    const b = createTask({ title: "缺陷 B", kind: "meegle", status: "review", source: { meegleType: "issue", linkedStoryId: "fold-1", handedAt: "x" } });
+    updateTask(b.id, { report } as never);
+    const c = createTask({ title: "缺陷 C", kind: "meegle", status: "processing", source: { meegleType: "issue", rootId: story.id, handedAt: "x", autonomous: true } });
+    const n = mainNeeds();
+    const all = Object.values(n).flat().map((x) => x.id);
+    for (const d of [a, b, c]) expect(all).not.toContain(d.id);
+    const row = n.review.find((x) => x.id === story.id)!;
+    expect(row.reason).toContain("名下缺陷：2 条修完待核验、1 条在修");
+  });
+
+  it("没挂需求、或需求已经收工的缺陷照旧单独一行", () => {
+    const done = createTask({ title: "收工的需求", kind: "meegle", status: "done", source: { meegleType: "story", meegleId: "fold-2" } });
+    const d = createTask({ title: "孤缺陷", kind: "code", status: "blocked", source: { meegleType: "issue", rootId: done.id } });
+    expect(mainNeeds().blocked.map((x) => x.id)).toContain(d.id);
+  });
 });
