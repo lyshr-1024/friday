@@ -14,7 +14,7 @@ import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { createFeature } from "../memory/features.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
-import { seedBuiltins } from "../connectors/builtin.js";
+import { defineBuiltin, seedBuiltins } from "../connectors/builtin.js";
 
 const meegle = vi.hoisted(() => ({ transitions: [] as unknown[], calls: [] as string[][], failWith: "" }));
 vi.mock("../connectors/meegle/client.js", async (orig) => ({
@@ -29,6 +29,15 @@ vi.mock("../connectors/meegle/client.js", async (orig) => ({
   },
 }));
 
+const bridgeRuns = { put: 0 };
+defineBuiltin({
+  name: "br-fake", scenario: "桥接测试", roles: [], binaries: [],
+  ops: [
+    { name: "get", description: "读", input: {}, level: "read", run: async () => ({ text: "读到了" }) },
+    { name: "flip", description: "翻", input: {}, level: "reversible", run: async () => { bridgeRuns.put++; return { text: "翻了" }; } },
+    { name: "put", description: "写", input: {}, level: "irreversible", run: async () => { bridgeRuns.put++; return { text: "写了" }; } },
+  ],
+});
 seedBuiltins();
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
@@ -41,7 +50,7 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const init = (await (await rpc("job-mcp-1", "initialize", { protocolVersion: "2025-06-18" })).json()) as { result: { serverInfo: { name: string } } };
     expect(init.result.serverInfo.name).toBe("friday");
     const list = (await (await rpc("job-mcp-1", "tools/list")).json()) as { result: { tools: Array<{ name: string }> } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(["friday_context", "friday_progress", "friday_done", "friday_finish", "friday_blocked"]);
+    expect(list.result.tools.map((t) => t.name)).toEqual(["friday_context", "friday_progress", "friday_done", "friday_finish", "friday_blocked", "tool_describe", "tool_call"]);
     expect((await rpc("job-mcp-1", "notifications/initialized", undefined, null)).status).toBe(202);
     expect((await rpc("nope", "ping")).status).toBe(404);
   });
@@ -459,5 +468,46 @@ describe("需求会话里的交付归到缺陷", () => {
     await call("job-bg-o", "friday_done", { taskId: root.id.slice(0, 8), summary: "好了", testResult: "过" });
     expect(getTask(bs[0]!.id)!.status).toBe("review");
     expect(getTask(root.id)!.report).toBeUndefined();
+  });
+});
+
+describe("终端里的 tool_describe / tool_call", () => {
+  const callText = async (jobId: string, name: string, args: Record<string, unknown>) =>
+    ((await (await rpc(jobId, "tools/call", { name, arguments: args })).json()) as { result: { content: Array<{ text: string }> } }).result.content[0]!.text;
+
+  it("tool_describe 列操作和等级", async () => {
+    createJob({ id: "job-td", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    expect(await callText("job-td", "tool_describe", { tool: "br-fake" })).toContain("put（irreversible）");
+  });
+
+  it("不可逆、job 有 owner：挂到任务的待审上，不执行", async () => {
+    bridgeRuns.put = 0;
+    const t = createTask({ title: "写外部", kind: "code", source: {}, project: "demo", status: "processing" });
+    createJob({ id: "job-tc-1", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: t.id });
+    const out = await callText("job-tc-1", "tool_call", { tool: "br-fake", op: "put", args: { x: 1 } });
+    expect(out).toBe(`已挂待审 #${t.seq}：执行 br-fake.put，等用户点头`);
+    const p = getTask(t.id)!.pending!.find((a) => a.type === "tool_call")!;
+    expect(p.payload).toMatchObject({ tool: "br-fake", op: "put", args: { x: 1 }, jobId: "job-tc-1" });
+    expect(bridgeRuns.put).toBe(0);
+  });
+
+  it("不可逆、没有 owner：没有对话可同意，不执行", async () => {
+    bridgeRuns.put = 0;
+    createJob({ id: "job-tc-2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
+    expect(await callText("job-tc-2", "tool_call", { tool: "br-fake", op: "put", args: {} })).toBe("终端里没有任务可挂待审，不执行");
+    expect(bridgeRuns.put).toBe(0);
+  });
+
+  it("只读会话（锚点 / 后台查询）只放 read", async () => {
+    bridgeRuns.put = 0;
+    const anchor = createTask({ title: "锚点", kind: "project", source: { briefFor: "x" }, project: "demo", status: "processing" });
+    createJob({ id: "job-tc-3", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: anchor.id });
+    expect(await callText("job-tc-3", "tool_call", { tool: "br-fake", op: "get", args: {} })).toBe("读到了");
+    expect(await callText("job-tc-3", "tool_call", { tool: "br-fake", op: "flip", args: {} })).toBe("只读会话不调写操作");
+    const q = createTask({ title: "查询", kind: "code", source: { headless: true }, project: "demo", status: "processing" });
+    createJob({ id: "job-tc-4", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: q.id });
+    expect(await callText("job-tc-4", "tool_call", { tool: "br-fake", op: "put", args: {} })).toBe("只读会话不调写操作");
+    expect(bridgeRuns.put).toBe(0);
+    expect(getTask(anchor.id)!.pending ?? []).toHaveLength(0);
   });
 });

@@ -340,7 +340,7 @@ describe("建卡会话", () => {
     expect(text).toMatch(/<untrusted source="knowledge">[\s\S]*基金筛选[\s\S]*src\/funds[\s\S]*<\/untrusted>/);
     expect(text).toContain(f.id);
     expect(text).toContain("新路由 / 新页面、接新接口、动公共组件（`components/` / `packages/` 这类目录）、预计改动文件 ≥ 5，任一命中就 `large`；把握不足也 `large`。");
-    expect(text).toContain("lark-doc");
+    expect(text).toContain("tool_call lark read");
     expect(text).toContain("friday_web_read");
     expect(text).toContain("friday_brief");
 

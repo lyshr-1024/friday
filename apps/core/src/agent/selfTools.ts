@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { SettingsUpdate } from "@friday/shared";
 import { settingsShape } from "../api/settings.js";
 import { publish } from "../bus.js";
-import { listMessages } from "../memory/conversations.js";
 import { record } from "../memory/audit.js";
 import { existsSync, statSync } from "node:fs";
 import type { Feature } from "@friday/shared";
@@ -16,7 +15,7 @@ import { leftoverWorktrees } from "../api/worktrees.js";
 import { removeWorktree } from "./git.js";
 import { scheduleByConversation } from "../memory/schedules.js";
 import { getTask } from "../memory/tasks.js";
-import { consents } from "./consent.js";
+import { consentGate, lastUserMessage } from "./consent.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -33,15 +32,9 @@ const byYou = (conversationId: string | undefined, what: string): string =>
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
-function lastUserMessage(conversationId?: string): { id: string | null; text: string } {
-  if (!conversationId) return { id: null, text: "" };
-  const m = listMessages(conversationId).filter((x) => x.role === "user").at(-1);
-  return { id: m?.id ?? null, text: (m?.content ?? "").trim() };
-}
-
 export const saidLast = (conversationId?: string): string => lastUserMessage(conversationId).text;
 
-const asked = new Map<string, { path: string; dirty: boolean; after: string | null }>();
+const removeGate = consentGate();
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
@@ -360,19 +353,16 @@ export const selfToolList = (conversationId?: string) => [
       if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能删 worktree，等用户回来。");
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
-      const { id: sayId, text: said } = lastUserMessage(conversationId);
-      const key = conversationId ?? "";
-      const prior = asked.get(key);
-      const ok = prior?.path === entry.path && sayId !== null && sayId !== prior.after && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
-      if (!ok) {
-        asked.set(key, { path: entry.path, dirty: entry.dirty, after: sayId });
+      // 问完到同意之间变脏了，key 对不上，要重新问
+      const gate = removeGate(conversationId, `${entry.path}|${entry.dirty}`, entry.dirty ? ["连改动一起删掉"] : ["删掉", "删掉吧", "删"]);
+      if (!gate.ok) {
         return text(
           entry.dirty
             ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
             : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
         );
       }
-      asked.delete(key);
+      const said = gate.said;
       const r = await removeWorktree(entry.repoDir, entry.path, entry.dirty);
       const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
       record({

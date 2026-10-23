@@ -115,7 +115,7 @@ describe("会话工具点名任务", () => {
     expect(listMessages(c).find((x) => x.kind === "run")!.content).toMatch(new RegExp(`^→ #${t.seq} 改文案：改了 .*进展`));
   });
 
-  const pend = (title: string, type: "git_merge" | "brief_approve") => {
+  const pend = (title: string, type: "git_merge" | "brief_approve" | "tool_call") => {
     const t = mk(title);
     addPending(t.id, { type, label: `${title}动作`, detail: "d", payload: {} });
     return getTask(t.id)!;
@@ -147,6 +147,19 @@ describe("会话工具点名任务", () => {
     expect(approveMock).toHaveBeenCalledTimes(1);
     expect(listMessages(c).find((x) => x.kind === "run")!.content).toBe(`→ #${a.seq} 甲：已执行「甲动作」`);
     closeAll(a, b);
+  });
+
+  it("待审的 tool_call：「#N 执行」能在会话里批，问句不算", async () => {
+    clearWaiting();
+    const c = open();
+    const a = pend("调外部", "tool_call");
+    said(c, `#${a.seq} 执行吗？`);
+    expect(await callIn(c, "task_approve", { taskId: `#${a.seq}` })).toContain("还没明确同意");
+    expect(approveMock).not.toHaveBeenCalled();
+    said(c, `#${a.seq} 执行`);
+    expect(await callIn(c, "task_approve", { taskId: `#${a.seq}` })).toContain("已执行");
+    expect(approveMock).toHaveBeenCalledTimes(1);
+    closeAll(a);
   });
 
   it("task_reject 点名并留痕", async () => {

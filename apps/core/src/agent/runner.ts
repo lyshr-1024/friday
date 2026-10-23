@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
+import { preselect } from "./toolCatalog.js";
 import { HEADLESS_MODEL } from "./claude.js";
 import { FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
 import { isFridayProject, protectedBranches } from "../memory/projects.js";
@@ -23,6 +24,7 @@ export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 export function autonomousPrompt(id: string, task: string, project: string): string {
   const handbook = handbookBlock(project);
   const knowledge = knowledgeBlock(project, task);
+  const tools = preselect(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
     `用户的诉求（Friday 转达的原话，它没读过这个项目的代码，也没有项目的 skill）：${task}`,
@@ -42,6 +44,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     ...(isFridayProject(project) ? ["9. 这是 Friday 自己的代码。合并由用户做，你只交付分支；交付报告的「请验证」里写明「要重启 Friday（开发时重跑 pnpm dev，打包版要重新打包）才生效」。不要改守卫（agent/guard.ts）和权限分级（agent/permission.ts）去放宽限制，需要放宽的写进 decisions 里说明为什么，交给用户定。"] : []),
     ...(knowledge ? ["", untrusted("knowledge", knowledge)] : []),
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
+    ...(tools ? ["", "【这个项目常用的外部工具】", tools] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
 }

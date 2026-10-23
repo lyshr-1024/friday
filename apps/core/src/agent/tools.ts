@@ -35,8 +35,9 @@ import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
-import { selfToolList } from "./selfTools.js";
-import { consents } from "./consent.js";
+import { saidLast, selfToolList } from "./selfTools.js";
+import { consentGate, consents, lastUserMessage, leadingRef } from "./consent.js";
+import { describeTool, heldText, invokeForModel } from "./toolCatalog.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
 
@@ -145,6 +146,37 @@ export const fridayToolList = (conversationId?: string) => [
         } catch (e) {
           return text(`没读到：${e instanceof Error ? e.message : String(e)}`);
         }
+      },
+    ),
+    tool(
+      "tool_describe",
+      "看一个外部工具（【外部工具】目录里的名字）有哪些操作、每个操作的风险等级和参数。调 tool_call 之前先看。",
+      { tool: z.string().min(1).max(80) },
+      async ({ tool: name }) => text(describeTool(name)),
+    ),
+    tool(
+      "tool_call",
+      "调外部工具的一个操作，args 按 tool_describe 给的参数填。只读的直接返回结果；可逆的直接做并记账；不可逆的：用户句首点了 #N 就挂到那条任务上等他点头，没点名就先把返回的后果说明转告用户，等他单独回一句「执行」再用完全相同的参数调一次。",
+      {
+        tool: z.string().min(1).max(80),
+        op: z.string().min(1).max(80),
+        // z.record 转不了 tools/list 的 JSON schema，整个工具列表会挂
+        args: z.object({}).passthrough(),
+      },
+      async ({ tool: name, op, args }) => {
+        const { seq } = leadingRef(lastUserMessage(conversationId).text);
+        const task = seq !== undefined ? findTaskByRef(`#${seq}`) : undefined;
+        if (seq !== undefined && !task) return text(`用户点名的 #${seq} 没有这条任务，先问清楚是哪条。`);
+        const caller = { kind: "model" as const, why: "主对话里调用", ...(conversationId ? { conversationId } : {}), ...(task ? { taskId: task.id } : {}), quote: saidLast(conversationId) };
+        const r = await invokeForModel(caller, name, op, args);
+        if (r.kind === "ok") return text(r.text);
+        if (r.kind === "refused") return text(r.why);
+        if (r.kind === "held") return text(heldText(task?.seq, name, op));
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能执行不可逆操作，等用户回来。");
+        const gate = toolCallGate(conversationId, `${name}.${op}|${JSON.stringify(args)}`, EXECUTE);
+        if (!gate.ok) return text(`${r.summary}。确认请用户单独回一句「执行」，再用完全相同的参数调一次。`);
+        const done = await invokeForModel({ kind: "user", why: "你在对话里同意执行", quote: gate.said }, name, op, args);
+        return text(done.kind === "ok" ? done.text : done.kind === "refused" ? done.why : `没执行：${done.kind}`);
       },
     ),
     tool(
@@ -542,17 +574,15 @@ export const fridayToolList = (conversationId?: string) => [
         if (!action) return text(`没有这个待审动作。现有的：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
         const forms = APPROVAL[action.type];
         if (!forms) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
-        const raw = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
-        const named = raw.match(/^#(\d+)\s*/);
-        if (named && Number(named[1]) !== t.seq) return text(`用户点名的是 #${named[1]}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
-        if (!named) {
+        const { seq: named, said } = leadingRef(lastUserMessage(conversationId).text);
+        if (named !== undefined && named !== t.seq) return text(`用户点名的是 #${named}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
+        if (named === undefined) {
           const waiting = listOpenBoardTasks().filter((x) => x.pending?.some((p) => APPROVAL[p.type]));
           if (waiting.length > 1) {
             const list = waiting.map((x) => `#${x.seq}「${x.pending!.find((p) => APPROVAL[p.type])!.label}」`).join("、");
             return text(`现在有 ${waiting.length} 条在等你点头（${list}），让用户说「#N 通过」这样点名`);
           }
         }
-        const said = raw.replace(/^#\d+\s*/, "");
         if (!consents(said, forms))
           return text(
             `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
@@ -697,7 +727,11 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   reproject: ["撤掉", "撤掉吧", "回退", "回退吧", "通过"],
   discard_changes: ["撤掉", "撤掉吧", "撤", "删掉", "通过"],
   brief_approve: ["方案可以", "按这个做", "可以", "通过", "开工"],
+  tool_call: ["执行", "执行吧", "确认执行", "通过"],
 };
+
+const EXECUTE = ["执行", "执行吧", "确认执行"];
+const toolCallGate = consentGate();
 
 
 const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);

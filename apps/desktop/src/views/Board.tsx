@@ -51,6 +51,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   if (a.type === "discard_changes") {
     return "删掉的 worktree、分支和里面的改动撤不回。不想撤就点「完成，不执行」，只收卡、改动留着。";
   }
+  if (a.type === "tool_call") {
+    return `以你的身份在 ${String(a.payload.tool ?? "外部工具")} 上执行 ${String(a.payload.op ?? "操作")}，撤不回`;
+  }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
     const conf = typeof a.payload.confidence === "number" ? `Friday 对这次判断的把握是 ${a.payload.confidence} 分。` : "";
