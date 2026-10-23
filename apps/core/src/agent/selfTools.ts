@@ -19,7 +19,7 @@ import { consents, lastUserMessage } from "./consent.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
-export const SETTINGS_KEYS = ["autonomous", "autonomousConcurrency", "model", "skills", "skillList", "okrWeekly", "learnHistory", "meegleDefects", "name", "theme"] as const;
+export const SETTINGS_KEYS = ["autonomous", "autonomousConcurrency", "defectBatchAt", "model", "skills", "skillList", "okrWeekly", "learnHistory", "meegleDefects", "name", "theme"] as const;
 type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, settingsShape[k]])) as Pick<typeof settingsShape, SettingsKey>).strict();

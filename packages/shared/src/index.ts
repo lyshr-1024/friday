@@ -114,6 +114,8 @@ export interface SettingsResponse {
   autonomous: boolean;
   /** Friday 自己开工时最多同时做几条，1–10；交付了、卡住了的不算 */
   autonomousConcurrency: number;
+  /** 需求没有会话时，名下缺陷每天几点（上海时间 HH:MM）开一张修复卡一起修 */
+  defectBatchAt: string;
   meegleDefects: boolean;
   summon: SummonSettings;
   dataDir: string;
@@ -133,6 +135,7 @@ export interface SettingsUpdate {
   okrWeekly?: boolean;
   autonomous?: boolean;
   autonomousConcurrency?: number;
+  defectBatchAt?: string;
   meegleDefects?: boolean;
   summon?: Partial<SummonSettings>;
 }
@@ -532,6 +535,10 @@ export interface TaskSource {
    * 不在这儿存一份，卡片上就只剩一串号码、文档也跟着丢了。
    */
   merged?: MergedItem[];
+  /** 已经据以收工过的 MR 号：任务重开后同一个 MR 不再把它收掉 */
+  mergedMrs?: number[];
+  /** 修复卡：值是它替哪张需求修缺陷（需求没有会话时，名下缺陷攒到这张卡上一起修） */
+  fixFor?: string;
   /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
   projectTerminal?: string;
   /** 项目 shell 的锚点：跟 projectTerminal 一样不进任务列表 */
@@ -694,6 +701,8 @@ export function briefRefusal(t: Task): string | undefined {
   if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
   if (t.source.scheduleId) return "定时任务的卡不建理解卡";
   if (t.source.container) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
+  if (t.source.fixFor) return "修复卡不建理解卡，到点整组修";
+  if (taskCategory(t) === "defect" && (t.source.rootId || workItemOf(t.source)?.parent?.id)) return "缺陷跟所属需求一起修，不单独建理解卡";
   if (t.source.jobId) return "已经开过工了，不建理解卡";
   if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
   if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";

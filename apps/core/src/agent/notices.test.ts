@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeliveryReport } from "@friday/shared";
+import type { DeliveryReport, ExternalRef } from "@friday/shared";
+let wiSeq = 0;
+/** 卡上的工单引用；parent 是所属需求 */
+const wi = (kind: ExternalRef["kind"], id = `w-${++wiSeq}`, parent?: string): ExternalRef => ({ tool: "meegle", type: "work_item", id, kind, ...(parent ? { parent: { id: parent } } : {}) });
+
 import { publish } from "../bus.js";
 import { db } from "../memory/db.js";
 import { listMessages } from "../memory/conversations.js";
@@ -261,5 +265,26 @@ describe("mainNeeds", () => {
     expect(n.working.some((x) => x.id === w.id)).toBe(false);
     expect(n.brief).toEqual([]);
     expect(n.queued).toEqual([]);
+  });
+
+  it("挂在需求下的缺陷不单独占一行：收进需求那一行，需求落在名下最急的那一组", () => {
+    const story = createTask({ title: "清结算需求", kind: "work_item", status: "understood", source: { external: wi("story", "fold-1") } });
+    const report = { at: "R", summary: "修好了", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [] };
+    const a = createTask({ title: "缺陷 A", kind: "work_item", status: "review", source: { external: wi("defect"), rootId: story.id, handedAt: "x" } });
+    updateTask(a.id, { report } as never);
+    const b = createTask({ title: "缺陷 B", kind: "work_item", status: "review", source: { external: wi("defect", undefined, "fold-1"), handedAt: "x" } });
+    updateTask(b.id, { report } as never);
+    const c = createTask({ title: "缺陷 C", kind: "work_item", status: "processing", source: { external: wi("defect"), rootId: story.id, handedAt: "x", autonomous: true } });
+    const n = mainNeeds();
+    const all = Object.values(n).flat().map((x) => x.id);
+    for (const d of [a, b, c]) expect(all).not.toContain(d.id);
+    const row = n.review.find((x) => x.id === story.id)!;
+    expect(row.reason).toContain("名下缺陷：2 条修完待核验、1 条在修");
+  });
+
+  it("没挂需求、或需求已经收工的缺陷照旧单独一行", () => {
+    const done = createTask({ title: "收工的需求", kind: "work_item", status: "done", source: { external: wi("story", "fold-2") } });
+    const d = createTask({ title: "孤缺陷", kind: "code", status: "blocked", source: { external: wi("defect"), rootId: done.id } });
+    expect(mainNeeds().blocked.map((x) => x.id)).toContain(d.id);
   });
 });

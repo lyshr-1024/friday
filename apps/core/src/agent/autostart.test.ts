@@ -11,7 +11,7 @@ import { setTmuxRunner } from "./tmux.js";
 import { type Brief, type ExternalRef, type Task, type TermSession } from "@friday/shared";
 import { kindOf } from "../connectors/meegle/rules.js";
 
-import { autostartPlan, autostartTick, codeEligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, yieldsToStory, type AutostartEnv, type StoryEnv } from "./autostart.js";
+import { autostartPlan, autostartTick, codeEligible, pickAutostart, runningAutonomous, type AutostartEnv } from "./autostart.js";
 import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { createJob, finishJob } from "../memory/jobs.js";
 import { createTermSession } from "../memory/termSessions.js";
@@ -29,7 +29,6 @@ const settled = new Date(NOW - AUTOSTART_SETTLE_MS - 1000).toISOString();
 
 /** 卡上的工单引用；parent 是所属需求 */
 const wi = (kind: ExternalRef["kind"], o: Partial<ExternalRef> = {}): ExternalRef => ({ tool: "meegle", type: "work_item", id: "w-1", kind, ...o });
-const under = (story: string, kind: ExternalRef["kind"] = "defect") => ({ external: wi(kind, { parent: { id: story } }) });
 
 const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
   ({
@@ -62,23 +61,6 @@ const bug = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["sou
 const register = (name: string, ...extra: string[]) =>
   writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## ${name}\n- 目录：/tmp\n${extra.map((l) => `- ${l}\n`).join("")}`);
 
-describe("yieldsToStory：测试中需求名下的缺陷一律不建卡", () => {
-  it("需求在测试中、名下已有一条在处理：第二条缺陷虽然交代不了（等前一条），也让路", () => {
-    const first = bug({ id: "b0", status: "processing" }, {}, { handedAt: settled, rootId: "r1" });
-    const second = bug({ id: "b2" });
-    const env: StoryEnv = { root: () => story(), session: () => sess(), occupied: () => true };
-    expect(testingStoryBug(second, env)).toBe("等前一条修完");
-    expect(yieldsToStory(second, env.root)).toBe(true);
-    expect(first.source.handedAt).toBeTruthy();
-  });
-  it("需求会话不在也让路；需求不在测试中、不是缺陷、没挂需求都不让", () => {
-    expect(yieldsToStory(bug(), () => story())).toBe(true);
-    expect(yieldsToStory(bug(), () => story({ stage: "dev" }))).toBe(false);
-    expect(yieldsToStory(bug(), () => undefined)).toBe(false);
-    expect(yieldsToStory(req(), () => story())).toBe(false);
-  });
-});
-
 describe("codeEligible：缺陷和需求同一条门禁，看理解卡", () => {
   it("缺陷有 review: none 的理解卡、依赖齐 → 放行，intake 为空也放行", () => {
     register("whale-console", "方案送审：不用");
@@ -98,10 +80,10 @@ describe("codeEligible：缺陷和需求同一条门禁，看理解卡", () => {
     expect(codeEligible(bug({ status: "review" }))).toBeTruthy();
     expect(pickAutostart([bug({ status: "processing" }), bug({ id: "b2", status: "review" })], env)).toEqual([]);
   });
-  it("缺陷所属需求在测试中：让路给需求会话那条路；不在测试中照常", () => {
+  it("挂在需求下的缺陷不管需求在哪个阶段都不单独开工；没挂需求的照常", () => {
     register("whale-console");
-    expect(codeEligible(bug(), () => story())).toBe("需求在测试中，走需求会话那条路");
-    expect(codeEligible(bug(), () => story({ stage: "dev" }))).toBeUndefined();
+    expect(codeEligible(bug(), () => story())).toBe("跟所属需求一起修，不单独开工");
+    expect(codeEligible(bug(), () => story({ stage: "dev" }))).toBe("跟所属需求一起修，不单独开工");
     expect(codeEligible(bug(), () => undefined)).toBeUndefined();
   });
   it("理解卡待审 / 打回 / 过期 / 依赖没齐 / 先别做，各自拒绝", () => {
@@ -192,41 +174,8 @@ describe("runningAutonomous", () => {
 
 const story = (over: Partial<Task> = {}): Task => ({ id: "root-1", title: "养牛1.2", kind: "work_item", status: "processing", stage: "testing", priority: "normal", createdAt: settled, updatedAt: settled, source: { external: wi("story", { id: "24642659" }) }, ...over }) as Task;
 const sess = (over: Partial<TermSession> = {}): TermSession => ({ id: "root-1", project: "x", repoDir: "/r", tmuxName: "x", kind: "interactive", status: "running", worktree: "/r-wt", createdAt: settled, updatedAt: settled, ...over }) as TermSession;
-const senv = (root?: Task, s?: TermSession, occupied = false): StoryEnv => ({ root: () => root, session: () => s, occupied: () => occupied });
-const fresh = defect({ createdAt: new Date(NOW).toISOString() }, { intake: { kind: "queue", why: "模糊", at: settled }, ...under("24642659") });
 
-describe("testingStoryBug", () => {
-  it("工单类型键 bug / defect 也算缺陷", () => {
-    for (const typeKey of ["bug", "defect"]) expect(testingStoryBug(defect({}, under("24642659", kindOf(typeKey))), senv(story(), sess()))).toEqual({ root: story() });
-  });
-  it("需求在测试中、会话在：不看 intake、不等稳定期", () => expect(testingStoryBug(fresh, senv(story(), sess()))).toEqual({ root: story() }));
-  it("需求不在测试中 / 没会话 / 会话关了 / 没 worktree / 前一条没修完，各给原因", () => {
-    expect(testingStoryBug(fresh, senv(story({ stage: "dev" }), sess()))).toBe("需求「养牛1.2」不在测试中");
-    expect(testingStoryBug(fresh, senv(story(), undefined))).toBe("需求没有会话，Friday 不知道分支在哪");
-    expect(testingStoryBug(fresh, senv(story(), sess({ status: "closed" })))).toBe("需求会话已关");
-    expect(testingStoryBug(fresh, senv(story(), sess({ worktree: undefined })))).toBe("需求会话没有 worktree");
-    expect(testingStoryBug(fresh, senv(story(), sess(), true))).toBe("等前一条修完");
-  });
-  it("不挂在需求下的缺陷不走这条路", () => expect(testingStoryBug(defect(), senv(undefined))).toBe("不挂在需求下"));
-  it("pickStoryBugs 每个需求只挑一条，高优先级先", () => {
-    const a = defect({ id: "a", priority: "low" }, under("24642659"));
-    const b = defect({ id: "b", priority: "high" }, under("24642659"));
-    expect(pickStoryBugs([a, b], senv(story(), sess())).map((x) => x.task.id)).toEqual(["b"]);
-  });
-  it("storyPlan：通过给 kind story；等前一条给 waiting；旧路不受影响", () => {
-    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: true }, NOW)).toEqual({ kind: "story", at: new Date(NOW).toISOString(), root: { id: "root-1", title: "养牛1.2" } });
-    expect(storyPlan(fresh, { ...senv(story(), sess(), true), enabled: true })).toMatchObject({ kind: "story", waiting: "等前一条修完" });
-    expect(storyPlan(fresh, { ...senv(story({ stage: "dev" }), sess()), enabled: true })).toBeUndefined();
-    expect(storyPlan(fresh, { ...senv(story(), sess()), enabled: false })).toBeUndefined();
-  });
-  it("storyPlan：需求在测试中但会话不在 / 已关 / 没 worktree，也给 story 并写原因；需求只找一次", () => {
-    for (const s of [undefined, sess({ status: "closed" }), sess({ worktree: undefined })]) {
-      const root = vi.fn(() => story());
-      expect(storyPlan(fresh, { root, session: () => s, occupied: () => false, enabled: true })).toMatchObject({ kind: "story", root: { id: "root-1" }, waiting: "需求会话不在，先给需求开终端" });
-      expect(root).toHaveBeenCalledTimes(1);
-    }
-    expect(storyPlan(fresh, { ...senv(undefined), enabled: true })).toBeUndefined();
-  });
+describe("交代过的缺陷", () => {
   it("runningAutonomous 不数 handed 的缺陷", () => {
     const before = runningAutonomous();
     createJob({ id: "ra-handed", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
@@ -422,12 +371,5 @@ describe("autostartTick：需求", () => {
     expect(start.mock.calls[0]![0].id).toBe(d.id);
     start.mockReset();
     updateSettings({ autonomousConcurrency: 3 });
-  });
-});
-
-describe("testingStoryBug 对非缺陷回字符串（建卡队列的 skip 对需求无副作用）", () => {
-  it("需求不被跳过", () => {
-    const story = defect({}, { external: wi("story") });
-    expect(typeof testingStoryBug(story)).toBe("string");
   });
 });

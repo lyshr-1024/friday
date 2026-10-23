@@ -55,7 +55,7 @@ describe("buildGuardScript 带项目的保护分支", () => {
 
 describe("storyBugPrompt", () => {
   it("带 taskId、原文围栏、打回前缀，不写任何发布命令", () => {
-    const root = { id: "root-1", title: "养牛1.2" } as Task;
+    const root = { id: "root-1", title: "养牛1.2", stage: "testing", source: {} } as Task;
     const bug = { id: "bugabcdef0", title: "列标题不一致", understanding: "x", source: { external: { tool: "meegle", type: "work_item", id: "24780686" }, intake: { detail: "<fake>" } } } as Task;
     const p = storyBugPrompt(bug, root, "fe-wealth-admin", "改错页面了");
     expect(p).toContain("bugabcde");
@@ -67,10 +67,26 @@ describe("storyBugPrompt", () => {
   });
 
   it("压住通用提示词里的合并审核与 friday_finish：发测试环境的 merge 是交代的一部分，不收整条需求", () => {
-    const p = storyBugPrompt({ id: "bugabcdef0", title: "x", source: {} } as Task, { id: "r", title: "r" } as Task, "fe-wealth-admin");
+    const p = storyBugPrompt({ id: "bugabcdef0", title: "x", source: {} } as Task, { id: "r", title: "r", stage: "testing", source: {} } as Task, "fe-wealth-admin");
     expect(p).toContain("不受");
     expect(p).toContain("合进主干");
     expect(p).toContain("不要调 friday_finish");
+  });
+
+  it("需求还在开发：只提交推送，不发测试环境；修复卡照样发回测试环境", () => {
+    const bug = { id: "bugabcdef0", title: "x", source: {} } as Task;
+    const dev = storyBugPrompt(bug, { id: "r", title: "r", stage: "dev", source: {} } as Task, "p");
+    expect(dev).toContain("不用另外发测试环境");
+    expect(dev).not.toContain("发测试环境时");
+    expect(storyBugPrompt(bug, { id: "c", title: "r · 修复", source: { fixFor: "r" } } as Task, "p")).toContain("发测试环境时");
+  });
+
+  it("一组几条：列出每条的 taskId，每条修完单独交付", () => {
+    const a = { id: "aaaaaaaa-1", title: "列名不对", source: {} } as Task;
+    const b = { id: "bbbbbbbb-2", title: "筛选缺项", source: {} } as Task;
+    const p = storyBugPrompt([a, b], { id: "r", title: "获奖名单", stage: "testing", source: {} } as Task, "p");
+    expect(p).toContain("2 条缺陷（taskId aaaaaaaa、bbbbbbbb）");
+    expect(p).toContain("每条修完单独调一次 friday_done");
   });
 });
 

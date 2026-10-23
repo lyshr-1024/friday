@@ -19,6 +19,7 @@ import { checkAllHealth } from "./connectors/health.js";
 import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
 import { postMainNotice, startNoticeWatcher } from "./agent/notices.js";
+import { tidyStoryDefects } from "./agent/autostart.js";
 
 initMemory();
 seedBuiltins();
@@ -41,6 +42,8 @@ const moved = migrateLocalTodos();
 if (moved) console.log(`把 ${moved} 条本地待办补成了任务`);
 const rules = migrateHandbooksToRules();
 if (rules.migrated) console.log(`把手册里的 ${rules.migrated} 条规则迁进了 rules 表`);
+const tidied = tidyStoryDefects();
+if (tidied) console.log(`撤掉了 ${tidied} 条缺陷上单独挂的合并 / 方案审批（缺陷跟需求一起修）`);
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(`friday-core listening on http://${info.address}:${info.port}`);

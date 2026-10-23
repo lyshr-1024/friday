@@ -1,4 +1,4 @@
-import { isFridayRun, NEED_LABEL, type MainNeeds, type Message, type NeedKind, type Task } from "@friday/shared";
+import { isFridayRun, NEED_LABEL, taskCategory, workItemOf, type MainNeeds, type Message, type NeedKind, type Task } from "@friday/shared";
 import { publish, subscribe } from "../bus.js";
 import { addMessage, listMessages } from "../memory/conversations.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
@@ -77,15 +77,50 @@ export function startNoticeWatcher(): () => void {
 const AWAY_MIN_MS = 15 * 60_000;
 const NEED_ORDER: NeedKind[] = ["brief", "review", "blocked"];
 
+type Bucket = keyof MainNeeds;
+const BUCKETS: Bucket[] = ["brief", "review", "blocked", "working", "queued"];
+const KID_LABEL: Record<Bucket, string> = { brief: "方案待审", review: "修完待核验", blocked: "卡住", working: "在修", queued: "排队" };
+
+/** 缺陷挂在列表里另一张开着的卡（需求 / 修复卡）下面：收进那一行，不单独占一行 */
+function parentIn(tasks: Task[]): (t: Task) => string | undefined {
+  const open = new Set(tasks.map((t) => t.id));
+  const story = new Map<string, string>();
+  for (const t of tasks) for (const m of [...(workItemOf(t.source) ? [workItemOf(t.source)!.id] : []), ...(t.source.mergedIds ?? [])]) story.set(m, t.id);
+  return (t) => {
+    if (taskCategory(t) !== "defect") return undefined;
+    const parent = workItemOf(t.source)?.parent?.id;
+    const p = t.source.rootId && open.has(t.source.rootId) ? t.source.rootId : parent ? story.get(parent) : undefined;
+    return p && p !== t.id ? p : undefined;
+  };
+}
+
 export function mainNeeds(): MainNeeds {
   const out: MainNeeds = { brief: [], review: [], blocked: [], working: [], queued: [] };
   const env = autostartEnv();
-  for (const t of listOpenBoardTasks()) {
-    const item = { id: t.id, seq: t.seq, title: t.title, since: t.updatedAt };
+  const tasks = listOpenBoardTasks();
+  const bucketOf = (t: Task): { bucket: Bucket; reason?: string } | undefined => {
     const need = needOf(t);
-    if (need) out[need.kind].push({ ...item, reason: need.reason });
-    else if (t.status === "processing" && isFridayRun(t.source)) out.working.push(item);
-    else if (t.status === "understood" && autostartPlan(t, env)) out.queued.push(item);
+    if (need) return { bucket: need.kind, reason: need.reason };
+    if (t.status === "processing" && isFridayRun(t.source)) return { bucket: "working" };
+    if (t.status === "understood" && autostartPlan(t, env)) return { bucket: "queued" };
+    return undefined;
+  };
+  const parent = parentIn(tasks);
+  const kids = new Map<string, Bucket[]>();
+  for (const t of tasks) {
+    const p = parent(t);
+    const b = p && bucketOf(t)?.bucket;
+    if (p && b) kids.set(p, [...(kids.get(p) ?? []), b]);
+  }
+  for (const t of tasks) {
+    if (parent(t)) continue;
+    const own = bucketOf(t);
+    const under = kids.get(t.id) ?? [];
+    const bucket = BUCKETS.find((b) => own?.bucket === b || under.includes(b));
+    if (!bucket) continue;
+    const summary = under.length ? `名下缺陷：${BUCKETS.filter((b) => under.includes(b)).map((b) => `${under.filter((x) => x === b).length} 条${KID_LABEL[b]}`).join("、")}` : "";
+    const reason = [own?.reason, summary].filter(Boolean).join(" · ");
+    out[bucket].push({ id: t.id, seq: t.seq, title: t.title, since: t.updatedAt, ...(reason ? { reason } : {}) });
   }
   return out;
 }

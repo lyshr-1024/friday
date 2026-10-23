@@ -618,7 +618,12 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
   const needGroupOf = (t: Task): string | null =>
     t.need === "brief" ? "方案待审" : t.need === "review" ? "待验收" : t.need === "blocked" ? "卡住" : t.status === "processing" ? "在干" : t.autostart ? "排队" : null;
   const NEED_GROUPS = ["方案待审", "待验收", "卡住", "在干", "排队"];
-  const other = onBoard.filter((t) => needGroupOf(t) === null);
+  // 需求自己没事、名下缺陷修完了：需求跟着进「待验收」，缺陷才看得见
+  const groupOf = (t: Task): string | null => {
+    const labels = [t, ...childrenOf(t)].map(needGroupOf);
+    return NEED_GROUPS.find((g) => labels.includes(g)) ?? null;
+  };
+  const other = onBoard.filter((t) => groupOf(t) === null);
   const byStage = (st: Stage) => other.filter((t) => t.stage === st).sort(byActivity(active));
   // 没有阶段的（Slack 回消息这类）单独兜底一组，否则它们会从列表里消失
   const noStage = other.filter((t) => !t.stage).sort(byActivity(active));
@@ -640,7 +645,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
     const raw: Array<{ label: string; items: Array<{ t: Task; child: boolean }> }> =
       [
             { label: "关注", items: withKids(pinned) },
-            ...NEED_GROUPS.map((label) => ({ label, items: withKids(onBoard.filter((t) => needGroupOf(t) === label).sort(byActivity(active))) })),
+            ...NEED_GROUPS.map((label) => ({ label, items: withKids(onBoard.filter((t) => groupOf(t) === label).sort(byActivity(active))) })),
             ...STAGE_GROUP_ORDER.map((st) => ({ label: `其他 · ${STAGE_LABEL[st]}`, items: withKids(byStage(st)) })),
             { label: "其他 · 没有阶段", items: withKids(noStage) },
             ...(showDone ? [{ label: "已完成", items: doneTasks.map((t) => ({ t, child: false })) }] : []),

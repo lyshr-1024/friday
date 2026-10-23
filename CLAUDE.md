@@ -72,6 +72,8 @@ apps/core/src/
 
 ### 需求在测试中：缺陷进需求会话（2026-10-16）
 
+> 2026-10-23 起推广到所有阶段、一次交一组，见「缺陷跟需求走」；本节的串行、交付归属、重开重接仍然适用。
+
 提测后测试拉出的缺陷多是小改，挂在一条已在联调环境上跑着的需求分支上：改完是 commit → push → 按项目自己的发布流程合到测试环境，不建 MR。设计稿 `docs/superpowers/specs/2026-10-16-testing-story-bugs-design.md`。
 
 - **触发只认需求卡 `stage === "testing"`**（用户定：Meegle 侧测试中和开发中是同一个状态值，分不出来，不另加推断；你没拨阶段的需求，缺陷走统一开工那条门禁，2026-10-22 前是把握分）。`autostart.ts` 的 `testingStoryBug` / `pickStoryBugs`：不看 intake、不等 15 分钟（建卡队列的 15 分钟也不等，测试中需求名下的缺陷根本不建卡）；需求会话得在、不是 closed、有 worktree（需求不是在 Friday 里做的就不接）。`autostartTick` 先跑这一路，总开关仍是 `settings.autonomous`。门禁 `codeEligible`（2026-10-22 前叫 `eligible`）对这类缺陷回「需求在测试中，走需求会话那条路」，免得同一会话里进两条、归属乱掉。
@@ -163,6 +165,8 @@ apps/core/src/
 
 ## 统一开工（2026-10-22）
 
+> 2026-10-23 起**挂了需求的缺陷不走这条门禁**（不建理解卡、不单独开工），见下节「缺陷跟需求走」；本节只剩需求和没挂需求的缺陷。
+
 设计稿第四块（`docs/superpowers/specs/2026-10-22-one-conversation-dispatch-design.md`）。起因：缺陷走「intake 把握分 ≥ 80 + 等 15 分钟」、需求走「理解卡」，两条门禁两套口径，缺陷也没有书面理解让你看。现在缺陷和需求同一条：先建理解卡，卡审过（或项目规则不用审）、依赖齐了才自己开。
 
 - **一条门禁 `codeEligible`**（`autostart.ts`，返回不满足的原因，空 = 能开；`pickAutostart` / `autostartPlan` 共用，`storyEligible` 并进来）。全部满足才开：卡在排队（`understood` / `collected`）、`briefRefusal` 空、**所属需求不在测试中**（缺陷让路给需求会话那条，见「需求在测试中」）、有理解卡、`review` 是 `none` 或 `approved`（`pending` / `rejected` 都不开）、没 `stale` 且指纹和当前正文一致、不在重建中、上次重建没失败、`none` 的卡项目现在仍然不用审、依赖全 `ready`、卡上没挂问题、没说过「先别做」（`autostartOff`）、**项目在注册表里**、**根会话不是你开的交互式会话**。并发仍是 `autonomousConcurrency`，先按优先级再按进来先后。缺陷判据统一 `taskCategory(source) === "defect"`（issue / defect / bug 都算；原来 `testingStoryBug` 只认一部分）。
@@ -222,6 +226,26 @@ apps/core/src/
 - **发送前的后果预览**（桌面 `Board.tsx` 的 `consequence`）：按 `chat_reply` 的 `to.id` 找任务挂着的那段对话（`conversations[].conv`）说「发到与 X 的私聊」还是「回在 X 那条下面」；找不到（对话不在收件箱、或任务挂着好几段对不上）一律写中性的「回到这段对话里（以你的身份发出，撤不回）」，不猜私聊还是回帖。**合并撤销**：新账 `task_merged` 的 `evidence.fromWorkItemId`，老账是 `fromMeegleId`，撤销两个都认，从宿主的 `mergedIds` / `merged` 里摘掉被恢复那条的工单号。
 - **已知遗留**：①**收件表没通用化**（计划第 7 块，用户定这轮跳过）：`inbox` 表和 `InboxItem` 仍是 Slack 形状（`channel_id` / `thread_ts` 等）。②业务代码里 `extNode("slack", …)` 仍写死工具名（约 20 处）；`memory/infer.ts`、`noteTask`、`projectHints`、`chat/attach`、`summon/*` 仍直接 import `connectors/meegle/rules.ts`。③Slack 工具停用时，后台查询、`POST /slack/:conv/task`、HUD「建成任务」直接报错（`role("chat")` 抛），按「停用就是不用它」接受。④迁移核对没数嵌套的老取值（`docs[].from`、依赖出处，读取兜底会换掉）。
 - **真机验收（2026-10-23）**：隔离同上（`FRIDAY_NO_SCHEDULER=1`、新的临时 `FRIDAY_DATA_DIR`、`FRIDAY_TMUX_SOCKET=friday-verify`、`FRIDAY_CLAUDE_JSON` 指空文件、`PATH` 前置记调用的假 `meegle`）。启动前用 `SCHEMA` 建库、SQL 塞老形状数据（工单号 + 对话键都有的缺陷、容器需求、带 `slack_reply` 的 Slack 查询、老 thread、`trigger = slack` 的 run）。首启：备份文件在、标记 = 备份路径、四条全是新形状、补了一条 rule 边、run 变 `chat`、老 thread 没被补阶段，备份里仍是老形状；`POST /tasks/sync-meegle`（假 `meegle` 返回那条缺陷、状态改成 IN PROGRESS）→ `{added: 0}`、没建新卡、`external.state.key` 变 IN PROGRESS、父需求不变；`GET /tasks` 的 source 顶层没有任何老键、`merged[]` 没有 `meegleId`；重启不再备份。前后 ptmx 都是 15。
+
+## 缺陷跟需求走（2026-10-23）
+
+起因：#107 / #108 / #122 各自建卡、各自开工、各挂一份「合并需求分支」（同一条分支挂三遍），在「待验收」里各占一行；#133 修了 3 条 SIT 缺陷，MR 合进 sit 后一直挂着，挂的还是「合并进主分支」（真点了会把 sit 的东西带进 master）。用户定：缺陷不单独解决；需求收工后来的缺陷开修复卡攒着，每天定一个时间统一修。设计稿 2026-10-21 第 13、124 行早就写了「修复的单位是需求不是缺陷」，这次落地（「按知识库功能给缺陷找需求」那块仍没做，只认 Meegle 给的关联需求）。实测三个需求全是容器（`source.container`），所以修复单位不能指望需求自己开工。
+
+- **路由 `defectRoute`**（`agent/autostart.ts`）：缺陷挂在哪张需求下用 `storyOf`（`rootId` 指的那张，修复卡换回它替的需求；没有就按 `external.parent.id` 找，收没收工都算）。需求（没收工）或它的修复卡有会话（没关、有 worktree）→ 整组交进去（`pickDefectGroups` → `handToStorySession(组, 会话)`，不再只认「测试中」）；那个会话里还有一组没修完 → 等；都没会话 → 等每天定点（`batch`）。已经在测试中 / 开过工 / 挂着问题 / 先别做的不排。
+- **不单独建卡、不单独开工**：`briefRefusal` 对挂了需求的缺陷回「缺陷跟所属需求一起修」，对修复卡回「修复卡不建理解卡」；`codeEligible` 对它们回「跟所属需求一起修，不单独开工」；`yieldsToStory` 改成「缺陷挂在需求下」（建卡队列的 skip 共用）。没挂需求的缺陷保持统一开工那条门禁（用户说不会出现，留作兜底）。
+- **修复卡**（`source.fixFor` = 需求 id，`kind: code`，标题「<需求> · 修复」，优先级取组里最高）：`autostartTick` 每轮先 `ensureFixCards`——需求和修复卡都没会话的缺陷一进来就建卡、把缺陷 `rootId` 挂上去，卡先不开工；`defectBatchTick` 每轮同步后看上海时间到没到 `settings.defectBatchAt`（默认 `10:00`，对话里 `settings_update` 能改，`HH:MM`），一天一次（游标 `defects:batch:day`），对每组 `startFixCard`：Friday 驾驶开工（`fixCardDetail`：一条分支一起修、分支和发布按项目规则与缺陷所在环境定、每条带 taskId 交付、最后交总报告），缺陷记成交代进修复卡的会话（`handedAt`、`rootId` = 卡、runs 一条一行 `story_bug`）。修复卡有了会话后，同一需求再来的缺陷直接整组交进去，不等定点。你对缺陷或修复卡说「开工」不等定点：有会话就交进去，没有就马上开修复卡（`taskStart.ts`）。
+- **交代提示词** `storyBugPrompt` 收一组：列每条 taskId，每条修完单独 `friday_done`；「发测试环境」那条只在需求测试中或修复卡时写，需求还在开发就只提交推送。
+- **合并动作只给从主干切出来的分支**（`git.ts` 的 `forkedFromSync`）：本分支第一父链上有提交落在某条非主干保护分支（sit / uat…）自己的第一父链上（主干没有的），才算从它切的，不挂「合并进主分支」，`friday_done` 回话写明从哪切的、在 MR 里验收；`onJobExit` 同。**不能看 merge-base**（终审踩过）：功能分支合进 sit 发测试环境后，跟 sit 的 merge-base 就是自己的提交，会把所有发过 sit 的需求都误判掉；合进 sit 的提交只是 sit 合并提交的第二父，不在 sit 第一父链上（前提是合进 sit 有合并提交，fast-forward 进 sit 的会误判）。真实仓库验过：#133 分支认成 sit、`feat/settlement-optimization` 认成主干。
+- **MR 合了就收工**（`agent/mrWatch.ts`）：每轮 Meegle 同步后，对 processing / review / blocked、有自己分支（不是主干、不是交代进别人会话的缺陷）的任务跑 `glab mr list --source-branch <分支> --merged -F json`（cwd = 主仓；glab 按 PATH 找，Finder 拉起时兜底 `/opt/homebrew/bin`），合并时间早于任务创建的旧 MR 不算；命中记 `mr_merged`、MR 号进 `source.mergedMrs`（重开后同一个 MR 不再收它），名下缺陷**只连带收合并前就交付了的**（`review` 且 `report.at` 不晚于合并时间；合并后才进来、还在排队或在修的不动，否则测试第二天提的缺陷一进来就被收掉、Meegle 里还开着），再 `finishTask`。分支是主干、项目保护分支或仓库默认分支的不查（以 develop 为源的发版 MR 跟任务无关）。glab 没装 / 没登录 / 报错就跳过。合进 sit 也算收工（用户定）；run 的结局仍按本地主干判，合进 sit 的记 `closed_unverified`。
+- **整组交付**：handed 缺陷 `friday_done` 后同会话里还有别的 handed 且 processing 的，回话列出剩下几条「接着修」并重新 `markAwaiting`（不然交完第一条就收手、剩下的永远 processing 占着「等前一组」）；修复卡名下都交齐了，提醒再交一份总报告（taskId 填卡）。只剩最后一条才回「交付完就结束」。
+- **没开起来的收尾**：准备段没建出 worktree（`prepareFailed`）、准备段回报被拒（`worktreeReady` 的 refuse）、Claude 20 分钟没起来（`stalledStarts`）三处都 `settleHandedBugs`，交代进来的缺陷跟着标卡住，否则一直 processing，定点和「开工」都接不了。
+- **重开**：Meegle Reopen 和 Friday 里「重新打开」对挂在需求下的缺陷（`storyOf` 有值）不管需求在哪个阶段都清交接标记、清老版本留的 `jobId` / `autonomous`、阶段回「未开始」、写 `handBackNote`，下一轮按路由重新交代（原来只认需求在测试中，其余的回「进行中」后无路可走）。
+- **你开的会话**：会话 `kind: interactive` 时，Claude 在跑（会话 running）就往里交，不管需求在哪个阶段（2026-10-23 用户定「可以往我自己开的需求会话里敲字」，原来只在测试中）；Claude 已退出的等着，卡上写「在终端里接回后交进去」，不替你接回（接回来不带模型、不挂守卫）、不进定点、不每轮记 `story_session_gone`。会话还在准备（没 worktree）也等，不建修复卡（不然准备好以后修复卡成孤儿）。手动开工同理回 409「会话还在准备」。
+- **修复卡收尾**：`ensureFixCards` 建卡前再 `fixCardOf` 查一次（防重复卡），末尾把名下没有开着的缺陷、自己没开过工的修复卡标 `ignored`（`fix_card_dropped`）；`startFixCard` 卡没项目就从这组缺陷取并写回卡上；`defectBatchTick` 只在没撞上 tmux 缺失时才写当天游标。
+- **性能**：`autostartEnv()` 带一个按请求缓存的 `storyEnv()`（查过的需求、修复卡、占用中的会话都记着），`GET /tasks`、`mainNeeds`、任务板注入不再每条任务扫一遍全表。`storyOf` / `fixCardOf` 在 `agent/story.ts`（`workItems.ts`、`pipeline.ts` 要用，放 `autostart.ts` 会循环导入）。
+- **启动清理** `tidyStoryDefects`（`index.ts`）：挂了需求的缺陷上老版本挂的 `git_merge` / `brief_approve` 撤掉、记 `story_defect_tidied`，别的待审动作不动。
+- **界面**：「等你」栏（`mainNeeds`）里挂在开着的需求 / 修复卡下的缺陷不单独占一行，收进父卡那一行，reason 末尾写「名下缺陷：2 条修完待核验、1 条在修」，父卡落在自己和名下最急的那一组（顺序 brief → review → blocked → working → queued）；任务列表里需求的分组同样取名下最急的（`Board.tsx` 的 `groupOf`），缺陷照旧缩进挂在下面。
+- **已知**：主动消息（notice）仍按缺陷一条条发「待验收」，没合并；`finishDefectsOf` 按 `external.parent` 也会收到挂在修复卡上的缺陷（同需求，语义一致）；真机验收用临时数据看过「等你」栏和任务列表两屏，修复卡开工、glab 收工没在真实项目上跑过（glab 查询本身对 #133 实测过：MR !10362 已合进 sit）。
 
 ## 从 Claude Code 历史学（2026-09-15）
 

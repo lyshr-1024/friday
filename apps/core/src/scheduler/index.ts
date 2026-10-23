@@ -5,8 +5,9 @@ import { classifyQuery } from "../agent/chat/query.js";
 import { startQueryJob } from "../agent/chat/queryJob.js";
 import { archiveStaleTasks, settleQueryTasks } from "../agent/chat/settle.js";
 import { syncWorkItemsOnce } from "../agent/workItems.js";
-import { autostartTick, yieldsToStory } from "../agent/autostart.js";
+import { autostartTick, defectBatchTick, yieldsToStory } from "../agent/autostart.js";
 import { briefTick } from "../agent/briefJob.js";
+import { mrWatchTick } from "../agent/mrWatch.js";
 import { watchStageSignals } from "../agent/stageWatch.js";
 import { onSlackAccepted } from "../agent/stage.js";
 import { sweepClosedTerminals } from "../agent/terminal.js";
@@ -179,6 +180,8 @@ export function startScheduler(): void {
   setTimeout(tick, 5_000).unref();
   const meegleTick = async () => {
     await syncWorkItemsOnce();
+    await mrWatchTick().catch((e) => console.error(`[mr] ${e instanceof Error ? e.message : e}`));
+    await defectBatchTick().catch((e) => console.error(`[defects] ${e instanceof Error ? e.message : e}`));
     await briefAndAutostart();
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };

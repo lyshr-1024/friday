@@ -4,7 +4,7 @@ import { conversationOf, workItemOf, type DeliveryReport, type Job, type Task } 
 import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
-import { clearAwaiting, getJob, setJobMessage } from "../memory/jobs.js";
+import { clearAwaiting, getJob, markAwaiting, setJobMessage } from "../memory/jobs.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
@@ -15,7 +15,7 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
-import { commitsAheadSync, currentBranchSync, defaultBranchSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync, defaultBranchSync, forkedFromSync } from "./git.js";
 import { pushVerdict, type PushVerdict } from "./guard.js";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
@@ -488,7 +488,19 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       const m = await transitionToInProgress(t);
       record({ taskId: t.id, action: "terminal_done", why: "需求会话里的 Claude Code 报告缺陷修完", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       notify(t, job, "修完了，等你核验", `${report.summary}${m.moved ? "" : `\nMeegle 状态没动：${m.why}`}`);
-      return { text: `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。交付完就结束。${lang()}` };
+      const moved = `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。`;
+      // 一组交代进来的：交完一条还有别的没交，不能让它就此收手，欠交付也得留着才会催
+      const rest = listTasks("processing").filter((x) => x.id !== t.id && x.source.rootId === t.source.rootId && x.source.handedAt);
+      const root = t.source.rootId ? getTask(t.source.rootId) : undefined;
+      if (rest.length) {
+        markAwaiting(jobId);
+        return { text: `${moved}还有 ${rest.length} 条没交付：${rest.map((x) => `${x.id.slice(0, 8)}（${x.title.slice(0, 24)}）`).join("、")}。接着修，每条修完同样调 friday_done 带它的 taskId。${lang()}` };
+      }
+      if (root?.source.fixFor && root.status === "processing") {
+        markAwaiting(jobId);
+        return { text: `${moved}这组缺陷都交了。再调一次 friday_done，taskId 填 ${root.id.slice(0, 8)}，概要逐条写每条的结果。${lang()}` };
+      }
+      return { text: `${moved}交付完就结束。${lang()}` };
     }
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
@@ -511,7 +523,10 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (prev?.endedAt) startRound(jobId, task.id, job.project, "followup", prev.endedAt);
     closeRun(jobId, "report");
     // 空分支不挂合并：Claude 没改代码（比如发现改错仓库）时分支上一个提交都没有，合进去什么也没有
-    const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;
+    const ahead = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;
+    // 从 sit 这类环境分支切出来的，合进主干会把那条分支上还没发的东西一起带进去：只在 MR 里合
+    const forkedFrom = ahead ? forkedFromSync(task.source.worktree ?? job.dir, protectedBranches(job.project)) : undefined;
+    const onFeatureBranch = ahead && !forkedFrom;
     // 合并待审原来只在 onJobExit 解析 report.md 时挂；走 friday_done 交付的 onJobExit 会提前返回，
     // 于是自主任务第一次跑通（2026-09-28）review 里就没有「合并」可点。合并要在主仓做，不能在 worktree 里。
     if (onFeatureBranch && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
@@ -524,7 +539,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary);
-    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
+    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : forkedFrom ? `分支 ${branch} 是从 ${forkedFrom} 切出来的，不挂合并进主分支，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
   }
 
   if (name === "friday_finish") {

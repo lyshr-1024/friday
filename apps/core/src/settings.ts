@@ -24,6 +24,7 @@ export interface UserSettings {
   /** 让 Friday 对够具体的缺陷自己开自主任务，不等你点「交给 Friday 改」 */
   autonomous: boolean;
   autonomousConcurrency: number;
+  defectBatchAt: string;
   /** 分派给我的 Meegle 缺陷拉不拉进待办。关掉只停拉新的，已经在列表里的留着 */
   meegleDefects: boolean;
   summon: SummonSettings;
@@ -44,7 +45,9 @@ function mergeSummon(raw: unknown): SummonSettings {
   };
 }
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousConcurrency: 3, meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS, roles: { workItems: "meegle", chat: "slack", docs: "lark", web: "web" } };
+export const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousConcurrency: 3, defectBatchAt: "10:00", meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS, roles: { workItems: "meegle", chat: "slack", docs: "lark", web: "web" } };
 
 /** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
 function readSkillList(raw: unknown): string[] | "all" {
@@ -104,6 +107,7 @@ export function userSettings(): UserSettings {
       typeof raw.autonomousConcurrency === "number" && Number.isFinite(raw.autonomousConcurrency)
         ? Math.min(10, Math.max(1, Math.round(raw.autonomousConcurrency)))
         : DEFAULTS.autonomousConcurrency,
+    defectBatchAt: typeof raw.defectBatchAt === "string" && HHMM.test(raw.defectBatchAt) ? raw.defectBatchAt : DEFAULTS.defectBatchAt,
     meegleDefects: typeof raw.meegleDefects === "boolean" ? raw.meegleDefects : DEFAULTS.meegleDefects,
     summon: mergeSummon(raw.summon),
     roles: readRoles(raw.roles),
@@ -124,6 +128,7 @@ export function updateSettings(patch: SettingsUpdate): UserSettings {
   if (patch.okrWeekly !== undefined) raw.okrWeekly = patch.okrWeekly;
   if (patch.autonomous !== undefined) raw.autonomous = patch.autonomous;
   if (patch.autonomousConcurrency !== undefined) raw.autonomousConcurrency = patch.autonomousConcurrency;
+  if (patch.defectBatchAt !== undefined) raw.defectBatchAt = patch.defectBatchAt;
   if (patch.meegleDefects !== undefined) raw.meegleDefects = patch.meegleDefects;
   if (patch.summon !== undefined) raw.summon = { ...mergeSummon(raw.summon), ...patch.summon };
   writeFileSync(`${file()}.tmp`, JSON.stringify(raw, null, 2));

@@ -8,7 +8,7 @@ import type { StateTransition } from "@friday/shared";
 import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
-import { createJob, getJob, setJobSession } from "../memory/jobs.js";
+import { createJob, getJob, markAwaiting, setJobSession } from "../memory/jobs.js";
 import { createRun, openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
 import { shotsDir, transcriptPath } from "./runner.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
@@ -145,6 +145,24 @@ describe("终端 → Friday 的 MCP 桥", () => {
     const task = createTask({ title: "demo：空分支", kind: "code", source: { jobId: "job-mcp-4e", autonomous: true, repoDir: "/main/repo", worktree: repo }, project: "demo", status: "processing", plan: "改" });
     await rpc("job-mcp-4e", "tools/call", { name: "friday_done", arguments: { summary: "没改代码：bug 在另一个仓库", testResult: "未测" } });
     expect(getTask(task.id)!.pending ?? []).toEqual([]);
+  });
+
+  it("分支从 sit 切出来：不挂「合并进主分支」，合进去会把 sit 上的东西一起带进主干", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" } });
+    git("init", "-q", "-b", "master");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("switch", "-q", "-c", "sit");
+    git("commit", "-q", "--allow-empty", "-m", "sit only");
+    git("switch", "-q", "-c", "fix/cattle-sit-bugs");
+    git("commit", "-q", "--allow-empty", "-m", "fix");
+    createJob({ id: "job-mcp-sit", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：sit 上修", kind: "code", source: { jobId: "job-mcp-sit", autonomous: true, repoDir: repo, worktree: repo }, project: "demo", status: "processing", plan: "改" });
+    const res = (await (await rpc("job-mcp-sit", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } })).json()) as { result: { content: Array<{ text: string }> } };
+    const t = getTask(task.id)!;
+    expect(t.status).toBe("review");
+    expect(t.pending ?? []).toEqual([]);
+    expect(res.result.content[0]!.text).toContain("从 sit 切出来");
   });
 
   it("自主任务停在主干上（没建分支）就不挂合并动作，免得挂个假的", async () => {
@@ -316,6 +334,31 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(bug.source.external?.state?.key).toBe("IN PROGRESS");
     expect(getTask(root.id)!.report).toBeUndefined();
     expect(text).toContain("已转开发中");
+  });
+
+  it("一组几条：交完一条回话列出剩下的、接着修，欠交付不清；最后一条才说结束", async () => {
+    const { bs, job } = setup("grp", 3);
+    markAwaiting(job);
+    const first = await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "修好了", testResult: "过" });
+    expect(first).toContain("还有 2 条没交付");
+    expect(first).toContain(bs[1]!.id.slice(0, 8));
+    expect(first).not.toContain("交付完就结束");
+    expect(getJob(job)!.awaitingDelivery).toBe(true);
+    await call(job, "friday_done", { taskId: bs[1]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    const last = await call(job, "friday_done", { taskId: bs[2]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(last).toContain("交付完就结束");
+    expect(getJob(job)!.awaitingDelivery).toBeFalsy();
+  });
+
+  it("修复卡：缺陷都交了，提醒再交一份总报告，欠交付不清", async () => {
+    meegle.transitions = [];
+    const card = createTask({ title: "需求 · 修复", kind: "code", source: { fixFor: "s-x", autonomous: true }, project: "demo", status: "processing" });
+    createJob({ id: "job-card", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: card.id, sessionId: card.id });
+    const bug = createTask({ title: "卡下缺陷", kind: "work_item", source: { rootId: card.id, autonomous: true, handedAt: new Date().toISOString() }, project: "demo", status: "processing" });
+    markAwaiting("job-card");
+    const text = await call("job-card", "friday_done", { taskId: bug.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(text).toContain(`taskId 填 ${card.id.slice(0, 8)}`);
+    expect(getJob("job-card")!.awaitingDelivery).toBe(true);
   });
 
   it("不带 taskId、会话名下恰好一条 handed 缺陷：也归缺陷", async () => {
