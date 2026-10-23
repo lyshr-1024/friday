@@ -25,7 +25,7 @@ const { loadProjects } = await import("../memory/projects.js");
 const { writeMemoryFile } = await import("../memory/files.js");
 const { addInboxItems } = await import("../memory/inbox.js");
 const { linkUp } = await import("../memory/links.js");
-const { slackNode, taskNode } = await import("../memory/infer.js");
+const { extNode, taskNode } = await import("../memory/infer.js");
 const { listTasks } = await import("../memory/tasks.js");
 const { saveAttachment } = await import("../memory/attachments.js");
 const { seedBuiltins } = await import("../connectors/builtin.js");
@@ -191,7 +191,7 @@ describe("POST /summon/relay", () => {
 
   it("规则层没对上但这段对话挂着任务，也能打开它", async () => {
     const task = createTask({ title: "挂着的", kind: "verbal", source: {}, status: "understood" });
-    linkUp(slackNode("CV:1"), taskNode(task.id), "user", "x");
+    linkUp(extNode("slack", "conversation", "CV:1"), taskNode(task.id), "user", "x");
     const body = await relay({ text: "打开任务", conv: "CV:1" });
     expect(body).toContain(`"taskId":"${task.id}"`);
   });

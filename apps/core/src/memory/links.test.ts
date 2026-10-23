@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { allLinks, linkUp, linksOf, neighbors, rejected, unlink } from "./links.js";
-import { branchNode, meegleNode, projectNode, taskNode, urlsIn } from "./infer.js";
+import { branchNode, extNeighbors, extNode, projectNode, taskNode, urlsIn } from "./infer.js";
 import { idsIn as meegleIdsIn } from "../connectors/meegle/rules.js";
 
 // 整个测试文件共用一个库，所以每个用例自己起唯一的任务 id，互不干扰
 const t = () => taskNode(randomUUID());
-const m = () => meegleNode(String(Math.floor(2e7 + Math.random() * 1e7)));
+const m = () => extNode("meegle", "work_item", String(Math.floor(2e7 + Math.random() * 1e7)));
 
 describe("links", () => {
   it("同一条边不管从哪头连，只存一行", () => {
@@ -57,16 +57,26 @@ describe("links", () => {
     linkUp(a, b, "rule", "x");
     unlink(a, b);
     expect(allLinks()).toHaveLength(before);
-    expect(neighbors(a, "meegle")).toHaveLength(0);
+    expect(extNeighbors(a, "meegle", "work_item")).toHaveLength(0);
   });
 
   it("neighbors 只返回指定类型，user 排前面", () => {
     const a = t();
-    linkUp(a, meegleNode("30000001"), "rule", "a");
-    linkUp(a, meegleNode("30000002"), "user", "b");
+    linkUp(a, extNode("meegle", "work_item", "30000001"), "rule", "a");
+    linkUp(a, extNode("meegle", "work_item", "30000002"), "user", "b");
     linkUp(a, projectNode("whale-console"), "rule", "c");
-    expect(neighbors(a, "meegle").map((n) => n.ref)).toEqual(["30000002", "30000001"]);
+    expect(extNeighbors(a, "meegle", "work_item").map((n) => n.ref)).toEqual(["30000002", "30000001"]);
     expect(neighbors(a, "project").map((n) => n.ref)).toEqual(["whale-console"]);
+  });
+
+  it("extNeighbors 只认指定工具的指定类型，ref 去掉前缀", () => {
+    const a = t();
+    linkUp(a, extNode("meegle", "work_item", "30000003"), "rule", "a");
+    linkUp(a, extNode("slack", "conversation", "C1:1.0"), "rule", "b");
+    linkUp(a, extNode("slack", "channel", "#一起养牛"), "rule", "c");
+    expect(extNeighbors(a, "slack", "conversation").map((n) => n.ref)).toEqual(["C1:1.0"]);
+    expect(extNeighbors(a, "meegle", "work_item").map((n) => n.ref)).toEqual(["30000003"]);
+    expect(extNeighbors(a, "slack", "channel").map((n) => n.ref)).toEqual(["一起养牛"]);
   });
 
   it("不同项目的同名分支不是一条边", () => {

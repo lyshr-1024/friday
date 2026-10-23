@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { InboxItem, Task } from "@friday/shared";
 import { record } from "../../memory/audit.js";
-import { slackNode, taskNode } from "../../memory/infer.js";
+import { extNode, taskNode } from "../../memory/infer.js";
 import { role } from "../../connectors/roles.js";
 import { createRun } from "../../memory/runs.js";
 import { linkUp } from "../../memory/links.js";
@@ -53,7 +53,7 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
     status: "processing",
     understanding: `${item.userName} 在 ${item.channelName} 问：${item.text}`,
   });
-  linkUp(slackNode(conv), taskNode(task.id), "rule", `Friday 接了这个问题去查代码`);
+  linkUp(extNode("slack", "conversation", conv), taskNode(task.id), "rule", `Friday 接了这个问题去查代码`);
 
   const id = randomUUID();
   const dir = picked[0]!.dir;

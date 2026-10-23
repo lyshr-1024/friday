@@ -4,7 +4,7 @@ import { initMemory } from "../memory/db.js";
 import { addInboxItems } from "../memory/inbox.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { neighbors } from "../memory/links.js";
-import { channelNode, slackNode } from "../memory/infer.js";
+import { extNode } from "../memory/infer.js";
 import { seedBuiltins } from "../connectors/builtin.js";
 
 seedBuiltins();
@@ -19,11 +19,11 @@ describe("Slack 挂靠接口", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });
     expect(up.status).toBe(200);
-    expect(neighbors(slackNode("A1:1"), "task").map((n) => n.ref)).toContain(t.id);
+    expect(neighbors(extNode("slack", "conversation", "A1:1"), "task").map((n) => n.ref)).toContain(t.id);
 
     const down = await app.request(`/slack/${encodeURIComponent("A1:1")}/attach/${t.id}`, { method: "DELETE" });
     expect(down.status).toBe(200);
-    expect(neighbors(slackNode("A1:1"), "task").map((n) => n.ref)).not.toContain(t.id);
+    expect(neighbors(extNode("slack", "conversation", "A1:1"), "task").map((n) => n.ref)).not.toContain(t.id);
   });
 
   it("摘掉之后自动推断不会再把它连回来", async () => {
@@ -46,7 +46,7 @@ describe("Slack 挂靠接口", () => {
     expect(r.status).toBe(200);
     const body = (await r.json()) as { id: string; title: string };
     expect(body.title).toBe("帮忙看下导出");
-    expect(neighbors(slackNode("A3:1"), "task").map((n) => n.ref)).toContain(body.id);
+    expect(neighbors(extNode("slack", "conversation", "A3:1"), "task").map((n) => n.ref)).toContain(body.id);
   });
 
   it("对话不存在给 404", async () => {
@@ -65,11 +65,11 @@ describe("频道挂靠接口", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });
     expect(up.status).toBe(200);
-    expect(neighbors(channelNode("一起养牛"), "task").map((n) => n.ref)).toContain(t.id);
+    expect(neighbors(extNode("slack", "channel", "一起养牛"), "task").map((n) => n.ref)).toContain(t.id);
 
     const down = await app.request(`/slack/channel/${encodeURIComponent("一起养牛")}/task/${t.id}`, { method: "DELETE" });
     expect(down.status).toBe(200);
-    expect(neighbors(channelNode("一起养牛"), "task").map((n) => n.ref)).not.toContain(t.id);
+    expect(neighbors(extNode("slack", "channel", "一起养牛"), "task").map((n) => n.ref)).not.toContain(t.id);
   });
 
   it("频道名带不带 # 都是同一个", async () => {
@@ -78,7 +78,7 @@ describe("频道挂靠接口", () => {
     await app.request(`/slack/channel/${encodeURIComponent("#导出中心-需求")}/task`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });
-    expect(neighbors(channelNode("导出中心-需求"), "task").map((n) => n.ref)).toContain(t.id);
+    expect(neighbors(extNode("slack", "channel", "导出中心-需求"), "task").map((n) => n.ref)).toContain(t.id);
   });
 
   it("任务不存在给 404", async () => {

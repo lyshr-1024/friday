@@ -1,5 +1,5 @@
 import { workItemOf } from "@friday/shared";
-import { conversationKey, slackNode, taskNode, urlsIn } from "../../memory/infer.js";
+import { conversationKey, extNode, taskNode, urlsIn } from "../../memory/infer.js";
 import { idsIn as workItemIdsIn } from "../../connectors/meegle/rules.js";
 import { listInbox } from "../../memory/inbox.js";
 import "../../connectors/slack/index.js";
@@ -49,7 +49,7 @@ function attachByTicket(conv: string, lines: ChatLine[]): string | undefined {
       })
     : undefined;
   if (byTicket) {
-    linkUp(slackNode(conv), taskNode(byTicket.id), "rule", `这段对话里提到了工单 ${workItemOf(byTicket.source)!.id}`);
+    linkUp(extNode("slack", "conversation", conv), taskNode(byTicket.id), "rule", `这段对话里提到了工单 ${workItemOf(byTicket.source)!.id}`);
     return byTicket.id;
   }
 
@@ -59,7 +59,7 @@ function attachByTicket(conv: string, lines: ChatLine[]): string | undefined {
   for (const t of tasks) {
     const same = (t.source.docs ?? []).find((d) => normed.has(normUrl(d.url)));
     if (!same) continue;
-    linkUp(slackNode(conv), taskNode(t.id), "rule", "这段对话里贴的就是这条任务的需求文档");
+    linkUp(extNode("slack", "conversation", conv), taskNode(t.id), "rule", "这段对话里贴的就是这条任务的需求文档");
     return t.id;
   }
   return undefined;

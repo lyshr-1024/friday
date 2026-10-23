@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { conversationKey, slackNode } from "./infer.js";
+import { conversationKey, extNode, inferTaskLinks } from "./infer.js";
+import { neighbors } from "./links.js";
+import { createTask } from "./tasks.js";
 import { idsIn as meegleIdsIn } from "../connectors/meegle/rules.js";
 
 describe("meegleIdsIn", () => {
@@ -31,8 +33,30 @@ describe("conversationKey", () => {
   });
 });
 
-describe("slackNode", () => {
-  it("是 slack 类型的节点，ref 就是对话键", () => {
-    expect(slackNode("C1:1789000001.0")).toEqual({ kind: "slack", ref: "C1:1789000001.0" });
+describe("extNode", () => {
+  it("是 ext 类型的节点，ref 是「工具:类型:对话键」", () => {
+    expect(extNode("slack", "conversation", "C1:1789000001.0")).toEqual({ kind: "ext", ref: "slack:conversation:C1:1789000001.0" });
+  });
+
+  it("频道名剥掉 #", () => {
+    expect(extNode("slack", "channel", "#一起养牛")).toEqual({ kind: "ext", ref: "slack:channel:一起养牛" });
+  });
+});
+
+describe("inferTaskLinks", () => {
+  it("老库遗留的线程任务连到 slack:thread，普通对话不由它连", () => {
+    const old = createTask({ title: "老线程", kind: "conversation", source: { threadId: "TH-infer" } });
+    const conv = createTask({ title: "新对话", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "C7:7.7" } } });
+    inferTaskLinks(old);
+    inferTaskLinks(conv);
+    expect(neighbors(extNode("slack", "thread", "TH-infer"), "task").map((n) => n.ref)).toEqual([old.id]);
+    expect(neighbors(extNode("slack", "thread", "C7:7.7"), "task")).toEqual([]);
+  });
+
+  it("工单和它所属需求都连成 meegle:work_item", () => {
+    const t = createTask({ title: "缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "31000001", kind: "defect", parent: { id: "31000002" } } } });
+    inferTaskLinks(t);
+    expect(neighbors(extNode("meegle", "work_item", "31000001"), "task").map((n) => n.ref)).toEqual([t.id]);
+    expect(neighbors(extNode("meegle", "work_item", "31000002"), "task").map((n) => n.ref)).toEqual([t.id]);
   });
 });

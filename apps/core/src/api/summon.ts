@@ -17,7 +17,7 @@ import { askStream } from "../agent/claude.js";
 import { classifyIntent } from "../agent/summon/intent.js";
 import { startQueryJob } from "../agent/chat/queryJob.js";
 import { attachedTasks, candidateTasks } from "../agent/chat/attach.js";
-import { conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
+import { conversationKey, extNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
 import { listTasks, taskTag, updateTask } from "../memory/tasks.js";
@@ -120,7 +120,7 @@ async function runIntent(
         ...(project ? { project } : {}),
         ...(ctx.scene ? { understanding: ctx.scene.slice(0, 4000) } : {}),
       });
-      linkUp(slackNode(conv), taskNode(task.id), "user", "你在 HUD 里把这段对话建成了任务");
+      linkUp(extNode("slack", "conversation", conv), taskNode(task.id), "user", "你在 HUD 里把这段对话建成了任务");
       return { kind: "acted", did: intent, message: `已建成任务：${task.title}`, taskId: task.id };
     }
     case "slack_attach": {

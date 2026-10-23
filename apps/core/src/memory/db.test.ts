@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrate } from "./db.js";
+import { db, migrate } from "./db.js";
+import { extNode, taskNode } from "./infer.js";
+import { linkUp, neighbors, rejected } from "./links.js";
 import { SCHEMA } from "./schema.js";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -22,6 +24,9 @@ const OLD_LINKS = `CREATE TABLE links (
 
 const SLACK_LINKS = OLD_LINKS
   .replace(/'project'\)\)/g, "'project', 'slack'))");
+
+const CHANNEL_LINKS = OLD_LINKS
+  .replace(/'project'\)\)/g, "'project', 'slack', 'channel'))");
 
 describe("老库迁移", () => {
   const oldMessages = () => {
@@ -186,7 +191,7 @@ describe("老库迁移", () => {
     expect(stageOf("dev")).toEqual({ stage: "testing", stage_by: "auto" });
   });
 
-  it("links 表加 channel 节点类型，旧边留着", () => {
+  it("没有 channel 的老 links 表一次收成 ext，旧边留着", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(OLD_LINKS);
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -195,13 +200,13 @@ describe("老库迁移", () => {
     migrate(d);
 
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("new1", "channel", "一起养牛", "task", "t1", "rule", "新边", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
+      .run("new1", "ext", "slack:channel:一起养牛", "task", "t1", "rule", "新边", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
     expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
     expect((d.prepare("SELECT why FROM links WHERE id = 'old1'").get() as { why: string }).why).toBe("旧边");
     expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'links_old'").get() as { n: number }).n).toBe(0);
   });
 
-  it("已经加过 slack 的库会再重建一次补上 channel", () => {
+  it("已经加过 slack 的库同样收成 ext", () => {
     const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
     d.exec(SLACK_LINKS);
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -210,9 +215,67 @@ describe("老库迁移", () => {
     migrate(d);
 
     d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("c1", "channel", "一起养牛", "task", "t1", "user", "手动登记", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
+      .run("c1", "ext", "slack:channel:一起养牛", "task", "t1", "user", "手动登记", "2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z");
     expect((d.prepare("SELECT COUNT(*) AS n FROM links").get() as { n: number }).n).toBe(2);
     expect((d.prepare("SELECT why FROM links WHERE id = 's1'").get() as { why: string }).why).toBe("旧边");
+  });
+
+  it("links 的 meegle / slack / thread / channel 端点收成 ext：方向重排、撞边留强的、否决照挡、重跑不变", () => {
+    const d = db();
+    d.exec("DROP TABLE links");
+    d.exec(CHANNEL_LINKS);
+    d.exec("CREATE UNIQUE INDEX links_edge ON links (from_kind, from_ref, to_kind, to_ref)");
+    const ins = d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const at = (n: number) => `2026-09-0${n}T00:00:00Z`;
+    // task < thread，换成 ext 后 ext < task，方向要翻
+    ins.run("th", "task", "t1", "thread", "TH1", "rule", "线程", at(1), at(1));
+    // 同一条边老数据里正反各存了一行：迁过去撞成一条，留 user
+    ins.run("m-rule", "meegle", "123", "task", "t2", "rule", "推断", at(2), at(2));
+    ins.run("m-user", "task", "t2", "meegle", "123", "user", "你指定的", at(1), at(1));
+    // 同级留新的
+    ins.run("c-old", "channel", "一起养牛", "task", "t5", "rule", "旧", at(1), at(1));
+    ins.run("c-new", "task", "t5", "channel", "一起养牛", "rule", "新", at(3), at(3));
+    // 否决：unlink(task t3, thread TH3) 老顺序 task < thread，! 记在 thread 那头
+    ins.run("v-th", "task", "t3", "thread", "!TH3", "user", "不是一回事", at(1), at(1));
+    // 否决：unlink(slack, task) 老顺序 slack < task，! 记在 task 那头
+    ins.run("v-sl", "slack", "C1:1.0", "task", "!t4", "user", "不是这条", at(1), at(1));
+    migrate(d);
+
+    const rows = () => d.prepare("SELECT id, from_kind, from_ref, to_kind, to_ref, source, why FROM links ORDER BY id").all();
+    const after = rows();
+    expect(after).toHaveLength(5);
+    expect(after).toContainEqual({ id: "th", from_kind: "ext", from_ref: "slack:thread:TH1", to_kind: "task", to_ref: "t1", source: "rule", why: "线程" });
+    expect(after).toContainEqual({ id: "m-user", from_kind: "ext", from_ref: "meegle:work_item:123", to_kind: "task", to_ref: "t2", source: "user", why: "你指定的" });
+    expect(after).toContainEqual({ id: "c-new", from_kind: "ext", from_ref: "slack:channel:一起养牛", to_kind: "task", to_ref: "t5", source: "rule", why: "新" });
+    expect(after).toContainEqual({ id: "v-th", from_kind: "ext", from_ref: "slack:thread:TH3", to_kind: "task", to_ref: "!t3", source: "user", why: "不是一回事" });
+    expect(after).toContainEqual({ id: "v-sl", from_kind: "ext", from_ref: "slack:conversation:C1:1.0", to_kind: "task", to_ref: "!t4", source: "user", why: "不是这条" });
+
+    expect(neighbors(extNode("meegle", "work_item", "123"), "task")).toEqual([{ ref: "t2", source: "user", why: "你指定的" }]);
+    expect(neighbors(extNode("slack", "thread", "TH1"), "task").map((n) => n.ref)).toEqual(["t1"]);
+    expect(rejected(taskNode("t3"), extNode("slack", "thread", "TH3"))).toBe(true);
+    expect(linkUp(taskNode("t3"), extNode("slack", "thread", "TH3"), "rule", "又推断了")).toBeUndefined();
+    expect(linkUp(extNode("slack", "conversation", "C1:1.0"), taskNode("t4"), "guess", "又猜了")).toBeUndefined();
+    expect((d.prepare("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).not.toContain("'meegle'");
+    expect((d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'links_old'").get() as { n: number }).n).toBe(0);
+    expect(d.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'links' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r) => (r as { name: string }).name)).toEqual(["links_edge", "links_from", "links_to"]);
+
+    const before = rows();
+    migrate(d);
+    expect(rows()).toEqual(before);
+  });
+
+  it("links 迁移中途失败整体回滚：老表和老边都在", () => {
+    const d = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "friday-db-")), "todos.db"));
+    d.exec(SCHEMA);
+    d.exec("DROP TABLE links");
+    d.exec(CHANNEL_LINKS.replace(/'channel'\)\)/g, "'channel', 'bogus'))"));
+    const ins = d.prepare("INSERT INTO links (id, from_kind, from_ref, to_kind, to_ref, source, why, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    ins.run("ok", "meegle", "1", "task", "t", "rule", "x", "a", "a");
+    ins.run("bad", "bogus", "1", "task", "t", "rule", "x", "a", "a");
+    expect(() => migrate(d)).toThrow();
+    const names = (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'links%'").all() as Array<{ name: string }>).map((r) => r.name);
+    expect(names).toEqual(["links"]);
+    expect(d.prepare("SELECT from_kind FROM links ORDER BY id").all()).toEqual([{ from_kind: "bogus" }, { from_kind: "meegle" }]);
   });
 
   it("四槽 docs 迁成数组：主任务和 merged 里的链接一条不丢，重复跑不变", () => {

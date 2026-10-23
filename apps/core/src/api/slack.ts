@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { startQueryJob } from "../agent/chat/queryJob.js";
-import { channelNode, conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
+import { conversationKey, extNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp, neighbors, unlink } from "../memory/links.js";
 import { addNoteTask } from "../memory/noteTask.js";
@@ -17,11 +17,11 @@ export const slack = new Hono()
     const { taskId } = (await c.req.json().catch(() => ({}))) as { taskId?: string };
     if (!taskId || !getTask(taskId)) return c.json({ error: "任务不存在" }, 404);
     if (!findConversation(conv).length) return c.json({ error: "对话不存在" }, 404);
-    linkUp(slackNode(conv), taskNode(taskId), "user", "你手动挂的");
+    linkUp(extNode("slack", "conversation", conv), taskNode(taskId), "user", "你手动挂的");
     return c.json({ ok: true });
   })
   .delete("/slack/:conv/attach/:taskId", (c) => {
-    unlink(slackNode(c.req.param("conv")), taskNode(c.req.param("taskId")), "你说过这段对话不是这条任务");
+    unlink(extNode("slack", "conversation", c.req.param("conv")), taskNode(c.req.param("taskId")), "你说过这段对话不是这条任务");
     return c.json({ ok: true });
   })
   .post("/slack/:conv/query", async (c) => {
@@ -37,7 +37,7 @@ export const slack = new Hono()
     const first = items[0];
     if (!first) return c.json({ error: "对话不存在" }, 404);
     const task = addNoteTask({ text: withoutMentions(first.text), source: { external: role("chat").external(first) } });
-    linkUp(slackNode(conv), taskNode(task.id), "user", "你把这段对话建成了任务");
+    linkUp(extNode("slack", "conversation", conv), taskNode(task.id), "user", "你把这段对话建成了任务");
     return c.json(task);
   })
   // 按需求建的频道：整个频道归到一条需求上，同频道后续消息直接查表
@@ -45,11 +45,11 @@ export const slack = new Hono()
     const name = bare(c.req.param("name"));
     const { taskId } = (await c.req.json().catch(() => ({}))) as { taskId?: string };
     if (!taskId || !getTask(taskId)) return c.json({ error: "任务不存在" }, 404);
-    linkUp(channelNode(name), taskNode(taskId), "user", "你手动指定这个频道对应这条需求");
+    linkUp(extNode("slack", "channel", name), taskNode(taskId), "user", "你手动指定这个频道对应这条需求");
     return c.json({ ok: true });
   })
   .delete("/slack/channel/:name/task/:taskId", (c) => {
-    unlink(channelNode(bare(c.req.param("name"))), taskNode(c.req.param("taskId")), "你说过这个频道不对应这条需求");
+    unlink(extNode("slack", "channel", bare(c.req.param("name"))), taskNode(c.req.param("taskId")), "你说过这个频道不对应这条需求");
     return c.json({ ok: true });
   })
   .get("/slack/channels", (c) => {
@@ -60,7 +60,7 @@ export const slack = new Hono()
       if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     const channels = [...counts].map(([name, messageCount]) => {
-      const hit = neighbors(channelNode(name), "task").map((n) => ({ n, task: getTask(n.ref) })).find((x) => x.task);
+      const hit = neighbors(extNode("slack", "channel", name), "task").map((n) => ({ n, task: getTask(n.ref) })).find((x) => x.task);
       return {
         name,
         messageCount,

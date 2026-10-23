@@ -8,7 +8,7 @@ import { listAudit } from "../memory/audit.js";
 import { createFeature } from "../memory/features.js";
 import { addInboxItems } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
-import { slackNode, taskNode } from "../memory/infer.js";
+import { extNode, taskNode } from "../memory/infer.js";
 import { createJob, finishJob, getJob } from "../memory/jobs.js";
 import { loadProjects } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, taskTag, updateTask } from "../memory/tasks.js";
@@ -329,9 +329,9 @@ describe("建卡会话", () => {
       source: { description: "按收益率排序", docs: [{ url: "https://lark.test/docx/abc", title: "PRD", from: "meegle" }], meegleId: "123" },
     });
     // 工单号和对话键同在一条任务上时，对话键是一条边（external 只放工单）
-    linkUp(taskNode(t.id), slackNode("C1:100.1"), "rule", "迁移：任务同时带工单号和对话键");
+    linkUp(taskNode(t.id), extNode("slack", "conversation", "C1:100.1"), "rule", "迁移：任务同时带工单号和对话键");
     addInboxItems([{ id: "m2", kind: "dm", channelId: "D2", channelName: "", userId: "U2", userName: "后端小李", text: "接口下周给", permalink: "https://slack.test/m2", ts: "200.1" }]);
-    linkUp(taskNode(t.id), slackNode("D2:200.1"), "user", "你挂的");
+    linkUp(taskNode(t.id), extNode("slack", "conversation", "D2:200.1"), "user", "你挂的");
     const [p, p2] = loadProjects().filter((x) => x.name === "p-pr" || x.name === "p-pr2");
     const text = briefPrompt(t, p!, "用例写少了");
     expect(text.indexOf("用例写少了")).toBeLessThan(text.indexOf("基金筛选加排序"));

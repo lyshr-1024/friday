@@ -17,7 +17,7 @@ import { z } from "zod";
 import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus, workItemOf } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
-import { channelNode, taskNode } from "../memory/infer.js";
+import { extNeighbors, extNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { startTask } from "../agent/taskStart.js";
 import { approvePending, dismissToolCall, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
@@ -92,7 +92,7 @@ function slackOf(all: InboxItem[]) {
   for (const items of byConv.values()) items.sort((a, b) => Number(a.ts) - Number(b.ts));
   const chat = chatRole();
   return (t: Task): Task => {
-    const conversations = neighbors(taskNode(t.id), "slack")
+    const conversations = extNeighbors(taskNode(t.id), "slack", "conversation")
       .map((n) => {
         const items = byConv.get(n.ref) ?? [];
         const head = items[0];
@@ -101,7 +101,7 @@ function slackOf(all: InboxItem[]) {
           conv: n.ref,
           channelName: head.channelName,
           kind: head.kind,
-          channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
+          channelLinked: head.kind === "mention" && neighbors(extNode("slack", "channel", head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
           items: items.map((i) => ({ ts: i.ts, userName: i.userName, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
           prior: chat ? chat.renderPrior(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }) : [],

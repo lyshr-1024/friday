@@ -1,18 +1,23 @@
-import { workItemOf, type LinkNode, type Task } from "@friday/shared";
-import { linkUp } from "./links.js";
+import { conversationOf, workItemOf, type LinkNode, type LinkSource, type Task } from "@friday/shared";
+import { extNode, linkUp, neighbors } from "./links.js";
 import { loadProjects, matchProjectByUrl, normalizeUrlPrefix } from "./projects.js";
 import { idsIn as workItemIdsIn } from "../connectors/meegle/rules.js";
+import { linkType as slackLinkType } from "../connectors/slack/ref.js";
 
 export const taskNode = (id: string): LinkNode => ({ kind: "task", ref: id });
-export const meegleNode = (id: string): LinkNode => ({ kind: "meegle", ref: id });
-export const threadNode = (id: string): LinkNode => ({ kind: "thread", ref: id });
 export const projectNode = (name: string): LinkNode => ({ kind: "project", ref: name });
 /** 分支要带项目名：不同仓库里同名的 main / feat/x 不是一条分支 */
 export const branchNode = (project: string, branch: string): LinkNode => ({ kind: "branch", ref: `${project}:${branch}` });
 export const urlNode = (url: string): LinkNode => ({ kind: "url", ref: normalizeUrlPrefix(url) });
-export const slackNode = (conversation: string): LinkNode => ({ kind: "slack", ref: conversation });
-// 库里存的频道名带 #，窗口标题里不带，统一剥掉再存
-export const channelNode = (name: string): LinkNode => ({ kind: "channel", ref: name.replace(/^#/, "") });
+export { extNode };
+
+/** 跟 node 相连的某个工具某种东西，ref 去掉「工具:类型:」前缀只留 id */
+export function extNeighbors(node: LinkNode, tool: string, type: string): Array<{ ref: string; source: LinkSource; why: string }> {
+  const prefix = `${tool}:${type}:`;
+  return neighbors(node, "ext")
+    .filter((n) => n.ref.startsWith(prefix))
+    .map((n) => ({ ...n, ref: n.ref.slice(prefix.length) }));
+}
 
 export { conversationKey } from "@friday/shared";
 
@@ -49,16 +54,17 @@ export function inferTaskLinks(task: Task): number {
 
   // ② 工单：自己是工单，或挂在某个需求下
   const work = workItemOf(src);
-  if (work) add(meegleNode(work.id), "这条任务就是这个工单");
-  if (work?.parent) add(meegleNode(work.parent.id), `缺陷挂在需求 ${work.parent.name ?? work.parent.id} 下`);
+  if (work) add(extNode(work.tool, work.type, work.id), "这条任务就是这个工单");
+  if (work?.parent) add(extNode(work.tool, work.type, work.parent.id), `缺陷挂在需求 ${work.parent.name ?? work.parent.id} 下`);
 
-  // ③ Slack 线程
-  if (src.threadId) add(threadNode(src.threadId), "这条任务是从这个 Slack 线程来的");
+  // ③ 老库遗留的 Slack 线程
+  const conv = conversationOf(src);
+  if (conv?.tool === "slack" && slackLinkType(conv) === "thread") add(extNode("slack", "thread", conv.id), "这条任务是从这个 Slack 线程来的");
 
   // ④ 正文里提到的工单号和页面地址。source.note 是口头交代的原话，
   //    source.description 是 Meegle 缺陷正文——复现步骤里的环境地址就在那儿，漏了等于白做
   const text = [task.title, task.understanding, task.plan, task.progress, src.note, src.description].filter(Boolean).join("\n");
-  for (const id of workItemIdsIn(text)) if (id !== work?.id) add(meegleNode(id), "任务正文里提到了这个工单号");
+  for (const id of workItemIdsIn(text)) if (id !== work?.id) add(extNode("meegle", "work_item", id), "任务正文里提到了这个工单号");
   const projects = loadProjects();
   for (const url of urlsIn(text)) {
     add(urlNode(url), "任务正文里提到了这个页面");

@@ -241,7 +241,7 @@ describe("Slack 对话里每条消息带自己的发送人", () => {
     const t = createTask({ title: "两人对话", kind: "verbal", source: {}, status: "understood" });
     const mk = (ts: string, userName: string, text: string) => ({ id: `s-${ts}`, kind: "mention" as const, channelId: "C9", channelName: "#grp", userId: `U-${userName}`, userName, text, permalink: "https://s/x", ts, threadTs: "9.1" });
     addInboxItems([mk("9.1", "佳成 (Zhou Jiacheng)", "这个字段呢"), mk("9.2", "拂晓 (Chen Xiaofu)", "我看下")]);
-    linkUp({ kind: "task", ref: t.id }, { kind: "slack", ref: "C9:9.1" }, "rule", "test");
+    linkUp({ kind: "task", ref: t.id }, { kind: "ext", ref: "slack:conversation:C9:9.1" }, "rule", "test");
     const board = (await (await app.request("/tasks")).json()) as TaskBoard;
     const conv = board.tasks.find((x) => x.id === t.id)!.conversations![0]!;
     expect(conv.items.map((i) => i.userName)).toEqual(["佳成 (Zhou Jiacheng)", "拂晓 (Chen Xiaofu)"]);

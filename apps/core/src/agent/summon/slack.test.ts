@@ -3,7 +3,7 @@ import { initMemory } from "../../memory/db.js";
 import { addInboxItems } from "../../memory/inbox.js";
 import { createTask } from "../../memory/tasks.js";
 import { linkUp } from "../../memory/links.js";
-import { slackNode, taskNode } from "../../memory/infer.js";
+import { extNode, taskNode } from "../../memory/infer.js";
 import { slackScene } from "./slack.js";
 import { seedBuiltins } from "../../connectors/builtin.js";
 
@@ -62,7 +62,7 @@ describe("HUD 在 Slack 前台", () => {
   it("拉不到实时时退回库里那条，仍能给出 scene 和挂着的任务", async () => {
     addInboxItems([{ id: "H3:1", kind: "mention", channelId: "H3", channelName: "team-fallback", userId: "U3", userName: "拂晓", text: "验收问题改一下", permalink: "p", ts: "100" }]);
     const t = createTask({ title: "养牛活动验收", kind: "meegle", source: {}, status: "processing" });
-    linkUp(slackNode("H3:100"), taskNode(t.id), "rule", "x");
+    linkUp(extNode("slack", "conversation", "H3:100"), taskNode(t.id), "rule", "x");
     const scene = (await slackScene("#team-fallback", undefined))!;
     expect(scene.conv).toBe("H3:100");
     expect(scene.taskId).toBe(t.id);
@@ -71,7 +71,7 @@ describe("HUD 在 Slack 前台", () => {
 
   it("实时拿到的对话挂着任务时也要找出来", async () => {
     const t = createTask({ title: "多语言字段", kind: "meegle", source: {}, status: "processing" });
-    linkUp(slackNode("D9:902"), taskNode(t.id), "user", "x");
+    linkUp(extNode("slack", "conversation", "D9:902"), taskNode(t.id), "user", "x");
     dmMock.mockResolvedValue({ channelId: "D9", lines: [{ ts: "902", userName: "Shawn", text: "催排期" }] });
     expect((await slackScene(undefined, "Shawn"))?.taskId).toBe(t.id);
   });
@@ -186,7 +186,7 @@ describe("HUD 在 Slack 前台", () => {
   it("已经挂过的对话不重复挂，也不被自动推断覆盖", async () => {
     const mine = createTask({ title: "我手动挂的", kind: "verbal", source: {}, status: "understood" });
     createTask({ title: "工单号那条", kind: "meegle", source: { meegleId: "24487611" }, status: "understood" });
-    linkUp(slackNode("D6:602"), taskNode(mine.id), "user", "我自己挂的");
+    linkUp(extNode("slack", "conversation", "D6:602"), taskNode(mine.id), "user", "我自己挂的");
     dmMock.mockResolvedValue({
       channelId: "D6",
       lines: [{ ts: "602", userName: "Shawn", text: "看下 #24487611" }],

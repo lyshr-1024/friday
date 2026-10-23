@@ -2,7 +2,7 @@ import { workItemOf, type InboxItem, type Task } from "@friday/shared";
 import { askStream, SMALL_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";
-import { channelNode, conversationKey, slackNode, taskNode } from "../../memory/infer.js";
+import { conversationKey, extNode, taskNode } from "../../memory/infer.js";
 import { idsIn as workItemIdsIn } from "../../connectors/meegle/rules.js";
 import { listInboxNear } from "../../memory/inbox.js";
 import { linkUp, neighbors, rejected } from "../../memory/links.js";
@@ -46,13 +46,13 @@ export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup,
 
 /** 候选：还没收工的任务，减去你说过「不是这条」的 */
 export function candidateTasks(conv: string, tasks: Task[]): Task[] {
-  const me = slackNode(conv);
+  const me = extNode("slack", "conversation", conv);
   return tasks.filter((t) => !rejected(me, taskNode(t.id)));
 }
 
 /** 这段对话已经挂上的任务 */
 export function attachedTasks(conv: string): string[] {
-  return neighbors(slackNode(conv), "task").map((n) => n.ref);
+  return neighbors(extNode("slack", "conversation", conv), "task").map((n) => n.ref);
 }
 
 const OPEN = ["collected", "understood", "processing", "review", "blocked"] as const;
@@ -91,7 +91,7 @@ export function parseAttach(text: string, ids: string[]): string | undefined {
 
 /** 同一人同一频道近期挂过的任务：查 links 里这个频道其它对话的邻居 */
 function tasksOfChannel(channelName: string): string[] {
-  return neighbors(channelNode(channelName), "task").map((n) => n.ref);
+  return neighbors(extNode("slack", "channel", channelName), "task").map((n) => n.ref);
 }
 
 function recentInChannel(item: InboxItem): Array<{ taskId: string; userName: string; hoursAgo: number }> {
@@ -115,8 +115,8 @@ export async function attachOnce(item: InboxItem, prior: string[] = []): Promise
 
   const hard = hardSignal(item, tasks, recentInChannel, tasksOfChannel);
   if (hard) {
-    linkUp(slackNode(conv), taskNode(hard.taskId), "rule", hard.why);
-    if (hard.byChannelName) linkUp(channelNode(item.channelName), taskNode(hard.taskId), "rule", hard.why);
+    linkUp(extNode("slack", "conversation", conv), taskNode(hard.taskId), "rule", hard.why);
+    if (hard.byChannelName) linkUp(extNode("slack", "channel", item.channelName), taskNode(hard.taskId), "rule", hard.why);
     return hard;
   }
 
@@ -133,6 +133,6 @@ export async function attachOnce(item: InboxItem, prior: string[] = []): Promise
   const id = parseAttach(text, tasks.map((t) => t.id));
   if (!id) return undefined;
   const why = "Friday 读消息推断的";
-  linkUp(slackNode(conv), taskNode(id), "guess", why);
+  linkUp(extNode("slack", "conversation", conv), taskNode(id), "guess", why);
   return { taskId: id, why };
 }

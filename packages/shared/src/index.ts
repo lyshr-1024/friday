@@ -676,14 +676,14 @@ export interface IntakeVerdict {
 }
 
 /** 关联图里的一个端点：四端各自的实体 */
-export type LinkKind = "task" | "ext" | "meegle" | "thread" | "branch" | "url" | "project" | "slack" | "channel";
+export type LinkKind = "task" | "ext" | "branch" | "url" | "project";
 
 /** 这条边是怎么来的。user 是你纠正过的，永远压过自动推断 */
 export type LinkSource = "user" | "rule" | "guess";
 
 export interface LinkNode {
   kind: LinkKind;
-  /** meegle 是工单号，branch 是「项目名:分支名」，url 是归一化后的前缀，其余是各自的 id */
+  /** ext 是「工具:类型:id」（meegle:work_item:123、slack:conversation:C1:1.0），branch 是「项目名:分支名」，url 是归一化后的前缀，其余是各自的 id */
   ref: string;
 }
 

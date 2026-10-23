@@ -2,9 +2,8 @@ import { briefRefusal, conversationKey, conversationOf, taskCategory, workItemOf
 import { record } from "../memory/audit.js";
 import { listFeatures, matchFeatures } from "../memory/features.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
-import { taskNode } from "../memory/infer.js";
+import { extNeighbors, taskNode } from "../memory/infer.js";
 import { getJob } from "../memory/jobs.js";
-import { neighbors } from "../memory/links.js";
 import { createRun } from "../memory/runs.js";
 import { isFridayProject, loadProjects, projectDetail, resolveProject, type Project } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, listTasksByKind, updateTask } from "../memory/tasks.js";
@@ -26,7 +25,7 @@ const anchorOf = (taskId: string): Task | undefined => findTaskBySource((s) => s
 const running = (t: Task | undefined): boolean => Boolean(t?.source.jobId && getJob(t.source.jobId)?.status === "running");
 
 function slackText(t: Task): string {
-  const convs = new Set([conversationOf(t.source)?.id, ...neighbors(taskNode(t.id), "slack").map((n) => n.ref)].filter((c): c is string => !!c));
+  const convs = new Set([conversationOf(t.source)?.id, ...extNeighbors(taskNode(t.id), "slack", "conversation").map((n) => n.ref)].filter((c): c is string => !!c));
   if (!convs.size) return "";
   const msgs = listInbox(true, CONV_SCAN_LIMIT)
     .filter((i) => convs.has(conversationKey(i)))

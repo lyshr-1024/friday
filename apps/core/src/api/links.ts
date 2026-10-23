@@ -7,7 +7,7 @@ import { relayTarget, surfaceContext } from "../agent/surface.js";
 import { say } from "../agent/terminal.js";
 import { record } from "../memory/audit.js";
 
-const KINDS = ["task", "meegle", "thread", "branch", "url", "project"] as const;
+const KINDS = ["task", "ext", "branch", "url", "project"] as const;
 const node = z.object({ kind: z.enum(KINDS), ref: z.string().min(1).max(400) });
 const edge = z.object({ from: node, to: node, why: z.string().max(200).optional() });
 const relay = z.object({ url: z.string().min(1).max(2000), text: z.string().min(1).max(4000), taskId: z.string().optional() });
