@@ -169,6 +169,7 @@ export const fridayToolList = (conversationId?: string) => [
         if (seq !== undefined && !task) return text(`用户点名的 #${seq} 没有这条任务，先问清楚是哪条。`);
         const caller = { kind: "model" as const, why: "主对话里调用", ...(conversationId ? { conversationId } : {}), ...(task ? { taskId: task.id } : {}), quote: saidLast(conversationId) };
         const r = await invokeForModel(caller, name, op, args);
+        if (task && (r.kind === "ok" || r.kind === "held")) trace(conversationId, task, r.kind === "ok" ? `执行了 ${name}.${op}` : `挂了待审：执行 ${name}.${op}`);
         if (r.kind === "ok") return text(r.text);
         if (r.kind === "refused") return text(r.why);
         if (r.kind === "held") return text(heldText(task?.seq, name, op));

@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineBuiltin, seedBuiltins } from "../connectors/builtin.js";
 import { listAudit } from "../memory/audit.js";
-import { addMessage, createConversation } from "../memory/conversations.js";
+import { addMessage, createConversation, listMessages } from "../memory/conversations.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { createSchedule, updateSchedule } from "../memory/schedules.js";
 import { fridayToolList } from "./tools.js";
@@ -99,6 +99,19 @@ describe("tool_describe / tool_call", () => {
     expect(out).toBe(`已挂待审 #${t.seq}：执行 tc-fake.send，等用户点头`);
     expect(getTask(t.id)!.pending!.some((p) => p.type === "tool_call")).toBe(true);
     expect(runs.send).toBe(0);
+    const run = listMessages(c).find((m) => m.kind === "run")!;
+    expect(run.content).toBe(`→ #${t.seq} 发通知：挂了待审：执行 tc-fake.send`);
+    expect(run.taskIds).toEqual([t.id]);
+  });
+
+  it("句首 #N 点名任务：只读执行完也留痕", async () => {
+    const c = createConversation().id;
+    const t = createTask({ title: "查一下", kind: "code", source: {}, status: "processing" });
+    said(c, `#${t.seq} 看看`);
+    expect(await callIn(c, "tool_call", { tool: "tc-fake", op: "get", args: {} })).toBe("读到了");
+    const run = listMessages(c).find((m) => m.kind === "run")!;
+    expect(run.content).toBe(`→ #${t.seq} 查一下：执行了 tc-fake.get`);
+    expect(run.taskIds).toEqual([t.id]);
   });
 
   it("定时会话不执行不可逆", async () => {

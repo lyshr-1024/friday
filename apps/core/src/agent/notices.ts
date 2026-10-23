@@ -14,7 +14,8 @@ export function noticeText(t: Task, need: NonNullable<ReturnType<typeof needOf>>
     const how = t.pending?.some((a) => a.type === "git_merge") ? `\n说「#${t.seq} 合并吧」收下，或说哪里不对。` : t.pending?.some((a) => a.type === "slack_reply") ? `\n说「#${t.seq} 发」发出去，或说怎么改。` : "";
     return `${taskTag(t)} · 待验收\n${deliveryText(t.report!, Boolean(t.source.headless))}${how}`;
   }
-  return `${taskTag(t)} · 卡住\n${need.reason}`;
+  const held = need.key.startsWith("decide:") && t.pending?.some((a) => a.type === "tool_call" && need.key === `decide:${a.id}`);
+  return `${taskTag(t)} · 卡住\n${need.reason}${held ? `\n说「#${t.seq} 执行」放行，或说不要。` : ""}`;
 }
 
 /** 升级后第一次只记 key 不发，否则存量任务会一口气在主对话里刷出一排 */
