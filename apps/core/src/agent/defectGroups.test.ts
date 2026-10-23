@@ -52,12 +52,10 @@ describe("defectRoute：往哪个会话交、还是等定点", () => {
     expect(defectRoute(bug("b1"), env({ fixCard: () => card }))).toMatchObject({ kind: "wait", batch: true, unit: { id: "card" } });
   });
 
-  it("你自己开的需求会话：只在需求测试中、Claude 在跑时才往里交；否则等你说开工，不进定点", () => {
+  it("你自己开的需求会话：Claude 在跑就往里交，不管需求在哪个阶段；Claude 退出了等你接回，不进定点", () => {
     const mine = (over: Partial<TermSession> = {}) => sess({ kind: "interactive", ...over });
-    expect(defectRoute(bug("b1"), env({ story: () => story({ stage: "testing" }), session: () => mine() }))).toMatchObject({ kind: "hand" });
-    for (const [st, s] of [["dev", mine()], ["testing", mine({ status: "exited" })]] as const) {
-      expect(defectRoute(bug("b1"), env({ story: () => story({ stage: st }), session: () => s }))).toMatchObject({ kind: "wait", batch: false, why: expect.stringContaining("开工") });
-    }
+    for (const st of ["dev", "testing"] as const) expect(defectRoute(bug("b1"), env({ story: () => story({ stage: st }), session: () => mine() }))).toMatchObject({ kind: "hand" });
+    expect(defectRoute(bug("b1"), env({ story: () => story({ stage: "dev" }), session: () => mine({ status: "exited" }) }))).toMatchObject({ kind: "wait", batch: false, why: expect.stringContaining("接回") });
   });
 
   it("需求会话还在准备（没 worktree）：等它准备好，不建修复卡", () => {

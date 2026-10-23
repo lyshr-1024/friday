@@ -225,7 +225,7 @@ apps/core/src/
 - **整组交付**：handed 缺陷 `friday_done` 后同会话里还有别的 handed 且 processing 的，回话列出剩下几条「接着修」并重新 `markAwaiting`（不然交完第一条就收手、剩下的永远 processing 占着「等前一组」）；修复卡名下都交齐了，提醒再交一份总报告（taskId 填卡）。只剩最后一条才回「交付完就结束」。
 - **没开起来的收尾**：准备段没建出 worktree（`prepareFailed`）、准备段回报被拒（`worktreeReady` 的 refuse）、Claude 20 分钟没起来（`stalledStarts`）三处都 `settleHandedBugs`，交代进来的缺陷跟着标卡住，否则一直 processing，定点和「开工」都接不了。
 - **重开**：Meegle Reopen 和 Friday 里「重新打开」对挂在需求下的缺陷（`storyOf` 有值）不管需求在哪个阶段都清交接标记、清老版本留的 `jobId` / `autonomous`、阶段回「未开始」、写 `handBackNote`，下一轮按路由重新交代（原来只认需求在测试中，其余的回「进行中」后无路可走）。
-- **你开的会话不乱敲**：会话 `kind: interactive` 时，只有需求在测试中、会话 running 才往里交（沿用 10-16 的例外）；别的时候缺陷等着，卡上写「说『#N 开工』交进去」，不进定点、不每轮记 `story_session_gone`。会话还在准备（没 worktree）也等，不建修复卡（不然准备好以后修复卡成孤儿）。手动开工同理回 409「会话还在准备」。
+- **你开的会话**：会话 `kind: interactive` 时，Claude 在跑（会话 running）就往里交，不管需求在哪个阶段（2026-10-23 用户定「可以往我自己开的需求会话里敲字」，原来只在测试中）；Claude 已退出的等着，卡上写「在终端里接回后交进去」，不替你接回（接回来不带模型、不挂守卫）、不进定点、不每轮记 `story_session_gone`。会话还在准备（没 worktree）也等，不建修复卡（不然准备好以后修复卡成孤儿）。手动开工同理回 409「会话还在准备」。
 - **修复卡收尾**：`ensureFixCards` 建卡前再 `fixCardOf` 查一次（防重复卡），末尾把名下没有开着的缺陷、自己没开过工的修复卡标 `ignored`（`fix_card_dropped`）；`startFixCard` 卡没项目就从这组缺陷取并写回卡上；`defectBatchTick` 只在没撞上 tmux 缺失时才写当天游标。
 - **性能**：`autostartEnv()` 带一个按请求缓存的 `storyEnv()`（查过的需求、修复卡、占用中的会话都记着），`GET /tasks`、`mainNeeds`、任务板注入不再每条任务扫一遍全表。`storyOf` / `fixCardOf` 在 `agent/story.ts`（`meegle.ts`、`pipeline.ts` 要用，放 `autostart.ts` 会循环导入）。
 - **启动清理** `tidyStoryDefects`（`index.ts`）：挂了需求的缺陷上老版本挂的 `git_merge` / `brief_approve` 撤掉、记 `story_defect_tidied`，别的待审动作不动。

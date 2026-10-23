@@ -93,8 +93,8 @@ export function defectRoute(t: Task, env: StoryEnv = defaultStoryEnv()): DefectR
     if (!unit || !s) continue;
     // 准备段还没建好 worktree：等它，别另开修复卡（建了就成了孤儿）
     if (!s.worktree || s.status === "preparing") return { kind: "wait", unit, why: "等会话准备好", batch: false };
-    // 你自己开的会话：只沿用原来「测试中、Claude 在跑」才敲字；别的时候往里敲回车会把你输入框里的半句话一起发出去
-    if (s.kind === "interactive" && (unit.stage !== "testing" || s.status !== "running")) return { kind: "wait", unit, why: `会话是你开的，Friday 不往里敲；说「#${t.seq} 开工」交进去`, batch: false };
+    // 你自己开的会话（用户定：哪个阶段都可以往里敲）：Claude 退出了不替你接回——接回来不带模型、不挂守卫，不能在里面无人值守地跑
+    if (s.kind === "interactive" && s.status !== "running") return { kind: "wait", unit, why: "你开的会话里 Claude 已退出，在终端里接回后交进去", batch: false };
     return env.occupied(unit.id) ? { kind: "wait", unit, why: "等前一组修完", batch: false } : { kind: "hand", unit };
   }
   return { kind: "wait", unit: card ?? story, why: `每天 ${env.batchAt} 跟同需求的缺陷一起修`, batch: true };
