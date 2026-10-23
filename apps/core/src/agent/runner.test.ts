@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanEnv } from "./env.js";
 import type { Task } from "@friday/shared";
 import { createFeature } from "../memory/features.js";
@@ -137,13 +140,18 @@ describe("--strict-mcp-config", () => {
 });
 
 describe("buildGuardScript 带已登记工具的二进制", () => {
-  it("启用的工具的 binaries 写进脚本规则，脚本里的规则能拦命令", () => {
-    saveTool({ name: "guardtest", transport: "cli", connection: "guardtest", scenario: "t", projects: [], roles: [], binaries: ["guardbin"], enabled: true, draft: false, ops: [] });
+  it("登记的工具（含停用的）binaries 写进脚本规则，脚本真跑起来能拦命令", () => {
+    saveTool({ name: "guardtest", transport: "cli", connection: "guardtest", scenario: "t", projects: [], roles: [], binaries: ["guardbin"], enabled: false, draft: false, ops: [] });
     try {
-      const s = buildGuardScript("/bin/node", undefined, []);
+      const s = buildGuardScript(process.execPath, undefined, []);
       expect(s).toContain("已登记为 Friday 的外部工具");
-      const rules = JSON.parse(/const rules = (\[.*\]);/.exec(s)![1]!) as Array<[string, string]>;
-      expect(rules.some(([p]) => new RegExp(p).test("guardbin x"))).toBe(true);
+      // 规则里有单引号（"guardbin" 'guardbin' 这类写法），走一遍 shell 引号才知道脚本没坏
+      const file = join(mkdtempSync(join(tmpdir(), "guard-")), "guard.sh");
+      writeFileSync(file, s);
+      chmodSync(file, 0o755);
+      const run = (command: string) => execFileSync(file, { input: JSON.stringify({ tool_input: { command } }) }).toString();
+      for (const c of ["guardbin x", `sh -c "guardbin x"`, "'guardbin' x"]) expect(run(c), c).toContain("deny");
+      expect(run("cat guardbin.md")).toBe("{}");
     } finally {
       removeTool("guardtest");
     }

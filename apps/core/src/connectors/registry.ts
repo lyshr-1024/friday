@@ -94,7 +94,8 @@ export function setHealth(name: string, h: ToolHealth): void {
 }
 
 export function guardedBinaries(): string[] {
-  return [...new Set(listTools({ enabled: true }).flatMap((t) => t.binaries))];
+  // 停用、草稿的也拦：停用不用同意，不能变成放开直接跑它命令行的后门
+  return [...new Set(listTools().flatMap((t) => t.binaries))];
 }
 
 export const usableOps = (reg: ToolRegistration): ToolOp[] => reg.ops.filter((o) => o.level !== null);

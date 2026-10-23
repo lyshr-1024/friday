@@ -38,13 +38,13 @@ describe("工具注册处", () => {
     expect(getTool("ow")!.ops.map((o) => o.name)).toEqual(["c"]);
   });
 
-  it("guardedBinaries 只算启用的并去重", () => {
+  it("guardedBinaries 停用、草稿的也算（停用不等于放行它的命令行），并去重", () => {
     saveTool(reg("g1", { binaries: ["aa", "bb"] }));
     saveTool(reg("g2", { binaries: ["bb", "cc"] }));
     saveTool(reg("g3", { enabled: false, binaries: ["zz"] }));
+    saveTool(reg("g4", { enabled: false, draft: true, binaries: ["dd"] }));
     const bins = guardedBinaries();
-    expect(bins).toEqual(expect.arrayContaining(["aa", "bb", "cc"]));
-    expect(bins).not.toContain("zz");
+    expect(bins).toEqual(expect.arrayContaining(["aa", "bb", "cc", "zz", "dd"]));
     expect(bins.filter((b) => b === "bb")).toHaveLength(1);
   });
 

@@ -87,4 +87,15 @@ describe("已登记工具的命令行", () => {
     for (const c of ["cd x\nmeegle mywork", "if true; then meegle x; fi", "{ meegle x; }", "for i in 1; do lark-cli x; done", "env FOO=1 meegle x", "time lark-cli docs", "A=1 B=2 meegle x"])
       expect(forbidden(c, [], b), c).toContain("已登记为 Friday 的外部工具");
   });
+  it("包一层 shell、xargs / nohup / command / exec / watch、/usr/bin/env、加引号或反斜杠也拦", () => {
+    for (const c of [
+      `sh -c "meegle mywork todo"`, "bash -c 'lark-cli docs +fetch'", "zsh -lc meegle x", "/bin/bash -c \"meegle x\"",
+      "echo 1 | xargs meegle workitem get", "xargs -n1 lark-cli docs", "nohup meegle x &", "command meegle x", "exec lark-cli x", "watch -n 5 meegle x",
+      "/usr/bin/env meegle x", "/usr/bin/env FOO=1 lark-cli x", `"meegle" mywork`, "'lark-cli' docs", "\\meegle x",
+    ])
+      expect(forbidden(c, [], b), c).toContain("已登记为 Friday 的外部工具");
+  });
+  it("包一层之后作参数仍不拦", () => {
+    for (const c of ["sh -c 'cat meegle.md'", "xargs grep lark-cli", "command -v git", "watch -n 5 ls meegle/"]) expect(forbidden(c, [], b), c).toBeUndefined();
+  });
 });

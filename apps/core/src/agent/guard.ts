@@ -39,12 +39,17 @@ export function protectedRules(patterns: string[]): Array<[pattern: string, why:
   ];
 }
 
-/** 已登记工具的命令行：只在命令位置（行首、; && || | ( 反引号 $( 之后，可带路径，或 npx / pnpm dlx / bunx 的第一个参数）才拦，作参数或文件名不拦 */
+/**
+ * 已登记工具的命令行：只在命令位置（行首、; && || | ( 反引号 $( 之后，可带路径，或 npx / pnpm dlx / bunx 的第一个参数）才拦，作参数或文件名不拦。
+ * 包装命令后面也算命令位置：sh/bash/zsh -c、xargs、nohup、command、exec、watch、env、time（可带路径和选项）；名字加引号或反斜杠一样认。
+ */
 export function binaryRules(binaries: string[]): Array<[pattern: string, why: string]> {
   return binaries.map((b) => {
     const esc = b.replace(/[.+?^${}()|[\]\\*-]/g, "\\$&");
-    const lead = "(?:^|[;&|(`{\\n]|\\$\\(|\\b(?:then|do|else)\\b)\\s*(?:(?:env|time)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*(?:(?:npx|bunx|pnpm\\s+dlx)\\s+(?:-\\S+\\s+)*)?";
-    return [`${lead}(?:\\S*/)?${esc}(?=\\s|$|[;&|)\`])`, `${b} 已登记为 Friday 的外部工具，经 tool_call 调用，不要在 Bash 里直接跑`];
+    const shell = "(?:\\S*/)?(?:sh|bash|zsh)\\s+(?:-\\w+\\s+)*-\\w*c\\s+[\"']?";
+    const wrapper = "(?:\\S*/)?(?:xargs|nohup|command|exec|watch|env|time)\\s+(?:-\\S+\\s+(?:\\d+\\s+)?)*";
+    const lead = `(?:^|[;&|(\`{\\n]|\\$\\(|\\b(?:then|do|else)\\b)\\s*(?:${shell}|${wrapper}|[A-Za-z_]\\w*=\\S*\\s+)*(?:(?:npx|bunx|pnpm\\s+dlx)\\s+(?:-\\S+\\s+)*)?`;
+    return [`${lead}["'\\\\]?(?:\\S*/)?${esc}["']?(?=\\s|$|[;&|)\`])`, `${b} 已登记为 Friday 的外部工具，经 tool_call 调用，不要在 Bash 里直接跑`];
   });
 }
 
