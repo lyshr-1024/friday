@@ -6,6 +6,7 @@ import { initMemory } from "./memory/db.js";
 import { seedBuiltins } from "./connectors/builtin.js";
 import "./connectors/web/tool.js";
 import "./connectors/lark/tool.js";
+import "./connectors/meegle/index.js";
 import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";

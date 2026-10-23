@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot, Task } from "@friday/shared";
 import type { Project } from "../../memory/projects.js";
-import { buildRules, browserEnv, candidates, defaultActions, meegleIdFromUrl, pagePath, parseSlackTitle, projectByCwd, projectByTitle } from "./match.js";
+import { buildRules, browserEnv, candidates, defaultActions, pagePath, parseSlackTitle, projectByCwd, projectByTitle } from "./match.js";
+import { idFromUrl as meegleIdFromUrl } from "../../connectors/meegle/rules.js";
 
 const projects: Project[] = [
   { name: "whale-console", dir: "/Users/me/work/whale-console", aliases: ["鲸鱼后台"], channels: ["#wealth-fe"], urls: [], envs: [], extra: {} },

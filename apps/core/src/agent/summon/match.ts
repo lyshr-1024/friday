@@ -3,6 +3,7 @@ import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
 import { matchEnv } from "../../memory/projects.js";
 import { identifyUrl, sourceLabel } from "../../connectors/urlSource.js";
+import { idFromUrl } from "../../connectors/meegle/rules.js";
 import type { LocalDev } from "../../connectors/localDev.js";
 import { basename } from "node:path";
 import { normUrl } from "../docTitle.js";
@@ -54,10 +55,6 @@ export function parseSlackTitle(title: string): { channel?: string; person?: str
   const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+(?:\s+new items?)?\)\s*/i, "").trim();
   if (!head || VIEWS.has(head)) return {};
   return head.startsWith("#") ? { channel: head } : { person: head };
-}
-
-export function meegleIdFromUrl(url: string): string | undefined {
-  return /\/(?:issue|story|detail)\/(?:detail\/)?(\d{3,})/.exec(url)?.[1];
 }
 
 export function projectByCwd(cwd: string, projects: Project[]): Project | undefined {
@@ -122,7 +119,7 @@ export function candidates(input: MatchInput): Candidate[] {
     out.push({ task, why, strength });
   };
 
-  const meegleId = snapshot.browser ? meegleIdFromUrl(snapshot.browser.url) : undefined;
+  const meegleId = snapshot.browser ? idFromUrl(snapshot.browser.url) : undefined;
   if (meegleId) for (const t of tasks) if (t.source.meegleId === meegleId) push(t, `你正开着这条工单 #${meegleId}`, "sure");
 
   if (snapshot.selection) {
@@ -198,7 +195,7 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
     const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
     // 开着工单页而任务板上没有它：建个普通待办会把工单号丢掉，按链接拉详情才带得上状态和优先级
     const url = snapshot.browser?.url;
-    if (url && meegleIdFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
+    if (url && idFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
     return title ? [{ kind: "create_task", label: "建成任务", title }] : [];
   }
   const pending = task.pending?.[0];

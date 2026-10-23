@@ -1,6 +1,7 @@
 import type { StateTransition, TaskDoc, Todo } from "@friday/shared";
-import type { Connector } from "./types.js";
-import { mapLimit, runJson } from "./exec.js";
+import type { Connector } from "../types.js";
+import { mapLimit, runJson } from "../exec.js";
+import { SELF_HOSTS } from "./rules.js";
 
 interface AuthStatus {
   authenticated: boolean;
@@ -225,8 +226,6 @@ export function toTodo(host: string, item: WorkItem): Todo {
   };
 }
 
-export const SELF_HOSTS = /(feishu\.cn|larksuite\.com|larkoffice\.com|bytedance\.)/i;
-
 /**
  * 缺陷描述里的「测试环境」链接就是出问题的页面，是定位代码最强的线索——
  * 标题只写「【BO 后台】…」，归不到具体仓库。Meegle / 飞书自己的链接要排掉。
@@ -329,7 +328,7 @@ export class MeegleConnector implements Connector {
    * 单独拉一条工单（不经 mywork todo，所以没分派给我的也能拿到）。
    * 用来看缺陷关联的那个需求里有没有我的角色。
    */
-  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; statusKey: string; status: string } | undefined> {
+  async getWorkItem(projectKey: string, workItemId: string): Promise<{ name: string; typeKey: string; statusKey: string; status: string } | undefined> {
     try {
       const d = await runJson<WorkItem>(this.bin, [
         "workitem", "get",
@@ -341,6 +340,7 @@ export class MeegleConnector implements Connector {
       const a = d.work_item_attribute;
       return {
         name: a.work_item_name.trim(),
+        typeKey: a.work_item_type.key,
         statusKey: a.work_item_status.key ?? "",
         status: a.work_item_status.name,
       };

@@ -27,9 +27,10 @@ const meegleMock = vi.hoisted(() => ({
   transition: vi.fn(async () => undefined),
 }));
 
-vi.mock("../connectors/meegle.js", async (orig) => ({
-  ...(await orig<typeof import("../connectors/meegle.js")>()),
+vi.mock("../connectors/meegle/client.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/meegle/client.js")>()),
   MeegleConnector: class {
+    getWorkItem = async () => ({ name: "缺陷", typeKey: "issue", statusKey: "REOPENED", status: "Reopened" });
     source = "meegle" as const;
     fetchTodos = async () => {
       throw new Error("Meegle 未登录");
@@ -46,6 +47,8 @@ vi.mock("../connectors/meegle.js", async (orig) => ({
 }));
 
 const { app } = await import("./index.js");
+const { seedBuiltins } = await import("../connectors/builtin.js");
+seedBuiltins();
 
 const issue = () =>
   createTask({

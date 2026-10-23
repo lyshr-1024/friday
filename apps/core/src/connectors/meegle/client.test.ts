@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepWorkItem, nodeKeyOf, pickDocs, pickLinkedStory, pickNodeSchedules, pickDueNodes, pickTransitions, scheduleDue, toTodo } from "./meegle.js";
+import { keepWorkItem, nodeKeyOf, pickDocs, pickLinkedStory, pickNodeSchedules, pickDueNodes, pickTransitions, scheduleDue, toTodo } from "./client.js";
 
 describe("Meegle 工作项转待办", () => {
   it("拼出标签、状态与详情链接", () => {

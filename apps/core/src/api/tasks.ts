@@ -10,7 +10,8 @@ import { getAttachment, saveAttachment } from "../memory/attachments.js";
 import { readResearchNote } from "../memory/research.js";
 import { fillDocTitles, mergeDocs, normUrl } from "../agent/docTitle.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
+import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, syncMeegleOnce } from "../agent/meegle.js";
+import { role } from "../connectors/roles.js";
 import { z } from "zod";
 import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
@@ -461,7 +462,8 @@ export const tasks = new Hono()
     const parsed = transitionInput.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 id / stateKey / label" }, 400);
     try {
-      return c.json(await applyTransition(t, parsed.data as StateTransition));
+      const to = parsed.data as StateTransition;
+      return c.json(await applyTransition(t, to, undefined, { kind: "user", why: `你在 Friday 里点了「${to.label}」`, taskId: t.id }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       record({ taskId: t.id, action: "meegle_transition_failed", why: `流转到 ${parsed.data.stateKey} 失败`, how: message, risk: "read", status: "failed" });
@@ -483,7 +485,7 @@ export const tasks = new Hono()
     if (!t) return c.json({ error: "任务不存在" }, 404);
     if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
     try {
-      return c.json(await confirmNode(t));
+      return c.json(await confirmNode(t, undefined, { kind: "user", why: "你在 Friday 里点了「完成当前节点」", taskId: t.id }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       record({ taskId: t.id, action: "meegle_node_failed", why: "完成节点失败", how: message, risk: "read", status: "failed" });
@@ -647,7 +649,10 @@ export const tasks = new Hono()
     }
     if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {
       try {
-        const done = plan.kind === "meegle_node" ? await rollbackNode(plan) : await undoTransition(plan);
+        const items = role("workItems");
+        const ref = { space: plan.projectKey, id: plan.workItemId };
+        const undo = { kind: "user", why: "你点了撤销" } as const;
+        const done = plan.kind === "meegle_node" ? (await items.rollbackNode(ref, plan.nodeKey, undo), true) : await items.undoTransition(ref, plan.backTo, undo);
         if (!done) return c.json({ error: "Meegle 不允许转回原状态，请去网页操作" }, 409);
       } catch (e) {
         return c.json({ error: `转回失败：${e instanceof Error ? e.message : String(e)}` }, 409);

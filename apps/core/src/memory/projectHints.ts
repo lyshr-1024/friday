@@ -1,4 +1,4 @@
-import { SELF_HOSTS } from "../connectors/meegle.js";
+import { ownsHost } from "../connectors/meegle/rules.js";
 import { readMemoryFile, writeMemoryFile } from "./files.js";
 import { loadProjects } from "./projects.js";
 
@@ -32,7 +32,7 @@ export function titleTags(title: string): string[] {
 export function urlPrefix(url: string): string | undefined {
   const m = /^https?:\/\/([^/?#]+)(\/[^/?#]+)?/i.exec(url.trim());
   // 每张工单都住在 project.larksuite.com，学成项目地址后所有工单都会归到同一个仓库
-  if (!m || SELF_HOSTS.test(url)) return undefined;
+  if (!m || ownsHost(url)) return undefined;
   const host = m[1]!.toLowerCase().replace(/^www\./, "");
   const seg = m[2]?.toLowerCase() ?? "";
   // 单段路径才有区分意义，太深的是具体页面

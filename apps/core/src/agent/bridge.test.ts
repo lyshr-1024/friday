@@ -14,18 +14,22 @@ import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { subscribe } from "../bus.js";
 import { createFeature } from "../memory/features.js";
 import { contextFor, describeQuestion, setVerified, turnFinished } from "./bridge.js";
+import { seedBuiltins } from "../connectors/builtin.js";
 
 const meegle = vi.hoisted(() => ({ transitions: [] as unknown[], calls: [] as string[][], failWith: "" }));
-vi.mock("../connectors/meegle.js", async (orig) => ({
-  ...(await orig<typeof import("../connectors/meegle.js")>()),
+vi.mock("../connectors/meegle/client.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/meegle/client.js")>()),
   MeegleConnector: class {
     async listTransitions() { return meegle.transitions; }
+    async getWorkItem() { return { name: "缺陷", typeKey: "issue", statusKey: "OPEN", status: "Open" }; }
     async transitionState(...a: string[]) {
       if (meegle.failWith) throw new Error(meegle.failWith);
       meegle.calls.push(a);
     }
   },
 }));
+
+seedBuiltins();
 
 // JSON-RPC 的通知没有 id 字段；这里用 null 表示"不带 id"（显式传 undefined 会落到默认参数）
 const rpc = (jobId: string, method: string, params?: unknown, id: number | null = 1) =>

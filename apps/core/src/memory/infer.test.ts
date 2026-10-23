@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { conversationKey, meegleIdsIn, slackNode } from "./infer.js";
+import { conversationKey, slackNode } from "./infer.js";
+import { idsIn as meegleIdsIn } from "../connectors/meegle/rules.js";
 
 describe("meegleIdsIn", () => {
   // 7 位躲开裸 8 位数字那条回退规则，中了就说明是 URL 正则认出来的

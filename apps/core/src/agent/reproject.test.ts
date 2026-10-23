@@ -13,6 +13,7 @@ import { executePending, startAutonomousJob } from "./pipeline.js";
 import { requestProjectChange } from "./reproject.js";
 import { briefBasis } from "./brief.js";
 import { syncMeegleOnce } from "./meegle.js";
+import * as meegleRules from "../connectors/meegle/rules.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
@@ -185,7 +186,7 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
   const sh = (dir: string, ...args: string[]) =>
     execFileSync("git", ["-C", dir, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" }, stdio: "ignore" });
   const closedConn = (live: Array<Record<string, unknown>> = []) =>
-    ({ fetchWorkItems: async () => live, getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed" }), feReleased: async () => false }) as never;
+    ({ ...meegleRules, listMine: async () => live.map((x) => ({ ...x, kind: meegleRules.kindOf(String(x.typeKey)), state: meegleRules.stateOf(String(x.statusKey ?? ""), String(x.status)) })), get: async () => ({ name: "缺陷", stateKey: "CLOSED", stateLabel: "Closed", state: "done" }), released: async () => false }) as never;
   let n = 0;
   /** 缺陷自己当根、在自己的 worktree 里干过活 */
   function defectWithWork(o: { commit?: boolean; dirty?: boolean; status?: "blocked" | "processing" } = {}) {

@@ -1,4 +1,5 @@
-import { conversationKey, meegleIdsIn, slackNode, taskNode, urlsIn } from "../../memory/infer.js";
+import { conversationKey, slackNode, taskNode, urlsIn } from "../../memory/infer.js";
+import { idsIn as workItemIdsIn } from "../../connectors/meegle/rules.js";
 import { listInbox } from "../../memory/inbox.js";
 import {
   fetchChannelRecent,
@@ -74,7 +75,7 @@ const OPEN = ["collected", "understood", "processing", "review", "blocked"] as c
  * 这里按屏幕上这段对话自己认一次：工单号是硬信号，比收件箱那条更全（它只有一条）。
  */
 function attachByTicket(conv: string, lines: SlackContextLine[]): string | undefined {
-  const ids = new Set(lines.flatMap((l) => meegleIdsIn(l.text)));
+  const ids = new Set(lines.flatMap((l) => workItemIdsIn(l.text)));
   // Slack 的链接是 <url|标题> 形式，urlsIn 取到的尾部会带 "|标题"，按分隔符切掉
   const urls = new Set(lines.flatMap((l) => urlsIn(l.text)).map((u) => u.split("|")[0]!.replace(/[>）)]+$/, "")));
   if (!ids.size && !urls.size) return undefined;

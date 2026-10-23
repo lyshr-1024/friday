@@ -1,6 +1,6 @@
 import type { Project } from "../memory/projects.js";
 import { matchEnv } from "../memory/projects.js";
-import { parseMeegleRef } from "../agent/meegle.js";
+import { parseRef } from "./meegle/rules.js";
 
 /**
  * 浏览器地址栏里的 URL 是哪一类东西。HUD、Slack 消息里的链接、任务卡上的资料三处共用一张表：
@@ -40,8 +40,8 @@ export function identifyUrl(raw: string | undefined, projects: Project[]): UrlSo
     const m = LARK_PATH.exec(u.pathname);
     if (m) return { kind: "lark_doc", url, host, docType: m[1]!, token: m[2]! };
   }
-  const meegle = parseMeegleRef(url);
-  if (meegle) return { kind: "meegle", url, ...meegle };
+  const meegle = parseRef(url);
+  if (meegle) return { kind: "meegle", url, projectKey: meegle.space, workItemId: meegle.id };
   const mr = GITLAB_MR.exec(u.pathname);
   if (mr && /gitlab/i.test(host)) return { kind: "gitlab_mr", url, repo: mr[1]!.replace(/^\//, ""), mr: mr[2]! };
   const hit = matchEnv(url, projects);

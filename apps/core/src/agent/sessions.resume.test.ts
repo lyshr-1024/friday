@@ -18,6 +18,7 @@ import { createRun } from "../memory/runs.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
 import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "./pipeline.js";
 import { syncMeegleOnce } from "./meegle.js";
+import * as meegleRules from "../connectors/meegle/rules.js";
 import { state } from "../scheduler/index.js";
 import { startTask } from "./taskStart.js";
 import { autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
@@ -480,7 +481,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
 
 describe("交给需求会话修过的缺陷被重开", () => {
   const reopened = (id: string) =>
-    ({ fetchWorkItems: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" }] }) as never;
+    ({ ...meegleRules, listMine: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z", kind: "defect", state: "reopened" }] }) as never;
 
   it("Meegle Reopen、需求还在测试中：清交接标记回未开始，门禁重新接；「没过」写进下一次交代，交代后清掉", async () => {
     const { root, bug: mk } = await testingStory("sbreopen");
@@ -638,7 +639,7 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
 
 describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
   const reopened = (id: string) =>
-    ({ fetchWorkItems: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z" }] }) as never;
+    ({ ...meegleRules, listMine: async () => [{ id, name: `缺陷 ${id}`, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: `https://x/${id}`, createdAt: "2026-09-01T00:00:00Z", kind: "defect", state: "reopened" }] }) as never;
   // 旧版交接在需求会话里给缺陷起过一次自己的 -p，缺陷卡记着那个 jobId；升级时这种数据还在
   const headless = async (name: string) => {
     const { root, bug: mk } = await testingStory(name);
