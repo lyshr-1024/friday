@@ -10,7 +10,6 @@ import { loadProjects, matchProjectByUrl, resolveProject, type Project } from ".
 import { judgeIntake } from "./intake.js";
 import { finishTask, startAutonomousJob } from "./pipeline.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, updateTask } from "../memory/tasks.js";
-import { syncSourceTodos } from "../memory/todos.js";
 import { userSettings } from "../settings.js";
 import { state } from "../scheduler/index.js";
 import { runsForTask, setRunOutcome } from "../memory/runs.js";
@@ -263,7 +262,6 @@ export async function syncMeegleOnce(items?: WorkItemsRole): Promise<{ added: nu
     const isDefect = (typeKey: string | undefined) => wi.kindOf(typeKey) === "defect";
     const defects = userSettings().meegleDefects;
     const mine = (await wi.listMine()).filter((it) => defects || it.kind !== "defect");
-    syncSourceTodos("meegle", mine.map(toTodoLike));
     const projects = loadProjects();
     let added = 0;
     let reopened = 0;
@@ -452,9 +450,4 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
   // 项目由你在任务卡上手动选，选完就直接开工（见 POST /tasks/:id/project）。
   // 这里既不替你猜项目，也不挂「开工」待审——那等于让你为同一件事点两次。
   console.log(`[meegle] ${item.id} 进待办，等你在卡上选项目：${verdict.why}`);
-}
-
-function toTodoLike(it: MeegleWorkItem) {
-  const tag = [it.priority, it.typeName].filter(Boolean).join(" · ");
-  return { id: `meegle:${it.id}`, text: `[${tag}] ${it.name}（${it.status}）`, source: "meegle" as const, sourceUrl: it.url, createdAt: it.createdAt, done: false, ...(it.due ? { due: it.due } : {}) };
 }

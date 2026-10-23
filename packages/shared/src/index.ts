@@ -37,24 +37,6 @@ export interface NoteRequest {
   conversationId?: string;
 }
 
-export interface Todo {
-  id: string;
-  text: string;
-  source: TodoSource;
-  sourceUrl?: string;
-  due?: string;
-  createdAt: string;
-  done: boolean;
-}
-
-export type TodoSource = "local" | "slack" | "meegle";
-
-export interface TodosSyncResponse {
-  syncedAt: string;
-  todos: Todo[];
-  sourceErrors: Partial<Record<TodoSource, string>>;
-}
-
 
 export interface Settings {
   corePort: number;
@@ -153,17 +135,6 @@ export interface SettingsUpdate {
   autonomousConcurrency?: number;
   meegleDefects?: boolean;
   summon?: Partial<SummonSettings>;
-}
-
-/** 工作台首屏：Friday 自动拉好的“现在该做什么” */
-export interface Desk {
-  name: string;
-  greeting: string;
-  advice: string;
-  threads: Array<{ id: string; userName: string; situation: string; needs: string; urgency: Urgency; reply?: string }>;
-  todos: Todo[];
-  jobs: Job[];
-  generatedAt: string;
 }
 
 export type MessageKind = "ask" | "today" | "note" | "run" | "error" | "notice";

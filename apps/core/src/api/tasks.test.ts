@@ -32,9 +32,6 @@ vi.mock("../connectors/meegle/client.js", async (orig) => ({
   MeegleConnector: class {
     getWorkItem = async () => ({ name: "缺陷", typeKey: "issue", statusKey: "REOPENED", status: "Reopened" });
     source = "meegle" as const;
-    fetchTodos = async () => {
-      throw new Error("Meegle 未登录");
-    };
     fetchWorkItems = async () => {
       throw new Error("Meegle 未登录");
     };

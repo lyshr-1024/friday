@@ -2,7 +2,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { initMemory } from "./db.js";
-import { addLocalTodo, listOpenTodos } from "./todos.js";
 
 const dir = process.env.FRIDAY_DATA_DIR!;
 
@@ -22,10 +21,4 @@ describe("记忆库", () => {
     expect(readFileSync(file, "utf8")).toBe(before);
   });
 
-  it("记录并读取本地待办，按截止日期排序", () => {
-    addLocalTodo({ text: "无截止" });
-    addLocalTodo({ text: "明天", due: "2026-09-04" });
-    addLocalTodo({ text: "今天", due: "2026-09-03" });
-    expect(listOpenTodos().map((t) => t.text)).toEqual(["今天", "明天", "无截止"]);
-  });
 });

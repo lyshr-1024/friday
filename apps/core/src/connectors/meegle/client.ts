@@ -1,5 +1,4 @@
-import type { StateTransition, TaskDoc, Todo } from "@friday/shared";
-import type { Connector } from "../types.js";
+import type { StateTransition, TaskDoc } from "@friday/shared";
 import { mapLimit, runJson } from "../exec.js";
 import { SELF_HOSTS } from "./rules.js";
 
@@ -212,20 +211,6 @@ interface WorkItem {
   work_item_fields: Array<{ key: string; name?: string; value: unknown }>;
 }
 
-export function toTodo(host: string, item: WorkItem): Todo {
-  const a = item.work_item_attribute;
-  const priority = item.work_item_fields.find((f) => f.key === "priority")?.value as { label?: string } | undefined;
-  const tag = [priority?.label, a.work_item_type.name].filter(Boolean).join(" · ");
-  return {
-    id: `meegle:${a.work_item_id}`,
-    text: `[${tag}] ${a.work_item_name.trim()}（${a.work_item_status.name}）`,
-    source: "meegle",
-    sourceUrl: `https://${host}/${a.owned_project.simple_name}/${a.work_item_type.key}/detail/${a.work_item_id}`,
-    createdAt: a.create_time,
-    done: false,
-  };
-}
-
 /**
  * 缺陷描述里的「测试环境」链接就是出问题的页面，是定位代码最强的线索——
  * 标题只写「【BO 后台】…」，归不到具体仓库。Meegle / 飞书自己的链接要排掉。
@@ -288,14 +273,10 @@ export function toWorkItem(host: string, todo: TodoItem, item: WorkItem, schedul
   };
 }
 
-export class MeegleConnector implements Connector {
+export class MeegleConnector {
   source = "meegle" as const;
 
   constructor(private bin = "meegle") {}
-
-  async fetchTodos(): Promise<Todo[]> {
-    return (await this.fetchRaw()).map(([, d, host]) => toTodo(host, d));
-  }
 
   async fetchWorkItems(): Promise<MeegleWorkItem[]> {
     return (await this.fetchRaw()).map(([it, d, host, sch]) => toWorkItem(host, it, d, sch));
