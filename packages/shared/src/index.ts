@@ -524,6 +524,8 @@ export interface TaskSource {
   linkedStoryName?: string;
   /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
   storyContainer?: boolean;
+  /** 已经据以收工过的 MR 号：任务重开后同一个 MR 不再把它收掉 */
+  mergedMrs?: number[];
   /** 修复卡：值是它替哪张需求修缺陷（需求没有会话时，名下缺陷攒到这张卡上一起修） */
   fixFor?: string;
   /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
