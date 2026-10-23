@@ -5,7 +5,7 @@ import { config } from "../config.js";
 import { db } from "./db.js";
 import { dropNoteTask } from "./noteTask.js";
 
-export const MEMORY_FILES: Record<MemoryFile, string> = { projects: "projects.md", decisions: "decisions.md", people: "people.md" };
+export const MEMORY_FILES: Record<MemoryFile, string> = { projects: "projects.md", decisions: "decisions.md", people: "people.md", okr: "okr-guide.md" };
 
 export function memoryPath(name: MemoryFile): string {
   return join(config.dataDir, MEMORY_FILES[name]);

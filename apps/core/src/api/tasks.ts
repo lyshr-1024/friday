@@ -40,11 +40,9 @@ import { closeProjectAnchor, openProjectShell, openProjectTerminal, projectOverv
 import { invokeTool } from "../connectors/invoke.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
-import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
-import { draftWeeklyOnce } from "../agent/weekly/index.js";
+import { draftWeeklyOnce, editOkrDraft } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
 import { remove as removeOkrReport } from "../agent/weekly/okr.js";
-import type { OkrWeeklyDraft } from "@friday/shared";
 import type { HandbookDraft } from "../agent/handbook.js";
 
 const MENTION_MAX_BYTES = 1024 * 1024;
@@ -139,11 +137,7 @@ export const tasks = new Hono()
       (r): r is { objectId: number; content?: string; pct?: number; checked?: boolean } =>
         typeof r === "object" && r !== null && typeof (r as { objectId?: unknown }).objectId === "number",
     );
-    const draft = mergeEdits(action.payload as unknown as OkrWeeklyDraft, rows);
-    const n = submittable(draft);
-    const label = action.label.startsWith("重试") ? `重试剩下的 ${n} 条` : OKR_SUBMIT_LABEL(n);
-    const next = updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label });
-    return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
+    return editOkrDraft(t, rows) ? c.json(getTask(t.id)) : c.json({ error: "任务不存在" }, 404);
   })
   .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncWorkItemsOnce()), ...(workItemSyncState.lastError ? { error: workItemSyncState.lastError } : {}) }))
   .get("/tasks", async (c) => {

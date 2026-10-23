@@ -33,9 +33,9 @@ import { conversationKey } from "../memory/infer.js";
 import { attachedTasks } from "./chat/attach.js";
 import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
-import { draftWeeklyOnce } from "./weekly/index.js";
+import { draftWeeklyOnce, editOkrDraft } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
-import { saidLast, selfToolList } from "./selfTools.js";
+import { byYou, saidLast, selfToolList } from "./selfTools.js";
 import { toolAdminList } from "./toolAdmin.js";
 import { consentGate, consents, lastUserMessage, leadingRef } from "./consent.js";
 import { describeTool, heldText, invokeForModel } from "./toolCatalog.js";
@@ -49,7 +49,7 @@ function resolveOrExplain(query: string) {
   return `没找到项目「${query}」，请让用户在项目注册表里登记，或直接给目录路径。`;
 }
 
-const file = z.enum(["projects", "decisions", "people"]).describe("projects=项目注册表，decisions=决策记录，people=人物");
+const file = z.enum(["projects", "decisions", "people", "okr"]).describe("projects=项目注册表，decisions=决策记录，people=人物，okr=周报口径（起草 OKR 周报照它写）");
 const MEMORY_NAMES = file;
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -63,7 +63,7 @@ export const fridayTools = (conversationId?: string) => createSdkMcpServer({
 export const fridayToolList = (conversationId?: string) => [
     tool(
       "memory_read",
-      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people 读那三个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册；传 research 列出存过的学习笔记，research:<文件名> 读其中一份；传 knowledge:<项目名> 读该项目的知识库（功能在哪、哪个目录、谁负责）。",
+      "读取记忆库里的一个 markdown 文件全文。file 传 projects / decisions / people / okr（周报口径）读这几个文件；传 handbook:<项目名>（如 handbook:whale-console、handbook:_global）读该项目的干活手册；传 research 列出存过的学习笔记，research:<文件名> 读其中一份；传 knowledge:<项目名> 读该项目的知识库（功能在哪、哪个目录、谁负责）。",
       { file: z.string().min(1).max(120) },
       async ({ file }) => {
         const hb = /^handbook:(.+)$/.exec(file);
@@ -119,7 +119,7 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "memory_write",
-      "整篇覆盖写入记忆库 markdown 文件（decisions / people）：先 memory_read 拿全文，改好后整篇写回。projects 用 project_update 改，这里不收。",
+      "整篇覆盖写入记忆库 markdown 文件（decisions / people / okr）：先 memory_read 拿全文，改好后整篇写回。用户给了周报规范、说周报要怎么写，就写进 okr，以后起草照它。projects 用 project_update 改，这里不收。",
       { file, content: z.string().max(200_000) },
       async ({ file, content }) => {
         if (file === "projects") return text("projects 不能整篇写，改项目登记用 project_update（按字段改、可新建、可撤销）。");
@@ -165,6 +165,9 @@ export const fridayToolList = (conversationId?: string) => [
         args: z.object({}).passthrough(),
       },
       async ({ tool: name, op, args }) => {
+        // 周报一律走周报卡（先审再提交）；2026-10-23 让它「替换草稿」，它直接调 OKR 把一条写上了平台
+        if (name === "okr" && /progress_report/.test(op) && !/^(get|list)/.test(op))
+          return text("周报不在这里直接写 OKR 平台：改草稿用 okr_draft_update（没有周报卡就先 okr_weekly 起草），用户在卡上看过点提交才写上去。");
         const { seq } = leadingRef(lastUserMessage(conversationId).text);
         const task = seq !== undefined ? findTaskByRef(`#${seq}`) : undefined;
         if (seq !== undefined && !task) return text(`用户点名的 #${seq} 没有这条任务，先问清楚是哪条。`);
@@ -474,13 +477,30 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "okr_weekly",
-      "起草 OKR 平台上的周报：用本周 git 提交和任务，按用户每个 KR 各写一段进展和建议进度，挂成一张审核卡。用户说“填周报”“写 OKR 周报”“补上周的周报”时用。不会直接提交，用户在卡上改完点提交才会写到平台。要补某一周就传 week（如 2026W0914-0920）。",
+      "起草 OKR 平台上的周报：用本周 git 提交和任务，按记忆库 okr（周报口径）给每个 KR 各写一段进展和建议进度，挂成一张审核卡。用户说“填周报”“写 OKR 周报”“补上周的周报”时用。不会直接提交，用户在卡上改完点提交才会写到平台。要补某一周就传 week（如 2026W0914-0920）。改草稿用 okr_draft_update；周报一律走这张卡，不要用 tool_call 直接写 OKR 平台。",
       { week: z.string().optional().describe("周标识，如 2026W0921-0927；不传按周五 16:00 前算上周、之后算本周") },
       async ({ week }) => {
         const w = week ? parseWeek(week) : undefined;
         if (week && !w) return text("week 格式不对，应为 2026W0921-0927 这种、从周一开始。");
         const r = await draftWeeklyOnce({ week: w, manual: true });
         return text("skipped" in r ? `没起草：${r.skipped}` : `起草好了：${r.drafted} 条有草稿，${r.empty} 条没找到相关工作。已挂成审核卡（${r.taskId.slice(0, 8)}），在右上「···」→ 周报 里改完点「提交」才会写到 OKR 平台。`);
+      },
+    ),
+    tool(
+      "okr_draft_update",
+      "改周报卡上的草稿（不提交）：按 KR 的 objectId 替换正文和 / 或进度。用户说“替换一下草稿”“按规范改周报”“这条改成…”时用，改完告诉他在「···」→ 周报 里看、在卡上提交。不传 week 就改最近那张还没交完的周报卡。",
+      {
+        week: z.string().optional().describe("周标识，如 2026W1019-1025"),
+        rows: z.array(z.object({ objectId: z.number().int(), content: z.string().max(4000).optional(), pct: z.number().min(0).max(100).optional() })).min(1).max(30),
+      },
+      async ({ week, rows }) => {
+        const card = listTasks(["review", "processing", "blocked", "understood"], 200).find((t) => t.kind === "okr_weekly" && t.pending?.some((p) => p.type === "okr_submit") && (!week || t.source.okrWeek === week));
+        if (!card) return text(`${week ?? "最近"}没有待提交的周报卡，先用 okr_weekly 起草一张。`);
+        // 补了正文的空行顺手勾上，不然卡上还是「不交」
+        const next = editOkrDraft(card, rows.map((r) => ({ ...r, ...(r.content?.trim() ? { checked: true } : {}) })));
+        if (!next) return text("周报卡已经不在了。");
+        record({ taskId: card.id, action: "okr_draft_edited", why: byYou(conversationId, "改周报草稿"), how: `改了 ${rows.length} 条 KR 的草稿：${rows.map((r) => r.objectId).join("、")}`, evidence: { quote: saidLast(conversationId), week: card.source.okrWeek ?? null }, risk: "reversible" });
+        return text(`草稿改好了（${card.source.okrWeek}），没提交。卡上现在是「${next.label}」，让用户在「···」→ 周报 里看过、在卡上点提交。`);
       },
     ),
     tool(

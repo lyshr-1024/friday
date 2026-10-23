@@ -1,4 +1,4 @@
-import type { OkrRow, OkrWeeklyDraft, Task } from "@friday/shared";
+import type { OkrRow, OkrWeeklyDraft, PendingAction, Task } from "@friday/shared";
 import { OkrError, me, myKRs, quarterReports } from "./okr.js";
 import { record } from "../../memory/audit.js";
 import { getCursor, setCursor } from "../../memory/inbox.js";
@@ -7,7 +7,7 @@ import { state } from "../../scheduler/index.js";
 import { userSettings } from "../../settings.js";
 import { collectMaterials } from "./collect.js";
 import { draftWithModel, type KrContext } from "./draft.js";
-import { OKR_SUBMIT_LABEL, submittable } from "./submit.js";
+import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "./submit.js";
 import { targetWeek, type Week } from "./week.js";
 
 export type WeeklyResult = { taskId: string; drafted: number; empty: number } | { skipped: string };
@@ -23,6 +23,16 @@ function upsertCard(week: Week, patch: Parameters<typeof updateTask>[1]): Task {
   if (cur) return updateTask(cur.id, patch)!;
   const t = createTask({ title: `OKR 周报 · ${week.id}`, kind: "okr_weekly", source: { okrWeek: week.id }, status: "review" });
   return updateTask(t.id, patch)!;
+}
+
+/** 改周报卡上的草稿（接口和会话工具共用）：按 objectId 合并，重算「提交 N 条」 */
+export function editOkrDraft(t: Task, rows: Array<{ objectId: number; content?: string; pct?: number; checked?: boolean }>): PendingAction | undefined {
+  const action = t.pending?.find((p) => p.type === "okr_submit");
+  if (!action) return undefined;
+  const draft = mergeEdits(action.payload as unknown as OkrWeeklyDraft, rows);
+  const n = submittable(draft);
+  const label = action.label.startsWith("重试") ? `重试剩下的 ${n} 条` : OKR_SUBMIT_LABEL(n);
+  return updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label })?.pending?.find((p) => p.id === action.id);
 }
 
 export async function draftWeeklyOnce(opts: { week?: Week; manual: boolean }): Promise<WeeklyResult> {

@@ -6,6 +6,7 @@ import { readMemory, writeMemory } from "../lib/core";
 export const MEMORY_FILES: Array<{ name: MemoryFile; label: string; hint: string }> = [
   { name: "projects", label: "项目注册表", hint: "## 名称 / - 目录 / - 别名 / - 状态 / - 说明" },
   { name: "decisions", label: "决策记录", hint: "## 日期 结论，下一行写理由" },
+  { name: "okr", label: "周报口径", hint: "起草 OKR 周报照这个写：字段、格式、字数、写法" },
   { name: "people", label: "人物", hint: "## 姓名 / - 角色 / - 联系 / - 备注" },
 ];
 

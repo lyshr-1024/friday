@@ -172,7 +172,7 @@ export interface ConversationSummary {
   running?: boolean;
 }
 
-export type MemoryFile = "projects" | "decisions" | "people";
+export type MemoryFile = "projects" | "decisions" | "people" | "okr";
 
 export interface MemoryFileResponse {
   name: MemoryFile;

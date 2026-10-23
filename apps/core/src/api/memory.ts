@@ -5,7 +5,7 @@ import { memoryPath, readMemoryFile, writeMemoryFile } from "../memory/files.js"
 import { handbookPath, listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { activeRules, editRule, getRule } from "../memory/rules.js";
 
-const name = z.enum(["projects", "decisions", "people"]);
+const name = z.enum(["projects", "decisions", "people", "okr"]);
 const body = z.object({ content: z.string().max(200_000) });
 const rulePatch = z.union([z.object({ text: z.string().trim().min(1).max(120) }).strict(), z.object({ retire: z.string().trim().min(1).max(200) }).strict()]).transform((v) => v as { text?: string; retire?: string });
 

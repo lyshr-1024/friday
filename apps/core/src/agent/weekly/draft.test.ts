@@ -45,3 +45,15 @@ describe("起草钳制", () => {
     expect(prompt).toContain('<untrusted source="last-week">');
   });
 });
+
+describe("按周报口径起草", () => {
+  it("有口径就照它写，上周正文只参考进度和内容；没有口径照旧对齐上周风格", () => {
+    const withGuide = draftPrompt(krs, mats, "五项：目标完成时间 / 当前阶段 / 本周新增成果 / 完成风险 / 进度口径");
+    expect(withGuide.system).toContain("周报口径");
+    expect(withGuide.system).toContain("五项：目标完成时间");
+    expect(withGuide.system).not.toContain("正文风格对齐上周");
+    const plain = draftPrompt(krs, mats);
+    expect(plain.system).toContain("正文风格对齐上周");
+    expect(plain.system).not.toContain("周报口径");
+  });
+});

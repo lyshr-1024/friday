@@ -2,17 +2,22 @@ import type { OkrKR } from "./okr.js";
 import { askStream, SONNET_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";
+import { readMemoryFile } from "../../memory/files.js";
 import type { Material } from "./collect.js";
 
 export interface KrContext { kr: OkrKR; prevContent: string | null; prevPct: number | null }
 export interface DraftItem { objectId: number; content: string; pct: number; why: string; used: string[] }
 export interface Drafted { items: DraftItem[]; unmatched: string[] }
 
-export function draftPrompt(krs: KrContext[], materials: Material[]): { system: string; prompt: string } {
+export function draftPrompt(krs: KrContext[], materials: Material[], guide = ""): { system: string; prompt: string } {
+  // 有周报口径（记忆库 okr-guide.md）就照它写；2026-10-23 前起草只会对齐上周风格，用户给的组里规范从没用上
+  const style = guide.trim()
+    ? ["正文按下面的【周报口径】写：字段、格式、字数、写法都以它为准；上周正文只参考进度和做到哪了，不照它的格式。只写素材里有的事，不编、不夸大；没有素材支撑的 KR 不要出现在 items 里。", `【周报口径】\n${guide.trim()}`]
+    : ["正文风格对齐上周：一段话，列本周交付了什么、修了什么，带工单号（m-xxxx）。只写素材里有的事，不编、不夸大；没有素材支撑的 KR 不要出现在 items 里。"];
   const system = [
     "你在替用户起草 OKR 平台上的每周进展（每个 KR 一段）。只输出一个 JSON，不要任何其他文字。",
     '格式：{"items":[{"objectId":数字,"content":"正文","pct":数字,"why":"进度依据一句话","used":["素材编号"]}],"unmatched":["没对上任何 KR 的素材编号"]}',
-    "正文风格对齐上周：一段话，列本周交付了什么、修了什么，带工单号（m-xxxx）。只写素材里有的事，不编、不夸大；没有素材支撑的 KR 不要出现在 items 里。",
+    ...style,
     "进度默认沿用上周；只有素材明确显示 KR 里列的事项这周完成了才上调，并在 why 里说清是哪几项；不要下调。",
     "每条 items 的 used 必须列出它依据的素材编号。",
     UNTRUSTED_NOTE,
@@ -53,7 +58,7 @@ export function parseDraft(text: string, krs: KrContext[], materials: Material[]
 }
 
 export async function draftWithModel(krs: KrContext[], materials: Material[]): Promise<Drafted> {
-  const { system, prompt } = draftPrompt(krs, materials);
+  const { system, prompt } = draftPrompt(krs, materials, readMemoryFile("okr"));
   let last = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     let text = "";
