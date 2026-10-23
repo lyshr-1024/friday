@@ -181,9 +181,24 @@ export function runningAutonomous(): number {
   return listTasks("processing").filter((t) => t.source.autonomous && !t.source.scheduleId && !t.source.handedAt && t.source.jobId && getJob(t.source.jobId)?.status === "running").length;
 }
 
+/** 需求没有会话的缺陷：一进来就挂到修复卡上攒着（卡先不开工，到点再开），列表里收在卡下面 */
+export function ensureFixCards(): number {
+  let n = 0;
+  for (const g of pickBatchGroups([...listTasks("understood"), ...listTasks("collected")])) {
+    const card = g.card ?? createFixCard(g.story, g.defects);
+    for (const d of g.defects) {
+      if (d.source.rootId === card.id) continue;
+      updateTask(d.id, { source: { rootId: card.id } });
+      n++;
+    }
+  }
+  return n;
+}
+
 /** 每轮 Meegle 同步后跑一次。开关关着就什么都不做。 */
 export async function autostartTick(now = Date.now()): Promise<number> {
   if (!userSettings().autonomous) return 0;
+  ensureFixCards();
   const env: AutostartEnv = { now, running: runningAutonomous(), max: userSettings().autonomousConcurrency };
   let started = 0;
   for (const { unit, defects } of pickDefectGroups([...listTasks("understood"), ...listTasks("collected")])) {

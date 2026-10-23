@@ -11,7 +11,7 @@ import { briefRefusal } from "@friday/shared";
 import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { getCursor, setCursor } from "../memory/inbox.js";
 import { updateSettings } from "../settings.js";
-import { autostartPlan, codeEligible, defectBatchTick, defectRoute, pickBatchGroups, pickDefectGroups, tidyStoryDefects, type StoryEnv } from "./autostart.js";
+import { autostartPlan, codeEligible, defectBatchTick, defectRoute, ensureFixCards, pickBatchGroups, pickDefectGroups, tidyStoryDefects, type StoryEnv } from "./autostart.js";
 import { createFixCard, fixCardDetail } from "./pipeline.js";
 
 
@@ -88,6 +88,23 @@ describe("修复卡", () => {
     expect(d).toContain("在同一条分支上一起修");
     expect(d).toContain("taskId aaaaaaaa");
     expect(d).toContain(`taskId 填 ${card.id.slice(0, 8)}`);
+  });
+});
+
+describe("修复卡先建好攒着", () => {
+  it("需求没有会话的缺陷一进来就挂到修复卡上，不开工；同一需求后来的缺陷挂同一张", () => {
+    const s = createTask({ title: "先建卡需求", kind: "meegle", status: "done", source: { meegleType: "story", meegleId: "5501" } });
+    const a = createTask({ title: "先建卡缺陷 A", kind: "meegle", status: "understood", project: "whale-console", source: { meegleType: "issue", linkedStoryId: "5501" } });
+    ensureFixCards();
+    const card = listTasks(["understood"]).find((x) => x.source.fixFor === s.id)!;
+    expect(card.title).toBe("先建卡需求 · 修复");
+    expect(getTask(a.id)!.source.rootId).toBe(card.id);
+    expect(getTask(a.id)!.status).toBe("understood");
+    expect(getTask(a.id)!.source.handedAt).toBeUndefined();
+    const b = createTask({ title: "先建卡缺陷 B", kind: "meegle", status: "understood", project: "whale-console", source: { meegleType: "issue", linkedStoryId: "5501" } });
+    ensureFixCards();
+    expect(listTasks([...["understood", "processing"] as const]).filter((x) => x.source.fixFor === s.id)).toHaveLength(1);
+    expect(getTask(b.id)!.source.rootId).toBe(card.id);
   });
 });
 

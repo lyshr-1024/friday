@@ -72,6 +72,8 @@ apps/core/src/
 
 ### 需求在测试中：缺陷进需求会话（2026-10-16）
 
+> 2026-10-23 起推广到所有阶段、一次交一组，见「缺陷跟需求走」；本节的串行、交付归属、重开重接仍然适用。
+
 提测后测试拉出的缺陷多是小改，挂在一条已在联调环境上跑着的需求分支上：改完是 commit → push → 按项目自己的发布流程合到测试环境，不建 MR。设计稿 `docs/superpowers/specs/2026-10-16-testing-story-bugs-design.md`。
 
 - **触发只认需求卡 `stage === "testing"`**（用户定：Meegle 侧测试中和开发中是同一个状态值，分不出来，不另加推断；你没拨阶段的需求，缺陷走统一开工那条门禁，2026-10-22 前是把握分）。`autostart.ts` 的 `testingStoryBug` / `pickStoryBugs`：不看 intake、不等 15 分钟（建卡队列的 15 分钟也不等，测试中需求名下的缺陷根本不建卡）；需求会话得在、不是 closed、有 worktree（需求不是在 Friday 里做的就不接）。`autostartTick` 先跑这一路，总开关仍是 `settings.autonomous`。门禁 `codeEligible`（2026-10-22 前叫 `eligible`）对这类缺陷回「需求在测试中，走需求会话那条路」，免得同一会话里进两条、归属乱掉。
@@ -163,6 +165,8 @@ apps/core/src/
 
 ## 统一开工（2026-10-22）
 
+> 2026-10-23 起**挂了需求的缺陷不走这条门禁**（不建理解卡、不单独开工），见下节「缺陷跟需求走」；本节只剩需求和没挂需求的缺陷。
+
 设计稿第四块（`docs/superpowers/specs/2026-10-22-one-conversation-dispatch-design.md`）。起因：缺陷走「intake 把握分 ≥ 80 + 等 15 分钟」、需求走「理解卡」，两条门禁两套口径，缺陷也没有书面理解让你看。现在缺陷和需求同一条：先建理解卡，卡审过（或项目规则不用审）、依赖齐了才自己开。
 
 - **一条门禁 `codeEligible`**（`autostart.ts`，返回不满足的原因，空 = 能开；`pickAutostart` / `autostartPlan` 共用，`storyEligible` 并进来）。全部满足才开：卡在排队（`understood` / `collected`）、`briefRefusal` 空、**所属需求不在测试中**（缺陷让路给需求会话那条，见「需求在测试中」）、有理解卡、`review` 是 `none` 或 `approved`（`pending` / `rejected` 都不开）、没 `stale` 且指纹和当前正文一致、不在重建中、上次重建没失败、`none` 的卡项目现在仍然不用审、依赖全 `ready`、卡上没挂问题、没说过「先别做」（`autostartOff`）、**项目在注册表里**、**根会话不是你开的交互式会话**。并发仍是 `autonomousConcurrency`，先按优先级再按进来先后。缺陷判据统一 `taskCategory(source) === "defect"`（issue / defect / bug 都算；原来 `testingStoryBug` 只认一部分）。
@@ -207,6 +211,20 @@ apps/core/src/
   - **守卫的包装命令**：`sh/bash/zsh -c`、`xargs`、`nohup`、`command`、`exec`、`watch`、`env`、`time`（可带路径和选项）后面、名字加引号或反斜杠（`"meegle"`、`\meegle`）都算命令位置。`guardedBinaries()` 取**全部登记**（启用、停用、草稿）的 `binaries`：停用工具不用同意，不能变成直接跑它命令行的后门。
   - **`--strict-mcp-config` 的代价**：Friday 驾驶的会话（自主、查询、建卡、冷启动、准备段）不再有你 claude.ai 账号里的连接器（Figma、Notion 等）和全局 MCP，要用得先登记进注册处。升级前已经开着的会话是旧参数，照旧加载全局 MCP，重开才生效。
 - **真机验收（2026-10-23）**：隔离方式同「真机验收（2026-10-16）」，另把 `FRIDAY_CLAUDE_JSON` 指向临时文件、其中 `lb-coral-gw-operator` 指到本机一个假 MCP http 服务，同步脚本再加 `HOME=<临时目录> ANTHROPIC_BASE_URL=http://127.0.0.1:9 ANTHROPIC_API_KEY=<假值>`——`syncMeegleOnce` 对新工单会跑 intake（调模型），这样它连不上直接失败、不花钱，也不往你的 `~/.claude` 写会话。①同一份两轮假 `meegle` 数据（新建、改名改优先级、FE 发布走完收工、In Testing、WON'T FIX / 已终止收工、Friday 里标完成后 Reopen 拉回、缺陷关联需求建容器）在改前（1947559，临时兄弟 worktree）和改后各跑一遍：返回计数、两轮任务板（标题 / 状态 / 阶段 / 优先级 / `meegleType` / `statusKey` / 容器）、账本动作序列全部一致，`meegle` 调用排序后一字不差。②coral 用一次性脚本 `saveTool` 登记（主对话「接一下 coral」走 `tool_discover` → `tool_register` → 确认的那条路**没有用真模型验过**）。③自主任务干活段参数有 `--strict-mcp-config`，目录里有 coral；守卫对 `meegle mywork todo`、`npx lark-cli docs +fetch`、`cd src && meegle …` 回 deny，`agent-browser`、`git status`、`grep meegle` 放行。④bridge `tool_call coral getApi` 拿到假服务的结果；`deployApi` 回「已挂待审 #1」，卡上多一条 `tool_call`、状态仍是 processing、等你栏和主对话都出现「说「#1 执行」放行」，假服务没收到 `deployApi`，账本没有它的执行记录；项目页终端的 job 调 `deployApi` 回「只读会话不调写操作」。⑤项目页终端参数里没有 `--strict-mcp-config`。前后 ptmx 都是 20。
+
+## 缺陷跟需求走（2026-10-23）
+
+起因：#107 / #108 / #122 各自建卡、各自开工、各挂一份「合并需求分支」（同一条分支挂三遍），在「待验收」里各占一行；#133 修了 3 条 SIT 缺陷，MR 合进 sit 后一直挂着，挂的还是「合并进主分支」（真点了会把 sit 的东西带进 master）。用户定：缺陷不单独解决；需求收工后来的缺陷开修复卡攒着，每天定一个时间统一修。设计稿 2026-10-21 第 13、124 行早就写了「修复的单位是需求不是缺陷」，这次落地（「按知识库功能给缺陷找需求」那块仍没做，只认 Meegle 给的关联需求）。实测三个需求全是容器（`storyContainer`），所以修复单位不能指望需求自己开工。
+
+- **路由 `defectRoute`**（`agent/autostart.ts`）：缺陷挂在哪张需求下用 `storyOf`（`rootId` 指的那张，修复卡换回它替的需求；没有就按 `linkedStoryId` 找，收没收工都算）。需求（没收工）或它的修复卡有会话（没关、有 worktree）→ 整组交进去（`pickDefectGroups` → `handToStorySession(组, 会话)`，不再只认「测试中」）；那个会话里还有一组没修完 → 等；都没会话 → 等每天定点（`batch`）。已经在测试中 / 开过工 / 挂着问题 / 先别做的不排。
+- **不单独建卡、不单独开工**：`briefRefusal` 对挂了需求的缺陷回「缺陷跟所属需求一起修」，对修复卡回「修复卡不建理解卡」；`codeEligible` 对它们回「跟所属需求一起修，不单独开工」；`yieldsToStory` 改成「缺陷挂在需求下」（建卡队列的 skip 共用）。没挂需求的缺陷保持统一开工那条门禁（用户说不会出现，留作兜底）。
+- **修复卡**（`source.fixFor` = 需求 id，`kind: code`，标题「<需求> · 修复」，优先级取组里最高）：`autostartTick` 每轮先 `ensureFixCards`——需求和修复卡都没会话的缺陷一进来就建卡、把缺陷 `rootId` 挂上去，卡先不开工；`defectBatchTick` 每轮同步后看上海时间到没到 `settings.defectBatchAt`（默认 `10:00`，对话里 `settings_update` 能改，`HH:MM`），一天一次（游标 `defects:batch:day`），对每组 `startFixCard`：Friday 驾驶开工（`fixCardDetail`：一条分支一起修、分支和发布按项目规则与缺陷所在环境定、每条带 taskId 交付、最后交总报告），缺陷记成交代进修复卡的会话（`handedAt`、`rootId` = 卡、runs 一条一行 `story_bug`）。修复卡有了会话后，同一需求再来的缺陷直接整组交进去，不等定点。你对缺陷或修复卡说「开工」不等定点：有会话就交进去，没有就马上开修复卡（`taskStart.ts`）。
+- **交代提示词** `storyBugPrompt` 收一组：列每条 taskId，每条修完单独 `friday_done`；「发测试环境」那条只在需求测试中或修复卡时写，需求还在开发就只提交推送。
+- **合并动作只给从主干切出来的分支**（`git.ts` 的 `forkedFromSync`）：分支带着某条非主干保护分支（sit / uat…）上主干没有的提交，就不挂「合并进主分支」，`friday_done` 回话写明从哪切的、在 MR 里验收；`onJobExit` 同。
+- **MR 合了就收工**（`agent/mrWatch.ts`）：每轮 Meegle 同步后，对 processing / review / blocked、有自己分支（不是主干、不是交代进别人会话的缺陷）的任务跑 `glab mr list --source-branch <分支> --merged -F json`（cwd = 主仓；glab 按 PATH 找，Finder 拉起时兜底 `/opt/homebrew/bin`），合并时间早于任务创建的旧 MR 不算；命中记 `mr_merged`，先 `finishDefectsOf`（原因写「所属任务的 MR !N 已合并进 X」）再 `finishTask`。glab 没装 / 没登录 / 报错就跳过。合进 sit 也算收工（用户定）；run 的结局仍按本地主干判，合进 sit 的记 `closed_unverified`。
+- **启动清理** `tidyStoryDefects`（`index.ts`）：挂了需求的缺陷上老版本挂的 `git_merge` / `brief_approve` 撤掉、记 `story_defect_tidied`，别的待审动作不动。
+- **界面**：「等你」栏（`mainNeeds`）里挂在开着的需求 / 修复卡下的缺陷不单独占一行，收进父卡那一行，reason 末尾写「名下缺陷：2 条修完待核验、1 条在修」，父卡落在自己和名下最急的那一组（顺序 brief → review → blocked → working → queued）；任务列表里需求的分组同样取名下最急的（`Board.tsx` 的 `groupOf`），缺陷照旧缩进挂在下面。
+- **已知**：主动消息（notice）仍按缺陷一条条发「待验收」，没合并；`finishDefectsOf` 按 `linkedStoryId` 也会收到挂在修复卡上的缺陷（同需求，语义一致）；真机验收用临时数据看过「等你」栏和任务列表两屏，修复卡开工、glab 收工没在真实项目上跑过（glab 查询本身对 #133 实测过：MR !10362 已合进 sit）。
 
 ## 从 Claude Code 历史学（2026-09-15）
 
