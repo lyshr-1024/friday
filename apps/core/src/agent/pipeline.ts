@@ -421,7 +421,7 @@ export async function executePending(
     } else if (action.type === "okr_submit") {
       const { submitRows, SubmitPartialError, OKR_SUBMIT_LABEL, submittable } = await import("./weekly/submit.js");
       try {
-        const { draft, failed, conflicts } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft);
+        const { draft, failed, conflicts } = await submitRows(taskId, action.payload as unknown as OkrWeeklyDraft, action.id);
         // 部分失败不抛：抛了会把旧 payload 放回去，已经交成功的会被当成没交再交一遍。
         // 预查发现平台上已经有用户自己填的也不收工：卡片要留着让用户看到那几条没交上去
         if (failed || conflicts) {

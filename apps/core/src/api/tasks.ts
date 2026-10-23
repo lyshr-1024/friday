@@ -42,7 +42,7 @@ import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoar
 import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
 import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
-import { remove as removeOkrReport } from "../connectors/okr.js";
+import { remove as removeOkrReport } from "../agent/weekly/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
 import type { HandbookDraft } from "../agent/handbook.js";
 
@@ -598,7 +598,7 @@ export const tasks = new Hono()
       const remaining = [...plan.ids];
       for (const reportId of plan.ids) {
         try {
-          await removeOkrReport(reportId);
+          await removeOkrReport(reportId, { kind: "user", why: "你撤销了周报提交" });
           remaining.shift();
           // 删一条就记一条：中途再失败的话，重试只用剩下的，不会对已经删掉的再删一次
           setEventUndo(c.req.param("id"), { kind: "delete_okr_reports", ids: remaining });

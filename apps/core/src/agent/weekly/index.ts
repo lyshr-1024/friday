@@ -1,5 +1,5 @@
 import type { OkrRow, OkrWeeklyDraft, Task } from "@friday/shared";
-import { OkrError, me, myKRs, quarterReports } from "../../connectors/okr.js";
+import { OkrError, me, myKRs, quarterReports } from "./okr.js";
 import { record } from "../../memory/audit.js";
 import { getCursor, setCursor } from "../../memory/inbox.js";
 import { addPending, createTask, findTaskBySource, updatePending, updateTask } from "../../memory/tasks.js";

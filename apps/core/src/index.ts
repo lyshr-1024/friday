@@ -4,6 +4,8 @@ import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
 import { seedBuiltins } from "./connectors/builtin.js";
+import { enrichOkr, registerOkr } from "./agent/weekly/okr.js";
+import { pauseUnregisteredCalls } from "./memory/schedules.js";
 import "./connectors/web/tool.js";
 import "./connectors/lark/tool.js";
 import "./connectors/meegle/index.js";
@@ -15,10 +17,13 @@ import "./connectors/slack/index.js";
 import { role } from "./connectors/roles.js";
 import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
-import { startNoticeWatcher } from "./agent/notices.js";
+import { postMainNotice, startNoticeWatcher } from "./agent/notices.js";
 
 initMemory();
 seedBuiltins();
+registerOkr();
+void enrichOkr().catch((e) => console.error(`[okr] 取工具说明失败：${e instanceof Error ? e.message : e}`));
+pauseUnregisteredCalls(postMainNotice);
 writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
 // 上次进程没了，库里还标着 running 的挨个问一句会话在不在：tmux 不跟着

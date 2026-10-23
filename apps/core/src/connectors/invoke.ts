@@ -51,7 +51,7 @@ async function execOp(reg: ToolRegistration, op: ToolOp, args: Record<string, un
   if (reg.transport === "mcp_http") {
     const r = await callTool(reg.connection, op.name, args);
     if (r.isError) throw new Error(`${reg.name}.${op.name} 失败：${r.text.slice(0, 500)}`);
-    return { text: r.text, value: parseJson(r.text) };
+    return { text: r.text, value: parseJson(r.text) ?? parseJson(r.blocks?.[0] ?? "") };
   }
   if (reg.transport === "cli") {
     if (!op.template) throw new Error(`${reg.name}.${op.name} 没有命令模板`);

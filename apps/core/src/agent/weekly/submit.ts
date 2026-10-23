@@ -1,5 +1,5 @@
 import type { OkrRow, OkrWeeklyDraft } from "@friday/shared";
-import { me, quarterReports, submit, type OkrReport } from "../../connectors/okr.js";
+import { me, quarterReports, submit, type OkrReport } from "./okr.js";
 import { record } from "../../memory/audit.js";
 
 const LOCKED = new Set(["existing", "submitted"]);
@@ -31,7 +31,7 @@ export class SubmitPartialError extends Error {
   }
 }
 
-export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise<{ draft: OkrWeeklyDraft; failed: number; conflicts: number }> {
+export async function submitRows(taskId: string, draft: OkrWeeklyDraft, approvedPendingId: string): Promise<{ draft: OkrWeeklyDraft; failed: number; conflicts: number }> {
   const rows = [...draft.rows];
   const sent: Array<{ objectId: number; reportId: number }> = [];
   const attempted = rows.flatMap((r, i) => (eligible(r) ? [i] : []));
@@ -69,7 +69,7 @@ export async function submitRows(taskId: string, draft: OkrWeeklyDraft): Promise
       continue;
     }
     try {
-      const reportId = await submit({ objectId: r.objectId, week: draft.week, quarter: draft.quarter, content: r.content.trim(), pct: r.pct });
+      const reportId = await submit({ objectId: r.objectId, week: draft.week, quarter: draft.quarter, content: r.content.trim(), pct: r.pct }, { kind: "friday", why: "你审核通过", taskId, approvedPendingId });
       rows[i] = { ...r, state: "submitted", reportId, error: undefined };
       sent.push({ objectId: r.objectId, reportId });
     } catch (e) {

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Schedule, ScheduleInput } from "@friday/shared";
+import { getTool } from "../connectors/registry.js";
 import { db } from "./db.js";
 
 interface Row {
@@ -90,4 +91,16 @@ export function pushHistory(id: string, item: { at: string; summary: string }): 
 export function scheduleByConversation(conversationId: string): Schedule | undefined {
   const r = db().prepare("SELECT * FROM schedules WHERE conversation_id = ?").get(conversationId) as unknown as Row | undefined;
   return r ? toSchedule(r) : undefined;
+}
+
+/** 启动时调：直接调工具的定时任务，工具没登记就先停着，免得到点无人值守地直连。notify 往主对话发提示（memory 层不能 import 主对话，会绕回 tools.ts） */
+export function pauseUnregisteredCalls(notify: (text: string) => void = () => {}): number {
+  let n = 0;
+  for (const s of listSchedules()) {
+    if (!s.enabled || s.executor !== "call" || !s.server || s.server === "friday" || getTool(s.server)) continue;
+    updateSchedule(s.id, { enabled: false });
+    notify(`定时任务「${s.title}」调的 ${s.server} 还没登记成工具，先暂停了；说「接一下 ${s.server}」登记后再打开`);
+    n++;
+  }
+  return n;
 }

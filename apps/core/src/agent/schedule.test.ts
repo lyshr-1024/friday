@@ -4,16 +4,19 @@ vi.mock("./pipeline.js", () => ({
   startAutonomousJob: vi.fn(async (t) => t),
   reopenTask: vi.fn(async (id) => ({ task: { id }, terminal: false })),
 }));
+vi.mock("../connectors/invoke.js", () => ({ invokeTool: vi.fn(async () => ({ kind: "ok", text: "done" })) }));
 vi.mock("./runs.js", () => ({ startRun: vi.fn(), subscribe: vi.fn(() => () => {}), isRunning: vi.fn(() => false) }));
 vi.mock("../memory/projects.js", async (orig) => ({
   ...(await orig<typeof import("../memory/projects.js")>()),
   resolveProject: (q: string) => (q === "whale-console" ? { kind: "match", project: { name: "whale-console", dir: "/tmp/wc" } } : { kind: "none" }),
 }));
 
+import { invokeTool } from "../connectors/invoke.js";
+import { getTool, saveTool } from "../connectors/registry.js";
 import { startAutonomousJob, reopenTask } from "./pipeline.js";
 import { startRun, isRunning, subscribe } from "./runs.js";
 import { busyReason, fireSchedule, validateSchedule } from "./schedule.js";
-import { createSchedule, getSchedule, updateSchedule } from "../memory/schedules.js";
+import { createSchedule, getSchedule, pauseUnregisteredCalls, updateSchedule } from "../memory/schedules.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { createTermSession, markStop, updateTermSession } from "../memory/termSessions.js";
 import { db } from "../memory/db.js";
@@ -155,5 +158,43 @@ describe("call 执行方", () => {
   it("参数不合 schema 返回失败", async () => {
     const s = createSchedule({ title: "f", cron: "0 9 * * *", executor: "call", server: "friday", tool: "memory_read", args: {} });
     expect((await fireSchedule(s, "due")).ok).toBe(false);
+  });
+});
+
+const coral = (level: "read" | "irreversible" | null) =>
+  saveTool({
+    name: "coral", transport: "mcp_http", connection: "coral", scenario: "测试", projects: [], roles: [], binaries: [], enabled: true, draft: false,
+    ops: [{ name: "deployApi", description: "d", inputSchema: {}, level, levelBy: "user" }],
+  });
+
+describe("call 走注册处", () => {
+  it("call 指向未登记工具被暂停，friday 的不动", () => {
+    const a = createSchedule({ title: "a", cron: "0 9 * * *", executor: "call", server: "nowhere", tool: "x" });
+    const b = createSchedule({ title: "b", cron: "0 9 * * *", executor: "call", server: "friday", tool: "memory_read", args: { file: "projects" } });
+    const said: string[] = [];
+    expect(pauseUnregisteredCalls((t) => said.push(t))).toBe(1);
+    expect(said).toEqual(["定时任务「a」调的 nowhere 还没登记成工具，先暂停了；说「接一下 nowhere」登记后再打开"]);
+    expect(getSchedule(a.id)!.enabled).toBe(false);
+    expect(getSchedule(b.id)!.enabled).toBe(true);
+    expect(pauseUnregisteredCalls()).toBe(0);
+  });
+
+  it("validateSchedule：未登记 / 无此操作 / 未定级都拒", () => {
+    const i = { title: "x", cron: "0 10 * * *", executor: "call" as const, server: "coral", tool: "deployApi" };
+    expect(validateSchedule(i)).toMatch(/还没登记/);
+    coral(null);
+    expect(validateSchedule(i)).toMatch(/还没定级/);
+    expect(validateSchedule({ ...i, tool: "nope" })).toMatch(/没有操作/);
+    coral("read");
+    expect(validateSchedule(i)).toBeUndefined();
+    expect(getTool("coral")).toBeTruthy();
+  });
+
+  it("fireCall 走 invokeTool，caller 是 schedule", async () => {
+    coral("read");
+    const s = createSchedule({ title: "d", cron: "0 9 * * *", executor: "call", server: "coral", tool: "deployApi", args: { a: 1 } });
+    const r = await fireSchedule(s, "due");
+    expect(r).toMatchObject({ ok: true, result: "done" });
+    expect(vi.mocked(invokeTool).mock.calls[0]).toEqual([{ kind: "schedule", why: "定时任务「d」", scheduleId: s.id }, "coral", "deployApi", { a: 1 }]);
   });
 });

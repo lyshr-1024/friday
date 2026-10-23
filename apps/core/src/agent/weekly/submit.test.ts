@@ -7,7 +7,7 @@ const okr = vi.hoisted(() => ({
   me: vi.fn(async () => ({ id: 1, name: "u" })),
   quarterReports: vi.fn(async () => [] as Array<{ id: number; objectId: number; week: string; content: string; pct: number }>),
 }));
-vi.mock("../../connectors/okr.js", async (orig) => ({ ...(await orig<typeof import("../../connectors/okr.js")>()), ...okr }));
+vi.mock("./okr.js", async (orig) => ({ ...(await orig<typeof import("./okr.js")>()), ...okr }));
 
 const auditState = vi.hoisted(() => ({ throwOnce: false }));
 vi.mock("../../memory/audit.js", async (orig) => {

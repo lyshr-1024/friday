@@ -128,3 +128,8 @@ export function presence(active: boolean, now = Date.now()): Message | undefined
   publish({ type: "conversation", id, running: false });
   return msg;
 }
+
+export function postMainNotice(content: string): void {
+  addMessage(mainConversationId(), { role: "assistant", kind: "notice", content });
+  publish({ type: "conversation", id: mainConversationId(), running: false });
+}
