@@ -9,7 +9,7 @@ const { DatabaseSync: Database } = createRequire(import.meta.url)("node:sqlite")
 import { config } from "../config.js";
 import { MARKDOWN_TEMPLATES, SCHEMA } from "./schema.js";
 import { linksNeedMigration, migrateLinks } from "./links.js";
-import { backupDb, externalRefsMigrated, migrateExternalRefs } from "./migrateExternal.js";
+import { backupDb, count, externalRefsMigrated, migrateExternalRefs } from "./migrateExternal.js";
 
 let instance: DatabaseSync | undefined;
 
@@ -70,7 +70,10 @@ function backupBeforeMigrate(d: DatabaseSync): string {
 export function migrate(d: DatabaseSync): void {
   // 外部引用这一轮（links 收成 ext + 任务 / 待审 / runs）要动数据，先整库备份；两样都不用迁的正常启动不备份
   const external = !externalRefsMigrated(d);
-  const backup = external || linksNeedMigration(d) ? backupBeforeMigrate(d) : "";
+  const linksOld = linksNeedMigration(d);
+  // 空库（新装、没任务没 run、links 没东西可搬）没什么可保的，直接写标记不备份
+  const empty = !count(d, "tasks") && !count(d, "runs") && (!linksOld || !count(d, "links"));
+  const backup = (external || linksOld) && !empty ? backupBeforeMigrate(d) : "";
   // 判断链路删掉了，这三张表连同里面的数据一起收走
   for (const t of ["threads", "lessons", "thresholds"]) d.exec(`DROP TABLE IF EXISTS ${t}`);
   // 补 channel / slack 的那次重建并进来了：没有 ext 的老表一定带 'meegle'，一次搬完。

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { PendingAction } from "@friday/shared";
@@ -19,14 +19,35 @@ export function backupDb(d: DatabaseSync, dir: string): string {
   let path = join(folder, `todos-${stamp}.db`);
   for (let n = 2; existsSync(path); n++) path = join(folder, `todos-${stamp}-${n}.db`);
   d.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  pruneBackups(folder);
   return path;
+}
+
+const KEEP_BACKUPS = 3;
+const BACKUP_NAME = /^todos-(\d{8}-\d{6})(?:-(\d+))?\.db$/;
+
+/** 迁移一直失败时每次启动都会备份一次，只留最新 3 份；只碰本函数起名格式的文件 */
+function pruneBackups(folder: string): void {
+  const key = (name: string) => {
+    const m = BACKUP_NAME.exec(name)!;
+    // 同一秒的第 2 份起名 -2：按字符串排会排到无后缀那份前面，所以拆开按 (时间, 序号) 比
+    return [m[1]!, Number(m[2] ?? 1)] as const;
+  };
+  const files = readdirSync(folder)
+    .filter((f) => BACKUP_NAME.test(f))
+    .sort((a, b) => {
+      const [ta, na] = key(a);
+      const [tb, nb] = key(b);
+      return ta < tb ? -1 : ta > tb ? 1 : na - nb;
+    });
+  for (const f of files.slice(0, -KEEP_BACKUPS)) rmSync(join(folder, f));
 }
 
 export function externalRefsMigrated(d: DatabaseSync): boolean {
   return Boolean(d.prepare("SELECT 1 FROM sync_state WHERE source = ?").get(MIGRATION_KEY));
 }
 
-const count = (d: DatabaseSync, table: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+export const count = (d: DatabaseSync, table: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 
 function verify(d: DatabaseSync, before: { tasks: number; runs: number }): void {
   const after = { tasks: count(d, "tasks"), runs: count(d, "runs") };

@@ -118,15 +118,35 @@ describe("外部引用库迁移", () => {
     expect(backups(dir)).toHaveLength(1);
   });
 
-  it("已经迁过、links 也是新表：正常启动不再备份", () => {
+  it("全新空库：直接写标记，不建备份目录；之后的启动也不备份", () => {
     const dir = mkdtempSync(join(tmpdir(), "friday-mig-"));
     const d = new DatabaseSync(join(dir, "todos.db"));
     d.exec(SCHEMA);
     migrate(d);
-    expect(backups(dir)).toHaveLength(1);
+    expect(marker(d)).toBe("");
+    expect(existsSync(join(dir, "backups"))).toBe(false);
     migrate(d);
-    migrate(d);
-    expect(backups(dir)).toHaveLength(1);
+    expect(existsSync(join(dir, "backups"))).toBe(false);
+  });
+
+  it("连续四次迁移失败：备份只留最新 3 份，别的文件不碰", () => {
+    const { d, dir } = oldDb();
+    addTask(d, "bad", "verbal", "{not json");
+    d.exec("ALTER TABLE tasks ADD COLUMN stage TEXT");
+    d.exec("ALTER TABLE tasks ADD COLUMN stage_by TEXT");
+    d.prepare("UPDATE tasks SET stage = 'todo', stage_by = 'auto' WHERE id = 'bad'").run();
+    const seen: string[][] = [];
+    for (let i = 0; i < 4; i++) {
+      const before = new Set(backups(dir));
+      migrate(d);
+      seen.push(backups(dir).filter((f) => !before.has(f)));
+    }
+    expect(marker(d)).toBeUndefined();
+    expect(seen.map((s) => s.length)).toEqual([1, 1, 1, 1]);
+    const left = backups(dir).filter((f) => f.startsWith("todos-"));
+    expect(left).toHaveLength(3);
+    expect(left).not.toContain(seen[0]![0]);
+    for (const s of seen.slice(1)) expect(left).toContain(s[0]);
   });
 
   it("有一行 source 是坏 JSON：整体回滚、不写标记、启动照常；好行读出来仍是新形状", () => {
