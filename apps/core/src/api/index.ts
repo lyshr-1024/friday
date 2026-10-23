@@ -15,6 +15,7 @@ import { events } from "./events.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
+import { tools } from "./tools.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
 import { knowledge } from "./knowledge.js";
@@ -61,4 +62,5 @@ export const app = new Hono()
   .route("/", schedules)
   .route("/", knowledge)
   .route("/", summonApi)
+  .route("/", tools)
   .route("/", sessions);

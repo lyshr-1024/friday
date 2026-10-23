@@ -6,7 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { applyBackground, applyTheme, broadcastBackground, broadcastTheme } from "../lib/theme";
 import { MEMORY_FILES, MemoryEditor, type EditTarget } from "./MemoryEditor";
 import { Row } from "./shared";
-import { coreBaseUrl, health, leftoverWorktrees, removeWorktree, settings, testNotification, updateSettings, type LeftoverWorktree } from "../lib/core";
+import { coreBaseUrl, health, leftoverWorktrees, listTools, removeWorktree, setToolEnabled, settings, testNotification, updateSettings, type LeftoverWorktree, type ToolView } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";
 import { useImeGuard } from "../lib/ime";
 
@@ -23,6 +23,7 @@ export function Settings() {
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
   const [bgNote, setBgNote] = useState("");
   const [coreUrl, setCoreUrl] = useState("");
+  const [toolList, setToolList] = useState<ToolView[]>([]);
   const ime = useImeGuard();
 
   /** 存背景图；core 会校验类型/大小，失败就把原因显示出来，不动当前设置。 */
@@ -55,6 +56,7 @@ export function Settings() {
     void invoke<string>("current_hotkey").then(setHotkey);
     void settings().then(async (p) => { setPrefs(p); applyTheme(p.theme); applyBackground(p, await coreBaseUrl()); }).catch(() => setPrefs(null));
     refreshPerms();
+    void listTools().then(setToolList).catch(() => {});
     void leftoverWorktrees().then(setLeftover).catch(() => {});
     void (async () => {
       const url = await coreBaseUrl();
@@ -79,6 +81,11 @@ export function Settings() {
       setDropNote(e instanceof Error ? e.message : "删不了");
     }
     setLeftover(await leftoverWorktrees().catch(() => []));
+  }
+
+  async function toggleTool(t: ToolView) {
+    await setToolEnabled(t.name, !t.enabled).catch(() => {});
+    setToolList(await listTools().catch(() => toolList));
   }
 
   async function toggleAutostart() {
@@ -289,6 +296,27 @@ export function Settings() {
           ))
         )}
         {leftover.length > 0 && dropNote && <Row label="上一次删除" hint={dropNote}><span /></Row>}
+        </div>
+      </section>
+
+      <section>
+        <h2>外部工具</h2>
+        <div className="group">
+          {toolList.map((t) => (
+            <Row key={t.name} label={t.name} hint={`${t.transport} · 读 ${t.counts.read} / 可逆 ${t.counts.reversible} / 不可逆 ${t.counts.irreversible} / 未定级 ${t.counts.unset}${t.draft ? " · 草稿" : ""}`}>
+              <span className="mono">
+                <span className={`dot dot--${t.health ? (t.health.ok ? "ok" : "down") : "checking"}`} title={t.health ? (t.health.ok ? "连得上" : t.health.error) : "检测中"} />
+                <button
+                  className={`switch ${t.enabled ? "switch--on" : ""}`}
+                  role="switch"
+                  aria-label={`启用 ${t.name}`}
+                  aria-checked={t.enabled}
+                  onClick={() => void toggleTool(t)}
+                />
+              </span>
+            </Row>
+          ))}
+          <Row label="增删和改等级" hint="在主对话里说，比如「接一下 coral 网关」"><span /></Row>
         </div>
       </section>
 

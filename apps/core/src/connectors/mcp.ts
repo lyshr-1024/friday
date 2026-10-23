@@ -63,7 +63,7 @@ async function post(ep: McpEndpoint, msg: Record<string, unknown>, label: string
   return { res, body };
 }
 
-async function handshake(ep: McpEndpoint, label: string, timeoutMs: number): Promise<string | undefined> {
+export async function handshake(ep: McpEndpoint, label: string, timeoutMs: number): Promise<string | undefined> {
   const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, label, timeoutMs);
   const session = init.res.headers.get("mcp-session-id") ?? undefined;
   parseRpcBody(init.body, label);

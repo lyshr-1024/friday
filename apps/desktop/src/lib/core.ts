@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
+import type { ToolLevel, ToolRegistration, UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -13,6 +13,19 @@ export async function health(): Promise<HealthResponse> {
   const res = await fetch(`${await coreBaseUrl()}/health`);
   if (!res.ok) throw new Error(`health ${res.status}`);
   return res.json();
+}
+
+export type ToolView = ToolRegistration & { counts: Record<ToolLevel | "unset", number> };
+
+export async function listTools(): Promise<ToolView[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tools`);
+  if (!res.ok) throw new Error(`tools ${res.status}`);
+  return ((await res.json()) as { tools: ToolView[] }).tools;
+}
+
+export async function setToolEnabled(name: string, enabled: boolean): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/tools/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }) });
+  if (!res.ok) throw new Error(`tools ${res.status}`);
 }
 
 export type AskEvent =
