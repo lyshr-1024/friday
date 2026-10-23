@@ -84,7 +84,7 @@
     - 主对话里没点名任务 → 不挂待审，走 `worktree_remove` 那套两步同意：第一次调用只返回后果说明让 Friday 转告，用户在之后新说的一句里整句同意，且 tool / op / args 与问的那次一致，才执行。（我的决定：不新增存储，也不改审批界面。）
   - **定时任务的 `call` 执行方**（无人值守）：登记定时任务时用户已原样确认过 tool / op / args（现有规则），视为对**这一组参数**的长期同意，各等级照执行；参数和登记时不一致一律拒。`validateSchedule` 改为校验注册处（工具已登记、已启用、操作已定级），不再直接看 `~/.claude.json`。升级时已有的 `call` 定时任务若指向未登记的 server，暂停并在主对话里说明「先登记工具 X 再打开」。（我的决定。）
 - 现有的不可逆待审动作（`slack_reply` 发送、`okr_submit`、`meegle_update` 等）在执行时改为经 `invokeTool` 带上自己的动作 id 调用；待审动作的类型与界面不变。
-- 每次调用写 `activity`（已有表）；`reversible` / `irreversible` 写 `audit`（已有表），`evidence` 记调用方和发起它的那句用户原话（有会话时，同 `selfTools.ts` 的 `saidLast`）。
+- 记账：模型会话的调用（含只读）和所有 `reversible` / `irreversible` 调用写 `audit`（已有表），`evidence` 记调用方和发起它的那句用户原话（有会话时，同 `selfTools.ts` 的 `saidLast`）；Friday 代码的只读调用不记（每轮同步几十次，记了是噪音）。（2026-10-23 写计划时更正：原稿写的 `activity` 表是 shell 活动记录，不适用。）
 
 ### 4.3 接入流程（对话里）
 
