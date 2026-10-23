@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { handleUpgrade, terminalSockets } from "./api/terminalSocket.js";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
-import { initMemory } from "./memory/db.js";
+import { initMemory, reportMigrationFailure } from "./memory/db.js";
 import { seedBuiltins } from "./connectors/builtin.js";
 import { enrichOkr, registerOkr } from "./agent/weekly/okr.js";
 import { pauseUnregisteredCalls } from "./memory/schedules.js";
@@ -12,7 +12,7 @@ import "./connectors/meegle/index.js";
 import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
-import { startScheduler } from "./scheduler/index.js";
+import { startScheduler, state } from "./scheduler/index.js";
 import "./connectors/slack/index.js";
 import { role } from "./connectors/roles.js";
 import { checkAllHealth } from "./connectors/health.js";
@@ -26,6 +26,10 @@ registerOkr();
 void checkAllHealth().catch((e) => console.error(`[tools] 健康检查失败：${e instanceof Error ? e.message : e}`));
 void enrichOkr().catch((e) => console.error(`[okr] 取工具说明失败：${e instanceof Error ? e.message : e}`));
 pauseUnregisteredCalls(postMainNotice);
+reportMigrationFailure((text) => {
+  postMainNotice(text);
+  state.notices.push({ title: "数据迁移没成功", body: text.slice(0, 120) });
+});
 writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
 // 上次进程没了，库里还标着 running 的挨个问一句会话在不在：tmux 不跟着

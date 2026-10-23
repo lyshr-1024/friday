@@ -191,13 +191,25 @@ export function migrate(d: DatabaseSync): void {
 
   if (external) {
     // 失败已整体回滚、不写标记：启动照常（读取端 toTask 会把老形状归一），下次启动带新备份重试
+    migrationFailure = undefined;
     try {
       const r = migrateExternalRefs(d, backup);
       if (r) console.log(`[migrate] 外部引用：任务 ${r.tasks} 条、runs ${r.runs} 条、补边 ${r.extraLinks} 条`);
     } catch (e) {
       console.error("[migrate] 外部引用迁移失败，已回滚：", e);
+      migrationFailure = `${e instanceof Error ? e.message : String(e)}${backup ? `；迁移前的备份在 ${backup}` : ""}`;
     }
   }
+}
+
+let migrationFailure: string | undefined;
+
+/** 迁移失败只打日志的话没人看得到：启动时交给 notify（主对话 + 系统通知）说一次 */
+export function reportMigrationFailure(notify: (text: string) => void): boolean {
+  if (!migrationFailure) return false;
+  notify(`数据迁移没成功，已回滚、没动任何数据：${migrationFailure}。Friday 照常能用（读的时候兼容老数据），下次启动会再试；一直不成就把这句发给开发看。`);
+  migrationFailure = undefined;
+  return true;
 }
 
 export function db(): DatabaseSync {

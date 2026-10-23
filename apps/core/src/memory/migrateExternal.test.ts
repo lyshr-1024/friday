@@ -9,7 +9,10 @@ import * as rules from "../connectors/meegle/rules.js";
 import { contextFor } from "../agent/bridge.js";
 import { briefPrompt } from "../agent/briefJob.js";
 import { syncWorkItemsOnce } from "../agent/workItems.js";
-import { db, migrate } from "./db.js";
+import { db, migrate, reportMigrationFailure } from "./db.js";
+import { postMainNotice } from "../agent/notices.js";
+import { listMessages } from "./conversations.js";
+import { mainConversationId } from "./mainConversation.js";
 import { LEGACY_KEYS } from "./externalRef.js";
 import { addInboxItems } from "./inbox.js";
 import { extNode, taskNode } from "./infer.js";
@@ -188,6 +191,30 @@ describe("外部引用库迁移", () => {
     migrate(d);
     expect(marker(d)).toBeTruthy();
     expect(legacyIn(JSON.parse(raw(d, "good").source))).toEqual([]);
+  });
+
+  it("任务这步失败：启动后往主对话发一条说明（只发一次），成功的不发", () => {
+    const { d } = oldDb();
+    addTask(d, "bad", "verbal", "{not json");
+    d.exec("ALTER TABLE tasks ADD COLUMN stage TEXT");
+    d.exec("ALTER TABLE tasks ADD COLUMN stage_by TEXT");
+    d.prepare("UPDATE tasks SET stage = 'todo', stage_by = 'auto' WHERE id = 'bad'").run();
+    migrate(d);
+    expect(marker(d)).toBeUndefined();
+
+    const before = listMessages(mainConversationId()).length;
+    expect(reportMigrationFailure(postMainNotice)).toBe(true);
+    const msgs = listMessages(mainConversationId());
+    expect(msgs).toHaveLength(before + 1);
+    expect(msgs.at(-1)).toMatchObject({ kind: "notice" });
+    expect(msgs.at(-1)!.content).toMatch(/^数据迁移没成功，已回滚/);
+    expect(msgs.at(-1)!.content).toContain("下次启动会再试");
+    expect(reportMigrationFailure(postMainNotice)).toBe(false);
+
+    d.prepare("DELETE FROM tasks WHERE id = 'bad'").run();
+    migrate(d);
+    expect(marker(d)).toBeTruthy();
+    expect(reportMigrationFailure(postMainNotice)).toBe(false);
   });
 
   it("撤销删除时快照是老形状：放回去是新形状，同步同一工单不新建", async () => {
