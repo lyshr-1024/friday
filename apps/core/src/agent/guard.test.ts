@@ -83,4 +83,8 @@ describe("已登记工具的命令行", () => {
   it("作为参数或文件名不拦", () => {
     for (const c of ["cat meegle.md", "grep -rn lark-cli docs/", "git commit -m 'fix meegle sync'"]) expect(forbidden(c, [], b), c).toBeUndefined();
   });
+  it("换行、花括号、then/do/else、env/time/变量前缀也是命令位置", () => {
+    for (const c of ["cd x\nmeegle mywork", "if true; then meegle x; fi", "{ meegle x; }", "for i in 1; do lark-cli x; done", "env FOO=1 meegle x", "time lark-cli docs", "A=1 B=2 meegle x"])
+      expect(forbidden(c, [], b), c).toContain("已登记为 Friday 的外部工具");
+  });
 });

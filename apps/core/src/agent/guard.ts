@@ -43,7 +43,7 @@ export function protectedRules(patterns: string[]): Array<[pattern: string, why:
 export function binaryRules(binaries: string[]): Array<[pattern: string, why: string]> {
   return binaries.map((b) => {
     const esc = b.replace(/[.+?^${}()|[\]\\*-]/g, "\\$&");
-    const lead = "(?:^|[;&|(`]|\\$\\()\\s*(?:(?:npx|bunx|pnpm\\s+dlx)\\s+(?:-\\S+\\s+)*)?";
+    const lead = "(?:^|[;&|(`{\\n]|\\$\\(|\\b(?:then|do|else)\\b)\\s*(?:(?:env|time)\\s+|[A-Za-z_]\\w*=\\S*\\s+)*(?:(?:npx|bunx|pnpm\\s+dlx)\\s+(?:-\\S+\\s+)*)?";
     return [`${lead}(?:\\S*/)?${esc}(?=\\s|$|[;&|)\`])`, `${b} 已登记为 Friday 的外部工具，经 tool_call 调用，不要在 Bash 里直接跑`];
   });
 }

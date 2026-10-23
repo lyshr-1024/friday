@@ -5,6 +5,7 @@ import type { Task } from "@friday/shared";
 import { createFeature } from "../memory/features.js";
 import { autonomousPrompt, buildGuardScript, claudeArgs, reportPath, storyBugPrompt, buildHookScript, buildHookSettings, transcriptPath, workCommand } from "./runner.js";
 import { PUSH_WHY } from "./guard.js";
+import { saveTool, removeTool } from "../connectors/registry.js";
 
 describe("终端环境与会话恢复", () => {
   it("清掉从 Claude Code 继承的会话标记，保留其他变量", () => {
@@ -132,5 +133,19 @@ describe("--strict-mcp-config", () => {
     expect(claudeArgs(files, { kind: "autonomous" })).toContain("--strict-mcp-config");
     expect(claudeArgs(files, { kind: "query", print: true })).toContain("--strict-mcp-config");
     expect(claudeArgs(files, { kind: "interactive" })).not.toContain("--strict-mcp-config");
+  });
+});
+
+describe("buildGuardScript 带已登记工具的二进制", () => {
+  it("启用的工具的 binaries 写进脚本规则，脚本里的规则能拦命令", () => {
+    saveTool({ name: "guardtest", transport: "cli", connection: "guardtest", scenario: "t", projects: [], roles: [], binaries: ["guardbin"], enabled: true, draft: false, ops: [] });
+    try {
+      const s = buildGuardScript("/bin/node", undefined, []);
+      expect(s).toContain("已登记为 Friday 的外部工具");
+      const rules = JSON.parse(/const rules = (\[.*\]);/.exec(s)![1]!) as Array<[string, string]>;
+      expect(rules.some(([p]) => new RegExp(p).test("guardbin x"))).toBe(true);
+    } finally {
+      removeTool("guardtest");
+    }
   });
 });
