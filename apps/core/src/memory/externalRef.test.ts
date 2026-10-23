@@ -38,7 +38,8 @@ describe("normalizeSource", () => {
       parent: { id: "24400001", name: "客户资料新增人脸照片上传" },
       schedule: { frontend: "2026-10-30", backend: "2026-10-28" },
       tags: ["Backend Iteration"],
-      attrs: { typeKey: "issue", space: "projectlb", nodeKey: "fe_dev", nodeName: "前端开发", reporter: "拂晓" },
+      step: { key: "fe_dev", name: "前端开发" },
+      attrs: { typeKey: "issue", space: "projectlb", reporter: "拂晓" },
     });
     expect(s.mergedIds).toEqual(["24400002"]);
     expect(s.merged?.[0]?.id).toBe("24400002");
@@ -214,9 +215,21 @@ describe("老键清空不留旧值", () => {
     const patch = { meegleId: "24420780", nodeKey: undefined, nodeName: undefined, reporter: undefined, linkedStoryId: undefined, linkedStoryName: undefined, feDue: undefined, beDue: undefined, meegleTags: undefined, statusKey: undefined } as Partial<TaskSource>;
     const s = syncSourcePatch(cur, patch);
     expect(s.external?.attrs).toEqual({ typeKey: "issue", space: "projectlb" });
-    for (const k of ["parent", "schedule", "tags", "state"] as const) expect(s.external?.[k], k).toBeUndefined();
+    for (const k of ["parent", "schedule", "tags", "state", "step"] as const) expect(s.external?.[k], k).toBeUndefined();
     const reread = normalizeSource(JSON.parse(JSON.stringify(s)) as Record<string, unknown>);
     expect(reread.external).toEqual(s.external);
+  });
+
+  it("单独把 nodeKey 补丁成 undefined：step 只留 name，两个都清则 step 消失，且重读一致", () => {
+    const cur = normalizeSource(meegleDefect);
+    const s1 = syncSourcePatch(cur, { nodeKey: undefined } as Partial<TaskSource>);
+    expect(s1.external?.step).toEqual({ name: "前端开发" });
+    const s2 = syncSourcePatch(s1, { nodeName: undefined } as Partial<TaskSource>);
+    expect(s2.external?.step).toBeUndefined();
+    expect(normalizeSource(JSON.parse(JSON.stringify(s2)) as Record<string, unknown>).external).toEqual(s2.external);
+    const s3 = syncSourcePatch(cur, { nodeKey: "qa" } as Partial<TaskSource>);
+    expect(s3.external?.step).toEqual({ key: "qa", name: "前端开发" });
+    expect(s3.nodeKey).toBe("qa");
   });
 
   it("工具自己加的 attrs 在重建时留着", () => {

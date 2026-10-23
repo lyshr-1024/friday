@@ -98,7 +98,8 @@ describe("cardPrompt", () => {
           id: "24487610",
           schedule: { frontend: "2026-10-08", backend: "2026-09-30" },
           parent: { id: "24400001", name: "月结账单" },
-          attrs: { space: "saas", nodeName: "后台前端开发" },
+          attrs: { space: "saas" },
+          step: { name: "后台前端开发" },
         },
       },
     } as never;

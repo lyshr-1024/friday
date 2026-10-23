@@ -46,10 +46,11 @@ function compact(o: Record<string, string | undefined>): Record<string, string> 
   return Object.keys(out).length ? out : undefined;
 }
 
-/** 同步链路的一条工单在卡上的引用：核心字段业务侧读，空间 / 类型键 / 节点 / 报告人进 attrs 只有这里解释 */
+/** 同步链路的一条工单在卡上的引用：核心字段业务侧读，节点进 step，空间 / 类型键 / 报告人进 attrs 只有这里解释 */
 export function external(item: MeegleWorkItem): ExternalRef {
   const schedule = item.feDue || item.beDue ? { ...(item.feDue ? { frontend: item.feDue } : {}), ...(item.beDue ? { backend: item.beDue } : {}) } : undefined;
-  const attrs = compact({ typeKey: item.typeKey, space: item.projectKey, nodeKey: item.nodeKey, nodeName: item.node, reporter: item.reporter });
+  const attrs = compact({ typeKey: item.typeKey, space: item.projectKey, reporter: item.reporter });
+  const step = item.nodeKey || item.node ? { ...(item.nodeKey ? { key: item.nodeKey } : {}), ...(item.node ? { name: item.node } : {}) } : undefined;
   return {
     tool: TOOL,
     type: "work_item",
@@ -58,6 +59,7 @@ export function external(item: MeegleWorkItem): ExternalRef {
     ...(item.statusKey ? { state: { key: item.statusKey } } : {}),
     ...(item.linkedStory ? { parent: { id: item.linkedStory.id, ...(item.linkedStory.name ? { name: item.linkedStory.name } : {}) } } : {}),
     ...(schedule ? { schedule } : {}),
+    ...(step ? { step } : {}),
     ...(item.tags ? { tags: item.tags } : {}),
     ...(attrs ? { attrs } : {}),
   };
@@ -80,9 +82,7 @@ export function parentRef(ext: ExternalRef): ExternalRef | undefined {
 /** 当前节点：流转要 key，展示只要名字，两样有一样就给 */
 export function node(ext: ExternalRef): { key?: string; name?: string } | undefined {
   if (ext.tool !== TOOL) return undefined;
-  const { nodeKey: key, nodeName: name } = ext.attrs ?? {};
-  if (!key && !name) return undefined;
-  return { ...(key ? { key } : {}), ...(name ? { name } : {}) };
+  return ext.step?.key || ext.step?.name ? { ...ext.step } : undefined;
 }
 
 export function parseRef(input: string): ExternalRef | undefined {

@@ -102,7 +102,7 @@ async function call(caller: Caller, op: string, args: Record<string, unknown>): 
 
 const IN_PROGRESS = "IN PROGRESS";
 
-/** 节点类操作：空间、工单号、节点都从引用的 attrs 里取 */
+/** 节点类操作：空间、工单号、节点都从引用里取（空间在 attrs，节点在 step） */
 function nodeArgs(ext: ExternalRef): { space: string; id: string; nodeKey: string } {
   const n = node(ext);
   if (!n?.key) throw new Error("这条任务没有可流转的 Meegle 节点");

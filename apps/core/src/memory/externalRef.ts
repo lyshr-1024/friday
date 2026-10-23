@@ -19,8 +19,6 @@ const RENAMED = [
 ] as const;
 const WORK_ATTRS = [
   ["meegleProject", "space"],
-  ["nodeKey", "nodeKey"],
-  ["nodeName", "nodeName"],
   ["reporter", "reporter"],
 ] as const;
 
@@ -35,6 +33,8 @@ function parentOf(r: Raw): ExternalRef["parent"] {
   return { id, ...(name ? { name } : {}) };
 }
 
+const stepOf = (r: Raw): ExternalRef["step"] => compact({ key: str(r.nodeKey), name: str(r.nodeName) });
+
 const scheduleOf = (r: Raw): ExternalRef["schedule"] => compact({ frontend: str(r.feDue), backend: str(r.beDue) });
 
 function workItemFromLegacy(r: Raw): ExternalRef | undefined {
@@ -45,6 +45,7 @@ function workItemFromLegacy(r: Raw): ExternalRef | undefined {
   const attrs = compact({ typeKey, ...Object.fromEntries(WORK_ATTRS.map(([k, a]) => [a, str(r[k])])) }) as Record<string, string> | undefined;
   const parent = parentOf(r);
   const schedule = scheduleOf(r);
+  const step = stepOf(r);
   return {
     tool: "meegle",
     type: "work_item",
@@ -53,6 +54,7 @@ function workItemFromLegacy(r: Raw): ExternalRef | undefined {
     ...(state ? { state: { key: state } } : {}),
     ...(parent ? { parent } : {}),
     ...(schedule ? { schedule } : {}),
+    ...(step ? { step } : {}),
     ...(Array.isArray(r.meegleTags) ? { tags: r.meegleTags as string[] } : {}),
     ...(attrs ? { attrs } : {}),
   };
@@ -122,6 +124,8 @@ function legacyWork(e: ExternalRef): Raw {
     meegleTags: e.tags,
     feDue: e.schedule?.frontend,
     beDue: e.schedule?.backend,
+    nodeKey: e.step?.key,
+    nodeName: e.step?.name,
     ...Object.fromEntries(WORK_ATTRS.map(([k, attr]) => [k, a[attr]])),
   };
 }
@@ -170,6 +174,7 @@ function patchWorkItem(s: Raw, touched: string[]): void {
     else if (k === "linkedStoryId" || k === "linkedStoryName") set("parent", parentOf(s));
     else if (k === "meegleTags") set("tags", Array.isArray(s.meegleTags) ? (s.meegleTags as string[]) : undefined);
     else if (k === "feDue" || k === "beDue") set("schedule", scheduleOf(s));
+    else if (k === "nodeKey" || k === "nodeName") set("step", stepOf(s));
     else {
       const a = WORK_ATTRS.find(([old]) => old === k);
       if (a) attr(a[1], str(s[k]));

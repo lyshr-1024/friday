@@ -498,6 +498,8 @@ export interface ExternalRef {
   state?: { key: string };
   parent?: { id: string; name?: string };
   schedule?: { frontend?: string; backend?: string };
+  /** 当前所处的流程节点：key 用来流转，name 用来展示 */
+  step?: { key?: string; name?: string };
   tags?: string[];
   author?: string;
   attrs?: Record<string, string>;

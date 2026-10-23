@@ -307,7 +307,7 @@ describe("需求的资料链接与当前节点", () => {
       [],
     );
     expect(t.source.docs).toEqual([{ url: "https://a/req", from: "sync" }, { url: "https://a/tech", from: "sync" }]);
-    expect(t.source.external?.attrs?.nodeKey).toBe("state_16");
+    expect(t.source.external?.step?.key).toBe("state_16");
   });
 });
 

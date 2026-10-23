@@ -96,7 +96,7 @@ const itemId = (t: Task) => workItemOf(t.source)?.id;
 const parentId = (t: Task) => workItemOf(t.source)?.parent?.id;
 const ownItemIds = (t: Task) => [...(itemId(t) ? [itemId(t)!] : []), ...(t.source.mergedIds ?? [])];
 const scheduleOf = (t: Task) => workItemOf(t.source)?.schedule;
-const nodeOf = (t: Task) => ({ key: workItemOf(t.source)?.attrs?.nodeKey, name: workItemOf(t.source)?.attrs?.nodeName });
+const nodeOf = (t: Task) => ({ key: workItemOf(t.source)?.step?.key, name: workItemOf(t.source)?.step?.name });
 
 function defectsOf(t: Task, all: Task[]): Task[] {
   const ids = new Set(ownItemIds(t));

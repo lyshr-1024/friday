@@ -40,7 +40,7 @@ describe("Meegle 规则", () => {
   describe("工单 → 卡上的引用", () => {
     const item = { id: "24420780", name: "缺陷", typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", statusKey: "REOPENED", projectName: "p", projectKey: "pk", url: "u", createdAt: "2026-09-01T00:00:00Z" };
 
-    it("核心字段给业务读，空间 / 类型键 / 节点 / 报告人进 attrs", () => {
+    it("核心字段给业务读，节点进 step，空间 / 类型键 / 报告人进 attrs", () => {
       const ext = external({ ...item, linkedStory: { id: "s1", name: "需求" }, feDue: "2026-09-15", tags: ["Backend Iteration"], nodeKey: "state_16", node: "前端开发", reporter: "木木" });
       expect(ext).toEqual({
         tool: "meegle",
@@ -51,7 +51,8 @@ describe("Meegle 规则", () => {
         parent: { id: "s1", name: "需求" },
         schedule: { frontend: "2026-09-15" },
         tags: ["Backend Iteration"],
-        attrs: { typeKey: "issue", space: "pk", nodeKey: "state_16", nodeName: "前端开发", reporter: "木木" },
+        step: { key: "state_16", name: "前端开发" },
+        attrs: { typeKey: "issue", space: "pk", reporter: "木木" },
       });
     });
 
@@ -67,13 +68,13 @@ describe("Meegle 规则", () => {
     });
 
     it("老卡没记空间：查不了，节点类操作也拿不到", () => {
-      const bare = { tool: "meegle", type: "work_item" as const, id: "1", attrs: { nodeKey: "state_16" } };
+      const bare = { tool: "meegle", type: "work_item" as const, id: "1", step: { key: "state_16" } };
       expect(addressable(bare)).toBe(false);
       expect(() => spaceRef(bare)).toThrow("没有 Meegle 工单信息");
       expect(addressable(external(item))).toBe(true);
       expect(spaceRef(external(item))).toEqual({ space: "pk", id: "24420780" });
       expect(node(bare)).toEqual({ key: "state_16" });
-      expect(node({ ...bare, attrs: { nodeName: "前端开发" } })).toEqual({ name: "前端开发" });
+      expect(node({ ...bare, step: { name: "前端开发" } })).toEqual({ name: "前端开发" });
       expect(node(external(item))).toBeUndefined();
       expect(node({ ...bare, tool: "slack" })).toBeUndefined();
     });
