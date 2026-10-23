@@ -8,7 +8,7 @@ import type { StateTransition } from "@friday/shared";
 import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
 import { app } from "../api/index.js";
-import { createJob, getJob, setJobSession } from "../memory/jobs.js";
+import { createJob, getJob, markAwaiting, setJobSession } from "../memory/jobs.js";
 import { createRun, openRunForTask, runByJob, runsForTask } from "../memory/runs.js";
 import { shotsDir, transcriptPath } from "./runner.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
@@ -334,6 +334,31 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(bug.source.statusKey).toBe("IN PROGRESS");
     expect(getTask(root.id)!.report).toBeUndefined();
     expect(text).toContain("已转开发中");
+  });
+
+  it("一组几条：交完一条回话列出剩下的、接着修，欠交付不清；最后一条才说结束", async () => {
+    const { bs, job } = setup("grp", 3);
+    markAwaiting(job);
+    const first = await call(job, "friday_done", { taskId: bs[0]!.id.slice(0, 8), summary: "修好了", testResult: "过" });
+    expect(first).toContain("还有 2 条没交付");
+    expect(first).toContain(bs[1]!.id.slice(0, 8));
+    expect(first).not.toContain("交付完就结束");
+    expect(getJob(job)!.awaitingDelivery).toBe(true);
+    await call(job, "friday_done", { taskId: bs[1]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    const last = await call(job, "friday_done", { taskId: bs[2]!.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(last).toContain("交付完就结束");
+    expect(getJob(job)!.awaitingDelivery).toBeFalsy();
+  });
+
+  it("修复卡：缺陷都交了，提醒再交一份总报告，欠交付不清", async () => {
+    meegle.transitions = [];
+    const card = createTask({ title: "需求 · 修复", kind: "code", source: { fixFor: "s-x", autonomous: true }, project: "demo", status: "processing" });
+    createJob({ id: "job-card", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: card.id, sessionId: card.id });
+    const bug = createTask({ title: "卡下缺陷", kind: "meegle", source: { rootId: card.id, autonomous: true, handedAt: new Date().toISOString() }, project: "demo", status: "processing" });
+    markAwaiting("job-card");
+    const text = await call("job-card", "friday_done", { taskId: bug.id.slice(0, 8), summary: "好了", testResult: "过" });
+    expect(text).toContain(`taskId 填 ${card.id.slice(0, 8)}`);
+    expect(getJob("job-card")!.awaitingDelivery).toBe(true);
   });
 
   it("不带 taskId、会话名下恰好一条 handed 缺陷：也归缺陷", async () => {

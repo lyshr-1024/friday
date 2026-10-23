@@ -4,7 +4,7 @@ import type { DeliveryReport, Job, Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
-import { clearAwaiting, getJob, setJobMessage } from "../memory/jobs.js";
+import { clearAwaiting, getJob, markAwaiting, setJobMessage } from "../memory/jobs.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
@@ -484,7 +484,19 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
       const m = await transitionToInProgress(t);
       record({ taskId: t.id, action: "terminal_done", why: "需求会话里的 Claude Code 报告缺陷修完", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
       notify(t, job, "修完了，等你核验", `${report.summary}${m.moved ? "" : `\nMeegle 状态没动：${m.why}`}`);
-      return { text: `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。交付完就结束。${lang()}` };
+      const moved = `已交付，Meegle ${m.moved ? "已转开发中" : "没转：" + m.why}。`;
+      // 一组交代进来的：交完一条还有别的没交，不能让它就此收手，欠交付也得留着才会催
+      const rest = listTasks("processing").filter((x) => x.id !== t.id && x.source.rootId === t.source.rootId && x.source.handedAt);
+      const root = t.source.rootId ? getTask(t.source.rootId) : undefined;
+      if (rest.length) {
+        markAwaiting(jobId);
+        return { text: `${moved}还有 ${rest.length} 条没交付：${rest.map((x) => `${x.id.slice(0, 8)}（${x.title.slice(0, 24)}）`).join("、")}。接着修，每条修完同样调 friday_done 带它的 taskId。${lang()}` };
+      }
+      if (root?.source.fixFor && root.status === "processing") {
+        markAwaiting(jobId);
+        return { text: `${moved}这组缺陷都交了。再调一次 friday_done，taskId 填 ${root.id.slice(0, 8)}，概要逐条写每条的结果。${lang()}` };
+      }
+      return { text: `${moved}交付完就结束。${lang()}` };
     }
     if (!task.source.autonomous) {
       // 交互式终端：这只是"这一轮做完了"，任务留在 processing 标黄等用户看；任务完不完成由用户说
