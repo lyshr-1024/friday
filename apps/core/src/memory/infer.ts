@@ -1,6 +1,7 @@
 import type { LinkNode, Task } from "@friday/shared";
 import { linkUp } from "./links.js";
 import { loadProjects, matchProjectByUrl, normalizeUrlPrefix } from "./projects.js";
+import { idsIn as workItemIdsIn } from "../connectors/meegle/rules.js";
 
 export const taskNode = (id: string): LinkNode => ({ kind: "task", ref: id });
 export const meegleNode = (id: string): LinkNode => ({ kind: "meegle", ref: id });
@@ -14,18 +15,6 @@ export const slackNode = (conversation: string): LinkNode => ({ kind: "slack", r
 export const channelNode = (name: string): LinkNode => ({ kind: "channel", ref: name.replace(/^#/, "") });
 
 export { conversationKey } from "@friday/shared";
-
-/** 工单号：链接里的 /detail/24440539，或裸的 8 位以上数字 */
-const MEEGLE_URL = /(?:project\.(?:larksuite\.com|feishu\.cn)|[a-z0-9-]+\.meegle\.com)\/[^\s)]*?\/(?:detail|issue|story)\/(\d{6,})/gi;
-const TICKET_IN_TEXT = /\b(\d{8})\b/g;
-
-export function meegleIdsIn(text: string): string[] {
-  if (!text) return [];
-  const ids = new Set<string>();
-  for (const m of text.matchAll(MEEGLE_URL)) if (m[1]) ids.add(m[1]);
-  for (const m of text.matchAll(TICKET_IN_TEXT)) if (m[1]) ids.add(m[1]);
-  return [...ids];
-}
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'）)】]+/g;
 // 中英文句读都可能紧跟在链接后面，一起剥掉
@@ -68,7 +57,7 @@ export function inferTaskLinks(task: Task): number {
   // ④ 正文里提到的工单号和页面地址。source.note 是口头交代的原话，
   //    source.description 是 Meegle 缺陷正文——复现步骤里的环境地址就在那儿，漏了等于白做
   const text = [task.title, task.understanding, task.plan, task.progress, src.note, src.description].filter(Boolean).join("\n");
-  for (const id of meegleIdsIn(text)) if (id !== src.meegleId) add(meegleNode(id), "任务正文里提到了这个工单号");
+  for (const id of workItemIdsIn(text)) if (id !== src.meegleId) add(meegleNode(id), "任务正文里提到了这个工单号");
   const projects = loadProjects();
   for (const url of urlsIn(text)) {
     add(urlNode(url), "任务正文里提到了这个页面");

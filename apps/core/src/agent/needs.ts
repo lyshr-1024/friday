@@ -25,7 +25,7 @@ export function needOf(t: Task): { kind: NeedKind; key: string; reason: string }
   if (t.status === "blocked") return { kind: "blocked", key: `blocked:${t.source.blockedAt ?? t.id}`, reason: t.progress ?? "" };
   if (t.attention === "question" || t.attention === "intake") return { kind: "blocked", key: `${t.attention}:${t.progress}`, reason: t.progress ?? "" };
   if (t.attention === "blocked") return { kind: "blocked", key: `blocked-attn:${t.progress}`, reason: t.progress ?? "" };
-  const decide = t.pending?.find((a) => a.type === "reproject" || a.type === "discard_changes" || a.type === "start_job");
+  const decide = t.pending?.find((a) => a.type === "reproject" || a.type === "discard_changes" || a.type === "start_job" || a.type === "tool_call");
   if (decide) return { kind: "blocked", key: `decide:${decide.id}`, reason: `${decide.label}：${decide.detail.slice(0, 120)}` };
   if (t.attention === "review" && t.report && t.status === "processing") return { kind: "review", key: `review:${t.report.at}`, reason: t.report.summary };
   if (t.status === "review" && t.report) return { kind: "review", key: `review:${t.report.at}`, reason: t.report.summary };

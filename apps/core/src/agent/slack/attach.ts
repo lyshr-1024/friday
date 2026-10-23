@@ -2,7 +2,8 @@ import type { InboxItem, Task } from "@friday/shared";
 import { askStream, SMALL_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";
-import { channelNode, conversationKey, meegleIdsIn, slackNode, taskNode } from "../../memory/infer.js";
+import { channelNode, conversationKey, slackNode, taskNode } from "../../memory/infer.js";
+import { idsIn as workItemIdsIn } from "../../connectors/meegle/rules.js";
 import { listInboxNear } from "../../memory/inbox.js";
 import { linkUp, neighbors, rejected } from "../../memory/links.js";
 import { listTasks } from "../../memory/tasks.js";
@@ -26,7 +27,7 @@ export const RECENT_MAX_HOURS = 48;
 export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup, channelTasks: ChannelLookup): AttachHit | undefined {
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
-  for (const id of meegleIdsIn(item.text)) {
+  for (const id of workItemIdsIn(item.text)) {
     const hit = tasks.find((t) => t.source.meegleId === id || t.source.linkedStoryId === id);
     if (hit) return { taskId: hit.id, why: `消息里提到了工单 ${id}` };
   }

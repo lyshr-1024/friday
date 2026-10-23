@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { fallbackTitle, larkTitle, mergeDocs, normUrl, pageTitle, syncDocs, fillMissingTitles } from "./docTitle.js";
+import { larkTitle } from "../connectors/lark/index.js";
+import { fallbackTitle, mergeDocs, normUrl, pageTitle, syncDocs, fillMissingTitles } from "./docTitle.js";
 import { createTask, getTask, updateTask } from "../memory/tasks.js";
 import { migrateDocs } from "../memory/db.js";
 

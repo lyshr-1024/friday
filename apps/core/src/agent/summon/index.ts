@@ -4,18 +4,18 @@ import { loadProjects, type Project } from "../../memory/projects.js";
 import { loadMemoryContext } from "../../memory/context.js";
 import { personNote } from "../../memory/files.js";
 import { userSettings } from "../../settings.js";
-import { buildRules, candidates, parseSlackTitle } from "./match.js";
+import { buildRules, candidates } from "./match.js";
 import { summonCard } from "./card.js";
 import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
 import { identifyUrl, isLocalHost, sourceLine } from "../../connectors/urlSource.js";
 import { resolveLocalDev } from "../../connectors/localDev.js";
-import { docExcerpt, fetchLarkDoc } from "../../connectors/lark.js";
+import "../../connectors/lark/tool.js";
+import { role } from "../../connectors/roles.js";
 
 /** 文档正文的预算：到点没回来就不带正文直接问模型，卡上也只晚这么多 */
 const DOC_TIMEOUT_MS = 3_000;
 
-const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
 
 /**
@@ -34,9 +34,9 @@ function slackContext(scene: SlackScene | undefined): string | undefined {
 }
 
 /** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */
-function sceneContext(snapshot: Snapshot, projects: Project[], scene: SlackScene | undefined): string | undefined {
+function sceneContext(snapshot: Snapshot, projects: Project[], onSlack: boolean, scene: SlackScene | undefined): string | undefined {
   if (TERMINAL_BUNDLES.has(snapshot.app.bundleId)) return terminalContext(snapshot, projects);
-  if (snapshot.app.bundleId === SLACK_BUNDLE) return slackContext(scene);
+  if (onSlack) return slackContext(scene);
   return undefined;
 }
 
@@ -81,19 +81,22 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const snapshot = trimUrl(raw, [...userSettings().summon.urlAllowlist, ...projectHosts]);
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
-  const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
-  const slack = snapshot.app.bundleId === SLACK_BUNDLE ? await slackScene(channel, person) : undefined;
+  const chat = (() => { try { return role("chat"); } catch { return undefined; } })();
+  const onSlack = chat?.ownsApp(snapshot.app.bundleId) ?? false;
+  const { channel, person } = chat && onSlack ? chat.parseTitle(snapshot.app.title) : {};
+  const slack = onSlack ? await slackScene(channel, person) : undefined;
   const identified = identifyUrl(snapshot.browser?.url, projects);
   const localDev = identified?.kind === "local_dev" ? await resolveLocalDev(identified.port) : undefined;
   const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}), ...(localDev ? { localDev } : {}) };
-  const scene = sceneContext(snapshot, projects, slack);
+  const scene = sceneContext(snapshot, projects, onSlack, slack);
   const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
   const source = sourceLine(identified, snapshot.browser?.lane, localDev?.dir);
   // Lark 文档的正文页面 DOM 拿不到（虚拟渲染 + 目录评论栏混在一起），走 lark-cli；
   // 规则卡已经发出去了，这里等的只是模型那张卡
-  const larkDoc = identified?.kind === "lark_doc" ? await fetchLarkDoc(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
-  const doc = larkDoc ? docExcerpt(larkDoc, snapshot.selection) : undefined;
+  const docs = identified?.kind === "lark_doc" ? (() => { try { return role("docs"); } catch { return undefined; } })() : undefined;
+  const larkDoc = docs && identified?.kind === "lark_doc" ? await docs.read(identified.url, { timeoutMs: DOC_TIMEOUT_MS }) : undefined;
+  const doc = docs && larkDoc ? docs.excerpt(larkDoc, snapshot.selection) : undefined;
 
   try {
     const card = await summonCard({

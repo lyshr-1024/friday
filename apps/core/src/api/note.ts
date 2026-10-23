@@ -2,10 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { mainConversationId } from "../memory/mainConversation.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
-import type { TodoSource, TodosSyncResponse } from "@friday/shared";
-import { connectors } from "../connectors/index.js";
 import { addNoteTask } from "../memory/noteTask.js";
-import { listOpenTodos, syncSourceTodos } from "../memory/todos.js";
 
 const body = z.object({
   text: z.string().trim().min(1).max(2000),
@@ -24,19 +21,4 @@ export const note = new Hono()
       addMessage(conversationId, { role: "assistant", kind: "note", content: `已记到待办：${task.title}`, payload: task });
     }
     return c.json(task, 201);
-  })
-  .get("/todos", async (c) => {
-    if (c.req.query("sync") !== "1") return c.json(listOpenTodos());
-    const sourceErrors: Partial<Record<TodoSource, string>> = {};
-    await Promise.all(
-      connectors.map(async (conn) => {
-        try {
-          syncSourceTodos(conn.source as Exclude<TodoSource, "local">, await conn.fetchTodos());
-        } catch (e) {
-          sourceErrors[conn.source] = e instanceof Error ? e.message : String(e);
-        }
-      }),
-    );
-    const res: TodosSyncResponse = { syncedAt: new Date().toISOString(), todos: listOpenTodos(), sourceErrors };
-    return c.json(res);
   });

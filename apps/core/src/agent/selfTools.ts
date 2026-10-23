@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { SettingsUpdate } from "@friday/shared";
 import { settingsShape } from "../api/settings.js";
 import { publish } from "../bus.js";
-import { listMessages } from "../memory/conversations.js";
 import { record } from "../memory/audit.js";
 import { existsSync, statSync } from "node:fs";
 import type { Feature } from "@friday/shared";
@@ -16,7 +15,7 @@ import { leftoverWorktrees } from "../api/worktrees.js";
 import { removeWorktree } from "./git.js";
 import { scheduleByConversation } from "../memory/schedules.js";
 import { getTask } from "../memory/tasks.js";
-import { consents } from "./consent.js";
+import { consents, lastUserMessage } from "./consent.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -28,17 +27,10 @@ const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s
 const SCHEDULED_CONFIG = "定时任务里不能改 Friday 的配置，等用户回来。";
 const inSchedule = (conversationId?: string) => Boolean(conversationId && scheduleByConversation(conversationId));
 
-const byYou = (conversationId: string | undefined, what: string): string =>
+export const byYou = (conversationId: string | undefined, what: string): string =>
   conversationId && !scheduleByConversation(conversationId) ? `你在对话里让 Friday ${what}` : `Friday 自己调用工具${what}`;
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
-
-function lastUserMessage(conversationId?: string): { id: string | null; prevId: string | null; text: string } {
-  if (!conversationId) return { id: null, prevId: null, text: "" };
-  const users = listMessages(conversationId).filter((x) => x.role === "user");
-  const m = users.at(-1);
-  return { id: m?.id ?? null, prevId: users.at(-2)?.id ?? null, text: (m?.content ?? "").trim() };
-}
 
 export const saidLast = (conversationId?: string): string => lastUserMessage(conversationId).text;
 

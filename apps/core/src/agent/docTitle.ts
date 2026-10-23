@@ -1,11 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { TaskDoc } from "@friday/shared";
+import { role } from "../connectors/roles.js";
 import { getTask, listTasks, updateTask } from "../memory/tasks.js";
 
-const execFileP = promisify(execFile);
 const TRACKING = /^(from|utm_[a-z]+|spm|share_token|sharer)$/i;
-const LARK = /(^|\.)(feishu\.cn|larksuite\.com|larkoffice\.com)$/;
 const BODY_LIMIT = 200_000;
 
 export function normUrl(url: string): string {
@@ -46,11 +43,6 @@ export function fallbackTitle(url: string): string {
   }
 }
 
-export function larkTitle(out: string): string | undefined {
-  const raw = out.trim().startsWith('"') ? (JSON.parse(out) as string) : out;
-  return raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || undefined;
-}
-
 export async function pageTitle(url: string): Promise<string | undefined> {
   const res = await fetch(url, { signal: AbortSignal.timeout(8_000), redirect: "follow", credentials: "omit" });
   if (!res.ok) return undefined;
@@ -71,13 +63,20 @@ export async function pageTitle(url: string): Promise<string | undefined> {
 }
 
 export async function docTitle(url: string): Promise<string | undefined> {
-  let host = "";
-  try { host = new URL(url).hostname; } catch { return undefined; }
   try {
-    if (LARK.test(host)) {
-      const { stdout } = await execFileP("lark-cli", ["docs", "+fetch", "--doc", url, "--jq", ".data.document.content"], { timeout: 15_000, maxBuffer: 32 * 1024 * 1024 });
-      return larkTitle(stdout);
-    }
+    new URL(url);
+  } catch {
+    return undefined;
+  }
+  try {
+    const docs = (() => {
+      try {
+        return role("docs");
+      } catch {
+        return undefined;
+      }
+    })();
+    if (docs?.owns(url)) return await docs.title(url);
     return await pageTitle(url);
   } catch {
     return undefined;

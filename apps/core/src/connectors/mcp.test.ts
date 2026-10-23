@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { McpError, callTool, mcpEndpoint, mcpServers, parseRpcBody } from "./mcp.js";
+import { McpError, callTool, listTools, mcpEndpoint, mcpServers, parseRpcBody } from "./mcp.js";
 
 let server: Server;
 let file = "";
@@ -18,6 +18,7 @@ beforeAll(async () => {
       if (msg.method === "notifications/initialized") return void res.writeHead(202).end();
       if (msg.method === "initialize") return void res.writeHead(200, { "content-type": "application/json", "mcp-session-id": "s1" }).end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }));
       if (mode === "slow") return;
+      if (msg.method === "tools/list") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "get", description: "取", inputSchema: { type: "object" } }, { name: "bare" }] } }));
       const result = mode === "error" ? { isError: true, content: [{ type: "text", text: "不行" }] } : { content: [{ type: "text", text: "ok:" + req.headers["mcp-session-id"] }] };
       const payload = JSON.stringify({ jsonrpc: "2.0", id: msg.id, result });
       if (mode === "sse") res.writeHead(200, { "content-type": "text/event-stream" }).end(`event: message\ndata: ${payload}\n\n`);
@@ -36,7 +37,7 @@ afterAll(() => {
 
 describe("http MCP 客户端", () => {
   it("列出 server，标出是不是 http", () => {
-    expect(mcpServers(file)).toEqual([{ name: "fake", http: true }, { name: "local", http: false }]);
+    expect(mcpServers(file)).toEqual([{ name: "fake", http: true }, { name: "local", http: false, command: "node" }]);
   });
   it("stdio 和不存在的拒掉", () => {
     expect(() => mcpEndpoint("local", file)).toThrow(/http/);
@@ -53,6 +54,13 @@ describe("http MCP 客户端", () => {
   it("isError 透传", async () => {
     mode = "error";
     expect(await callTool("fake", "t", {}, { file })).toEqual({ text: "不行", blocks: ["不行"], isError: true });
+  });
+  it("listTools 返回 name / description / inputSchema", async () => {
+    mode = "json";
+    expect(await listTools("fake", { file })).toEqual([
+      { name: "get", description: "取", inputSchema: { type: "object" } },
+      { name: "bare", description: "", inputSchema: {} },
+    ]);
   });
   it("超时报错", async () => {
     mode = "slow";

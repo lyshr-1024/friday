@@ -7,7 +7,6 @@ import { attachments } from "./attachments.js";
 import { brief } from "./brief.js";
 import { background } from "./background.js";
 import { conversation } from "./conversation.js";
-import { desk } from "./desk.js";
 import { health } from "./health.js";
 import { note } from "./note.js";
 import { mcp } from "./mcp.js";
@@ -15,6 +14,7 @@ import { events } from "./events.js";
 import { run } from "./run.js";
 import { settings } from "./settings.js";
 import { tasks } from "./tasks.js";
+import { tools } from "./tools.js";
 import { inbox } from "./inbox.js";
 import { jobs } from "./jobs.js";
 import { knowledge } from "./knowledge.js";
@@ -48,7 +48,6 @@ export const app = new Hono()
   .route("/", jobs)
   .route("/", attachments)
   .route("/", background)
-  .route("/", desk)
   .route("/", tasks)
   .route("/", brief)
   .route("/", mcp)
@@ -61,4 +60,5 @@ export const app = new Hono()
   .route("/", schedules)
   .route("/", knowledge)
   .route("/", summonApi)
+  .route("/", tools)
   .route("/", sessions);

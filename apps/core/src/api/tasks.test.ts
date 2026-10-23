@@ -17,7 +17,7 @@ import { subscribe } from "../bus.js";
 import { join } from "node:path";
 import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
-vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
+vi.mock("../connectors/slack/keychain.js", () => ({ keychainGet: async () => undefined }));
 
 const meegleMock = vi.hoisted(() => ({
   node: vi.fn(async () => ({ missing: [] as string[] })),
@@ -27,13 +27,11 @@ const meegleMock = vi.hoisted(() => ({
   transition: vi.fn(async () => undefined),
 }));
 
-vi.mock("../connectors/meegle.js", async (orig) => ({
-  ...(await orig<typeof import("../connectors/meegle.js")>()),
+vi.mock("../connectors/meegle/client.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/meegle/client.js")>()),
   MeegleConnector: class {
+    getWorkItem = async () => ({ name: "缺陷", typeKey: "issue", statusKey: "REOPENED", status: "Reopened" });
     source = "meegle" as const;
-    fetchTodos = async () => {
-      throw new Error("Meegle 未登录");
-    };
     fetchWorkItems = async () => {
       throw new Error("Meegle 未登录");
     };
@@ -46,6 +44,8 @@ vi.mock("../connectors/meegle.js", async (orig) => ({
 }));
 
 const { app } = await import("./index.js");
+const { seedBuiltins } = await import("../connectors/builtin.js");
+seedBuiltins();
 
 const issue = () =>
   createTask({

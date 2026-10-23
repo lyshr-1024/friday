@@ -28,7 +28,11 @@ import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
 import { closeAfterReport, storeBrief } from "./briefJob.js";
 import { renderBrief } from "./brief.js";
-import { readChunk } from "./web.js";
+import "../connectors/web/tool.js";
+import { invokeTool } from "../connectors/invoke.js";
+import { getTool } from "../connectors/registry.js";
+import { describeTool, heldText, invokeForModel } from "./toolCatalog.js";
+import type { Chunk } from "../connectors/web/index.js";
 
 const execFileP = promisify(execFile);
 
@@ -158,8 +162,20 @@ export const BRIEF_TOOL: BridgeTool = {
 
 export const WEB_TOOL: BridgeTool = {
   name: "friday_web_read",
-  description: "建理解卡专用：用无头浏览器读一个网页（带用户 Chrome 的登录态），长文分段返回，按结尾的 offset 接着读。飞书文档用 lark-doc skill 读，不用这个。",
+  description: "建理解卡专用：用无头浏览器读一个网页（带用户 Chrome 的登录态），长文分段返回，按结尾的 offset 接着读。飞书文档用 tool_call lark read 读，不用这个。",
   inputSchema: { type: "object", properties: { url: str("http / https 地址"), offset: { type: "number", description: "从第几个字开始读，第一次不填" } }, required: ["url"] },
+};
+
+export const TOOL_DESCRIBE: BridgeTool = {
+  name: "tool_describe",
+  description: "看一个外部工具（提示词里【外部工具】目录的名字）有哪些操作、每个操作的风险等级和参数。调 tool_call 之前先看。",
+  inputSchema: { type: "object", properties: { tool: str("工具名") }, required: ["tool"] },
+};
+
+export const TOOL_CALL: BridgeTool = {
+  name: "tool_call",
+  description: "调外部工具的一个操作，args 按 tool_describe 给的参数填。只读的直接返回结果；可逆的直接做并记账；不可逆的挂到这条任务上等用户点头，不会马上执行。",
+  inputSchema: { type: "object", properties: { tool: str("工具名"), op: str("操作名"), args: { type: "object", description: "参数" } }, required: ["tool", "op"] },
 };
 
 const ownerOf = (job: Job): Task | undefined => (job.taskId ? getTask(job.taskId) : findTaskBySource((s) => s.jobId === job.id, true));
@@ -167,17 +183,20 @@ const ownerOf = (job: Job): Task | undefined => (job.taskId ? getTask(job.taskId
 export function bridgeToolsFor(jobId: string): BridgeTool[] {
   const job = getJob(jobId);
   const owner = job && ownerOf(job);
-  if (owner?.source.knowledgeBootstrap) return [...BRIDGE_TOOLS, KNOWLEDGE_TOOL];
-  if (owner?.source.briefFor) return [...BRIDGE_TOOLS, BRIEF_TOOL, WEB_TOOL];
-  return BRIDGE_TOOLS;
+  const base = [...BRIDGE_TOOLS, TOOL_DESCRIBE, TOOL_CALL];
+  if (owner?.source.knowledgeBootstrap) return [...base, KNOWLEDGE_TOOL];
+  if (owner?.source.briefFor) return [...base, BRIEF_TOOL, WEB_TOOL];
+  return base;
 }
 
-async function webRead(args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
+async function webRead(jobId: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const url = String(args.url ?? "").trim();
   if (!/^https?:\/\//.test(url)) return { text: "url 只支持 http / https", isError: true };
   const offset = Number.isInteger(args.offset) && (args.offset as number) > 0 ? (args.offset as number) : 0;
   try {
-    const r = await readChunk(url, offset);
+    const res = await invokeTool({ kind: "model", why: "终端里的 Claude 读网页", jobId }, "web", "read", { url, offset });
+    if (res.kind !== "ok") return { text: res.kind === "refused" ? res.why : "没读到：网页读取不该走到这里", isError: true };
+    const r = res.value as Chunk;
     if (r.kind === "login") return { text: `读不到，要登录：${r.url}，写进 plan 的要你拍板` };
     const rest = r.next !== undefined ? `还没读完，下一段 offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
     return { text: `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）\n${untrusted("web", `标题：${r.title}\n地址：${r.url}\n\n${r.text}`)}\n${rest}` };
@@ -375,6 +394,22 @@ export function terminalAnswered(jobId: string): void {
   if (task?.attention === "question") updateTask(task.id, { attention: undefined, progress: "已回答，终端继续" });
 }
 
+async function bridgeToolCall(job: Job, args: Record<string, unknown>): Promise<string> {
+  const tool = String(args.tool ?? "");
+  const op = String(args.op ?? "");
+  const input = args.args && typeof args.args === "object" && !Array.isArray(args.args) ? (args.args as Record<string, unknown>) : {};
+  const owner = ownerOf(job);
+  // 锚点卡和后台查询是只读会话：挂在隐藏锚点上的待审用户永远看不到
+  const readOnly = owner?.kind === "project" || owner?.source.headless;
+  const level = getTool(tool)?.ops.find((o) => o.name === op)?.level;
+  if (readOnly && level && level !== "read") return "只读会话不调写操作";
+  const r = await invokeForModel({ kind: "model", why: "终端里的 Claude 调用", jobId: job.id, ...(owner ? { taskId: owner.id } : {}) }, tool, op, input);
+  if (r.kind === "ok") return r.text;
+  if (r.kind === "refused") return r.why;
+  if (r.kind === "held") return heldText(owner?.seq, tool, op);
+  return "终端里没有任务可挂待审，不执行";
+}
+
 export async function callBridge(jobId: string, name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
   const job = getJob(jobId);
   if (!job) return { text: "Friday 这边找不到这个终端任务", isError: true };
@@ -385,11 +420,13 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     const r = ingestBootstrap(project, owner.source.repoDir ?? job.dir, args);
     return { text: `新建 ${r.added}、合并 ${r.updated}、丢弃 ${r.dropped}。${lang()}` };
   }
+  if (name === "tool_describe") return { text: describeTool(String(args.tool ?? ""), ownerOf(job)?.project ?? job.project) };
+  if (name === "tool_call") return { text: await bridgeToolCall(job, args) };
   if (name === "friday_brief" || name === "friday_web_read") {
     const anchor = ownerOf(job);
     const taskId = anchor?.source.briefFor;
     if (!taskId) return { text: "这个工具只给建理解卡用", isError: true };
-    if (name === "friday_web_read") return webRead(args);
+    if (name === "friday_web_read") return webRead(jobId, args);
     const r = storeBrief(taskId, args, anchor!.source.briefBuild!);
     if (!r.ok) return { text: `${r.error}。照这个改了再调一次 friday_brief。`, isError: true };
     closeAfterReport(job.id, anchor!.id);

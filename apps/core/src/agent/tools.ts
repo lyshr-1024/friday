@@ -1,7 +1,8 @@
 import { learnHistoryOnce } from "./handbook.js";
 import { listHandbooks, readHandbook } from "../memory/handbooks.js";
 import { listResearchNotes, readResearchByName, saveResearchNote } from "../memory/research.js";
-import { readChunk } from "./web.js";
+import "../connectors/web/tool.js";
+import { invokeTool } from "../connectors/invoke.js";
 import { untrusted } from "./fence.js";
 import { featureHistory, listKnowledge, matchFeatures, readKnowledge } from "../memory/features.js";
 import { startKnowledgeBootstrap } from "./knowledgeBootstrap.js";
@@ -34,8 +35,10 @@ import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
-import { selfToolList } from "./selfTools.js";
-import { consents } from "./consent.js";
+import { saidLast, selfToolList } from "./selfTools.js";
+import { toolAdminList } from "./toolAdmin.js";
+import { consentGate, consents, lastUserMessage, leadingRef } from "./consent.js";
+import { describeTool, heldText, invokeForModel } from "./toolCatalog.js";
 
 const project = z.string().min(1).describe("项目名、别名或目录路径");
 
@@ -135,17 +138,47 @@ export const fridayToolList = (conversationId?: string) => [
       },
       async ({ url, offset }) => {
         try {
-          const r = await readChunk(url, offset);
-          if (r.kind === "login") return text(`读到的是登录页 / 无权页（${r.url}）：用户 Chrome 里没登录这个站点、登录过期了，或者账号本身没权限。告诉用户先在 Chrome 里打开这个链接确认能看，再让你重读。`);
-          const body = untrusted(`网页 ${new URL(r.url).host}`, `标题：${r.title}\n地址：${r.url}\n\n${r.text}`);
-          const where = `（第 ${r.from + 1}–${r.from + r.text.length} 字，共 ${r.total} 字）`;
-          const rest = r.next !== undefined ? `还没读完，接着读：web_read url=${url} offset=${r.next}` : `读完了${r.truncated ? "（原文超过 10 万字，后面截掉了）" : ""}`;
-          // 只写在系统提示里压不住：实测两次读完就说「笔记已存」，research_save 一次没调
-          const save = "用户要你学习、记下来的话，读够了就调 research_save 存笔记；没调它、没看到「已存」，就不能说存了。";
-          return text(`${where}\n${body}\n${rest}\n${save}`);
+          const r = await invokeTool(
+            { kind: "model", why: "用户让读网页", ...(conversationId ? { conversationId } : {}) },
+            "web", "read", { url, ...(offset !== undefined ? { offset } : {}) },
+          );
+          if (r.kind === "ok") return text(r.text);
+          return text(r.kind === "refused" ? r.why : "没读到：网页读取不该走到这里");
         } catch (e) {
           return text(`没读到：${e instanceof Error ? e.message : String(e)}`);
         }
+      },
+    ),
+    tool(
+      "tool_describe",
+      "看一个外部工具（【外部工具】目录里的名字）有哪些操作、每个操作的风险等级和参数。调 tool_call 之前先看。",
+      { tool: z.string().min(1).max(80) },
+      async ({ tool: name }) => text(describeTool(name)),
+    ),
+    tool(
+      "tool_call",
+      "调外部工具的一个操作，args 按 tool_describe 给的参数填。只读的直接返回结果；可逆的直接做并记账；不可逆的：用户句首点了 #N 就挂到那条任务上等他点头，没点名就先把返回的后果说明转告用户，等他单独回一句「执行」再用完全相同的参数调一次。",
+      {
+        tool: z.string().min(1).max(80),
+        op: z.string().min(1).max(80),
+        // z.record 转不了 tools/list 的 JSON schema，整个工具列表会挂
+        args: z.object({}).passthrough(),
+      },
+      async ({ tool: name, op, args }) => {
+        const { seq } = leadingRef(lastUserMessage(conversationId).text);
+        const task = seq !== undefined ? findTaskByRef(`#${seq}`) : undefined;
+        if (seq !== undefined && !task) return text(`用户点名的 #${seq} 没有这条任务，先问清楚是哪条。`);
+        const caller = { kind: "model" as const, why: "主对话里调用", ...(conversationId ? { conversationId } : {}), ...(task ? { taskId: task.id } : {}), quote: saidLast(conversationId) };
+        const r = await invokeForModel(caller, name, op, args);
+        if (task && (r.kind === "ok" || r.kind === "held")) trace(conversationId, task, r.kind === "ok" ? `执行了 ${name}.${op}` : `挂了待审：执行 ${name}.${op}`);
+        if (r.kind === "ok") return text(r.text);
+        if (r.kind === "refused") return text(r.why);
+        if (r.kind === "held") return text(heldText(task?.seq, name, op));
+        if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能执行不可逆操作，等用户回来。");
+        const gate = toolCallGate(conversationId, `${name}.${op}|${JSON.stringify(args)}`, EXECUTE);
+        if (!gate.ok) return text(`${r.summary}。确认请用户单独回一句「执行」，再用完全相同的参数调一次。`);
+        const done = await invokeForModel({ kind: "user", why: "你在对话里同意执行", quote: gate.said }, name, op, args);
+        return text(done.kind === "ok" ? done.text : done.kind === "refused" ? done.why : `没执行：${done.kind}`);
       },
     ),
     tool(
@@ -470,6 +503,7 @@ export const fridayToolList = (conversationId?: string) => [
         progress: z.string().max(300).optional().describe("一句话进展"),
         replyDraft: z.string().max(2000).optional().describe("给对方的回复全文，可直接发的口语中文"),
         dropReply: z.boolean().optional().describe("撤掉待审的回复动作"),
+        dropToolCall: z.boolean().optional().describe("用户说挂着的外部工具调用不执行时填 true：撤掉这条任务上待审的 tool_call，任务状态不动，发起的终端会被告知"),
         status: z.enum(["processing", "review", "blocked", "done", "ignored"]).optional().describe("用户明确说了才改：做完了=done，不用管了=ignored，先放着/等我看=review，卡住=blocked，继续做=processing"),
         verify: z.array(z.string().max(300)).max(12).optional().describe("「通过前请确认」那几条，整组覆盖。方案改了、旧列表对不上了就重写一遍；每条写用户能自己核对的具体现象，不要写「代码已修改」这种没法验的"),
         project: z.string().max(80).optional().describe("这条任务属于哪个项目（注册表里的名字）。用户回答「这条是 X 项目的」或说「项目不对，是 X」时填，会顺带把工单标题里的标记和页面地址记进 projects.md，下次同类工单自动归。Friday 已经在旧项目上自主干过活的，不会直接改，而是挂一条回退清单：把清单原样告诉用户，他说「撤掉」再用 task_approve 执行；他说「算了，还是原来的」就把 project 填回原来的名字，清单会撤掉"),
@@ -543,17 +577,15 @@ export const fridayToolList = (conversationId?: string) => [
         if (!action) return text(`没有这个待审动作。现有的：${pending.map((p) => `${p.id.slice(0, 8)}「${p.label}」`).join("、")}。`);
         const forms = APPROVAL[action.type];
         if (!forms) return text(`「${action.label}」这类动作不能在会话里批准，让用户自己去任务卡上处理。`);
-        const raw = (listMessages(conversationId!).filter((m) => m.role === "user").at(-1)?.content ?? "").trim();
-        const named = raw.match(/^#(\d+)\s*/);
-        if (named && Number(named[1]) !== t.seq) return text(`用户点名的是 #${named[1]}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
-        if (!named) {
+        const { seq: named, said } = leadingRef(lastUserMessage(conversationId).text);
+        if (named !== undefined && named !== t.seq) return text(`用户点名的是 #${named}，不是 ${taskTag(t)}，不执行。按用户点的那条调。`);
+        if (named === undefined) {
           const waiting = listOpenBoardTasks().filter((x) => x.pending?.some((p) => APPROVAL[p.type]));
           if (waiting.length > 1) {
             const list = waiting.map((x) => `#${x.seq}「${x.pending!.find((p) => APPROVAL[p.type])!.label}」`).join("、");
             return text(`现在有 ${waiting.length} 条在等你点头（${list}），让用户说「#N 通过」这样点名`);
           }
         }
-        const said = raw.replace(/^#\d+\s*/, "");
         if (!consents(said, forms))
           return text(
             `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
@@ -671,6 +703,7 @@ export const fridayToolList = (conversationId?: string) => [
       },
     ),
     ...selfToolList(conversationId),
+    ...toolAdminList(conversationId),
   ];
 
 const TASK_ID = z.string().min(1).max(64).describe("任务短号 #N、id 前 8 位或完整 id");
@@ -698,7 +731,11 @@ const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   reproject: ["撤掉", "撤掉吧", "回退", "回退吧", "通过"],
   discard_changes: ["撤掉", "撤掉吧", "撤", "删掉", "通过"],
   brief_approve: ["方案可以", "按这个做", "可以", "通过", "开工"],
+  tool_call: ["执行", "执行吧", "确认执行", "通过"],
 };
+
+const EXECUTE = ["执行", "执行吧", "确认执行"];
+const toolCallGate = consentGate();
 
 
 const localTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).slice(0, -3);

@@ -1,3 +1,4 @@
+import { removeTool, saveTool } from "../connectors/registry.js";
 import { renderHandbook, restoreRules } from "../memory/rules.js";
 import { writeHandbook } from "../memory/handbooks.js";
 import { restoreFeatures, writeKnowledge } from "../memory/features.js";
@@ -10,7 +11,8 @@ import { getAttachment, saveAttachment } from "../memory/attachments.js";
 import { readResearchNote } from "../memory/research.js";
 import { fillDocTitles, mergeDocs, normUrl } from "../agent/docTitle.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, rollbackNode, syncMeegleOnce, undoTransition } from "../agent/meegle.js";
+import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, syncMeegleOnce } from "../agent/meegle.js";
+import { role } from "../connectors/roles.js";
 import { z } from "zod";
 import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
@@ -18,7 +20,7 @@ import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { startTask } from "../agent/taskStart.js";
-import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
+import { approvePending, dismissToolCall, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
 import { readMemoryFile, undoWrite, writeMemoryFile } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, projectSection, replaceProjectSection, resolveProject } from "../memory/projects.js";
@@ -32,16 +34,16 @@ import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
-import { priorContext, priorText } from "../memory/roster.js";
-import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
+import { SLACK_NOT_CONNECTED } from "../connectors/slack/index.js";
 import { getJob } from "../memory/jobs.js";
 import { closeProjectAnchor, openProjectShell, openProjectTerminal, projectOverview, projectTerminals } from "../agent/projectTerminal.js";
+import { invokeTool } from "../connectors/invoke.js";
 import { getEvent, listAudit, record, setEventStatus, setEventUndo, undoPlan } from "../memory/audit.js";
 import { createTask, deleteTask, getTask, listTasksByKind, restoreTask, taskBoard, updatePending, updateTask } from "../memory/tasks.js";
 import { OKR_SUBMIT_LABEL, mergeEdits, submittable } from "../agent/weekly/submit.js";
 import { draftWeeklyOnce } from "../agent/weekly/index.js";
 import { parseWeek } from "../agent/weekly/week.js";
-import { remove as removeOkrReport } from "../connectors/okr.js";
+import { remove as removeOkrReport } from "../agent/weekly/okr.js";
 import type { OkrWeeklyDraft } from "@friday/shared";
 import type { HandbookDraft } from "../agent/handbook.js";
 
@@ -66,6 +68,15 @@ const newTask = z.object({
   due: z.iso.date().optional(),
 });
 
+// slack 工具在注册处被停用时 role 会抛：任务板照常出，只是没有前文、算没接入
+function chatRole() {
+  try {
+    return role("chat");
+  } catch {
+    return undefined;
+  }
+}
+
 /** 任务牵着的 Slack 对话。整个收件箱只读一次，别每条任务各读一遍。 */
 function slackOf(all: InboxItem[]) {
   const byConv = new Map<string, InboxItem[]>();
@@ -74,7 +85,7 @@ function slackOf(all: InboxItem[]) {
     (byConv.get(key) ?? byConv.set(key, []).get(key)!).push(i);
   }
   for (const items of byConv.values()) items.sort((a, b) => Number(a.ts) - Number(b.ts));
-  const ctx = priorContext();
+  const chat = chatRole();
   return (t: Task): Task => {
     const conversations = neighbors(taskNode(t.id), "slack")
       .map((n) => {
@@ -88,7 +99,7 @@ function slackOf(all: InboxItem[]) {
           channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
           items: items.map((i) => ({ ts: i.ts, userName: i.userName, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
-          prior: priorText(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }, ctx),
+          prior: chat ? chat.renderPrior(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }) : [],
           source: n.source,
           why: n.why,
         };
@@ -143,7 +154,7 @@ export const tasks = new Hono()
       ...board,
       tasks: board.tasks.map((t) => withSlack(withSession(t))),
       meegleSyncedAt: meegleState.lastSyncAt,
-      slackConfigured: await slackConfigured(),
+      slackConfigured: (await chatRole()?.configured()) ?? false,
     });
   })
   .get("/tasks/:id/handbook-draft", async (c) => {
@@ -197,6 +208,10 @@ export const tasks = new Hono()
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
+  })
+  .post("/tasks/:id/pending/:actionId/dismiss", (c) => {
+    const r = dismissToolCall(c.req.param("id"), c.req.param("actionId"));
+    return "error" in r ? c.json({ error: r.error }, r.status) : c.json(r);
   })
   .post("/tasks/:id/reject", async (c) => {
     const { reason } = (await c.req.json().catch(() => ({}))) as { reason?: string };
@@ -460,7 +475,8 @@ export const tasks = new Hono()
     const parsed = transitionInput.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 id / stateKey / label" }, 400);
     try {
-      return c.json(await applyTransition(t, parsed.data as StateTransition));
+      const to = parsed.data as StateTransition;
+      return c.json(await applyTransition(t, to, undefined, { kind: "user", why: `你在 Friday 里点了「${to.label}」`, taskId: t.id }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       record({ taskId: t.id, action: "meegle_transition_failed", why: `流转到 ${parsed.data.stateKey} 失败`, how: message, risk: "read", status: "failed" });
@@ -482,7 +498,7 @@ export const tasks = new Hono()
     if (!t) return c.json({ error: "任务不存在" }, 404);
     if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
     try {
-      return c.json(await confirmNode(t));
+      return c.json(await confirmNode(t, undefined, { kind: "user", why: "你在 Friday 里点了「完成当前节点」", taskId: t.id }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       record({ taskId: t.id, action: "meegle_node_failed", why: "完成节点失败", how: message, risk: "read", status: "failed" });
@@ -542,12 +558,15 @@ export const tasks = new Hono()
     if (!plan) return c.json({ error: "这笔不可撤销" }, 400);
     if (getEvent(c.req.param("id"))?.status === "undone") return c.json({ error: "这条已经撤销过了" }, 409);
     if (plan.kind === "delete_slack_message") {
-      const creds = await loadSlackCreds();
-      if (!creds) return c.json({ error: "Slack 未接入" }, 400);
+      const chat = chatRole();
+      if (!chat) return c.json({ error: SLACK_NOT_CONNECTED }, 400);
+      const taskId = getEvent(c.req.param("id"))?.taskId;
       try {
-        await deleteMessage(slackCaller(creds), plan.channel, plan.ts);
+        await chat.remove({ channel: plan.channel, ts: plan.ts }, { kind: "user", why: "你点了撤销", ...(taskId ? { taskId } : {}) });
       } catch (e) {
-        return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg === SLACK_NOT_CONNECTED) return c.json({ error: msg }, 400);
+        return c.json({ error: `撤回失败：${msg}` }, 409);
       }
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
@@ -584,7 +603,7 @@ export const tasks = new Hono()
       const remaining = [...plan.ids];
       for (const reportId of plan.ids) {
         try {
-          await removeOkrReport(reportId);
+          await removeOkrReport(reportId, { kind: "user", why: "你撤销了周报提交" });
           remaining.shift();
           // 删一条就记一条：中途再失败的话，重试只用剩下的，不会对已经删掉的再删一次
           setEventUndo(c.req.param("id"), { kind: "delete_okr_reports", ids: remaining });
@@ -622,10 +641,26 @@ export const tasks = new Hono()
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
+    if (plan.kind === "tool_undo") {
+      try {
+        const r = await invokeTool({ kind: "user", why: "你点了撤销" }, plan.tool, plan.op, plan.args);
+        if (r.kind !== "ok") return c.json({ error: `撤销失败：${r.kind === "refused" ? r.why : r.kind}` }, 409);
+      } catch (e) {
+        return c.json({ error: `撤销失败：${e instanceof Error ? e.message : String(e)}` }, 409);
+      }
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
     if (plan.kind === "restore_project") {
       const md = readMemoryFile("projects");
       if (plan.before !== null && projectSection(md, plan.name) === null) return c.json({ error: `项目「${plan.name}」已经不在登记里（可能改了名），没法撤销这次改动` }, 409);
       writeMemoryFile("projects", replaceProjectSection(md, plan.name, plan.before));
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_tool") {
+      if (plan.before) saveTool(plan.before);
+      else removeTool(plan.name);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }
@@ -636,7 +671,10 @@ export const tasks = new Hono()
     }
     if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {
       try {
-        const done = plan.kind === "meegle_node" ? await rollbackNode(plan) : await undoTransition(plan);
+        const items = role("workItems");
+        const ref = { space: plan.projectKey, id: plan.workItemId };
+        const undo = { kind: "user", why: "你点了撤销" } as const;
+        const done = plan.kind === "meegle_node" ? (await items.rollbackNode(ref, plan.nodeKey, undo), true) : await items.undoTransition(ref, plan.backTo, undo);
         if (!done) return c.json({ error: "Meegle 不允许转回原状态，请去网页操作" }, 409);
       } catch (e) {
         return c.json({ error: `转回失败：${e instanceof Error ? e.message : String(e)}` }, 409);

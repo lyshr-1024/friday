@@ -5,17 +5,21 @@ import { createTask } from "../../memory/tasks.js";
 import { linkUp } from "../../memory/links.js";
 import { slackNode, taskNode } from "../../memory/infer.js";
 import { slackScene } from "./slack.js";
+import { seedBuiltins } from "../../connectors/builtin.js";
 
 type Recent = { channelId?: string; lines: Array<{ ts: string; userId?: string; userName: string; text: string; threadTs?: string }> };
 const channelMock = vi.fn(async (): Promise<Recent> => ({ lines: [] }));
 const dmMock = vi.fn(async (): Promise<Recent> => ({ lines: [] }));
-vi.mock("../../connectors/slack.js", () => ({
+vi.mock("../../connectors/slack/client.js", async (orig) => ({
+  ...(await orig<typeof import("../../connectors/slack/client.js")>()),
   loadSlackCreds: async () => ({ token: "t", cookie: "c" }),
   slackCaller: () => async () => ({}),
   slackSelfId: async () => "ME",
   fetchChannelRecent: (...a: unknown[]) => channelMock(...(a as [])),
   fetchDmRecent: (...a: unknown[]) => dmMock(...(a as [])),
 }));
+
+seedBuiltins();
 
 describe("HUD 在 Slack 前台", () => {
   beforeEach(() => {

@@ -3,10 +3,12 @@ import type { Snapshot, SummonAction, SummonRules, Task } from "@friday/shared";
 import { getTask } from "../../memory/tasks.js";
 import { matchEnv } from "../../memory/projects.js";
 import { identifyUrl, sourceLabel } from "../../connectors/urlSource.js";
+import { idFromUrl } from "../../connectors/meegle/rules.js";
 import type { LocalDev } from "../../connectors/localDev.js";
 import { basename } from "node:path";
 import { normUrl } from "../docTitle.js";
 import type { SlackScene } from "./slack.js";
+import { ownsApp, parseTitle } from "../../connectors/slack/title.js";
 
 export interface MatchInput {
   snapshot: Snapshot;
@@ -33,31 +35,6 @@ export interface Candidate {
   task: Task;
   why: string;
   strength: "sure" | "maybe";
-}
-
-const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
-const SLACK_SUFFIX = /\s*-\s*[^-]*-\s*Slack\s*$/;
-
-// 中文界面的标题不带 # 而是跟一个「（频道）」标记，它后面还可能挂别的段：
-//   team-fe-bo（频道） - Longbridge - Slack
-//   一起养牛（频道） - Longbridge - 1 个新项目 - Slack
-// 所以不去数有几段后缀，直接认这个标记——它前面那截就是频道名。
-const CHANNEL_TAG = /^(.+?)\s*[（(](?:频道|channel)[）)]/i;
-
-// Slack 左侧那些视图（活动、私信、文件…）会整个占掉标题，它们不是人也不是频道，
-// 认成人名只会让 Friday 去找一个叫「活动」的同事
-const VIEWS = new Set(["活动", "私信", "文件", "主页", "更多", "草稿和已发送", "留待以后处理", "Activity", "DMs", "Files", "Home", "Later", "Drafts & sent"]);
-
-export function parseSlackTitle(title: string): { channel?: string; person?: string } {
-  const tagged = CHANNEL_TAG.exec(title);
-  if (tagged) return { channel: tagged[1]!.trim() };
-  const head = title.replace(SLACK_SUFFIX, "").replace(/\s*\(\d+(?:\s+new items?)?\)\s*/i, "").trim();
-  if (!head || VIEWS.has(head)) return {};
-  return head.startsWith("#") ? { channel: head } : { person: head };
-}
-
-export function meegleIdFromUrl(url: string): string | undefined {
-  return /\/(?:issue|story|detail)\/(?:detail\/)?(\d{3,})/.exec(url)?.[1];
 }
 
 export function projectByCwd(cwd: string, projects: Project[]): Project | undefined {
@@ -122,7 +99,7 @@ export function candidates(input: MatchInput): Candidate[] {
     out.push({ task, why, strength });
   };
 
-  const meegleId = snapshot.browser ? meegleIdFromUrl(snapshot.browser.url) : undefined;
+  const meegleId = snapshot.browser ? idFromUrl(snapshot.browser.url) : undefined;
   if (meegleId) for (const t of tasks) if (t.source.meegleId === meegleId) push(t, `你正开着这条工单 #${meegleId}`, "sure");
 
   if (snapshot.selection) {
@@ -132,7 +109,7 @@ export function candidates(input: MatchInput): Candidate[] {
     if (id) for (const t of tasks) if (t.source.meegleId === id) push(t, `选中的文字里有工单号 #${id}`, "sure");
   }
 
-  if (snapshot.app.bundleId === SLACK_BUNDLE && (channel || person)) {
+  if (ownsApp(snapshot.app.bundleId) && (channel || person)) {
     const task = input.scene?.taskId ? getTask(input.scene.taskId) : undefined;
     if (task) push(task, "这段 Slack 对话挂着这条任务", "sure");
   }
@@ -198,7 +175,7 @@ export function defaultActions(task: Task | undefined, project: Project | undefi
     const title = (snapshot.selection ?? snapshot.browser?.title ?? snapshot.app.title).slice(0, 60);
     // 开着工单页而任务板上没有它：建个普通待办会把工单号丢掉，按链接拉详情才带得上状态和优先级
     const url = snapshot.browser?.url;
-    if (url && meegleIdFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
+    if (url && idFromUrl(url)) return [{ kind: "meegle_add", label: "加进任务板", url }];
     return title ? [{ kind: "create_task", label: "建成任务", title }] : [];
   }
   const pending = task.pending?.[0];
@@ -230,7 +207,7 @@ function describe(snapshot: Snapshot, projects: Project[], channel?: string, loc
   else if (source && source.kind !== "other") bits.push(sourceLabel(source, snapshot.browser?.lane));
   // 私聊解析出的是人名不是频道，原来会退到原始标题，
   // 把「(2) - Longbridge - Slack」这串未读数字和后缀也显示出来
-  const slack = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : undefined;
+  const slack = ownsApp(snapshot.app.bundleId) ? parseTitle(snapshot.app.title) : undefined;
   if (channel) bits.push(channel);
   else if (slack?.person) bits.push(slack.person);
   else if (snapshot.browser?.title) bits.push(snapshot.browser.title.slice(0, 60));

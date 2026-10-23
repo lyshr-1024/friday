@@ -1,6 +1,6 @@
 import type { Stage, Task, TaskKind, TaskSource, TaskStatus } from "@friday/shared";
 import { db } from "./db.js";
-import { meegleIdsIn } from "./infer.js";
+import { idsIn as workItemIdsIn } from "../connectors/meegle/rules.js";
 import { loadProjects } from "./projects.js";
 import { createTask, listTasks, updateTask } from "./tasks.js";
 
@@ -60,7 +60,7 @@ export function addNoteTask(input: {
  * ② 话里带项目名 / 别名，再加一个跟已有任务重合的长关键词 → 同一件事
  */
 export function findSameThing(text: string, tasks = listTasks(OPEN_STATES)): Task | undefined {
-  const ids = meegleIdsIn(text);
+  const ids = workItemIdsIn(text);
   if (ids.length) {
     const byTicket = tasks.find((t) => ids.includes(t.source.meegleId ?? "") || ids.includes(t.source.linkedStoryId ?? ""));
     if (byTicket) return byTicket;

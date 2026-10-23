@@ -233,6 +233,21 @@ describe("presence", () => {
   });
 });
 
+describe("挂着待审的 tool_call", () => {
+  it("处理中的任务也进等你栏、发主动消息，带放行说法", () => {
+    postNotices();
+    const t = createTask({ title: "调外部", kind: "code", status: "processing", source: {} });
+    addPending(t.id, { type: "tool_call", label: "执行 slack.post", detail: "{}", payload: { tool: "slack", op: "post" } }, { keepStatus: true });
+    expect(getTask(t.id)!.status).toBe("processing");
+    expect(mainNeeds().blocked.map((x) => x.id)).toContain(t.id);
+    expect(postNotices()).toBe(1);
+    // 别的用例用假时钟写过更晚的消息，按 taskIds 找这条
+    const n = notices().find((m) => m.taskIds?.includes(t.id))!;
+    expect(n.content).toContain("执行 slack.post");
+    expect(n.content).toContain(`「#${getTask(t.id)!.seq} 执行」`);
+  });
+});
+
 describe("mainNeeds", () => {
   it("按类分组，working 只含自主在跑的", () => {
     const b = createTask({ title: "卡", kind: "code", status: "blocked", source: {} });

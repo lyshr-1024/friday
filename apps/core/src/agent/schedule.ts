@@ -12,7 +12,8 @@ import { loadMemoryContext } from "../memory/context.js";
 import { getSchedule, listSchedules, pushHistory, setLastRun, updateSchedule } from "../memory/schedules.js";
 import { describeCron, lastDue, nextDue, validateCron } from "../scheduler/cron.js";
 import { state } from "../scheduler/index.js";
-import { callTool, mcpEndpoint } from "../connectors/mcp.js";
+import { invokeTool } from "../connectors/invoke.js";
+import { getTool } from "../connectors/registry.js";
 import { reopenTask, startAutonomousJob } from "./pipeline.js";
 import { friday } from "./prompt.js";
 import { taskSession } from "./sessionState.js";
@@ -41,11 +42,12 @@ export function validateSchedule(i: ScheduleInput): string | undefined {
       if (i.tool.startsWith("schedule")) return "定时任务不能去登记 / 改定时任务";
       if (!fridayToolList().some((t) => t.name === i.tool)) return `Friday 没有 ${i.tool} 这个工具`;
     } else {
-      try {
-        mcpEndpoint(i.server);
-      } catch (e) {
-        return e instanceof Error ? e.message : String(e);
-      }
+      const reg = getTool(i.server);
+      if (!reg) return `${i.server} 还没登记成工具，先让用户说「接一下 ${i.server}」`;
+      if (!reg.enabled || reg.draft) return `${i.server} 没启用`;
+      const op = reg.ops.find((o) => o.name === i.tool);
+      if (!op) return `${i.server} 里没有操作 ${i.tool}`;
+      if (op.level === null) return `${i.server}.${i.tool} 还没定级，先让用户定`;
     }
   }
   return undefined;
@@ -142,8 +144,9 @@ async function fireCall(s: Schedule): Promise<Fired> {
     const text = r.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n");
     return { ok: !r.isError, result: text };
   }
-  const r = await callTool(s.server ?? "", s.tool ?? "", args);
-  return { ok: !r.isError, result: r.text };
+  const r = await invokeTool({ kind: "schedule", why: `定时任务「${s.title}」`, scheduleId: s.id }, s.server ?? "", s.tool ?? "", args);
+  if (r.kind === "ok") return { ok: true, result: r.text };
+  return { ok: false, result: r.kind === "refused" ? r.why : r.kind === "held" ? "被挂成待审了" : r.summary };
 }
 
 export async function fireSchedule(s: Schedule, why: "due" | "manual"): Promise<Fired> {

@@ -4,11 +4,12 @@ import { join } from "node:path";
 
 export class McpError extends Error {}
 export type McpEndpoint = { url: string; headers: Record<string, string> };
-type Conf = { type?: string; url?: string; command?: string; headers?: Record<string, string> };
+export type Conf = { type?: string; url?: string; command?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> };
+export type McpToolInfo = { name: string; description: string; inputSchema: Record<string, unknown> };
 
 const claudeJson = (file?: string) => file ?? (process.env.FRIDAY_CLAUDE_JSON || join(homedir(), ".claude.json"));
 
-function servers(file?: string): Record<string, Conf> {
+export function servers(file?: string): Record<string, Conf> {
   const f = claudeJson(file);
   try {
     return (JSON.parse(readFileSync(f, "utf8")) as { mcpServers?: Record<string, Conf> }).mcpServers ?? {};
@@ -17,8 +18,8 @@ function servers(file?: string): Record<string, Conf> {
   }
 }
 
-export function mcpServers(file?: string): Array<{ name: string; http: boolean }> {
-  return Object.entries(servers(file)).map(([name, c]) => ({ name, http: Boolean(c.url) }));
+export function mcpServers(file?: string): Array<{ name: string; http: boolean; command?: string; args?: string[] }> {
+  return Object.entries(servers(file)).map(([name, c]) => ({ name, http: Boolean(c.url), ...(c.command ? { command: c.command } : {}), ...(c.args ? { args: c.args } : {}) }));
 }
 
 // 凭证是 Claude Code 的 MCP 配置，Friday 不另存一份：用户在那边换了 token 这边自动跟上
@@ -62,6 +63,14 @@ async function post(ep: McpEndpoint, msg: Record<string, unknown>, label: string
   return { res, body };
 }
 
+export async function handshake(ep: McpEndpoint, label: string, timeoutMs: number): Promise<string | undefined> {
+  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, label, timeoutMs);
+  const session = init.res.headers.get("mcp-session-id") ?? undefined;
+  parseRpcBody(init.body, label);
+  await post(ep, { method: "notifications/initialized" }, label, timeoutMs, session);
+  return session;
+}
+
 export async function callTool(
   server: string,
   tool: string,
@@ -71,12 +80,18 @@ export async function callTool(
   const label = opts.label ?? server;
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const ep = mcpEndpoint(server, opts.file);
-  const init = await post(ep, { id: ++seq, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "friday", version: "1" } } }, label, timeoutMs);
-  const session = init.res.headers.get("mcp-session-id") ?? undefined;
-  parseRpcBody(init.body, label);
-  await post(ep, { method: "notifications/initialized" }, label, timeoutMs, session);
+  const session = await handshake(ep, label, timeoutMs);
   const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/call", params: { name: tool, arguments: args } }, label, timeoutMs, session)).body, label);
   if (msg.error) throw new McpError(`${tool} 失败：${msg.error.message}`);
   const blocks = (msg.result?.content as Array<{ type: string; text?: string }> | undefined)?.filter((c) => c.type === "text").map((c) => c.text ?? "") ?? [];
   return { text: blocks.join("\n"), blocks, isError: Boolean(msg.result?.isError) };
+}
+
+export async function listTools(server: string, opts: { file?: string; timeoutMs?: number } = {}): Promise<McpToolInfo[]> {
+  const timeoutMs = opts.timeoutMs ?? 15_000;
+  const ep = mcpEndpoint(server, opts.file);
+  const session = await handshake(ep, server, timeoutMs);
+  const msg = parseRpcBody((await post(ep, { id: ++seq, method: "tools/list", params: {} }, server, timeoutMs, session)).body, server);
+  if (msg.error) throw new McpError(`列工具失败：${msg.error.message}`);
+  return ((msg.result?.tools ?? []) as Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>).map((t) => ({ name: t.name, description: t.description ?? "", inputSchema: t.inputSchema ?? {} }));
 }

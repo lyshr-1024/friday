@@ -38,7 +38,7 @@ export function loadMemoryContext(): MemoryContext {
   return { projects: readMd("projects.md"), todos, hasPeople: nonEmpty("people.md"), hasDecisions: nonEmpty("decisions.md"), handbooks: listHandbooks() };
 }
 
-/** 未完成的待办。记待办已经统一进 tasks 表，todos 表只剩 Meegle 同步用，这里读 tasks。 */
+/** 未完成的待办。记待办已经统一进 tasks 表（todos 表不再读写），这里读 tasks。 */
 export function openTodoLines(limit: number): string[] {
   return listTasks()
     .filter((t) => t.status === "understood" || t.status === "collected")

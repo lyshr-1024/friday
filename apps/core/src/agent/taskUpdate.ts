@@ -10,7 +10,7 @@ import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
 import { requestProjectChange } from "./reproject.js";
-import { finishDefectsOf, openDefectsOf } from "./pipeline.js";
+import { dismissToolCall, finishDefectsOf, openDefectsOf } from "./pipeline.js";
 import { onTaskDone } from "./knowledge.js";
 import { markDepReady } from "./briefJob.js";
 
@@ -38,6 +38,8 @@ export interface TaskPatch {
   branch?: string;
   /** 用户说理解卡上某个依赖到了：依赖名里的关键词 */
   depReady?: string;
+  /** 用户说挂着的外部工具调用不执行：撤掉这条任务上所有待审的 tool_call */
+  dropToolCall?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = { processing: "进行中", review: "等你决定", blocked: "卡住了", done: "已完成", ignored: "已忽略" };
@@ -168,6 +170,13 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
       changed.push("新挂回复草稿");
     }
   }
+
+  const calls = patch.dropToolCall ? (task.pending ?? []).filter((p) => p.type === "tool_call") : [];
+  for (const c of calls) {
+    const r = dismissToolCall(taskId, c.id, "你在会话里说不执行");
+    if (!("error" in r)) task = r;
+  }
+  if (calls.length) changed.push(`撤掉 ${calls.length} 个待审的外部工具调用`);
 
   if (patch.status && patch.status !== task.status) {
     // 收工 / 忽略时把"等你看"标记和没发出去的待审动作一起清掉，不然列表里还挂着

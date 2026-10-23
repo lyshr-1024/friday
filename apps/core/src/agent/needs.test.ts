@@ -49,6 +49,11 @@ describe("needOf", () => {
     expect(needOf(mk({ pending: [act("p3", "discard_changes")] }))?.key).toBe("decide:p3");
   });
 
+  it("处理中的任务挂着 tool_call 也要用户定", () => {
+    const n = needOf(mk({ status: "processing", pending: [act("p4", "tool_call", "执行 slack.post", '{"text":"hi"}')] }))!;
+    expect(n).toEqual({ kind: "blocked", key: "decide:p4", reason: '执行 slack.post：{"text":"hi"}' });
+  });
+
   it("review 有 report 才是待验收", () => {
     expect(needOf(mk({ status: "review", report: report("R1") }))).toEqual({ kind: "review", key: "review:R1", reason: "改好了" });
     expect(needOf(mk({ status: "review" }))).toBeUndefined();

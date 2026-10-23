@@ -8,8 +8,10 @@ import { config } from "../config.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { handbookBlock } from "../memory/rules.js";
 import { BRANCH_RULE, terminalBridgePrompt } from "./prompt.js";
+import { guardedBinaries } from "../connectors/registry.js";
+import { preselect } from "./toolCatalog.js";
 import { HEADLESS_MODEL } from "./claude.js";
-import { FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
+import { binaryRules, FORBIDDEN, protectedRules, PUSH_RE, PUSH_WHY, WRITE_TOOLS } from "./guard.js";
 import { isFridayProject, protectedBranches } from "../memory/projects.js";
 import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { newSession, tmuxPath } from "./tmux.js";
@@ -23,6 +25,7 @@ export const shotsDir = (id: string) => join(runsDir(), `${id}.shots`);
 export function autonomousPrompt(id: string, task: string, project: string): string {
   const handbook = handbookBlock(project);
   const knowledge = knowledgeBlock(project, task);
+  const tools = preselect(project);
   return [
     `你在项目 ${project} 里替用户完成一项任务，用户事后只看交付报告审核，所以过程要可追溯。`,
     `用户的诉求（Friday 转达的原话，它没读过这个项目的代码，也没有项目的 skill）：${task}`,
@@ -42,6 +45,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
     ...(isFridayProject(project) ? ["9. 这是 Friday 自己的代码。合并由用户做，你只交付分支；交付报告的「请验证」里写明「要重启 Friday（开发时重跑 pnpm dev，打包版要重新打包）才生效」。不要改守卫（agent/guard.ts）和权限分级（agent/permission.ts）去放宽限制，需要放宽的写进 decisions 里说明为什么，交给用户定。"] : []),
     ...(knowledge ? ["", untrusted("knowledge", knowledge)] : []),
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
+    ...(tools ? ["", "【这个项目常用的外部工具】", tools] : []),
     UNTRUSTED_NOTE,
   ].join("\n");
 }
@@ -181,7 +185,7 @@ export function transcriptPath(dir: string, sessionId: string): string {
  * settings 里的 permissions.deny 在 --dangerously-skip-permissions 下不生效，hook 生效。
  */
 export function buildGuardScript(nodePath = process.execPath, pushUrl?: string, patterns: string[] = protectedBranches()): string {
-  const rules = [...FORBIDDEN, ...protectedRules(patterns)];
+  const rules = [...FORBIDDEN, ...protectedRules(patterns), ...binaryRules(guardedBinaries())];
   return [
     "#!/bin/zsh",
     `${shellQuote(nodePath)} -e ${shellQuote(`
@@ -257,6 +261,7 @@ export function claudeArgs(files: ClaudeFiles, launch: { kind: TermSessionKind; 
     files.settings,
     "--mcp-config",
     files.mcp,
+    ...(fridayDriven ? ["--strict-mcp-config"] : []),
     "--append-system-prompt",
     terminalBridgePrompt(fridayDriven ? undefined : project, fridayDriven),
   ];
@@ -343,7 +348,8 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
       ? []
       : [
           `rm -f ${wt}`,
-          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }, req.existingBranch))}`,
+          // 准备段同样是 Friday 驾驶、跳过权限的 -p，不加 strict 会把用户全局的 MCP（含 coral 的 deployApi）带进来
+          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --strict-mcp-config --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }, req.existingBranch))}`,
           `if [ ! -s ${wt} ]; then`,
           `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
           "  exec /bin/zsh -il",

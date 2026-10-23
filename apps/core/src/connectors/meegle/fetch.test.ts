@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { runJson } = vi.hoisted(() => ({ runJson: vi.fn() }));
-vi.mock("./exec.js", async (orig) => ({ ...(await orig<typeof import("./exec.js")>()), runJson }));
+vi.mock("../exec.js", async (orig) => ({ ...(await orig<typeof import("../exec.js")>()), runJson }));
 
-const { MeegleConnector } = await import("./meegle.js");
+const { MeegleConnector } = await import("./client.js");
 
 // 需求现在按排期接（缺陷不看排期），所以 mock 的 story 要带一个已到期的 schedule，
 // 否则在进 workitem get 之前就被筛掉了。

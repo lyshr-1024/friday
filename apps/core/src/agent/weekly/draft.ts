@@ -1,4 +1,4 @@
-import type { OkrKR } from "../../connectors/okr.js";
+import type { OkrKR } from "./okr.js";
 import { askStream, SONNET_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { allLinks, linkUp, linksOf, neighbors, rejected, unlink } from "./links.js";
-import { branchNode, meegleIdsIn, meegleNode, projectNode, taskNode, urlsIn } from "./infer.js";
+import { branchNode, meegleNode, projectNode, taskNode, urlsIn } from "./infer.js";
+import { idsIn as meegleIdsIn } from "../connectors/meegle/rules.js";
 
 // 整个测试文件共用一个库，所以每个用例自己起唯一的任务 id，互不干扰
 const t = () => taskNode(randomUUID());

@@ -2,6 +2,7 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_SKILL_LIST, DEFAULT_SUMMON_SETTINGS, MODEL_OPTIONS, THEME_OPTIONS, type ModelId, type SettingsUpdate, type SummonSettings, type ThemeId } from "@friday/shared";
 import { config } from "./config.js";
+import type { RoleName } from "./connectors/roles.js";
 
 export type TerminalApp = "ghostty" | "terminal";
 
@@ -27,6 +28,8 @@ export interface UserSettings {
   /** 分派给我的 Meegle 缺陷拉不拉进待办。关掉只停拉新的，已经在列表里的留着 */
   meegleDefects: boolean;
   summon: SummonSettings;
+  /** 角色 → 实现它的工具名；第一步每个角色只有一个实现，不进对话可改的白名单 */
+  roles: Record<RoleName, string>;
 }
 
 /**
@@ -44,7 +47,7 @@ function mergeSummon(raw: unknown): SummonSettings {
 
 export const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousConcurrency: 3, defectBatchAt: "10:00", meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS };
+const DEFAULTS: UserSettings = { terminal: "ghostty", model: "", skills: true, skillList: [...DEFAULT_SKILL_LIST], name: "", theme: "graphite", background: "", backgroundOpacity: 82, learnHistory: true, okrWeekly: true, autonomous: true, autonomousConcurrency: 3, defectBatchAt: "10:00", meegleDefects: true, summon: DEFAULT_SUMMON_SETTINGS, roles: { workItems: "meegle", chat: "slack", docs: "lark", web: "web" } };
 
 /** 存的是 "all" 就全放，存了数组就按数组（空数组当没配，回默认），没存过用默认清单 */
 function readSkillList(raw: unknown): string[] | "all" {
@@ -64,6 +67,13 @@ function readModel(raw: unknown): ModelId {
   return MODEL_IDS.has(alias) ? (alias as ModelId) : DEFAULTS.model;
 }
 const THEME_IDS = new Set<string>(THEME_OPTIONS.map((t) => t.id));
+
+function readRoles(raw: unknown): Record<RoleName, string> {
+  const saved = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const out = { ...DEFAULTS.roles };
+  for (const k of Object.keys(out) as RoleName[]) if (typeof saved[k] === "string" && saved[k]) out[k] = saved[k] as string;
+  return out;
+}
 
 const file = () => join(config.dataDir, "settings.json");
 
@@ -100,6 +110,7 @@ export function userSettings(): UserSettings {
     defectBatchAt: typeof raw.defectBatchAt === "string" && HHMM.test(raw.defectBatchAt) ? raw.defectBatchAt : DEFAULTS.defectBatchAt,
     meegleDefects: typeof raw.meegleDefects === "boolean" ? raw.meegleDefects : DEFAULTS.meegleDefects,
     summon: mergeSummon(raw.summon),
+    roles: readRoles(raw.roles),
   };
 }
 

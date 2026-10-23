@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, Todo, TodosSyncResponse, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
+import type { ToolLevel, ToolRegistration, UsageRange, UsageSummary, AskRequest, Attachment, AuditEvent, Conversation, ConversationSummary, HealthResponse, InboxResponse, Job, MemoryFile, MemoryFileResponse, NoteRequest, RunRequest, RunResponse, SearchResult, RollbackReason, SettingsResponse, SettingsUpdate, Stage, StateTransition, SummonRelayEvent, Task, TaskBoard, RunsSummary, Rule, ProjectTerminal, HandbookDraftView, ProjectOverview, OpenTerminal, ScheduleView, ProjectKnowledge, MainNeeds, Message } from "@friday/shared";
 
 let baseUrlPromise: Promise<string> | undefined;
 
@@ -13,6 +13,19 @@ export async function health(): Promise<HealthResponse> {
   const res = await fetch(`${await coreBaseUrl()}/health`);
   if (!res.ok) throw new Error(`health ${res.status}`);
   return res.json();
+}
+
+export type ToolView = ToolRegistration & { counts: Record<ToolLevel | "unset", number> };
+
+export async function listTools(): Promise<ToolView[]> {
+  const res = await fetch(`${await coreBaseUrl()}/tools`);
+  if (!res.ok) throw new Error(`tools ${res.status}`);
+  return ((await res.json()) as { tools: ToolView[] }).tools;
+}
+
+export async function setToolEnabled(name: string, enabled: boolean): Promise<void> {
+  const res = await fetch(`${await coreBaseUrl()}/tools/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }) });
+  if (!res.ok) throw new Error(`tools ${res.status}`);
 }
 
 export type AskEvent =
@@ -127,7 +140,7 @@ export async function cancelAsk(conversationId: string): Promise<void> {
   }).catch(() => {});
 }
 
-export async function note(body: NoteRequest): Promise<Todo> {
+export async function note(body: NoteRequest): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/note`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -142,12 +155,6 @@ const NOTE_PREFIX = /^(?:\/note|记)\s+/;
 export function parseNote(input: string): string | null {
   const m = NOTE_PREFIX.exec(input);
   return m ? input.slice(m[0].length).trim() || null : null;
-}
-
-export async function syncTodos(signal: AbortSignal): Promise<TodosSyncResponse> {
-  const res = await fetch(`${await coreBaseUrl()}/todos?sync=1`, { signal });
-  if (!res.ok) throw new Error(`同步待办失败：core 返回 ${res.status}`);
-  return res.json();
 }
 
 export async function run(body: RunRequest): Promise<RunResponse> {
@@ -211,12 +218,6 @@ export async function mainNeeds(): Promise<MainNeeds> {
 /** 窗口回来 / 离开：回来时 core 可能追加一条「离开期间」摘要，Thread 按事件刷新 */
 export async function mainPresence(active: boolean): Promise<void> {
   await fetch(`${await coreBaseUrl()}/main/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ active }) });
-}
-
-export async function openTodos(): Promise<Todo[]> {
-  const res = await fetch(`${await coreBaseUrl()}/todos`);
-  if (!res.ok) throw new Error(`todos ${res.status}`);
-  return res.json();
 }
 
 export async function conversations(): Promise<ConversationSummary[]> {
@@ -478,6 +479,13 @@ export async function createTask(input: { title: string; note?: string; url?: st
 export async function taskApprove(id: string, actionId: string, text?: string): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/approve/${encodeURIComponent(actionId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(text ? { text } : {}) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `core 返回 ${res.status}`);
+  return res.json();
+}
+
+/** 挂着的 tool_call 不执行：只撤这一条，任务状态不动 */
+export async function taskDismissPending(id: string, actionId: string): Promise<Task> {
+  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/pending/${encodeURIComponent(actionId)}/dismiss`, { method: "POST" });
+  if (!res.ok) throw await errOf(res, "撤不掉");
   return res.json();
 }
 

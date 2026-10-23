@@ -12,7 +12,7 @@ const okr = vi.hoisted(() => ({
     { id: 2, objectId: 12, week: "2026W0921-0927", content: "我自己填的", pct: 50 },
   ]),
 }));
-vi.mock("../../connectors/okr.js", async (orig) => ({ ...(await orig<typeof import("../../connectors/okr.js")>()), ...okr }));
+vi.mock("./okr.js", async (orig) => ({ ...(await orig<typeof import("./okr.js")>()), ...okr }));
 vi.mock("./collect.js", () => ({ collectMaterials: vi.fn(async () => [{ id: "g1", text: "[whale-console] fix: 出金" }]) }));
 const draft = vi.hoisted(() => ({ draftWithModel: vi.fn(async () => ({ items: [{ objectId: 10, content: "修了出金", pct: 90, why: "沿用", used: ["g1"] }], unmatched: [] })) }));
 vi.mock("./draft.js", () => draft);
@@ -69,7 +69,7 @@ describe("起草一轮", () => {
   });
 
   it("连不上 OKR 平台：照样建卡，卡住并写明原因", async () => {
-    const { OkrError } = await import("../../connectors/okr.js");
+    const { OkrError } = await import("./okr.js");
     okr.myKRs.mockRejectedValueOnce(new OkrError("~/.claude.json 里没有 mcpServers.okr"));
     const r = (await draftWeeklyOnce({ week: parseWeek("2026W0907-0913")!, manual: true })) as { taskId: string };
     const t = getTask(r.taskId)!;

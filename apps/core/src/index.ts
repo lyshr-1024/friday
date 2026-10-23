@@ -3,17 +3,30 @@ import { handleUpgrade, terminalSockets } from "./api/terminalSocket.js";
 import { app } from "./api/index.js";
 import { config } from "./config.js";
 import { initMemory } from "./memory/db.js";
+import { seedBuiltins } from "./connectors/builtin.js";
+import { enrichOkr, registerOkr } from "./agent/weekly/okr.js";
+import { pauseUnregisteredCalls } from "./memory/schedules.js";
+import "./connectors/web/tool.js";
+import "./connectors/lark/tool.js";
+import "./connectors/meegle/index.js";
 import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
 import { startScheduler } from "./scheduler/index.js";
-import { warmSlack } from "./connectors/slack.js";
+import "./connectors/slack/index.js";
+import { role } from "./connectors/roles.js";
+import { checkAllHealth } from "./connectors/health.js";
 import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
-import { startNoticeWatcher } from "./agent/notices.js";
+import { postMainNotice, startNoticeWatcher } from "./agent/notices.js";
 import { tidyStoryDefects } from "./agent/autostart.js";
 
 initMemory();
+seedBuiltins();
+registerOkr();
+void checkAllHealth().catch((e) => console.error(`[tools] 健康检查失败：${e instanceof Error ? e.message : e}`));
+void enrichOkr().catch((e) => console.error(`[okr] 取工具说明失败：${e instanceof Error ? e.message : e}`));
+pauseUnregisteredCalls(postMainNotice);
 writeTmuxConf();
 console.log(`memory at ${config.dataDir}`);
 // 上次进程没了，库里还标着 running 的挨个问一句会话在不在：tmux 不跟着
@@ -38,7 +51,7 @@ startNoticeWatcher();
 if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
   startScheduler();
   void fillMissingTitles().catch(() => {});
-  warmSlack().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
+  (async () => role("chat").warm())().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

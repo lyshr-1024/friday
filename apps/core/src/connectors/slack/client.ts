@@ -1,5 +1,5 @@
 import type { InboxItem } from "@friday/shared";
-import type { NewInboxItem } from "../memory/inbox.js";
+import type { NewInboxItem } from "../../memory/inbox.js";
 import { classifyNoise } from "./noise.js";
 import { keychainGet } from "./keychain.js";
 

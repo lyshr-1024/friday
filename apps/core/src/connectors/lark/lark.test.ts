@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { docExcerpt, fetchLarkDoc, markdownToText, parseLarkFetch, resetLarkCache, type LarkRunner } from "./lark.js";
+import { docExcerpt, fetchLarkDoc, markdownToText, parseLarkFetch, resetLarkCache, type LarkRunner } from "./index.js";
 
 const content = [
   "<title>新的WBO后台验收-1006</title>",

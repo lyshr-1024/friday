@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
-import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen } from "../lib/core";
+import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen, taskDismissPending } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
 import { Icon } from "./Icon";
@@ -50,6 +50,9 @@ function consequence(a: PendingAction, conv?: SlackConversation): string | null 
   }
   if (a.type === "discard_changes") {
     return "删掉的 worktree、分支和里面的改动撤不回。不想撤就点「完成，不执行」，只收卡、改动留着。";
+  }
+  if (a.type === "tool_call") {
+    return `以你的身份在 ${String(a.payload.tool ?? "外部工具")} 上执行 ${String(a.payload.op ?? "操作")}，撤不回。不想执行就点「不执行」，只撤这一条，发起的终端会被告知`;
   }
   if (a.type === "start_job") {
     const p = String(a.payload.project ?? "这个项目");
@@ -874,7 +877,7 @@ function Detail({ t, all, onAct, onPick, onStartPack, packBusy, onDetail, onLedg
         <>
           {!termVisible && (
             <>
-              <div className="detail__top"><FridayTop t={t} /></div>
+              <div className="detail__top"><FridayTop t={t} onAct={onAct} /></div>
               <button className="dfold" aria-expanded={showDetails} onClick={() => setShowDetails((v) => !v)}>
                 <span className="dfold__sum">{foldSummary(t, slots.defects.length)}</span>
                 <span className="dfold__act">{showDetails ? "收起详情" : "展开详情"}</span>
@@ -1197,13 +1200,19 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
+
+/** 挂着的外部工具调用：只撤这一条，不打回整条任务（打回会作废别的待审、把这一轮记成被打回） */
+function DismissToolCall({ t, a, onAct }: { t: Task; a: PendingAction; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
+  if (a.type !== "tool_call") return null;
+  return <button className="b b--text" onClick={() => void onAct(t, () => taskDismissPending(t.id, a.id))}>不执行</button>;
+}
 
 /**
  * Friday 自主任务面板最上面那块：要你拍板的事（待审动作）、或者排队中「什么时候开、凭什么判的」。
  * 交付内容不在这儿——在会话里 Friday 的那条交付消息。
  */
-function FridayTop({ t }: { t: Task }) {
+function FridayTop({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
   const pending = t.pending ?? [];
   const a = t.autostart;
   if (!pending.length && !a) return null;
@@ -1211,7 +1220,7 @@ function FridayTop({ t }: { t: Task }) {
     <div className="ftop">
       {pending.map((p) => (
         <div key={p.id} className="ac__pend">
-          <div className="ftop__row"><span className="ac__k">等你点头</span><span className="ac__pend-t">{p.label}</span></div>
+          <div className="ftop__row"><span className="ac__k">等你点头</span><span className="ac__pend-t">{p.label}</span><DismissToolCall t={t} a={p} onAct={onAct} /></div>
           <div className="ac__pend-d">{actionNote(p, t.conversations?.[0])}{SAY[p.type] ? `${actionNote(p, t.conversations?.[0]).includes("\n") ? "\n" : ""}在主对话里说「#${t.seq} ${SAY[p.type]}」执行。` : ""}</div>
         </div>
       ))}
@@ -1435,6 +1444,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
               <span className="k">
                 {pending[0] ? `Friday 的建议：${pending[0].label}` : t.plan ? "Friday 的方案" : "Friday 做了什么"}
               </span>
+              {pending[0] && <DismissToolCall t={t} a={pending[0]} onAct={onAct} />}
               <div className="fx__quote"><Linkified text={advice} /></div>
             </div>
           )}

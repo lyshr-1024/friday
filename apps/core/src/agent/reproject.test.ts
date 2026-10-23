@@ -13,6 +13,7 @@ import { executePending, startAutonomousJob } from "./pipeline.js";
 import { requestProjectChange } from "./reproject.js";
 import { briefBasis } from "./brief.js";
 import { syncMeegleOnce } from "./meegle.js";
+import * as meegleRules from "../connectors/meegle/rules.js";
 import { createTermSession, updateTermSession } from "../memory/termSessions.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
 
@@ -42,7 +43,6 @@ beforeEach(() => {
 });
 
 const branches = (dir: string) => execFileSync("git", ["-C", dir, "branch", "--format=%(refname:short)"], { encoding: "utf8" }).split("\n").filter(Boolean);
-const noSlack = { slackPost: async () => ({ ts: "" }) };
 
 /** Friday 按自己判的项目在 wrongapp 上开了工，worktree 里改了一个文件没提交 */
 async function fridayOnWrongProject() {
@@ -92,7 +92,7 @@ describe("改项目：Friday 自主干过活的先挂回退清单", () => {
     const { t, jobId, wrong, right, wt } = await fridayOnWrongProject();
     requestProjectChange(t.id, "rightapp");
     const action = getTask(t.id)!.pending!.find((x) => x.type === "reproject")!;
-    const after = await executePending(t.id, action.id, noSlack);
+    const after = await executePending(t.id, action.id);
 
     expect(existsSync(wt)).toBe(false);
     expect(branches(wrong)).not.toContain("fix/ellipsis");
@@ -116,7 +116,7 @@ describe("改项目：Friday 自主干过活的先挂回退清单", () => {
     updateTask(t.id, { source: { brief: card } });
     requestProjectChange(t.id, "rightapp");
     const action = getTask(t.id)!.pending!.find((x) => x.type === "reproject")!;
-    await executePending(t.id, action.id, noSlack);
+    await executePending(t.id, action.id);
     expect(String(vi.mocked(startAutonomousJob).mock.lastCall![3])).toContain("单元格超长时加 Tooltip 显示全文");
   });
 
@@ -185,7 +185,7 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
   const sh = (dir: string, ...args: string[]) =>
     execFileSync("git", ["-C", dir, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" }, stdio: "ignore" });
   const closedConn = (live: Array<Record<string, unknown>> = []) =>
-    ({ fetchWorkItems: async () => live, getWorkItem: async () => ({ name: "缺陷", statusKey: "CLOSED", status: "Closed" }), feReleased: async () => false }) as never;
+    ({ ...meegleRules, listMine: async () => live.map((x) => ({ ...x, kind: meegleRules.kindOf(String(x.typeKey)), state: meegleRules.stateOf(String(x.statusKey ?? ""), String(x.status)) })), get: async () => ({ name: "缺陷", stateKey: "CLOSED", stateLabel: "Closed", state: "done" }), released: async () => false }) as never;
   let n = 0;
   /** 缺陷自己当根、在自己的 worktree 里干过活 */
   function defectWithWork(o: { commit?: boolean; dirty?: boolean; status?: "blocked" | "processing" } = {}) {
@@ -229,7 +229,7 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
     await syncMeegleOnce(closedConn());
     const action = getTask(t.id)!.pending![0]!;
     expect(action.detail).toContain("1 个没提交的文件");
-    await executePending(t.id, action.id, noSlack);
+    await executePending(t.id, action.id);
     expect(existsSync(wt)).toBe(false);
     expect(branches(repo)).not.toContain(branch);
     expect(getTask(t.id)!.status).toBe("done");

@@ -17,6 +17,7 @@ import { jobLog } from "./runner.js";
 import { openSession } from "./sessions.js";
 import { closeJobTerminal } from "./terminal.js";
 import { TmuxMissingError } from "./tmux.js";
+import { preselect } from "./toolCatalog.js";
 
 const SIZE_RULE = "新路由 / 新页面、接新接口、动公共组件（`components/` / `packages/` 这类目录）、预计改动文件 ≥ 5，任一命中就 `large`；把握不足也 `large`。";
 const NO_CASES = "没有，按 PRD 自己推";
@@ -46,6 +47,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     .map((f) => [`- [${f.id}] ${f.name}`, f.aliases.length && `  别名：${f.aliases.join("、")}`, f.where && `  在哪：${f.where}`, f.paths.length && `  目录：${f.paths.join("、")}`, f.routes.length && `  路由：${f.routes.join("、")}`, f.summary && `  说明：${f.summary}`].filter(Boolean).join("\n"))
     .join("\n");
   const detail = projectDetail(p);
+  const tools = preselect(p.name);
   return [
     note ? `上一轮的理解卡被用户退回，原因：${note}\n这一轮先照这个改。\n` : undefined,
     `给项目 ${p.name}（${p.dir}）的一条需求写理解卡。这是**只读**任务：只读需求和代码，不改任何文件、不建分支、不提交；改文件的工具会被守卫直接拒绝。`,
@@ -59,7 +61,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     `这个项目的用例从哪来：${p.extra["用例"] ?? NO_CASES}`,
     "",
     "怎么做：",
-    "1. 读需求：PRD 是飞书文档就用 lark-doc skill 读，其他网页用 friday_web_read（长文按返回的 offset 接着读）。读不到的写进 plan 里「要你拍板」那段，不要猜。",
+    "1. 读需求：PRD 是飞书文档用 tool_call lark read，其他网页用 friday_web_read；两者长文都分段返回，按结尾给的 offset 接着读到「读完了」。读不到的写进 plan 里「要你拍板」那段，不要猜。",
     "2. 在仓库里 grep 定位要改哪里（页面、组件、接口、路由），方案落到具体文件。",
     "3. 用例：按上面「用例从哪来」导出；没有现成的就自己写，覆盖 golden path、边界、回归，至少一条。",
     isDefect(t) ? DEFECT_RULE : undefined,
@@ -76,6 +78,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     isDefect(t) ? undefined : "- size：small | large；sizeWhy：一句话依据",
     "- features：涉及的知识库功能 id",
     "friday_brief 回错就照错误改了再调。成功后直接退出：不写报告文件、不调 friday_done，也不要问用户问题——没人在终端前。",
+    tools ? `\n【这个项目常用的外部工具】\n${tools}` : undefined,
     UNTRUSTED_NOTE,
   ]
     .filter((l) => l !== undefined)

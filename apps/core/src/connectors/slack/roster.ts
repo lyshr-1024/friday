@@ -1,6 +1,6 @@
 import type { InboxKind, PriorLine } from "@friday/shared";
-import { getCursor, listInbox } from "./inbox.js";
-import { readMemoryFile } from "./files.js";
+import { getCursor, listInbox } from "../../memory/inbox.js";
+import { readMemoryFile } from "../../memory/files.js";
 
 /**
  * 搜索接口给的是账号名（jiacheng.zhou），而收件箱里存的是显示名（佳成 (Zhou Jiacheng)）。
