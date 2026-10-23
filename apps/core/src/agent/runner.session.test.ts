@@ -53,6 +53,14 @@ describe("两段式启动脚本", () => {
     expect(work).not.toMatch(/ -p /);
   });
 
+  it("准备段是 Friday 驾驶的 -p：带 --strict-mcp-config，不加载用户全局的 MCP", () => {
+    for (const kind of ["autonomous", "interactive"] as const) {
+      const s = buildSessionScript({ id: "j", repoDir: "/r/app", task: "修 bug", kind, project: "app" }, "/bin/claude", 7788, files, prep);
+      const prepLine = s.split("\n").find((l) => l.includes("--model sonnet") && l.includes(prep))!;
+      expect(prepLine).toContain("--strict-mcp-config");
+    }
+  });
+
   it("接回：带 --resume，接不上就新开；追加写日志；带上要说的话", () => {
     const [pipe, cmd] = workCommand({ id: "j", repoDir: "/r/app", kind: "interactive", resumeSessionId: "sess-1", task: "顺带改一下" }, "/bin/claude", 7788, files);
     expect(pipe).toContain("cat >>");

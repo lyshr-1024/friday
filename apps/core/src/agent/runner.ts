@@ -339,7 +339,8 @@ export function buildSessionScript(req: SessionLaunch, claudePath: string, port:
       ? []
       : [
           `rm -f ${wt}`,
-          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }, req.existingBranch))}`,
+          // 准备段同样是 Friday 驾驶、跳过权限的 -p，不加 strict 会把用户全局的 MCP（含 coral 的 deployApi）带进来
+          `${shellQuote(claudePath)} -p --model sonnet --dangerously-skip-permissions --strict-mcp-config --settings ${shellQuote(prepSettings ?? "")} ${shellQuote(prepPrompt(req.id, req.repoDir, req.baseBranch, { title: req.title, description: req.description }, req.existingBranch))}`,
           `if [ ! -s ${wt} ]; then`,
           `  curl -s -m 3 -X POST ${api("exit")} -H 'content-type: application/json' -d '{"code":2,"phase":"prepare"}' >/dev/null 2>&1`,
           "  exec /bin/zsh -il",
