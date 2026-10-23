@@ -3,14 +3,14 @@ import { closeSessionTerminal, closeTaskTerminal } from "./terminal.js";
 import { finishBootstrap } from "./knowledgeBootstrap.js";
 import { finishBriefJob, rejectBrief, withoutApprove } from "./briefJob.js";
 import { briefBasis } from "./brief.js";
-import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync, commitsSinceSync, forkedFromSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
 import { briefable, isQueryTask } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
-import { resolveProject } from "../memory/projects.js";
+import { protectedBranches, resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
@@ -258,7 +258,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   // 合并要在主仓做，不能在 worktree 里（分支正被它检出着，merge 不了）
   const repo = task.source.repoDir || job.dir;
   const ahead = branch ? (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) : 0;
-  if (report && branch && branch !== "main" && branch !== "master" && ahead > 0 && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
+  const forkedFrom = ahead > 0 ? forkedFromSync(task.source.worktree ?? job.dir, protectedBranches(task.project)) : undefined;
+  if (report && branch && branch !== "main" && branch !== "master" && ahead > 0 && !forkedFrom && !(task.pending ?? []).some((p) => p.type === "git_merge")) {
     task = addPending(task.id, { type: "git_merge", label: `合并 ${branch}`, detail: `把 ${branch} 合并进主分支（不 push）`, payload: { dir: repo, branch, worktree: task.source.worktree ?? "" } })!;
   }
   if (task.status === "review" || task.status === "done") reportBackToOrigin(task);

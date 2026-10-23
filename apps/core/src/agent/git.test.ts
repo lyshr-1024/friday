@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { diffStatSync, gitInspect, parseNumstat, worktreeDirt } from "./git.js";
+import { diffStatSync, forkedFromSync, gitInspect, parseNumstat, worktreeDirt } from "./git.js";
 
 function sh(dir: string, ...args: string[]) {
   return execFileSync("git", ["-C", dir, ...args], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString();
@@ -90,5 +90,36 @@ describe("逐文件增删（numstat）", () => {
       diffFiles: [{ path: "a.txt", insertions: 2, deletions: 1 }, { path: "b.bin", insertions: 0, deletions: 0 }],
       diffBase: "master",
     });
+  });
+});
+
+describe("分支从哪条保护分支切出来", () => {
+  function repo() {
+    const dir = mkdtempSync(join(tmpdir(), "friday-fork-"));
+    sh(dir, "init", "-q", "-b", "master");
+    writeFileSync(join(dir, "a.txt"), "1\n");
+    sh(dir, "add", "."); sh(dir, "commit", "-qm", "init");
+    sh(dir, "checkout", "-qb", "sit");
+    writeFileSync(join(dir, "sit.txt"), "only on sit\n");
+    sh(dir, "add", "."); sh(dir, "commit", "-qm", "sit only");
+    return dir;
+  }
+  const commit = (dir: string, f: string) => {
+    writeFileSync(join(dir, f), "x\n");
+    sh(dir, "add", "."); sh(dir, "commit", "-qm", f);
+  };
+
+  it("从 sit 切出来的分支带着主干没有的提交：认成 sit", () => {
+    const dir = repo();
+    sh(dir, "checkout", "-qb", "fix/a", "sit");
+    commit(dir, "fix.txt");
+    expect(forkedFromSync(dir, ["master", "sit", "release/*"])).toBe("sit");
+  });
+
+  it("从主干切出来的分支：不误报，哪怕 sit 比主干多提交", () => {
+    const dir = repo();
+    sh(dir, "checkout", "-qb", "feat/b", "master");
+    commit(dir, "feat.txt");
+    expect(forkedFromSync(dir, ["master", "sit"])).toBeUndefined();
   });
 });

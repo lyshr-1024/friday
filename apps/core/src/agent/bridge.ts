@@ -14,7 +14,7 @@ import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
 import { say } from "./terminal.js";
-import { commitsAheadSync, currentBranchSync, defaultBranchSync } from "./git.js";
+import { commitsAheadSync, currentBranchSync, defaultBranchSync, forkedFromSync } from "./git.js";
 import { pushVerdict, type PushVerdict } from "./guard.js";
 import { finishTask } from "./pipeline.js";
 import { replyLanguageLine } from "./lang.js";
@@ -470,7 +470,10 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     if (prev?.endedAt) startRound(jobId, task.id, job.project, "followup", prev.endedAt);
     closeRun(jobId, "report");
     // 空分支不挂合并：Claude 没改代码（比如发现改错仓库）时分支上一个提交都没有，合进去什么也没有
-    const onFeatureBranch = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;
+    const ahead = Boolean(branch) && branch !== "main" && branch !== "master" && (commitsAheadSync(task.source.worktree ?? job.dir) ?? 0) > 0;
+    // 从 sit 这类环境分支切出来的，合进主干会把那条分支上还没发的东西一起带进去：只在 MR 里合
+    const forkedFrom = ahead ? forkedFromSync(task.source.worktree ?? job.dir, protectedBranches(job.project)) : undefined;
+    const onFeatureBranch = ahead && !forkedFrom;
     // 合并待审原来只在 onJobExit 解析 report.md 时挂；走 friday_done 交付的 onJobExit 会提前返回，
     // 于是自主任务第一次跑通（2026-09-28）review 里就没有「合并」可点。合并要在主仓做，不能在 worktree 里。
     if (onFeatureBranch && !(t.pending ?? []).some((p) => p.type === "git_merge")) {
@@ -483,7 +486,7 @@ export async function callBridge(jobId: string, name: string, args: Record<strin
     }
     record({ taskId: t.id, action: "terminal_done", why: "终端里的 Claude Code 报告任务完成", how: "friday_done 交付报告", evidence: { jobId, summary: report.summary, testResult: report.testResult, branch }, risk: "read" });
     notify(t, job, "做完了，等你验收", report.summary);
-    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
+    return { text: `已交付，用户会收到验收提醒。${onFeatureBranch ? `分支 ${branch} 留着不动，用户在 MR 里验收。` : forkedFrom ? `分支 ${branch} 是从 ${forkedFrom} 切出来的，不挂合并进主分支，用户在 MR 里验收。` : ""}停在这里等：用户可能在这个终端里追问，Friday 也可能把打回原因敲进来，接着改完再调一次 friday_done。${lang()}` };
   }
 
   if (name === "friday_finish") {

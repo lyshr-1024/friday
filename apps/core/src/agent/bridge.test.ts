@@ -133,6 +133,24 @@ describe("终端 → Friday 的 MCP 桥", () => {
     expect(getTask(task.id)!.pending ?? []).toEqual([]);
   });
 
+  it("分支从 sit 切出来：不挂「合并进主分支」，合进去会把 sit 上的东西一起带进主干", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@x", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@x" } });
+    git("init", "-q", "-b", "master");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("switch", "-q", "-c", "sit");
+    git("commit", "-q", "--allow-empty", "-m", "sit only");
+    git("switch", "-q", "-c", "fix/cattle-sit-bugs");
+    git("commit", "-q", "--allow-empty", "-m", "fix");
+    createJob({ id: "job-mcp-sit", project: "demo", dir: repo, task: "自主改", logPath: "/tmp/x.log" });
+    const task = createTask({ title: "demo：sit 上修", kind: "code", source: { jobId: "job-mcp-sit", autonomous: true, repoDir: repo, worktree: repo }, project: "demo", status: "processing", plan: "改" });
+    const res = (await (await rpc("job-mcp-sit", "tools/call", { name: "friday_done", arguments: { summary: "改完了", testResult: "通过" } })).json()) as { result: { content: Array<{ text: string }> } };
+    const t = getTask(task.id)!;
+    expect(t.status).toBe("review");
+    expect(t.pending ?? []).toEqual([]);
+    expect(res.result.content[0]!.text).toContain("从 sit 切出来");
+  });
+
   it("自主任务停在主干上（没建分支）就不挂合并动作，免得挂个假的", async () => {
     const repo = mkdtempSync(join(tmpdir(), "friday-repo-"));
     execFileSync("git", ["-C", repo, "init", "-q", "-b", "main"]);

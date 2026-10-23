@@ -73,6 +73,24 @@ export function commitsAheadSync(dir: string): number | undefined {
   return n === undefined ? undefined : Number(n);
 }
 
+/**
+ * 当前分支是不是从主干以外的保护分支（sit / uat …）切出来的：它带着那条分支上主干没有的提交，
+ * 合进主干会把这些一起带进去。返回那条分支的名字；从主干切的、或认不出主干返回 undefined。不 fetch
+ */
+export function forkedFromSync(dir: string, candidates: string[]): string | undefined {
+  const ref = (b: string) => [`origin/${b}`, b].find((r) => gitSync(dir, ["rev-parse", "--verify", "-q", r]) !== undefined);
+  const trunkName = [defaultBranchSync(dir), "main", "master"].find((b) => b && ref(b));
+  if (!trunkName) return undefined;
+  const trunk = ref(trunkName)!;
+  for (const name of candidates) {
+    if (name.includes("*") || name === trunkName || name === "main" || name === "master") continue;
+    const r = ref(name);
+    const base = r && gitSync(dir, ["merge-base", "HEAD", r]);
+    if (base && Number(gitSync(dir, ["rev-list", "--count", `${trunk}..${base}`]) ?? 0) > 0) return name;
+  }
+  return undefined;
+}
+
 /** 这个提交是不是已经在主干里（本地 main / master，或上次 fetch 下来的 origin/*）。不 fetch：收工时不该等网络 */
 export function isMergedSync(dir: string, sha: string): boolean {
   return ["main", "master", "origin/main", "origin/master"].some((ref) => gitSync(dir, ["merge-base", "--is-ancestor", sha, ref]) !== undefined);
