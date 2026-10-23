@@ -20,7 +20,7 @@ import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "
 import { syncMeegleOnce } from "./meegle.js";
 import { state } from "../scheduler/index.js";
 import { startTask } from "./taskStart.js";
-import { autostartTick, runningAutonomous, testingStoryBug } from "./autostart.js";
+import { autostartTick, runningAutonomous, defectRoute } from "./autostart.js";
 import { needOf } from "./needs.js";
 import { AUTOSTART_SETTLE_MS } from "./brief.js";
 import { addTestWorktree, mainRepo } from "./testRepos.js";
@@ -433,9 +433,12 @@ describe("测试阶段缺陷交代进需求会话", () => {
     expect(launched).toEqual([]);
     expect(getTask(bug.id)!.source.rootId).toBe(root.id);
     expect(openRunForTask(bug.id)).toMatchObject({ trigger: "retry" });
+    // 需求会话没了：缺陷不单独开工，马上开一张修复卡
     updateTermSession(root.id, { status: "closed" });
     const bug2 = mk(2);
-    expect(await startTask(getTask(bug2.id)!)).toMatchObject({ status: 409, error: "需求会话已不在，先给需求开终端" });
+    expect("task" in (await startTask(getTask(bug2.id)!))).toBe(true);
+    const card = getTask(getTask(bug2.id)!.source.rootId!)!;
+    expect(card.source.fixFor).toBe(root.id);
   });
 
   it("交代过的缺陷还在处理中：开工 409；交付后再点开工 = 重新交代进需求会话", async () => {
@@ -460,7 +463,7 @@ describe("测试阶段缺陷交代进需求会话", () => {
     updateTask(bug.id, { status: "ignored" });
   });
 
-  it("autostartTick：需求在测试中就接，不看 intake；同一需求第二条等前一条", async () => {
+  it("autostartTick：需求有会话就接，不看 intake；同一需求的几条一组交", async () => {
     for (const j of runningJobs()) finishJob(j.id, 0);
     updateSettings({ autonomous: true });
     const { root, bug: mk } = await testingStory("sbtick");
@@ -468,12 +471,9 @@ describe("测试阶段缺陷交代进需求会话", () => {
     const a = updateTask(mk(1).id, { source: { intake } })!;
     const b = updateTask(mk(2).id, { source: { intake } })!;
     calls = [];
-    expect(await autostartTick()).toBe(1);
-    const handed = [a, b].filter((t) => getTask(t.id)!.source.handedAt);
-    expect(handed).toHaveLength(1);
-    const other = [a, b].find((t) => !getTask(t.id)!.source.handedAt)!;
-    expect(testingStoryBug(getTask(other.id)!)).toBe("等前一条修完");
-    expect(getTask(handed[0]!.id)!.source.rootId).toBe(root.id);
+    expect(await autostartTick()).toBe(2);
+    for (const t of [a, b]) expect(getTask(t.id)!.source).toMatchObject({ rootId: root.id, handedAt: expect.any(String) });
+    expect(typed().filter((x) => x.includes(a.id.slice(0, 8)) && x.includes(b.id.slice(0, 8)))).toHaveLength(1);
     updateSettings({ autonomous: false });
   });
 });
@@ -494,7 +494,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     expect(after.source.jobId).toBeUndefined();
     expect(after.source.autonomous).toBeUndefined();
     expect(after.source.handBackNote).toBe("测试在 Meegle 里把它 Reopen 了（Reopened），上一轮的修法没过");
-    expect(testingStoryBug(after)).toMatchObject({ root: { id: root.id } });
+    expect(defectRoute(after)).toMatchObject({ kind: "hand", unit: { id: root.id } });
     idle(root.id);
     calls = [];
     expect(await handToStorySession(after, getTask(root.id)!)).toBe("handed");
@@ -536,7 +536,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     expect(after.source.handedAt).toBeUndefined();
     expect(after.source.jobId).toBeUndefined();
     expect(after.source.handBackNote).toBe("你在 Friday 里重新打开了它");
-    expect(testingStoryBug(after)).toMatchObject({ root: { id: root.id } });
+    expect(defectRoute(after)).toMatchObject({ kind: "hand", unit: { id: root.id } });
     updateTask(bug.id, { status: "ignored" });
   });
 
@@ -573,7 +573,7 @@ describe("测试阶段缺陷交代：收尾补齐", () => {
     expect(await handToStorySession(a, root)).toBe("handed");
     updateTask(root.id, { attention: "question" });
     const b = mk(2);
-    expect(await startTask(getTask(b.id)!)).toMatchObject({ status: 409, error: "需求终端在等你回答它的问题，答完再交" });
+    expect(await startTask(getTask(b.id)!)).toMatchObject({ status: 409, error: "终端在等你回答它的问题，答完再交" });
     rejectTask(a.id, "没修好");
     await vi.waitFor(() => expect(getTask(a.id)!.status).toBe("blocked"));
     expect(getTask(a.id)!.progress).toBe("打回了，但需求终端在等你回答，没能重交，答完点「开工」");

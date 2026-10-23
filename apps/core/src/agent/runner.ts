@@ -47,22 +47,31 @@ export function autonomousPrompt(id: string, task: string, project: string): str
 }
 
 /** 需求提测后拉出来的缺陷：在需求会话里接着改，分支和环境都沿用，验证与发布按项目自己的流程。 */
-export function storyBugPrompt(task: Task, root: Task, project: string, rejected?: string): string {
-  const id = task.id.slice(0, 8);
+export function storyBugPrompt(tasks: Task | Task[], root: Task, project: string, rejected?: string): string {
+  const group = Array.isArray(tasks) ? tasks : [tasks];
   const handbook = handbookBlock(project);
-  const body = [`工单号：${task.source.meegleId ?? "无"}`, `标题：${task.title}`, task.understanding, task.source.intake?.detail].filter(Boolean).join("\n");
+  const one = group.length === 1;
+  const ids = group.map((t) => t.id.slice(0, 8));
+  const body = group.map((t) => [`taskId：${t.id.slice(0, 8)}`, `工单号：${t.source.meegleId ?? "无"}`, `标题：${t.title}`, t.understanding, t.source.intake?.detail].filter(Boolean).join("\n")).join("\n\n");
+  // 测试中的需求、修复卡：缺陷在测试环境上提的，修完要发回去；需求还在开发就只提交推送
+  const deploy = root.stage === "testing" || Boolean(root.source.fixFor);
   return [
     ...(rejected ? [`上一轮被打回：${rejected}`, ""] : []),
-    `这是需求「${root.title}」提测后拉出来的缺陷，Friday 任务 id ${id}。你在项目 ${project} 里这条需求自己的会话和分支上接着改。`,
+    one
+      ? `这是「${root.title}」名下的一条缺陷，Friday 任务 id ${ids[0]}。你在项目 ${project} 里这条${root.source.fixFor ? "修复卡" : "需求"}自己的会话和分支上接着改。`
+      : `这是「${root.title}」名下的 ${group.length} 条缺陷（taskId ${ids.join("、")}），在项目 ${project} 里这条${root.source.fixFor ? "修复卡" : "需求"}自己的会话和分支上一起改。`,
     untrusted("task", body),
     "",
     "规矩：",
     "1. 就在当前分支上改，不另起分支，不建 MR。",
     "2. 改完按本项目的验证规则验（项目 skill、CLAUDE.md、handbooks/ 里的口径）；改到界面的，要用真浏览器打开页面截图。",
-    "3. 验完 commit，push 当前分支；再按本项目自己的发布流程发到这条需求正在联调的测试环境——你之前发过，照原来的目标发。",
-    "   发测试环境时把当前分支 merge 进测试环境分支是这次交代的一部分，不受「合并由用户在 Friday 里审核」那条限制——那条说的是合进主干。",
-    `4. 全部做完只调 friday_done，taskId 填 ${id}。不要调 friday_finish：那会把整条需求收工。`,
-    `5. 要用户定的事（方案、冲突、环境号不确定）调 friday_blocked，taskId 同样填 ${id}，不要猜。`,
+    deploy
+      ? "3. 验完 commit，push 当前分支；再按本项目自己的发布流程发到这些缺陷所在的测试环境——之前发过就照原来的目标发。\n   发测试环境时把当前分支 merge 进测试环境分支是这次交代的一部分，不受「合并由用户在 Friday 里审核」那条限制——那条说的是合进主干。"
+      : "3. 验完 commit，push 当前分支。需求还在开发，不用另外发测试环境。",
+    one
+      ? `4. 做完只调 friday_done，taskId 填 ${ids[0]}。不要调 friday_finish：那会把整条需求收工。`
+      : "4. 每条修完单独调一次 friday_done，taskId 填那条的 id；不要调 friday_finish：那会把整条需求收工。",
+    `5. 要用户定的事（方案、冲突、环境号不确定）调 friday_blocked，taskId 填那条缺陷的 id，不要猜；别的接着改。`,
     "6. 交付报告写明：commit sha、推到哪条分支、发到哪个环境、验证过程和结果。",
     ...(handbook ? ["", "下面是用户在这个项目里定过的口径，跟任务冲突时以任务为准，其余一律照做：", handbook] : []),
     UNTRUSTED_NOTE,

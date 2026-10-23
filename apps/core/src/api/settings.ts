@@ -3,7 +3,7 @@ import { z } from "zod";
 import { MODEL_OPTIONS, THEME_OPTIONS, type SettingsResponse } from "@friday/shared";
 import { config } from "../config.js";
 import { loadProjects } from "../memory/projects.js";
-import { updateSettings, userSettings } from "../settings.js";
+import { HHMM, updateSettings, userSettings } from "../settings.js";
 import { checkBackground } from "./background.js";
 
 export const settingsShape = {
@@ -20,6 +20,7 @@ export const settingsShape = {
   okrWeekly: z.boolean().optional(),
   autonomous: z.boolean().optional(),
   autonomousConcurrency: z.number().int().min(1).max(10).optional(),
+  defectBatchAt: z.string().regex(HHMM, "写成 HH:MM，比如 10:00").optional(),
   meegleDefects: z.boolean().optional(),
   summon: z.object({
     screenshotFallback: z.boolean().optional(),

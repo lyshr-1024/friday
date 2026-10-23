@@ -11,10 +11,11 @@ import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { protectedBranches, resolveProject } from "../memory/projects.js";
-import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
+import { addPending, createTask, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
 import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, storyBugPrompt } from "./runner.js";
+import { untrusted } from "./fence.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
 import { hasSession } from "./tmux.js";
 import { kickAutostart, state } from "../scheduler/index.js";
@@ -520,54 +521,117 @@ export async function executePending(
 }
 
 /** 需求在测试中：缺陷交代进需求自己的会话，Claude 空闲就敲进去、在干活就等，退出了就在需求自己的 Claude 会话上接回 */
-export async function handToStorySession(task: Task, root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "asking" | "no-session"> {
+export async function handToStorySession(tasks: Task | Task[], root: Task, opts: { rejected?: string; trigger?: RunTrigger } = {}): Promise<"handed" | "busy" | "asking" | "no-session"> {
+  const group = Array.isArray(tasks) ? tasks : [tasks];
   const trigger = opts.trigger ?? "autostart";
   const gone = (why: string) => {
-    record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
+    for (const task of group) record({ taskId: task.id, action: "story_session_gone", why, how: "这条缺陷没交代出去，卡片不动", evidence: { rootId: root.id }, risk: "read" });
     return "no-session" as const;
   };
   const s = getTermSession(root.id);
-  if (!s || s.status === "closed" || !s.worktree || !(await hasSession(s.tmuxName))) return gone(`需求「${root.title.slice(0, 24)}」的会话已不在`);
+  if (!s || s.status === "closed" || !s.worktree || !(await hasSession(s.tmuxName))) return gone(`「${root.title.slice(0, 24)}」的会话已不在`);
   const project = s.project;
-  const prompt = storyBugPrompt(task, root, project, opts.rejected ?? task.source.handBackNote);
+  const prompt = storyBugPrompt(group, root, project, opts.rejected ?? group.find((t) => t.source.handBackNote)?.source.handBackNote);
   const alive = s.status === "running" && !(await claudeGone(s));
   // 敲字带回车，会替你选中弹窗里高亮的那个选项
   if (alive && root.attention === "question") {
-    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求终端在等你回答，不往里敲`);
+    console.log(`[story-bug] ${root.title.slice(0, 40)}：终端在等你回答，不往里敲`);
     return "asking";
   }
   // 在一轮里就等它交付：敲进去它也只是排队，交付归属会乱
   if (alive && s.lastInputAt && (!s.lastStopAt || s.lastInputAt > s.lastStopAt)) {
-    console.log(`[story-bug] ${task.title.slice(0, 40)}：需求会话里的 Claude 正在干活，等这一轮交付`);
+    console.log(`[story-bug] ${root.title.slice(0, 40)}：会话里的 Claude 正在干活，等这一轮交付`);
     return "busy";
   }
   const job = s.jobId ? getJob(s.jobId) : undefined;
-  // 缺陷这一轮的成本从此刻需求会话的累计起算
+  // 缺陷这一轮的成本从此刻会话的累计起算
   const costBase = sessionCost(s.worktree, job?.claudeSessionId)?.costUsd;
   if (alive) {
-    if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("需求会话里敲不进去");
+    if ((await sayToSession(root.id, prompt)) === "no-terminal") return gone("会话里敲不进去");
   } else {
     // 你自己开的需求会话接回来是交互式：不带模型（继承你的默认）、不挂守卫，不能在里面无人值守地跑
     if (!root.source.autonomous) return gone("需求会话是你自己开的、Claude 已退出：先在需求终端里接回，Friday 不在你的会话里无人值守地跑");
-    if (!(await resumeInSession(root.id, prompt))) return gone("需求会话里接不回 Claude");
+    if (!(await resumeInSession(root.id, prompt))) return gone("会话里接不回 Claude");
   }
-  const run = { id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}` };
-  updateTask(task.id, {
-    status: "processing",
-    attention: undefined,
-    pending: withoutApprove(task),
-    progress: `在需求「${root.title.slice(0, 24)}」的会话里修`,
-    source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: undefined },
+  for (const task of group) {
+    updateTask(task.id, {
+      status: "processing",
+      attention: undefined,
+      pending: withoutApprove(task),
+      progress: `在「${root.title.slice(0, 24)}」的会话里${group.length > 1 ? `跟另外 ${group.length - 1} 条一起` : ""}修`,
+      source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), handBackNote: undefined, repoDir: s.repoDir, worktree: s.worktree, ...(s.branch ? { branch: s.branch } : {}), jobId: undefined },
+    });
+    createRun({ id: randomUUID(), jobId: `${s.jobId}#${task.id.slice(0, 8)}`, taskId: task.id, project, kind: "story_bug", trigger, ...(costBase !== undefined ? { costBase } : {}) });
+    record({
+      taskId: task.id,
+      action: trigger === "autostart" ? "autostart" : "retry",
+      why: trigger === "autostart" ? `缺陷挂在「${root.title.slice(0, 24)}」下，跟它${group.length > 1 ? `和同组 ${group.length - 1} 条` : ""}一起在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
+      how: alive ? "敲进会话" : "在会话上接回 Claude 再交代",
+      evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "resume", group: group.map((t) => t.id) },
+      risk: "reversible",
+    });
+  }
+  if (trigger === "autostart") state.notices.push({ title: `Friday 接手了 ${group.length} 条缺陷 · ${project}`, body: group.map((t) => t.title.slice(0, 60)).join("\n").slice(0, 200), taskId: group[0]!.id });
+  return "handed";
+}
+
+/** 需求没有会话（容器、或早收工了）：名下缺陷攒到一张修复卡上一起修 */
+export function createFixCard(story: Task, defects: Task[]): Task {
+  const order = { high: 0, normal: 1, low: 2 } as Record<string, number>;
+  const priority = defects.map((d) => d.priority).sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9))[0] ?? "normal";
+  const project = defects.find((d) => d.project)?.project ?? story.project;
+  const card = createTask({
+    title: `${story.title} · 修复`,
+    kind: "code",
+    status: "understood",
+    priority,
+    ...(project ? { project } : {}),
+    understanding: `「${story.title}」名下的缺陷攒在这张卡上，一组在同一条分支上修。`,
+    source: { fixFor: story.id },
   });
-  createRun({ ...run, taskId: task.id, project, kind: "story_bug", trigger, ...(costBase !== undefined ? { costBase } : {}) });
+  record({ taskId: card.id, action: "fix_card_created", why: `「${story.title.slice(0, 24)}」没有会话，名下缺陷不能单独开工`, how: `开修复卡，先放进 ${defects.length} 条`, evidence: { storyId: story.id, defects: defects.map((d) => d.id) }, risk: "reversible" });
+  return card;
+}
+
+export function fixCardDetail(card: Task, defects: Task[]): string {
+  const story = card.source.fixFor ? getTask(card.source.fixFor) : undefined;
+  const list = defects.map((d) => [`- taskId ${d.id.slice(0, 8)} · 工单 ${d.source.meegleId ?? "无"} · ${d.title}`, d.understanding ? `  ${d.understanding.replace(/\n/g, "\n  ")}` : ""].filter(Boolean).join("\n")).join("\n");
+  return [
+    `这是修复卡：「${story?.title ?? card.title}」名下 ${defects.length} 条缺陷，在同一条分支上一起修，不要一条一个分支。`,
+    "分支从哪条切、修完发到哪个环境，按项目自己的规则定：缺陷是在哪个测试环境提的，就从那个环境对应的分支切、修完发回那个环境。",
+    "每条修完单独调 friday_done，taskId 填那条缺陷的 id；某条要用户定的调 friday_blocked 带它的 taskId，别的接着修。",
+    `全部修完再调一次 friday_done，taskId 填 ${card.id.slice(0, 8)}，概要逐条写结果。`,
+    "缺陷：",
+    untrusted("defects", list),
+  ].join("\n");
+}
+
+/** 开修复卡（或修复卡会话没了重开）：卡由 Friday 驾驶，名下这组缺陷记成交代进它的会话 */
+export async function startFixCard(card: Task, defects: Task[], trigger: RunTrigger): Promise<Task> {
+  if (!card.project) throw new Error("修复卡没有项目，先定项目");
+  const r = resolveProject(card.project);
+  if (r.kind !== "match") throw new Error(`找不到项目 ${card.project}`);
+  const next = await startAutonomousJob(card, r.project.name, r.project.dir, fixCardDetail(card, defects), trigger);
+  if (next.status !== "processing" || !next.source.jobId) return next;
+  const at = new Date().toISOString();
+  for (const d of defects) {
+    updateTask(d.id, {
+      status: "processing",
+      attention: undefined,
+      pending: withoutApprove(d),
+      progress: `在「${card.title.slice(0, 24)}」里${defects.length > 1 ? `跟另外 ${defects.length - 1} 条一起` : ""}修`,
+      source: { rootId: card.id, autonomous: true, handedAt: at, handBackNote: undefined, jobId: undefined, repoDir: r.project.dir },
+    });
+    createRun({ id: randomUUID(), jobId: `${next.source.jobId}#${d.id.slice(0, 8)}`, taskId: d.id, project: r.project.name, kind: "story_bug", trigger });
+  }
   record({
-    taskId: task.id,
+    taskId: card.id,
     action: trigger === "autostart" ? "autostart" : "retry",
-    why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
-    how: alive ? "敲进需求的会话" : "在需求的会话上接回 Claude 再交代",
-    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "resume" },
+    why: trigger === "autostart" ? `每天定点修缺陷：「${card.title.slice(0, 24)}」攒了 ${defects.length} 条` : "你让修复卡开工",
+    how: `在 ${r.project.name} 上开修复卡，${defects.length} 条缺陷一个分支一起修`,
+    evidence: { defects: defects.map((d) => d.id), storyId: card.source.fixFor ?? null },
     risk: "reversible",
   });
-  if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
-  return "handed";
+  if (trigger === "autostart") state.notices.push({ title: `Friday 开始修 ${defects.length} 条缺陷 · ${r.project.name}`, body: card.title.slice(0, 120), taskId: card.id });
+  return getTask(card.id)!;
 }
