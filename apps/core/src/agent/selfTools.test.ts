@@ -482,7 +482,8 @@ describe("遗留 worktree 工具", () => {
     const { repo, tree } = repoWithWorktree();
     createTask({ title: "说明", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
     const out = await callIn(say("看看有哪些"), "worktree_remove", { path: tree });
-    expect(out).toContain(`要删 ${tree}（分支 feat/y）。删了撤不回。确认的话请用户单独回一句「删掉」`);
+    expect(out).toContain(`要删 ${tree}（分支 feat/y）。删了撤不回。问用户要不要删`);
+    expect(out).not.toContain("单独回一句");
     expect(existsSync(tree)).toBe(true);
   });
 
@@ -508,7 +509,7 @@ describe("遗留 worktree 工具", () => {
     await callIn(conv, "worktree_remove", { path: tree });
     addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
     const out = await callIn(conv, "worktree_remove", { path: tree });
-    expect(out).toContain("里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」");
+    expect(out).toContain("里面有没提交的改动，会一起丢：要用户明确说连改动一起删才删");
     expect(existsSync(tree)).toBe(true);
     addMessage(conv, { role: "user", kind: "ask", content: "连改动一起删掉" });
     await callIn(conv, "worktree_remove", { path: tree });
@@ -564,7 +565,7 @@ describe("遗留 worktree 工具", () => {
     const out = await callIn(conv, "worktree_remove", { path: dirty.tree });
     expect(existsSync(clean.tree)).toBe(false);
     expect(existsSync(dirty.tree)).toBe(true);
-    expect(out).toContain("确认请回「连改动一起删掉」");
+    expect(out).toContain("要用户明确说连改动一起删才删");
   });
 
   it("确认提示告诉模型已登记、下一句同意再调就会删", async () => {
@@ -602,7 +603,7 @@ describe("遗留 worktree 工具", () => {
     writeFileSync(join(tree, "late.txt"), "x\n");
     addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
     const out = await callIn(conv, "worktree_remove", { path: tree });
-    expect(out).toContain("确认请回「连改动一起删掉」");
+    expect(out).toContain("要用户明确说连改动一起删才删");
     expect(existsSync(tree)).toBe(true);
     addMessage(conv, { role: "user", kind: "ask", content: "连改动一起删掉" });
     await callIn(conv, "worktree_remove", { path: tree });

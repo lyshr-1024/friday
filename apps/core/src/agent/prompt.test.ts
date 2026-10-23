@@ -26,6 +26,12 @@ describe("系统提示", () => {
     expect(friday(undefined, false)).not.toContain("【刚才的对话】");
   });
 
+  it("要点头的事用正常的话问，不让用户背固定的词", () => {
+    const s = friday(undefined, false);
+    expect(s).toContain("绝不让他回某个固定的词");
+    expect(s).toContain("一句同意对这几条都有效");
+  });
+
   it("task_start 描述不再带 mode，路由段说明「收下」指批准", () => {
     const s = friday(undefined, false);
     expect(s).not.toContain("mode=interactive");

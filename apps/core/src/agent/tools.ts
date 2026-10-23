@@ -157,7 +157,7 @@ export const fridayToolList = (conversationId?: string) => [
     ),
     tool(
       "tool_call",
-      "调外部工具的一个操作，args 按 tool_describe 给的参数填。只读的直接返回结果；可逆的直接做并记账；不可逆的：用户句首点了 #N 就挂到那条任务上等他点头，没点名就先把返回的后果说明转告用户，等他单独回一句「执行」再用完全相同的参数调一次。",
+      "调外部工具的一个操作，args 按 tool_describe 给的参数填。只读的直接返回结果；可逆的直接做并记账；不可逆的：用户句首点了 #N 就挂到那条任务上等他点头；没点名就先调一次拿后果说明（这就算问过，同一批要做的几条同一轮都先调一遍），转告用户、问他要不要做，他下一句同意后再用完全相同的参数逐条调一次，一句同意对这一轮问过的都有效。不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。",
       {
         tool: z.string().min(1).max(80),
         op: z.string().min(1).max(80),
@@ -176,7 +176,7 @@ export const fridayToolList = (conversationId?: string) => [
         if (r.kind === "held") return text(heldText(task?.seq, name, op));
         if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能执行不可逆操作，等用户回来。");
         const gate = toolCallGate(conversationId, `${name}.${op}|${JSON.stringify(args)}`, EXECUTE);
-        if (!gate.ok) return text(`${r.summary}。确认请用户单独回一句「执行」，再用完全相同的参数调一次。`);
+        if (!gate.ok) return text(`${r.summary}。已登记为问过：转告用户、问他要不要做；他下一句同意后，再用完全相同的参数调一次。不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。`);
         const done = await invokeForModel({ kind: "user", why: "你在对话里同意执行", quote: gate.said }, name, op, args);
         return text(done.kind === "ok" ? done.text : done.kind === "refused" ? done.why : `没执行：${done.kind}`);
       },
@@ -588,7 +588,7 @@ export const fridayToolList = (conversationId?: string) => [
         }
         if (!consents(said, forms))
           return text(
-            `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
+            `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，正常问他要不要做，他明确同意后再调。不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。`,
           );
         if (action.type === "chat_reply") {
           const body = override?.trim() || String(action.payload.text ?? action.detail);

@@ -159,7 +159,7 @@ describe("会话里批准和打回", () => {
     const conv = t.source.conversationId!;
     say(conv, "assistant", "要发的是：\n\n明天上线\n\n说「发」我就发。");
     say(conv, "user", "语气再软一点");
-    expect(await callTool(conv, "task_approve", { text: "明天上线" })).toContain("「发」");
+    expect(await callTool(conv, "task_approve", { text: "明天上线" })).toContain("不执行");
     expect(slackPost).not.toHaveBeenCalled();
     expect(getTask(t.id)!.pending).toHaveLength(1);
   });
@@ -213,15 +213,15 @@ describe("会话里批准和打回", () => {
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "git_merge")).toBe(true);
   });
 
-  it("合并：你说「好的」不合，说「合并吧」才合", async () => {
+  it("合并：「好的我看下」不合，说「好的」也算同意（2026-10-23 用户定，不用背「合并吧」）", async () => {
     const repo = scratchRepo();
     const t = createTask({ title: "合并我", kind: "code", source: { autonomous: true, conversationId: createConversation().id }, status: "review" });
     addPending(t.id, { type: "git_merge", label: "合并 fix/y", detail: "", payload: { dir: repo, branch: "fix/y" } }, { keepStatus: true });
     const conv = t.source.conversationId!;
-    say(conv, "user", "好的");
-    expect(await callTool(conv, "task_approve", {})).toContain("合并");
+    say(conv, "user", "好的我看下");
+    expect(await callTool(conv, "task_approve", {})).toContain("不执行");
     expect(getTask(t.id)!.pending).toHaveLength(1);
-    say(conv, "user", "合并吧");
+    say(conv, "user", "好的");
     expect(await callTool(conv, "task_approve", {})).toContain("已执行");
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "git_merge")).toBe(true);
   });

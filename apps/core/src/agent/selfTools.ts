@@ -370,13 +370,13 @@ export const selfToolList = (conversationId?: string) => [
       const { id: sayId, prevId, text: said } = lastUserMessage(conversationId);
       const round = roundOf(conversationId);
       const prior = round.get(entry.path);
-      const ok = sayId !== null && prior?.after != null && prior.after === prevId && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
+      const ok = sayId !== null && prior?.after != null && prior.after === prevId && (entry.dirty ? consents(said, ["连改动一起删掉", "连改动一起删"], false) : consents(said, ["删掉", "删掉吧", "删"]));
       if (!ok) {
         round.set(entry.path, { after: sayId });
         return text(
           entry.dirty
-            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」${REGISTERED}`
-            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」${REGISTERED}`,
+            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢：要用户明确说连改动一起删才删，一句「好」「删掉」不够${REGISTERED}`
+            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。问用户要不要删，他下一句同意就删；不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。${REGISTERED}`,
         );
       }
       round.delete(entry.path);

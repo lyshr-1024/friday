@@ -57,7 +57,8 @@ describe("tool_describe / tool_call", () => {
     expect(runs.send).toBe(0);
     for (const s of [a, b]) {
       expect(s).toContain("撤不回");
-      expect(s).toContain("「执行」");
+      expect(s).toContain("已登记为问过");
+      expect(s).not.toContain("单独回一句");
     }
   });
 
@@ -68,7 +69,7 @@ describe("tool_describe / tool_call", () => {
     said(c, "执行");
     const out = await callIn(c, "tool_call", { tool: "tc-fake", op: "send", args: { a: 2 } });
     expect(runs.send).toBe(0);
-    expect(out).toContain("「执行」");
+    expect(out).toContain("已登记为问过");
   });
 
   it("两步同意：新的一句「执行」后执行", async () => {

@@ -242,7 +242,7 @@ export function toolAdminList(conversationId?: string) {
           const gate = confirmGate(conversationId, key, CONFIRM);
           if (!gate.ok) {
             const why = [confirm ? `启用 ${name}` : "", lowering ? "调低了操作的风险等级（调低后对应操作可直接执行）" : ""].filter(Boolean).join("，并");
-            return text(`要${why}，改完的清单：\n${manifest(next)}\n没定级的操作不能用。确认请用户单独回一句「确认」，再用完全相同的参数调一次。`);
+            return text(`要${why}，改完的清单：\n${manifest(next)}\n没定级的操作不能用。已登记为问过：转告用户、问他这样登记行不行，他下一句同意后再用完全相同的参数调一次。不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。`);
           }
           consented = true;
         }
@@ -269,7 +269,7 @@ export function toolAdminList(conversationId?: string) {
         if (!reg) return text(`没有登记 ${name}`);
         if (reg.transport === "builtin") return text("内置工具只能停用");
         const gate = removeGate(conversationId, `remove|${name}`, REMOVE);
-        if (!gate.ok) return text(`要删除工具 ${name}（${reg.ops.length} 个操作）。删后可在操作记录里撤销登记。确认请用户单独回一句「删掉」，再调一次。`);
+        if (!gate.ok) return text(`要删除工具 ${name}（${reg.ops.length} 个操作）。删后可在操作记录里撤销登记。已登记为问过：问用户要不要删，他下一句同意后再调一次。不要让用户回固定的词，他怎么说同意都行；带否定、条件或追问的不算。`);
         const before = removeTool(name);
         audit("tool_removed", conversationId, `删外部工具 ${name}`, `删除登记 ${name}`, name, before);
         return text(`已删除 ${name}（可在操作记录里撤销）。`);

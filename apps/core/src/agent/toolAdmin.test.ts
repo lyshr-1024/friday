@@ -58,11 +58,11 @@ describe("工具登记会话工具", () => {
     const c = createConversation().id;
     said(c, "接好了吧");
     const a = await callIn(c, "tool_update", { name: "ta-conf", confirm: true });
-    expect(a).toContain("「确认」");
+    expect(a).toContain("已登记为问过");
     expect(getTool("ta-conf")!.draft).toBe(true);
     const b = await callIn(c, "tool_update", { name: "ta-conf", confirm: true });
     expect(getTool("ta-conf")!.draft).toBe(true);
-    expect(b).toContain("「确认」");
+    expect(b).toContain("已登记为问过");
     said(c, "确认");
     await callIn(c, "tool_update", { name: "ta-conf", confirm: true });
     expect(getTool("ta-conf")).toMatchObject({ enabled: true, draft: false });
@@ -137,7 +137,7 @@ describe("工具登记会话工具", () => {
     await callIn(c, "tool_update", { name: "ta-bind", confirm: true });
     said(c, "确认");
     const out = await callIn(c, "tool_update", { name: "ta-bind", confirm: true, levels: { get_a: "irreversible" } });
-    expect(out).toContain("「确认」");
+    expect(out).toContain("已登记为问过");
     expect(getTool("ta-bind")!.draft).toBe(true);
   });
 
@@ -199,7 +199,7 @@ describe("工具登记会话工具", () => {
     await regTpl(["rm", "-rf", "/"]);
     said(c, "确认");
     const out = await callIn(c, "tool_update", { name: "ta-tpl", confirm: true });
-    expect(out).toContain("「确认」");
+    expect(out).toContain("已登记为问过");
     expect(getTool("ta-tpl")!.draft).toBe(true);
   });
 
