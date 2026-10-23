@@ -29,6 +29,8 @@ export interface AutostartEnv {
   root?: (t: Task) => Task | undefined;
   /** 任务根会话；缺省按 resolveRoot 找 */
   session?: (t: Task) => TermSession | undefined;
+  /** 缺陷路由用的环境：一次请求建一个，查过的需求和修复卡记着，不每条任务扫一遍全表 */
+  story?: StoryEnv;
 }
 
 export interface StoryEnv {
@@ -53,13 +55,23 @@ const openSessionOf = (id: string): TermSession | undefined => {
 
 const defaultSession = (t: Task): TermSession | undefined => getTermSession(resolveRoot(t).id);
 
-const defaultStoryEnv = (): StoryEnv => ({
-  story: storyOf,
-  fixCard: fixCardOf,
-  session: openSessionOf,
-  occupied: (id) => listTasks("processing").some((x) => x.source.rootId === id && x.source.handedAt),
-  batchAt: userSettings().defectBatchAt,
-});
+export function storyEnv(): StoryEnv {
+  const stories = new Map<string, Task | undefined>();
+  let cards: Task[] | undefined;
+  let busy: Set<string> | undefined;
+  return {
+    story: (t) => {
+      if (!stories.has(t.id)) stories.set(t.id, storyOf(t));
+      return stories.get(t.id);
+    },
+    fixCard: (story) => (cards ??= listTasks([...OPEN_STATUS], 2000).filter((x) => x.source.fixFor)).find((x) => x.source.fixFor === story.id),
+    session: openSessionOf,
+    occupied: (id) => (busy ??= new Set(listTasks("processing").filter((x) => x.source.handedAt && x.source.rootId).map((x) => x.source.rootId!))).has(id),
+    batchAt: userSettings().defectBatchAt,
+  };
+}
+
+const defaultStoryEnv = storyEnv;
 
 export type DefectRoute = { kind: "hand"; unit: Task } | { kind: "wait"; unit: Task; why: string; batch: boolean };
 
@@ -147,10 +159,11 @@ export function codeEligible(t: Task, root: (t: Task) => Task | undefined = stor
 }
 
 /** 卡片上那句「Friday 会自己开工」：开关开着、除了并发都满足才有，behind 是前面还在跑的自主任务数。 */
-export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }, storyEnv?: StoryEnv): AutostartPlan | undefined {
+export function autostartPlan(t: Task, env: AutostartEnv & { enabled: boolean }, routes?: StoryEnv): AutostartPlan | undefined {
   if (!env.enabled) return undefined;
-  if (yieldsToStory(t, env.root ?? storyEnv?.story)) {
-    const r = defectRoute(t, storyEnv);
+  const se = routes ?? env.story;
+  if (yieldsToStory(t, env.root ?? se?.story)) {
+    const r = defectRoute(t, se);
     if (typeof r === "string") return undefined;
     return { kind: "story", at: new Date(env.now).toISOString(), root: { id: r.unit.id, title: r.unit.title }, ...(r.kind === "wait" ? { waiting: r.why } : {}) };
   }
@@ -170,7 +183,7 @@ export function pickAutostart(tasks: Task[], env: AutostartEnv): Task[] {
 
 export function autostartEnv(now = Date.now()): AutostartEnv & { enabled: boolean } {
   const s = userSettings();
-  return { now, running: runningAutonomous(), max: s.autonomousConcurrency, enabled: s.autonomous };
+  return { now, running: runningAutonomous(), max: s.autonomousConcurrency, enabled: s.autonomous, story: storyEnv() };
 }
 
 export function runningAutonomous(): number {
