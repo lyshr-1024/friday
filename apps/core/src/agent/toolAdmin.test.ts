@@ -106,4 +106,53 @@ describe("工具登记会话工具", () => {
     expect(await callIn(conv, "tool_remove", { name: "ta-conf" })).toBe(msg);
     expect(getTool("ta-sch")).toBeUndefined();
   });
+
+  it("写操作名不能定成 read，即使同意过", async () => {
+    await reg("ta-low", [{ name: "deployApi", level: "irreversible" }]);
+    saveTool({ ...getTool("ta-low")!, draft: false, enabled: true });
+    const c = createConversation().id;
+    said(c, "确认");
+    for (let i = 0; i < 2; i++) expect(await callIn(c, "tool_update", { name: "ta-low", levels: { deployApi: "read" } })).toContain("不能定成 read");
+    expect(getTool("ta-low")!.ops[0]!.level).toBe("irreversible");
+  });
+
+  it("读名字的操作调低到 read 需同意，同意后 levelBy 为 user；调高不需要", async () => {
+    await reg("ta-low2", [{ name: "get_y", level: "irreversible" }]);
+    saveTool({ ...getTool("ta-low2")!, draft: false, enabled: true });
+    const c = createConversation().id;
+    said(c, "get_y 其实是只读的");
+    await callIn(c, "tool_update", { name: "ta-low2", levels: { get_y: "read" } });
+    expect(getTool("ta-low2")!.ops[0]!.level).toBe("irreversible");
+    said(c, "确认");
+    await callIn(c, "tool_update", { name: "ta-low2", levels: { get_y: "read" } });
+    expect(getTool("ta-low2")!.ops[0]).toMatchObject({ level: "read", levelBy: "user" });
+    await callIn(undefined, "tool_update", { name: "ta-low2", levels: { get_y: "irreversible" } });
+    expect(getTool("ta-low2")!.ops[0]!.level).toBe("irreversible");
+  });
+
+  it("confirm 同意绑定当时展示的内容：参数变了重问", async () => {
+    await reg("ta-bind", [{ name: "get_a", level: "read" }, { name: "get_b", level: "read" }]);
+    const c = createConversation().id;
+    said(c, "好");
+    await callIn(c, "tool_update", { name: "ta-bind", confirm: true });
+    said(c, "确认");
+    const out = await callIn(c, "tool_update", { name: "ta-bind", confirm: true, levels: { get_a: "irreversible" } });
+    expect(out).toContain("「确认」");
+    expect(getTool("ta-bind")!.draft).toBe(true);
+  });
+
+  it("tool_discover 拒绝奇怪的名字", async () => {
+    const t = fridayToolList(undefined).find((x) => x.name === "tool_discover")!;
+    const bad = ["a b", "x;rm", "$(id)"];
+    const { z } = await import("zod");
+    const schema = z.object(t.inputSchema as never);
+    for (const name of bad) expect(schema.safeParse({ name }).success).toBe(false);
+    expect(schema.safeParse({ name: "lark-cli" }).success).toBe(true);
+  });
+
+  it("草稿不能直接 enabled", async () => {
+    await reg("ta-en", [{ name: "get_x", level: "read" }]);
+    expect(await callIn(undefined, "tool_update", { name: "ta-en", enabled: true })).toContain("草稿");
+    expect(getTool("ta-en")).toMatchObject({ draft: true, enabled: false });
+  });
 });

@@ -1,4 +1,5 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, type Dirent } from "node:fs";
 import { homedir } from "node:os";
@@ -21,6 +22,9 @@ const confirmGate = consentGate();
 const removeGate = consentGate();
 const CONFIRM = ["确认", "登记吧", "就这样"];
 const REMOVE = ["删掉", "删掉吧"];
+const RANK: Record<string, number> = { read: 0, reversible: 1, irreversible: 2, null: 3 };
+const stable = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
 const READ_NAME = /^(get|list|index|describe|search|query|read|export|preview|has)/;
 
 const execOut = (cmd: string, args: string[]) =>
@@ -92,7 +96,7 @@ export function toolAdminList(conversationId?: string) {
     tool(
       "tool_discover",
       "用户说「接一下 X」时先调：查本机有没有叫 X 的 MCP、命令行、skill，带回操作清单或 --help，供你判断怎么登记。只读。",
-      { name: z.string().min(1).max(80) },
+      { name: z.string().min(1).max(80).regex(/^[\w.-]+$/, "name 只能是字母数字下划线点横线") },
       async ({ name }) => {
         const out: string[] = [];
         const hits = mcpServers().filter((s) => s.name === name || s.name.includes(name));
@@ -167,15 +171,13 @@ export function toolAdminList(conversationId?: string) {
         if (reg.transport === "builtin" && (confirm || refresh || levels)) return text("内置工具只能改 enabled / projects / scenario。");
         if (refresh && reg.transport !== "mcp_http" && reg.transport !== "mcp_stdio") return text("只有 MCP 工具能 refresh。");
         const lv = (levels ?? {}) as Record<string, unknown>;
+        const refusedRead: string[] = [];
         for (const [op, l] of Object.entries(lv)) {
           if (!reg.ops.some((o) => o.name === op)) return text(`${name} 里没有操作 ${op}`);
           if (l !== "read" && l !== "reversible" && l !== "irreversible") return text(`等级只能是 read / reversible / irreversible：${op}`);
         }
         if (confirm && !reg.draft) return text(`${name} 已经定稿了。`);
-        if (confirm) {
-          const gate = confirmGate(conversationId, `confirm|${name}`, CONFIRM);
-          if (!gate.ok) return text(`要启用 ${name}，当前清单：\n${manifest(reg)}\n没定级的操作不能用。确认请用户单独回一句「确认」，再用同样参数调一次。`);
-        }
+        if (enabled && reg.draft && !confirm) return text(`${name} 还是草稿，先让用户确认（confirm）再启用。`);
         let ops = reg.ops;
         const notes: string[] = [];
         if (refresh) {
@@ -194,22 +196,47 @@ export function toolAdminList(conversationId?: string) {
           ];
           notes.push(`刷新：去掉 ${gone.length} 个，新增 ${added.length} 个（新增的未定级，不能用）`);
         }
-        if (Object.keys(lv).length) {
-          ops = ops.map((o) => (o.name in lv ? { ...o, level: lv[o.name] as ToolLevel, levelBy: "user" as const } : o));
-          notes.push(`改等级：${Object.entries(lv).map(([k, v]) => `${k}→${String(v)}`).join("、")}`);
-        }
-        if (scenario !== undefined) notes.push("改了场景");
-        if (projects) notes.push("改了项目范围");
-        if (enabled !== undefined && !confirm) notes.push(enabled ? "启用" : "停用");
-        if (confirm) notes.push("定稿启用");
-        const saved = saveTool({
+        const changed = new Set<string>();
+        let lowering = false;
+        ops = ops.map((o) => {
+          if (!(o.name in lv)) return o;
+          let level = lv[o.name] as ToolLevel;
+          if (level === "read" && !READ_NAME.test(o.name)) {
+            refusedRead.push(o.name);
+            return o;
+          }
+          if (level === "reversible" && !o.undo) level = "irreversible";
+          if (level === o.level) return o;
+          changed.add(o.name);
+          if (RANK[level]! < RANK[String(o.level)]!) lowering = true;
+          return { ...o, level };
+        });
+        if (refusedRead.length) return text(`${refusedRead.join("、")} 的名字不像只读操作，不能定成 read。`);
+        const next = {
           ...reg,
           ops,
           scenario: scenario ?? reg.scenario,
           projects: projects ?? reg.projects,
           enabled: confirm ? true : (enabled ?? reg.enabled),
           draft: confirm ? false : reg.draft,
-        });
+        };
+        let consented = false;
+        if (confirm || lowering) {
+          const key = `update|${name}|${createHash("sha1").update(stable({ ops: next.ops.map((o) => [o.name, o.level]), enabled: next.enabled, draft: next.draft, scenario: next.scenario, projects: next.projects })).digest("hex")}`;
+          const gate = confirmGate(conversationId, key, CONFIRM);
+          if (!gate.ok) {
+            const why = [confirm ? `启用 ${name}` : "", lowering ? "调低了操作的风险等级（调低后对应操作可直接执行）" : ""].filter(Boolean).join("，并");
+            return text(`要${why}，改完的清单：\n${manifest(next)}\n没定级的操作不能用。确认请用户单独回一句「确认」，再用完全相同的参数调一次。`);
+          }
+          consented = true;
+        }
+        if (consented) next.ops = next.ops.map((o) => (changed.has(o.name) ? { ...o, levelBy: "user" as const } : o));
+        if (changed.size) notes.push(`改等级：${[...changed].map((k) => `${k}→${String(next.ops.find((o) => o.name === k)!.level)}`).join("、")}`);
+        if (scenario !== undefined) notes.push("改了场景");
+        if (projects) notes.push("改了项目范围");
+        if (enabled !== undefined && !confirm) notes.push(enabled ? "启用" : "停用");
+        if (confirm) notes.push("定稿启用");
+        const saved = saveTool(next);
         const summary = notes.join("；") || "无变化";
         audit("tool_updated", conversationId, `改外部工具 ${name}`, summary, name, reg);
         const demoted = saved.ops.filter((o) => lv[o.name] === "reversible" && o.level === "irreversible");
