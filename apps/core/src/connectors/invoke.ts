@@ -4,6 +4,7 @@ import { addPending, getTask } from "../memory/tasks.js";
 import { builtin, type OpResult } from "./builtin.js";
 import { fillTemplate, runCli } from "./cli.js";
 import { callTool } from "./mcp.js";
+import { callStdio } from "./mcpStdio.js";
 import { getTool } from "./registry.js";
 
 export type Caller =
@@ -57,7 +58,12 @@ async function execOp(reg: ToolRegistration, op: ToolOp, args: Record<string, un
     const out = await runCli(reg.connection, fillTemplate(op.template, args));
     return { text: out, value: parseJson(out) };
   }
-  throw new Error("stdio 还没接");
+  if (reg.transport === "mcp_stdio") {
+    const r = await callStdio(reg.connection, op.name, args);
+    if (r.isError) throw new Error(`${reg.name}.${op.name} 失败：${r.text.slice(0, 500)}`);
+    return { text: r.text, value: parseJson(r.text) };
+  }
+  throw new Error(`未知传输 ${reg.transport}`);
 }
 
 export async function invokeTool(caller: Caller, tool: string, opName: string, args: Record<string, unknown>): Promise<InvokeResult> {
