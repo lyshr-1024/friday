@@ -379,7 +379,8 @@ export interface TermSession {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-export type TaskKind = "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
+/** slack / meegle 是第二步迁移前的老值，读取时由 core 换成 conversation / work_item */
+export type TaskKind = "work_item" | "conversation" | "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   collected: "刚收进来",
@@ -452,7 +453,8 @@ export interface StageHint {
 export interface TaskDoc {
   url: string;
   title?: string;
-  from: "meegle" | "user";
+  /** meegle 是迁移前的老值，读取时换成 sync */
+  from: "sync" | "user" | "meegle";
   kind?: "link";
 }
 
@@ -464,7 +466,7 @@ export interface BriefDep {
   what: string;
   from?: string;
   status: "pending" | "ready";
-  evidence?: { url?: string; text?: string; at: string; source: "meegle" | "slack" | "user" };
+  evidence?: { url?: string; text?: string; at: string; source: "work_item" | "conversation" | "user" | "meegle" | "slack" };
 }
 
 /** Friday 对一条需求的书面理解：要做什么、要别人给什么、怎么验收、怎么发、怎么做。自主开工的前置闸 */
@@ -487,39 +489,83 @@ export interface Brief {
   features: string[];
 }
 
+/** 外部工具里的一个实体：工单或对话。业务代码只读核心字段，attrs 只有工具自己解释 */
+export interface ExternalRef {
+  tool: string;
+  type: "work_item" | "conversation";
+  id: string;
+  kind?: "story" | "defect" | "other";
+  state?: { key: string };
+  parent?: { id: string; name?: string };
+  schedule?: { frontend?: string; backend?: string };
+  tags?: string[];
+  author?: string;
+  attrs?: Record<string, string>;
+}
+
+export interface MergedItem {
+  id: string;
+  /** @deprecated 第二步迁移中 */
+  meegleId?: string;
+  title: string;
+  url?: string;
+  docs?: TaskDoc[];
+}
+
 export interface TaskSource {
+  external?: ExternalRef;
+  /**
+   * 合并进来的其它工单号（二期并进一期时）。同步认领工单要连它一起查，
+   * 否则被合掉那条下次同步会被当成新工单重新建出来。
+   */
+  mergedIds?: string[];
+  /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
+  container?: boolean;
+  /** 外部这条工单已到终态（值是状态名），手上的改动挂着「撤掉改动」等你定；同步不再拿它收工 */
+  closedExternally?: string;
   /** 最近一次进入 blocked 的时间，通知按它去重 */
   blockedAt?: string;
   /** 知识库冷启动的锚点卡，值是项目名 */
   knowledgeBootstrap?: string;
+  /** @deprecated 第二步迁移中 */
   threadId?: string;
   /** 这条任务对应的 Slack 对话键（channelId:ts） */
+  /** @deprecated 第二步迁移中 */
   conversation?: string;
   /** 这个 job 在后台跑，没有终端窗口；想看要点「打开终端看」 */
   headless?: boolean;
   /** 对话所在频道，回帖时用 */
+  /** @deprecated 第二步迁移中 */
   channelId?: string;
   /** 问问题的人 */
+  /** @deprecated 第二步迁移中 */
   userName?: string;
   /** 回在哪条 thread 下面 */
+  /** @deprecated 第二步迁移中 */
   threadTs?: string;
+  /** @deprecated 第二步迁移中 */
   meegleId?: string;
   /**
    * 合并进来的其它工单号（二期并进一期时）。同步认领工单要连它一起查，
    * 否则被合掉那条下次同步会被当成新工单重新建出来。
    */
+  /** @deprecated 第二步迁移中 */
   mergedMeegleIds?: string[];
   /**
    * 合并进来的那些需求：名字、链接、以及它自己的文档。被合掉的任务已经删了，
    * 不在这儿存一份，卡片上就只剩一串号码、文档也跟着丢了。
    */
-  merged?: Array<{ meegleId: string; title: string; url?: string; docs?: TaskDoc[] }>;
+  merged?: MergedItem[];
   /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
+  /** @deprecated 第二步迁移中 */
   meegleType?: string;
   /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
+  /** @deprecated 第二步迁移中 */
   linkedStoryId?: string;
+  /** @deprecated 第二步迁移中 */
   linkedStoryName?: string;
   /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
+  /** @deprecated 第二步迁移中 */
   storyContainer?: boolean;
   /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
   projectTerminal?: string;
@@ -528,19 +574,26 @@ export interface TaskSource {
   /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
   autoClosed?: boolean;
   /** Meegle 里这条缺陷已到终态（值是状态名），手上的改动挂着「撤掉改动」等你定；同步不再拿它收工 */
+  /** @deprecated 第二步迁移中 */
   meegleClosed?: string;
   /** Meegle 空间 key，流转状态要用 */
+  /** @deprecated 第二步迁移中 */
   meegleProject?: string;
   /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
+  /** @deprecated 第二步迁移中 */
   statusKey?: string;
   /** tags 字段的原始 label */
+  /** @deprecated 第二步迁移中 */
   meegleTags?: string[];
   /** 后台前端开发节点排期结束日 YYYY-MM-DD */
+  /** @deprecated 第二步迁移中 */
   feDue?: string;
   /** 服务端开发节点排期结束日 */
+  /** @deprecated 第二步迁移中 */
   beDue?: string;
   /** 从呼出模式建的任务 */
   summon?: boolean;
+  /** @deprecated 第二步迁移中 */
   reporter?: string;
   description?: string;
   /** 资料链接：Meegle 同步只增不删，手贴的随时可删 */
@@ -548,7 +601,9 @@ export interface TaskSource {
   /** 你删掉的资料（归一化后的 URL）：Meegle 同步不会再把它们加回来 */
   removedDocs?: string[];
   /** 当前节点的 node_key，节点流转要用 */
+  /** @deprecated 第二步迁移中 */
   nodeKey?: string;
+  /** @deprecated 第二步迁移中 */
   nodeName?: string;
   url?: string;
   note?: string;
@@ -619,7 +674,7 @@ export interface IntakeVerdict {
 }
 
 /** 关联图里的一个端点：四端各自的实体 */
-export type LinkKind = "task" | "meegle" | "thread" | "branch" | "url" | "project" | "slack" | "channel";
+export type LinkKind = "task" | "ext" | "meegle" | "thread" | "branch" | "url" | "project" | "slack" | "channel";
 
 /** 这条边是怎么来的。user 是你纠正过的，永远压过自动推断 */
 export type LinkSource = "user" | "rule" | "guess";
@@ -676,9 +731,13 @@ export const TAG_LABELS: Record<string, string> = {
 
 
 
-export type TaskCategory = "slack" | "defect" | "story" | "other";
+/** slack 是迁移前的老值 */
+export type TaskCategory = "conversation" | "slack" | "defect" | "story" | "other";
 
-export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
+export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { conversation: "Slack", slack: "Slack", defect: "缺陷", story: "需求", other: "其他" };
+
+export const workItemOf = (s: TaskSource): ExternalRef | undefined => (s.external?.type === "work_item" ? s.external : undefined);
+export const conversationOf = (s: TaskSource): ExternalRef | undefined => (s.external?.type === "conversation" ? s.external : undefined);
 
 /**
  * 是不是 Friday 自己接下的后台查询任务（只读查代码、产出回复草稿那种）。
@@ -686,16 +745,16 @@ export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { slack: "Slack
  * conversation 单独判断：HUD 手动建的任务也带 conversation，会被误判。
  */
 export function isQueryTask(source: TaskSource): boolean {
-  return Boolean(source.headless && source.conversation);
+  return Boolean(source.headless && (source.external?.type === "conversation" || source.conversation));
 }
 
 /** 为什么不能给这条任务建理解卡；能建回 undefined。只给要写代码的需求类、项目已定、还没开工也没收工的建 */
 export function briefRefusal(t: Task): string | undefined {
-  if (t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
+  if (t.kind !== "work_item" && t.kind !== "meegle" && t.kind !== "verbal" && t.kind !== "doc" && t.kind !== "code") return "这类任务不建理解卡，只给要写代码的需求建";
   if (!t.project) return "还没定项目，先定项目再建理解卡";
   if (isQueryTask(t.source)) return "后台查询任务不建理解卡";
   if (t.source.scheduleId) return "定时任务的卡不建理解卡";
-  if (t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
+  if (t.source.container || t.source.storyContainer) return "这是挂缺陷的需求容器，不是分派给你的，不建理解卡";
   if (t.source.jobId) return "已经开过工了，不建理解卡";
   if (t.status !== "collected" && t.status !== "understood") return "已经在处理或收工了，不建理解卡";
   if (t.stage !== undefined && t.stage !== "todo") return "已经过了「未开始」阶段，不建理解卡";
@@ -713,6 +772,8 @@ export function isFridayRun(source: TaskSource): boolean {
 export function taskCategory(source: TaskSource): TaskCategory {
   // Slack 来的没有 meegleType：线程本身靠 threadId 认，情境卡派生的待办靠 fromTaskId
   if (source.threadId || source.fromTaskId) return "slack";
+  const kind = workItemOf(source)?.kind;
+  if (kind) return kind;
   const t = source.meegleType;
   if (t === "story") return "story";
   if (t === "issue" || t === "defect" || t === "bug") return "defect";
@@ -803,7 +864,8 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "tool_call" | "custom";
+/** slack_reply / meegle_update 是迁移前的老值，读取时换成 chat_reply / custom */
+export type PendingActionType = "chat_reply" | "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "tool_call" | "custom";
 
 export type ToolTransport = "builtin" | "mcp_http" | "mcp_stdio" | "cli";
 export type ToolLevel = "read" | "reversible" | "irreversible";
@@ -1014,7 +1076,8 @@ export interface ProjectKnowledge {
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
 export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug" | "brief";
-export type RunTrigger = "retry" | "autostart" | "approve" | "slack" | "user" | "schedule" | "rejected" | "followup";
+/** slack 是迁移前的老值 */
+export type RunTrigger = "retry" | "autostart" | "approve" | "chat" | "slack" | "user" | "schedule" | "rejected" | "followup";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
 /** superseded：同一个会话后面又交了一轮，结局记在最后那一轮上 */

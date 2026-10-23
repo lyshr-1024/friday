@@ -144,7 +144,7 @@ export function Hud() {
     if (a.kind === "approve_pending") {
       setPendingAction(a);
       setConfirming(true);
-      setReplyText(a.pendingType === "slack_reply" ? (card?.reply ?? "") : "");
+      setReplyText(a.pendingType === "chat_reply" ? (card?.reply ?? "") : "");
       return;
     }
     if (a.kind === "slack_attach") {
@@ -199,7 +199,7 @@ export function Hud() {
       const res = await fetch(`${await coreBaseUrl()}/tasks/${a.taskId}/approve/${a.actionId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(a.pendingType === "slack_reply" ? { text: replyText } : {}),
+        body: JSON.stringify(a.pendingType === "chat_reply" ? { text: replyText } : {}),
       });
       if (!res.ok) throw new Error(`执行失败 ${res.status}`);
       setConfirming(false);
@@ -433,7 +433,7 @@ export function Hud() {
           <div className="hud__confirm-head">
             <span className="hud__confirm-hint mono">⌘↵ 就这么发 · Esc 取消</span>
           </div>
-          {pendingAction?.pendingType === "slack_reply" ? (
+          {pendingAction?.pendingType === "chat_reply" ? (
             <textarea
               className="hud__confirm-text"
               autoFocus
@@ -447,12 +447,12 @@ export function Hud() {
           <div className="hud__actions">
             <button
               className="b b--primary"
-              disabled={busy || (pendingAction?.pendingType === "slack_reply" && !replyText.trim())}
+              disabled={busy || (pendingAction?.pendingType === "chat_reply" && !replyText.trim())}
               onClick={() => {
                 if (pendingAction) void sendReply(pendingAction);
               }}
             >
-              {pendingAction?.pendingType === "slack_reply" ? "就这么发" : "执行"}
+              {pendingAction?.pendingType === "chat_reply" ? "就这么发" : "执行"}
               <kbd>⌘↵</kbd>
             </button>
             <button className="b b--text" onClick={() => { setConfirming(false); setPendingAction(null); }}>先不发</button>

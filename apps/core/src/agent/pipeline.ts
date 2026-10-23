@@ -221,7 +221,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
       progress: report ? "查完了，等你看" : `没查出结果（退出码 ${exitCode}）`,
       ...(report ? { report } : {}),
     })!;
-    if (draft && !(t.pending ?? []).some((p) => p.type === "slack_reply")) {
+    if (draft && !(t.pending ?? []).some((p) => p.type === "chat_reply" || p.type === "slack_reply")) {
       t = addPending(t.id, {
         type: "slack_reply",
         label: `回复 ${job.task.source.userName ?? "对方"}`,
@@ -287,7 +287,7 @@ export function reportBackToOrigin(done: Task): void {
   })!;
 
   const channel = origin.source.channelId;
-  const already = (next.pending ?? []).some((p) => p.type === "slack_reply");
+  const already = (next.pending ?? []).some((p) => p.type === "chat_reply" || p.type === "slack_reply");
   if (origin.source.conversation && channel && !already) {
     const reply = `${summary.slice(0, 500)}`;
     next = addPending(next.id, {
@@ -390,7 +390,7 @@ export async function executePending(
   if (!taken) throw new Error("待审核动作不存在");
   const { action } = taken;
   try {
-    if (action.type === "slack_reply") {
+    if (action.type === "chat_reply" || action.type === "slack_reply") {
       const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
       // 记账（slack_reply_sent、撤回用的 ts）由 slack 工具的 post 做
       await role("chat").post({ channel: p.channel, text: p.text, ...(p.threadTs ? { threadTs: p.threadTs } : {}) }, { kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id });

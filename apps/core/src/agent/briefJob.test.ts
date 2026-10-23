@@ -154,7 +154,7 @@ describe("建卡会话", () => {
     const after = getTask(t.id)!;
     expect(after.pending!.filter((p) => p.type === "brief_approve")).toHaveLength(1);
     expect(after.pending!.find((p) => p.type === "brief_approve")!.detail).not.toBe("旧的");
-    expect(after.pending!.some((p) => p.type === "slack_reply")).toBe(true);
+    expect(after.pending!.some((p) => p.type === "chat_reply")).toBe(true);
     expect(after.source.briefFailed).toBeUndefined();
     expect(after.plan).toContain("## 要做什么");
   });
@@ -457,7 +457,7 @@ describe("建卡队列", () => {
     await briefTick();
     const ta = getTask(a.id)!;
     expect(ta.source.brief).toBeUndefined();
-    expect(ta.pending?.map((p) => p.type)).toEqual(["slack_reply"]);
+    expect(ta.pending?.map((p) => p.type)).toEqual(["chat_reply"]);
     expect(getTask(b.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
     expect(getTask(c.id)!.source.brief).toMatchObject({ review: "pending" });
     expect(getTask(c.id)!.source.brief?.stale).toBeUndefined();

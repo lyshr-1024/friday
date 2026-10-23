@@ -48,7 +48,7 @@ const defaultStoryEnv: StoryEnv = {
 };
 
 export function testingStoryBug(t: Task, env: StoryEnv = defaultStoryEnv): { root: Task } | string {
-  if (t.status !== "understood" || t.kind !== "meegle") return "不在排队里";
+  if (t.status !== "understood" || (t.kind !== "work_item" && t.kind !== "meegle")) return "不在排队里";
   if (taskCategory(t.source) !== "defect") return "不是缺陷";
   if (t.source.jobId) return "已经有终端";
   if (t.stage && t.stage !== "todo") return `已经在${STAGE_LABEL[t.stage]}`;

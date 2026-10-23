@@ -55,7 +55,7 @@ describe("reportBackToOrigin", () => {
     });
     const created = createTask({ title: "查代码", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
     reportBackToOrigin(updateTask(created.id, { progress: "在 config/app.ts 里配" })!);
-    const reply = (getTask(origin.id)!.pending ?? []).find((p) => p.type === "slack_reply");
+    const reply = (getTask(origin.id)!.pending ?? []).find((p) => p.type === "chat_reply");
     expect(reply?.payload.channel).toBe("D1");
     expect(String(reply?.payload.text)).toContain("config/app.ts");
   });

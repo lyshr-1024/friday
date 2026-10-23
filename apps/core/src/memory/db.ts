@@ -135,6 +135,7 @@ export function migrate(d: DatabaseSync): void {
           WHERE status = 'review'
             AND pending LIKE '%"start_job"%'
             AND pending NOT LIKE '%"slack_reply"%'
+            AND pending NOT LIKE '%"chat_reply"%'
             AND pending NOT LIKE '%"git_merge"%'
             AND pending NOT LIKE '%"handbook_apply"%'`);
 

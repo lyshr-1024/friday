@@ -35,7 +35,7 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
 function consequence(a: PendingAction, conv?: SlackConversation): string | null {
-  if (a.type === "slack_reply") {
+  if (a.type === "chat_reply") {
     const who = String(a.payload.userName ?? "对方");
     const where = a.payload.threadTs
       ? `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`
@@ -762,7 +762,7 @@ export function Board({ view, nav, onQueueCounts, onFocusChange, runningConvs, r
                             <span className="an__t"><span className="mono an__seq">#{t.seq}</span> {guess && <span className="an__guess">Friday 推断</span>}{t.title}</span>
                             {guess ? (
                               <span className="an__sub">
-                                {t.kind === "slack" ? "Slack" : "任务"} · 还没进会话 ·{" "}
+                                {t.kind === "conversation" ? "Slack" : "任务"} · 还没进会话 ·{" "}
                                 <button className="an__act" onClick={(e) => { e.stopPropagation(); void act(t, () => taskRoot(t.id, true)); }}>是它，进会话</button>
                                 {" · "}
                                 <button className="an__act an__act--dim" onClick={(e) => { e.stopPropagation(); void act(t, () => taskRoot(t.id, false)); }}>不是这条</button>
@@ -1200,7 +1200,7 @@ function foldSummary(t: Task, defects: number): string {
 }
 
 /** 主对话里说哪句话执行：跟 tools.ts 的 APPROVAL 对齐，给最短的那句 */
-const SAY: Partial<Record<PendingAction["type"], string>> = { slack_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
+const SAY: Partial<Record<PendingAction["type"], string>> = { chat_reply: "发", git_merge: "合并吧", start_job: "开工", discard_changes: "撤掉", reproject: "撤掉", brief_approve: "按这个做", tool_call: "执行" };
 
 /** 挂着的外部工具调用：只撤这一条，不打回整条任务（打回会作废别的待审、把这一轮记成被打回） */
 function DismissToolCall({ t, a, onAct }: { t: Task; a: PendingAction; onAct: (t: Task, fn: () => Promise<unknown>) => Promise<void> }) {
@@ -1329,7 +1329,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
   const situation = isStory(t) ? "" : t.understanding || t.source.note || "";
   const convs = t.conversations ?? [];
   const convMsgs = convs.flatMap((c) => c.items);
-  const links = t.kind === "meegle" ? [] : [...new Set([...convMsgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
+  const links = t.kind === "work_item" ? [] : [...new Set([...convMsgs.flatMap((i) => extractUrls(i.text)), ...(t.source.url ? [t.source.url] : []), ...extractUrls(t.understanding ?? "")])];
   // Friday 自己问的那句单独占一块，别再当成「进展」重复一遍
   const asked = t.attention === "intake" && Boolean(t.progress);
   const rightHas = Boolean(r) || pending.length > 1 || links.length > 0;
@@ -1401,7 +1401,7 @@ function Focus({ t, all, onAct, onPick, onStartPack, packBusy, onLedger }: {
         <details className="fx__rel-list">
           <summary>
             {/* 名下挂着的可能是缺陷，也可能是 Slack 上聊这件事的线程 */}
-            <span>{childIssues.every((c) => c.kind === "slack") ? "相关的 Slack 讨论" : childIssues.some((c) => c.kind === "slack") ? "相关的缺陷与讨论" : "名下的缺陷"}</span>
+            <span>{childIssues.every((c) => c.kind === "conversation") ? "相关的 Slack 讨论" : childIssues.some((c) => c.kind === "conversation") ? "相关的缺陷与讨论" : "名下的缺陷"}</span>
             <span className="fx__rel-count">{childIssues.length} 条{openChildren > 0 ? `，${openChildren} 条未完` : "，都收工了"}</span>
           </summary>
           {onStartPack && startable.length > 0 && (

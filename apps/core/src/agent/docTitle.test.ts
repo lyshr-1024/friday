@@ -48,6 +48,6 @@ describe("资料链接", () => {
     expect(asked).toContain("https://a/none");
     expect(asked).not.toContain("https://a/has");
     expect(asked).not.toContain("https://a/done");
-    expect(getTask(t.id)!.source.docs).toEqual([{ url: "https://a/has", title: "已有", from: "user" }, { url: "https://a/none", title: "T:https://a/none", from: "meegle" }]);
+    expect(getTask(t.id)!.source.docs).toEqual([{ url: "https://a/has", title: "已有", from: "user" }, { url: "https://a/none", title: "T:https://a/none", from: "sync" }]);
   });
 });

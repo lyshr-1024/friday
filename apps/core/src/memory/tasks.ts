@@ -3,6 +3,7 @@ import type { DeliveryReport, PendingAction, Stage, StageBy, StageHint, Task, Ta
 import { db } from "./db.js";
 import { inferTaskLinks } from "./infer.js";
 import { publish } from "../bus.js";
+import { legacyMirror, migrateKind, migratePending, normalizeSource, syncSourcePatch } from "./externalRef.js";
 
 interface Row {
   id: string;
@@ -35,8 +36,8 @@ const toTask = (r: Row): Task => ({
   id: r.id,
   seq: r.seq,
   title: r.title,
-  kind: r.kind,
-  source: JSON.parse(r.source) as TaskSource,
+  kind: migrateKind(r.kind),
+  source: normalizeSource(JSON.parse(r.source) as Record<string, unknown>),
   ...(r.project ? { project: r.project } : {}),
   status: r.status,
   priority: r.priority,
@@ -44,7 +45,7 @@ const toTask = (r: Row): Task => ({
   ...(r.plan ? { plan: r.plan } : {}),
   ...(r.progress ? { progress: r.progress } : {}),
   ...(r.report ? { report: JSON.parse(r.report) as DeliveryReport } : {}),
-  ...(r.pending ? { pending: JSON.parse(r.pending) as PendingAction[] } : {}),
+  ...(r.pending ? { pending: migratePending(JSON.parse(r.pending) as PendingAction[]) } : {}),
   ...(r.due ? { due: r.due } : {}),
   ...(r.attention ? { attention: r.attention } : {}),
   ...(r.pinned ? { pinned: true } : {}),
@@ -87,7 +88,7 @@ export function createTask(input: {
 }): Task {
   const id = randomUUID();
   const t = now();
-  const source = input.source;
+  const source = legacyMirror(normalizeSource(input.source as Record<string, unknown>));
   db()
     .prepare(
       "INSERT INTO tasks (id, seq, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -109,7 +110,7 @@ export function findTaskBySource(pred: (s: TaskSource) => boolean, includeClosed
   const rows = db()
     .prepare(includeClosed ? "SELECT * FROM tasks ORDER BY updated_at DESC" : "SELECT * FROM tasks WHERE status NOT IN ('done', 'ignored') ORDER BY updated_at DESC")
     .all() as unknown as Row[];
-  const r = rows.find((row) => pred(JSON.parse(row.source) as TaskSource));
+  const r = rows.find((row) => pred(normalizeSource(JSON.parse(row.source) as Record<string, unknown>)));
   return r ? toTask(r) : undefined;
 }
 
@@ -125,7 +126,7 @@ export function updateTask(
 ): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
-  const next = { ...cur, ...patch, source: { ...cur.source, ...(patch.source ?? {}) } };
+  const next = { ...cur, ...patch, source: syncSourcePatch(cur.source, patch.source ?? {}) };
   if (cur.status !== "blocked" && next.status === "blocked") next.source.blockedAt = now();
   db()
     .prepare(

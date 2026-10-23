@@ -154,6 +154,20 @@ describe("Slack 没接入要说出来", () => {
   });
 });
 
+describe("只有老键的行读出来是新形状", () => {
+  it("GET /tasks 对迁移前的行返回 external 与 work_item", async () => {
+    const { db } = await import("../memory/db.js");
+    const at = new Date().toISOString();
+    db()
+      .prepare("INSERT INTO tasks (id, seq, title, kind, source, status, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("legacy-row-1", 90001, "老缺陷", "meegle", JSON.stringify({ meegleId: "24499999", meegleType: "issue", statusKey: "OPEN" }), "understood", "normal", at, at);
+    const board = (await (await app.request("/tasks")).json()) as TaskBoard;
+    const t = board.tasks.find((x) => x.id === "legacy-row-1")!;
+    expect(t.kind).toBe("work_item");
+    expect(t.source.external).toMatchObject({ tool: "meegle", type: "work_item", id: "24499999", kind: "defect", state: { key: "OPEN" } });
+  });
+});
+
 let seq = 0;
 describe("Friday 推断的归属", () => {
   const R = mainRepo("rootproj");

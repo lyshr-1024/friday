@@ -18,7 +18,7 @@ export async function settleQueryTasks(): Promise<number> {
   for (const t of listTasks([...OPEN], 200)) {
     const conv = t.source.conversation;
     if (!conv || !settled.has(conv) || !isQueryTask(t.source)) continue;
-    for (const p of t.pending ?? []) if (p.type === "slack_reply") removePending(t.id, p.id);
+    for (const p of t.pending ?? []) if (p.type === "chat_reply" || p.type === "slack_reply") removePending(t.id, p.id);
     updateTask(t.id, { progress: "你自己在 Slack 里回了" });
     await finishTask(t.id, "done", "你自己在 Slack 里回了");
     record({

@@ -322,7 +322,7 @@ export async function syncMeegleOnce(items?: WorkItemsRole): Promise<{ added: nu
     const live = new Set(mine.map((it) => it.id));
     let closed = 0;
     for (const t of listTasks(UNFINISHED, 500)) {
-      if (t.kind !== "meegle" || !t.source.meegleId || live.has(t.source.meegleId)) continue;
+      if ((t.kind !== "work_item" && t.kind !== "meegle") || !t.source.meegleId || live.has(t.source.meegleId)) continue;
       // 已经挂着「撤掉改动」等你定，别每轮再问一次 Meegle、再挂一条
       if (t.source.meegleClosed) continue;
       // 关了缺陷拉取就不知道它还在不在分派列表里，不能当作「不再分派给你」收掉

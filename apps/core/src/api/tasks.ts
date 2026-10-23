@@ -360,6 +360,7 @@ export const tasks = new Hono()
       ...(into.source.merged ?? []),
       ...(from.source.meegleId
         ? [{
+            id: from.source.meegleId,
             meegleId: from.source.meegleId,
             title: from.title,
             ...(from.source.url ? { url: from.source.url } : {}),

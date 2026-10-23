@@ -72,7 +72,7 @@ describe("查询任务收工", () => {
 
     const out = onJobExit(id, 0)!;
     expect(out.status).toBe("review");
-    expect(out.pending?.map((p) => p.type)).toEqual(["slack_reply"]);
+    expect(out.pending?.map((p) => p.type)).toEqual(["chat_reply"]);
     expect(out.pending![0]!.payload.channel).toBe("D1");
     expect(out.pending![0]!.detail).toContain("分群 tab");
   });

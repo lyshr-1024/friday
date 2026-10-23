@@ -15,7 +15,7 @@ export const AUTOSTART_SETTLE_MS = 15 * 60_000;
 export function pickBriefQueue(tasks: Task[], now = Date.now(), skip: (t: Task) => boolean = () => false): Task | undefined {
   return tasks
     .filter((t) => briefable(t) && !t.source.brief && !t.source.briefFailed && !t.source.autostartOff)
-    .filter((t) => !(t.kind === "meegle" && now - Date.parse(t.createdAt) < AUTOSTART_SETTLE_MS) && !skip(t))
+    .filter((t) => !((t.kind === "work_item" || t.kind === "meegle") && now - Date.parse(t.createdAt) < AUTOSTART_SETTLE_MS) && !skip(t))
     .sort((a, b) => {
       if (a.due !== b.due) return !a.due ? 1 : !b.due ? -1 : a.due < b.due ? -1 : 1;
       if (a.priority !== b.priority) return PRIORITY[a.priority] - PRIORITY[b.priority];

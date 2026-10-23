@@ -141,7 +141,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     changed.push(prev?.verify?.length ? "验收列表（已勾选状态清零）" : "验收列表");
   }
 
-  const reply = (task.pending ?? []).find((p) => p.type === "slack_reply");
+  const reply = (task.pending ?? []).find((p) => p.type === "chat_reply" || p.type === "slack_reply");
   if (patch.dropReply && reply) {
     // 「不用回了」跟在列表里忽略是同一个判断：Friday 认为该回，你说不用
     task = removePending(taskId, reply.id) ?? task;

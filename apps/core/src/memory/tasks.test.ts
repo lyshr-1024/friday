@@ -84,7 +84,7 @@ describe("任务中枢", () => {
     expect(withPending.status).toBe("review");
     expect(withPending.pending).toHaveLength(1);
     const taken = takePending(t.id, withPending.pending![0]!.id)!;
-    expect(taken.action.type).toBe("slack_reply");
+    expect(taken.action.type).toBe("chat_reply");
     expect(taken.task.pending).toBeUndefined();
     updateTask(t.id, { status: "done" });
     expect(findTaskBySource((s) => s.threadId === "th-1")).toBeUndefined();
@@ -127,5 +127,39 @@ describe("按 id 前缀找任务", () => {
     expect(tasksByIdPrefix("%")).toEqual([]);
     expect(tasksByIdPrefix(`${t.id.slice(0, 4)}_`)).toEqual([]);
     expect(tasksByIdPrefix("")).toEqual([]);
+  });
+});
+
+describe("迁移期间新老两套来源键对齐", () => {
+  it("建任务给老键：存进库的两套都有；老键补丁带动新键；新键补丁反写老键；没碰的不变", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "双写", kind: "meegle", source: { meegleId: "777", meegleType: "issue", statusKey: "OPEN", feDue: "2026-11-01" } });
+    expect(t.kind).toBe("work_item");
+    const stored = JSON.parse((db().prepare("SELECT source FROM tasks WHERE id = ?").get(t.id) as { source: string }).source);
+    expect(stored.meegleId).toBe("777");
+    expect(stored.external).toMatchObject({ id: "777", kind: "defect", state: { key: "OPEN" } });
+
+    const a = updateTask(t.id, { source: { statusKey: "IN PROGRESS" } })!;
+    expect(a.source.external?.state?.key).toBe("IN PROGRESS");
+    expect(a.source.statusKey).toBe("IN PROGRESS");
+
+    const b = updateTask(t.id, { source: { external: { ...a.source.external!, schedule: { frontend: "2026-12-01" } } } })!;
+    expect(b.source.feDue).toBe("2026-12-01");
+    expect(b.source.statusKey).toBe("IN PROGRESS");
+
+    const c = updateTask(t.id, { source: { note: "x" } })!;
+    expect(c.source.external).toEqual(b.source.external);
+    expect(c.source.statusKey).toBe("IN PROGRESS");
+    expect(c.source.feDue).toBe("2026-12-01");
+  });
+
+  it("清掉 external 时对应的老键一起清，读回来不会被老键重建", () => {
+    initMemory(process.env.FRIDAY_DATA_DIR!);
+    const t = createTask({ title: "清来源", kind: "slack", source: { conversation: "C1:1.1", channelId: "C1", userName: "a", meegleTags: ["x"] } });
+    expect(t.kind).toBe("conversation");
+    const after = updateTask(t.id, { source: { external: undefined } })!;
+    expect(after.source.external).toBeUndefined();
+    expect(after.source.conversation).toBeUndefined();
+    expect(after.source.meegleTags).toEqual(["x"]);
   });
 });

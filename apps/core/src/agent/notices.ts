@@ -11,7 +11,7 @@ import { needOf } from "./needs.js";
 export function noticeText(t: Task, need: NonNullable<ReturnType<typeof needOf>>): string {
   if (need.kind === "brief") return `${taskTag(t)} · 方案待审\n${need.reason}\n说「#${t.seq} 按这个做」开工，或说哪里要改。`;
   if (need.kind === "review") {
-    const how = t.pending?.some((a) => a.type === "git_merge") ? `\n说「#${t.seq} 合并吧」收下，或说哪里不对。` : t.pending?.some((a) => a.type === "slack_reply") ? `\n说「#${t.seq} 发」发出去，或说怎么改。` : "";
+    const how = t.pending?.some((a) => a.type === "git_merge") ? `\n说「#${t.seq} 合并吧」收下，或说哪里不对。` : t.pending?.some((a) => a.type === "chat_reply" || a.type === "slack_reply") ? `\n说「#${t.seq} 发」发出去，或说怎么改。` : "";
     return `${taskTag(t)} · 待验收\n${deliveryText(t.report!, Boolean(t.source.headless))}${how}`;
   }
   const held = need.key.startsWith("decide:") && t.pending?.some((a) => a.type === "tool_call" && need.key === `decide:${a.id}`);
