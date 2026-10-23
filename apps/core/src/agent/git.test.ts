@@ -116,6 +116,28 @@ describe("分支从哪条保护分支切出来", () => {
     expect(forkedFromSync(dir, ["master", "sit", "release/*"])).toBe("sit");
   });
 
+  it("从主干切出来、合进过 sit 发测试环境：仍算从主干切的", () => {
+    const dir = repo();
+    sh(dir, "checkout", "-qb", "feat/c", "master");
+    commit(dir, "feat-c.txt");
+    sh(dir, "checkout", "-q", "sit");
+    sh(dir, "merge", "-q", "--no-ff", "-m", "merge feat/c into sit", "feat/c");
+    sh(dir, "checkout", "-q", "feat/c");
+    commit(dir, "feat-c2.txt");
+    expect(forkedFromSync(dir, ["master", "sit"])).toBeUndefined();
+  });
+
+  it("从 sit 切出来、后来又把主干合进来：仍认成 sit", () => {
+    const dir = repo();
+    sh(dir, "checkout", "-qb", "fix/d", "sit");
+    commit(dir, "fix-d.txt");
+    sh(dir, "checkout", "-q", "master");
+    commit(dir, "m2.txt");
+    sh(dir, "checkout", "-q", "fix/d");
+    sh(dir, "merge", "-q", "--no-ff", "-m", "merge master", "master");
+    expect(forkedFromSync(dir, ["master", "sit"])).toBe("sit");
+  });
+
   it("从主干切出来的分支：不误报，哪怕 sit 比主干多提交", () => {
     const dir = repo();
     sh(dir, "checkout", "-qb", "feat/b", "master");

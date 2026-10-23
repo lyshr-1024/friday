@@ -82,11 +82,16 @@ export function forkedFromSync(dir: string, candidates: string[]): string | unde
   const trunkName = [defaultBranchSync(dir), "main", "master"].find((b) => b && ref(b));
   if (!trunkName) return undefined;
   const trunk = ref(trunkName)!;
+  // 不能看 merge-base：分支合进过 sit 发测试环境后，跟 sit 的 merge-base 就是自己的提交了。
+  // 改看第一父链：本分支第一父链上有提交落在 sit 自己的第一父链上（主干没有的），才是从 sit 切的；
+  // 合进 sit 的提交只是 sit 合并提交的第二父，不在 sit 的第一父链上
+  const mine = new Set((gitSync(dir, ["rev-list", "--first-parent", `${trunk}..HEAD`]) ?? "").split("\n").filter(Boolean));
+  if (!mine.size) return undefined;
   for (const name of candidates) {
     if (name.includes("*") || name === trunkName || name === "main" || name === "master") continue;
     const r = ref(name);
-    const base = r && gitSync(dir, ["merge-base", "HEAD", r]);
-    if (base && Number(gitSync(dir, ["rev-list", "--count", `${trunk}..${base}`]) ?? 0) > 0) return name;
+    const theirs = r ? (gitSync(dir, ["rev-list", "--first-parent", `${trunk}..${r}`]) ?? "").split("\n") : [];
+    if (theirs.some((c) => c && mine.has(c))) return name;
   }
   return undefined;
 }
