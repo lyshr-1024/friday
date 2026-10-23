@@ -34,13 +34,16 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 
 
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
-function consequence(a: PendingAction, conv?: SlackConversation): string | null {
+function consequence(a: PendingAction, convs: SlackConversation[] = []): string | null {
   if (a.type === "chat_reply") {
     const to = a.payload.to as ExternalRef | undefined;
     const who = to?.author ?? "对方";
-    const where = conv?.kind === "dm"
+    // 对不上要发去的那段对话（不在收件箱里、或任务挂着好几段）就不说私聊还是回帖，说错比不说更糟
+    const conv = to ? convs.find((c) => c.conv === to.id) : undefined;
+    if (!conv) return "回到这段对话里（以你的身份发出，撤不回）。会记进操作记录。";
+    const where = conv.kind === "dm"
       ? `发到与 ${who} 的私聊`
-      : `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`;
+      : `回在 ${who} 那条下面${conv.channelName ? `（${conv.channelName}）` : ""}`;
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;
   }
   if (a.type === "git_merge") {
@@ -1143,9 +1146,9 @@ function StageBar({ t, onAct }: { t: Task; onAct: (t: Task, run: () => Promise<u
   );
 }
 
-function actionNote(a: PendingAction, conv?: SlackConversation): string {
+function actionNote(a: PendingAction, convs?: SlackConversation[]): string {
   const detail = a.detail.trim() ? a.detail.trim().replace(/[。.]?$/, "。") : "";
-  return [detail, consequence(a, conv) ?? ""].join(detail.includes("\n") ? "\n" : "");
+  return [detail, consequence(a, convs) ?? ""].join(detail.includes("\n") ? "\n" : "");
 }
 
 /** 没开工的任务：写清还差什么、Friday 为什么没自己动手。开工在主对话里说，右上「···」里也有 */
@@ -1228,7 +1231,7 @@ function FridayTop({ t, onAct }: { t: Task; onAct: (t: Task, fn: () => Promise<u
       {pending.map((p) => (
         <div key={p.id} className="ac__pend">
           <div className="ftop__row"><span className="ac__k">等你点头</span><span className="ac__pend-t">{p.label}</span><DismissToolCall t={t} a={p} onAct={onAct} /></div>
-          <div className="ac__pend-d">{actionNote(p, t.conversations?.[0])}{SAY[p.type] ? `${actionNote(p, t.conversations?.[0]).includes("\n") ? "\n" : ""}在主对话里说「#${t.seq} ${SAY[p.type]}」执行。` : ""}</div>
+          <div className="ac__pend-d">{actionNote(p, t.conversations)}{SAY[p.type] ? `${actionNote(p, t.conversations).includes("\n") ? "\n" : ""}在主对话里说「#${t.seq} ${SAY[p.type]}」执行。` : ""}</div>
         </div>
       ))}
       {a && (
