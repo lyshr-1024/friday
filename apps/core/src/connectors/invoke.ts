@@ -83,7 +83,7 @@ export async function invokeTool(caller: Caller, tool: string, opName: string, a
         label: `执行 ${tool}.${opName}`,
         detail: shown.slice(0, 500),
         payload: { tool, op: opName, args, conversationId: caller.conversationId, jobId: caller.jobId },
-      });
+      }, { keepStatus: true });
       const pending = t?.pending?.at(-1);
       if (!pending) return refused(`任务 ${caller.taskId} 不在了`);
       return { kind: "held", pendingId: pending.id };
@@ -95,6 +95,7 @@ export async function invokeTool(caller: Caller, tool: string, opName: string, a
   if (spec?.before) {
     const snapOp = reg.ops.find((o) => o.name === spec.before!.op);
     if (!snapOp) return refused(`${tool} 里没有撤销要用的操作 ${spec.before.op}`);
+    if (snapOp.level !== "read") return refused(`撤销前取快照的操作 ${tool}.${snapOp.name} 不是只读，不执行`);
     before = (await execOp(reg, snapOp, resolve(spec.before.args, { args }))).value;
   }
 

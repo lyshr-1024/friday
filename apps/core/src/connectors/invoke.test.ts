@@ -84,9 +84,10 @@ describe("invokeTool", () => {
   });
 
   it("model 有任务挂待审", async () => {
-    const t = createTask({ title: "t", kind: "code", source: {} });
+    const t = createTask({ title: "t", kind: "code", source: {}, status: "processing" });
     const r = await invokeTool({ ...model, taskId: t.id, conversationId: "c1" }, "fake", "send", { to: "a" });
     expect(r.kind).toBe("held");
+    expect(getTask(t.id)!.status).toBe("processing");
     const p = getTask(t.id)!.pending!.find((a) => a.type === "tool_call")!;
     expect(p).toBeTruthy();
     expect(r.kind === "held" && r.pendingId).toBe(p.id);
@@ -149,11 +150,14 @@ describe("invokeTool", () => {
   });
 
   it("批准待审的 tool_call 由 executePending 执行", async () => {
-    const t = createTask({ title: "t", kind: "code", source: {} });
+    const t = createTask({ title: "t", kind: "code", source: {}, status: "processing" });
     const held = await invokeTool({ ...model, taskId: t.id }, "fake", "send", {});
     const pendingId = held.kind === "held" ? held.pendingId : "";
-    await executePending(t.id, pendingId, { slackPost: async () => ({ ts: "" }) });
+    const after = await executePending(t.id, pendingId, { slackPost: async () => ({ ts: "" }) });
     expect(calls.send).toBe(1);
+    expect(after.status).toBe("processing");
+    expect(getTask(t.id)!.status).toBe("processing");
+    expect(listAudit({ taskId: t.id }).some((e) => e.action === "terminal_closed")).toBe(false);
     expect(latest()).toMatchObject({ taskId: t.id, risk: "irreversible", status: "approved", action: "fake_sent" });
     expect(getTask(t.id)!.pending ?? []).toHaveLength(0);
   });
@@ -171,5 +175,26 @@ describe("invokeTool", () => {
     const ok = await tasks.request(`/audit/${id}/undo`, { method: "POST" });
     expect(ok.status).toBe(200);
     expect(runCli.mock.calls.at(-1)?.slice(0, 2)).toEqual(["kvcli", ["set", "2", "old"]]);
+  });
+
+  it("撤销快照要用的操作不是只读就 refused，不执行主操作", async () => {
+    for (const level of [null, "irreversible"] as const) {
+      saveTool({
+        name: "kv2", transport: "cli", connection: "kv2cli", scenario: "测试", projects: [], roles: [], binaries: [],
+        enabled: true, draft: false,
+        ops: [
+          { name: "peek", description: "快照", inputSchema: {}, level, levelBy: "user", template: ["peek", "{id}"] },
+          {
+            name: "set", description: "写", inputSchema: {}, level: "reversible", levelBy: "user", template: ["set", "{id}", "{value}"],
+            undo: { op: "set", before: { op: "peek", args: { id: "$args.id" } }, args: { id: "$args.id", value: "$before.value" } },
+          },
+        ],
+      });
+      runCli.mockReset();
+      const r = await invokeTool({ kind: "user", why: "测试" }, "kv2", "set", { id: "1", value: "x" });
+      expect(r.kind).toBe("refused");
+      expect(r.kind === "refused" && r.why).toContain("不是只读");
+      expect(runCli).not.toHaveBeenCalled();
+    }
   });
 });

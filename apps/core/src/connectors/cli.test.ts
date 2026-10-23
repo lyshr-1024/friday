@@ -14,6 +14,11 @@ describe("cli 模板", () => {
     expect(() => fillTemplate(["get", "{id}"], {})).toThrow("缺参数 id");
   });
 
+  it("整个元素都是参数时，值以 - 开头就抛", () => {
+    expect(() => fillTemplate(["get", "{id}"], { id: "--delete" })).toThrow("参数 id 不能以 - 开头");
+    expect(fillTemplate(["--id={id}"], { id: "-1" })).toEqual(["--id=-1"]);
+  });
+
   it("runCli 不经 shell 原样传参", async () => {
     expect((await runCli("printf", ["%s", "a b;echo x"])).trim()).toBe("a b;echo x");
   });

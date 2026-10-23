@@ -482,6 +482,8 @@ export async function executePending(
       const p = action.payload as { tool: string; op: string; args: Record<string, unknown> };
       const r = await invokeTool({ kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id }, p.tool, p.op, p.args);
       if (r.kind !== "ok") throw new Error(r.kind === "refused" ? r.why : `${p.tool}.${p.op} 没执行：${r.kind}`);
+      // 模型在干活中途要的一次调用，批了不等于任务收工
+      return getTask(taskId)!;
     } else if (action.type === "git_merge") {
       const p = action.payload as { dir: string; branch: string; worktree?: string };
       const base = (await execFileP("git", ["-C", p.dir, "branch", "--show-current"])).stdout.trim() || "main";
