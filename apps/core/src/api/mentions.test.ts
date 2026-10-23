@@ -17,15 +17,18 @@ import { friday } from "../agent/prompt.js";
 import { UNTRUSTED_NOTE } from "../agent/fence.js";
 import { fridayToolList } from "../agent/tools.js";
 import { saveAttachment } from "../memory/attachments.js";
+import { seedBuiltins } from "../connectors/builtin.js";
 
-vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
+vi.mock("../connectors/slack/keychain.js", () => ({ keychainGet: async () => undefined }));
 
 const slackPost = vi.hoisted(() => vi.fn(async () => ({ ts: "1700000000.000100" })));
-vi.mock("../connectors/slack.js", async (orig) => ({
-  ...(await orig<typeof import("../connectors/slack.js")>()),
+vi.mock("../connectors/slack/client.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/slack/client.js")>()),
   loadSlackCreds: async () => ({ token: "t", cookie: "c" }),
   postMessage: slackPost,
 }));
+
+seedBuiltins();
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 

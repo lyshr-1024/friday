@@ -11,7 +11,8 @@ import { sweepClosedTerminals } from "./agent/terminal.js";
 import { migrateLocalTodos } from "./memory/noteTask.js";
 import { migrateHandbooksToRules } from "./memory/rulesMigrate.js";
 import { startScheduler } from "./scheduler/index.js";
-import { warmSlack } from "./connectors/slack.js";
+import "./connectors/slack/index.js";
+import { role } from "./connectors/roles.js";
 import { fillMissingTitles } from "./agent/docTitle.js";
 import { writeTmuxConf } from "./agent/tmux.js";
 import { startNoticeWatcher } from "./agent/notices.js";
@@ -40,7 +41,7 @@ startNoticeWatcher();
 if (process.env.FRIDAY_NO_SCHEDULER !== "1") {
   startScheduler();
   void fillMissingTitles().catch(() => {});
-  warmSlack().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
+  (async () => role("chat").warm())().catch((e) => console.error(`[slack] 预热失败：${e instanceof Error ? e.message : e}`));
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

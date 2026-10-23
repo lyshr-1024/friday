@@ -153,7 +153,7 @@ describe("invokeTool", () => {
     const t = createTask({ title: "t", kind: "code", source: {}, status: "processing" });
     const held = await invokeTool({ ...model, taskId: t.id }, "fake", "send", {});
     const pendingId = held.kind === "held" ? held.pendingId : "";
-    const after = await executePending(t.id, pendingId, { slackPost: async () => ({ ts: "" }) });
+    const after = await executePending(t.id, pendingId);
     expect(calls.send).toBe(1);
     expect(after.status).toBe("processing");
     expect(getTask(t.id)!.status).toBe("processing");

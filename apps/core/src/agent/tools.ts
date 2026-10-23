@@ -455,7 +455,7 @@ export const fridayToolList = (conversationId?: string) => [
       {},
       async () => {
         const added = await syncSlackOnce();
-        if (!slackState.configured) return text("Slack 没接入（钥匙串里没有 friday-slack 凭证），跑一下 scripts/slack-auth.sh。");
+        if (!slackState.configured) return text("Slack 没接入（钥匙串里没有 Slack 登录态），跑一下 scripts/slack-auth.sh。");
         return text(slackState.lastError ? `同步出错：${slackState.lastError}` : `同步完成：新收到 ${added} 条${slackState.lastSyncAt ? `（${slackState.lastSyncAt.slice(11, 16)}）` : ""}。有需要回的会进「待我决定」。`);
       },
     ),

@@ -485,7 +485,7 @@ describe("建卡队列", () => {
     await briefTick();
     expect(approves()).toHaveLength(1);
 
-    const done = await executePending(t.id, approves()[0]!.id, { slackPost: vi.fn() });
+    const done = await executePending(t.id, approves()[0]!.id);
     expect(done.source.brief?.stale).toBeUndefined();
     expect(done.source.brief?.basis).toBe(briefBasis(done));
 
@@ -519,7 +519,7 @@ describe("审核、打回、改档、依赖", () => {
     writeProjects({ name: "p-ap" });
     const t = withApprove("p-ap");
     updateTask(t.id, { source: { brief: { ...t.source.brief!, stale: true } } });
-    const done = await executePending(t.id, approveAction(t.id)!.id, { slackPost: vi.fn() });
+    const done = await executePending(t.id, approveAction(t.id)!.id);
     expect(done.status).toBe("understood");
     expect(done.source.brief?.review).toBe("approved");
     expect(done.source.brief?.stale).toBeUndefined();
@@ -698,7 +698,7 @@ describe("审核、打回、改档、依赖", () => {
     writeProjects({ name: "p-basis" });
     const t = withApprove("p-basis");
     updateTask(t.id, { source: { brief: { ...t.source.brief!, basis: "old", stale: true } } });
-    const done = await executePending(t.id, approveAction(t.id)!.id, { slackPost: vi.fn() });
+    const done = await executePending(t.id, approveAction(t.id)!.id);
     expect(done.source.brief?.basis).toBe(briefBasis(done));
     expect(done.source.brief?.stale).toBeUndefined();
   });
@@ -776,7 +776,7 @@ describe("终审修正", () => {
     };
     const pending = await build("job-f2a");
     const approved = await build("job-f2b");
-    await executePending(approved.id, approves(approved.id)[0]!.id, { slackPost: vi.fn() });
+    await executePending(approved.id, approves(approved.id)[0]!.id);
     db().prepare("UPDATE jobs SET status = 'done' WHERE id IN ('job-f2a', 'job-f2b')").run();
     await briefTick();
     expect(getTask(pending.id)!.source.brief).toBeUndefined();
@@ -791,7 +791,7 @@ describe("终审修正", () => {
     store(t.id, goodBrief);
     const basis = getTask(t.id)!.source.brief!.basis;
     updateTask(t.id, { source: { description: "改成按规模排序" } });
-    const done = await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    const done = await executePending(t.id, approves(t.id)[0]!.id);
     expect(done.source.brief).toMatchObject({ review: "approved", basis });
     await briefTick();
     expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
@@ -850,13 +850,13 @@ describe("终审修正", () => {
     writeProjects({ name: "f7c" }, { name: "f7d" });
     const t = story("f7c");
     store(t.id, goodBrief);
-    await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    await executePending(t.id, approves(t.id)[0]!.id);
     updateTask(t.id, { project: "f7d" });
     await briefTick();
     expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", stale: true });
     expect(approves(t.id)).toHaveLength(1);
     expect(approves(t.id)[0]!.detail).toContain("项目从 f7c 改成了 f7d，这张卡是按 f7c 写的");
-    await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    await executePending(t.id, approves(t.id)[0]!.id);
     await briefTick();
     expect(getTask(t.id)!.source.brief).toMatchObject({ review: "approved", project: "f7d" });
     expect(getTask(t.id)!.source.brief!.stale).toBeFalsy();
@@ -913,7 +913,7 @@ describe("终审修正", () => {
   it("9：brief_approve 执行时卡上没有理解卡：撤掉动作，不写半张卡", async () => {
     const t = story("f9");
     addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: "x", payload: {} }, { keepStatus: true });
-    const after = await executePending(t.id, approves(t.id)[0]!.id, { slackPost: vi.fn() });
+    const after = await executePending(t.id, approves(t.id)[0]!.id);
     expect(after.source.brief).toBeUndefined();
     expect(getTask(t.id)!.source.brief).toBeUndefined();
     expect(approves(t.id)).toHaveLength(0);

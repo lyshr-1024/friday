@@ -46,7 +46,7 @@ describe("收工写知识库：每条完成路径都触发，已完成的不重�
 
   it("待审动作全部执行完", async () => {
     const t = addPending(mk().id, { type: "custom", label: "随便一个动作", detail: "d", payload: {} })!;
-    await executePending(t.id, t.pending![0]!.id, { slackPost: async () => ({ ts: "1" }) });
+    await executePending(t.id, t.pending![0]!.id);
     await vi.waitFor(() => expect(asked()).toBe(1));
   });
 

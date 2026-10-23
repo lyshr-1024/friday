@@ -2,7 +2,8 @@ import { userSettings } from "../settings.js";
 import { getTool } from "./registry.js";
 import type { Chunk } from "./web/index.js";
 import type { LarkDoc } from "./lark/index.js";
-import type { StateTransition } from "@friday/shared";
+import type { InboxItem, InboxKind, PriorLine, StateTransition } from "@friday/shared";
+import type { NewInboxItem } from "../memory/inbox.js";
 import type { MeegleWorkItem } from "./meegle/client.js";
 import type { Caller } from "./invoke.js";
 
@@ -17,7 +18,6 @@ export interface DocsRole {
 
 export interface WebRole { readChunk(url: string, offset?: number): Promise<Chunk> }
 
-// 由 workItems / chat 的搬家任务补上成员
 export interface WorkItemRef { space: string; id: string }
 export type WorkItemState = "open" | "in_progress" | "testing" | "done" | "reopened";
 export type WorkItemKind = "story" | "defect" | "other";
@@ -44,7 +44,26 @@ export interface WorkItemsRole {
   kindOf(typeKey?: string): WorkItemKind;
   ownsHost(host: string): boolean;
 }
-export interface ChatRole {}
+export interface ChatLine { ts: string; threadTs?: string; userId?: string; userName: string; text: string }
+export interface ChatRole {
+  configured(): Promise<boolean>;
+  /** 当前登录的账号；拿不到凭证返回 undefined */
+  self(): Promise<{ id: string; teamId?: string; url?: string } | undefined>;
+  pull(me: string, cursors: Record<string, string | undefined>, now: number, teamUrl?: string): Promise<{ items: NewInboxItem[]; cursors: Record<string, string> }>;
+  context(item: InboxItem): Promise<ChatLine[]>;
+  /** 每轮同步取一次已读游标，返回判定函数：已读或我已回 */
+  settledChecker(me: string): Promise<(item: InboxItem) => Promise<boolean>>;
+  post(args: { channel: string; text: string; threadTs?: string }, caller: Caller): Promise<{ ts: string; permalink?: string }>;
+  remove(args: { channel: string; ts: string }, caller: Caller): Promise<void>;
+  live(channel?: string, person?: string): Promise<{ channelId?: string; lines: ChatLine[]; me?: string }>;
+  parseTitle(title: string): { channel?: string; person?: string };
+  ownsApp(bundleId: string): boolean;
+  renderPrior(lines: PriorLine[], scene: { kind: InboxKind; peer?: string; peerId?: string }): string[];
+  displayNames(): Map<string, string>;
+  warm(): Promise<void>;
+  /** 凭证失效（invalid_auth 等）时丢掉缓存，下一轮重读钥匙串 */
+  resetAuth(): void;
+}
 
 export interface RoleImpl { workItems: WorkItemsRole; chat: ChatRole; docs: DocsRole; web: WebRole }
 

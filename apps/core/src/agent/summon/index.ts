@@ -4,7 +4,7 @@ import { loadProjects, type Project } from "../../memory/projects.js";
 import { loadMemoryContext } from "../../memory/context.js";
 import { personNote } from "../../memory/files.js";
 import { userSettings } from "../../settings.js";
-import { buildRules, candidates, parseSlackTitle } from "./match.js";
+import { buildRules, candidates } from "./match.js";
 import { summonCard } from "./card.js";
 import { slackScene, type SlackScene } from "./slack.js";
 import { terminalContext } from "./terminal.js";
@@ -16,7 +16,6 @@ import { role } from "../../connectors/roles.js";
 /** 文档正文的预算：到点没回来就不带正文直接问模型，卡上也只晚这么多 */
 const DOC_TIMEOUT_MS = 3_000;
 
-const SLACK_BUNDLE = "com.tinyspeck.slackmacgap";
 const TERMINAL_BUNDLES = new Set(["com.mitchellh.ghostty", "com.googlecode.iterm2", "com.apple.Terminal"]);
 
 /**
@@ -35,9 +34,9 @@ function slackContext(scene: SlackScene | undefined): string | undefined {
 }
 
 /** 终端 / Slack 这类场景专属上下文；对不上场景或解析不出就返回 undefined。 */
-function sceneContext(snapshot: Snapshot, projects: Project[], scene: SlackScene | undefined): string | undefined {
+function sceneContext(snapshot: Snapshot, projects: Project[], onSlack: boolean, scene: SlackScene | undefined): string | undefined {
   if (TERMINAL_BUNDLES.has(snapshot.app.bundleId)) return terminalContext(snapshot, projects);
-  if (snapshot.app.bundleId === SLACK_BUNDLE) return slackContext(scene);
+  if (onSlack) return slackContext(scene);
   return undefined;
 }
 
@@ -82,12 +81,14 @@ export async function* summon(raw: Snapshot): AsyncGenerator<SummonEvent> {
   const snapshot = trimUrl(raw, [...userSettings().summon.urlAllowlist, ...projectHosts]);
   const tasks = listTasks(["collected", "understood", "processing", "review", "blocked"], 300);
   const projects = loadProjects();
-  const { channel, person } = snapshot.app.bundleId === SLACK_BUNDLE ? parseSlackTitle(snapshot.app.title) : {};
-  const slack = snapshot.app.bundleId === SLACK_BUNDLE ? await slackScene(channel, person) : undefined;
+  const chat = (() => { try { return role("chat"); } catch { return undefined; } })();
+  const onSlack = chat?.ownsApp(snapshot.app.bundleId) ?? false;
+  const { channel, person } = chat && onSlack ? chat.parseTitle(snapshot.app.title) : {};
+  const slack = onSlack ? await slackScene(channel, person) : undefined;
   const identified = identifyUrl(snapshot.browser?.url, projects);
   const localDev = identified?.kind === "local_dev" ? await resolveLocalDev(identified.port) : undefined;
   const input = { snapshot, tasks, projects, channel, person, ...(slack ? { scene: slack } : {}), ...(localDev ? { localDev } : {}) };
-  const scene = sceneContext(snapshot, projects, slack);
+  const scene = sceneContext(snapshot, projects, onSlack, slack);
   const rules = { ...buildRules(input), ...(scene ? { scene } : {}) };
   yield { type: "rules", rules };
   const source = sourceLine(identified, snapshot.browser?.lane, localDev?.dir);

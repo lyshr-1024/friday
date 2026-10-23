@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { initMemory } from "./db.js";
-import { addInboxItems, listInbox, setCursor, setPrior } from "./inbox.js";
+import { initMemory } from "../../memory/db.js";
+import { addInboxItems, listInbox, setCursor, setPrior } from "../../memory/inbox.js";
 import { priorText } from "./roster.js";
 
 const base = { permalink: "p", text: "hi" };

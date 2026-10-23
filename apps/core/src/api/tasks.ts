@@ -33,8 +33,7 @@ import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
 import { answerHint, setStage } from "../agent/stage.js";
-import { priorContext, priorText } from "../memory/roster.js";
-import { deleteMessage, loadSlackCreds, slackCaller, slackConfigured } from "../connectors/slack.js";
+import "../connectors/slack/index.js";
 import { getJob } from "../memory/jobs.js";
 import { closeProjectAnchor, openProjectShell, openProjectTerminal, projectOverview, projectTerminals } from "../agent/projectTerminal.js";
 import { invokeTool } from "../connectors/invoke.js";
@@ -68,6 +67,15 @@ const newTask = z.object({
   due: z.iso.date().optional(),
 });
 
+// slack 工具在注册处被停用时 role 会抛：任务板照常出，只是没有前文、算没接入
+function chatRole() {
+  try {
+    return role("chat");
+  } catch {
+    return undefined;
+  }
+}
+
 /** 任务牵着的 Slack 对话。整个收件箱只读一次，别每条任务各读一遍。 */
 function slackOf(all: InboxItem[]) {
   const byConv = new Map<string, InboxItem[]>();
@@ -76,7 +84,7 @@ function slackOf(all: InboxItem[]) {
     (byConv.get(key) ?? byConv.set(key, []).get(key)!).push(i);
   }
   for (const items of byConv.values()) items.sort((a, b) => Number(a.ts) - Number(b.ts));
-  const ctx = priorContext();
+  const chat = chatRole();
   return (t: Task): Task => {
     const conversations = neighbors(taskNode(t.id), "slack")
       .map((n) => {
@@ -90,7 +98,7 @@ function slackOf(all: InboxItem[]) {
           channelLinked: head.kind === "mention" && neighbors(channelNode(head.channelName), "task").some((x) => x.ref === t.id),
           userName: head.userName,
           items: items.map((i) => ({ ts: i.ts, userName: i.userName, text: i.text, permalink: i.permalink, ...(i.appLink ? { appLink: i.appLink } : {}) })),
-          prior: priorText(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }, ctx),
+          prior: chat ? chat.renderPrior(head.prior ?? [], { kind: head.kind, peer: head.userName, peerId: head.userId }) : [],
           source: n.source,
           why: n.why,
         };
@@ -145,7 +153,7 @@ export const tasks = new Hono()
       ...board,
       tasks: board.tasks.map((t) => withSlack(withSession(t))),
       meegleSyncedAt: meegleState.lastSyncAt,
-      slackConfigured: await slackConfigured(),
+      slackConfigured: (await chatRole()?.configured()) ?? false,
     });
   })
   .get("/tasks/:id/handbook-draft", async (c) => {
@@ -545,10 +553,10 @@ export const tasks = new Hono()
     if (!plan) return c.json({ error: "这笔不可撤销" }, 400);
     if (getEvent(c.req.param("id"))?.status === "undone") return c.json({ error: "这条已经撤销过了" }, 409);
     if (plan.kind === "delete_slack_message") {
-      const creds = await loadSlackCreds();
-      if (!creds) return c.json({ error: "Slack 未接入" }, 400);
+      const chat = chatRole();
+      if (!chat || !(await chat.configured())) return c.json({ error: "Slack 未接入" }, 400);
       try {
-        await deleteMessage(slackCaller(creds), plan.channel, plan.ts);
+        await chat.remove({ channel: plan.channel, ts: plan.ts }, { kind: "user", why: "你点了撤销" });
       } catch (e) {
         return c.json({ error: `撤回失败：${e instanceof Error ? e.message : String(e)}` }, 409);
       }

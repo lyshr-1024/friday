@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { blocksText, fetchChannelRecent, fetchContext, fetchDmRecent, resetDmOwners, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./slack.js";
+import { blocksText, fetchChannelRecent, fetchContext, fetchDmRecent, resetDmOwners, fetchLastRead, fetchSlack, isRead, permalinkFor, repliedSince, REPLY_WINDOW_MS } from "./client.js";
 
 const responses: Record<string, unknown> = {
   "search.messages": {

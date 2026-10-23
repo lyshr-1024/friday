@@ -17,7 +17,7 @@ import { subscribe } from "../bus.js";
 import { join } from "node:path";
 import { addTestWorktree, mainRepo } from "../agent/testRepos.js";
 
-vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
+vi.mock("../connectors/slack/keychain.js", () => ({ keychainGet: async () => undefined }));
 
 const meegleMock = vi.hoisted(() => ({
   node: vi.fn(async () => ({ missing: [] as string[] })),

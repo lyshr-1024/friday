@@ -12,7 +12,8 @@ import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } 
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
-import { loadSlackCreds, postMessage, slackCaller } from "../connectors/slack.js";
+import "../connectors/slack/index.js";
+import { role } from "../connectors/roles.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, storyBugPrompt } from "./runner.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
@@ -370,20 +371,8 @@ export async function approvePending(taskId: string, actionId: string, text?: st
   const edited = text?.trim();
   if (edited && action) updatePending(taskId, action.id, { detail: edited, payload: { ...action.payload, text: edited } });
   const finalText = edited || action?.detail || "";
-  const creds = await loadSlackCreds();
-  const call = creds ? slackCaller(creds) : undefined;
   try {
-    return await executePending(
-      taskId,
-      actionId,
-      {
-        slackPost: async (channel, body, threadTs) => {
-          if (!call) throw new Error("Slack 未接入");
-          return postMessage(call, channel, body, threadTs);
-        },
-      },
-      finalText ? { text: finalText } : undefined,
-    );
+    return await executePending(taskId, actionId, finalText ? { text: finalText } : undefined);
   } catch (e) {
     record({ taskId, action: "approve_failed", why: "执行审核通过的动作失败", how: e instanceof Error ? e.message : String(e), risk: "irreversible", status: "failed" });
     throw e;
@@ -393,7 +382,6 @@ export async function approvePending(taskId: string, actionId: string, text?: st
 export async function executePending(
   taskId: string,
   actionId: string,
-  deps: { slackPost: (channel: string, text: string, threadTs?: string) => Promise<{ ts: string; permalink?: string }> },
   override?: { text?: string },
 ): Promise<Task> {
   const { takePending } = await import("../memory/tasks.js");
@@ -403,19 +391,8 @@ export async function executePending(
   try {
     if (action.type === "slack_reply") {
       const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
-      const res = await deps.slackPost(p.channel, p.text, p.threadTs);
-      // 没有 ts 就没法撤回，也说明发送结果不可信，不能记成已发出
-      if (!res.ts) throw new Error("Slack 没有返回消息 ts，发送结果不可信");
-      record({
-        taskId,
-        action: "slack_reply_sent",
-        why: "你审核通过",
-        how: "chat.postMessage",
-        evidence: { channel: p.channel, text: p.text, ts: res.ts, permalink: res.permalink ?? null },
-        risk: "irreversible",
-        status: "approved",
-        undo: { kind: "delete_slack_message", channel: p.channel, ts: res.ts },
-      });
+      // 记账（slack_reply_sent、撤回用的 ts）由 slack 工具的 post 做
+      await role("chat").post({ channel: p.channel, text: p.text, ...(p.threadTs ? { threadTs: p.threadTs } : {}) }, { kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id });
     } else if (action.type === "start_job") {
       const p = action.payload as { project: string; dir: string; detail: string; confidence?: number };
       const t0 = getTask(taskId);

@@ -12,18 +12,8 @@ import { onSlackAccepted } from "../agent/stage.js";
 import { sweepClosedTerminals } from "../agent/terminal.js";
 import { RAN_KEY, historyDue, learnHistoryOnce } from "../agent/handbook.js";
 import { mapLimit } from "../connectors/exec.js";
-import {
-  fetchContext,
-  fetchLastRead,
-  fetchSlack,
-  isRead,
-  loadSlackCreds,
-  lookupUserName,
-  repliedSince,
-  slackCaller,
-  type SlackCreds,
-} from "../connectors/slack.js";
-import { priorText, userNames } from "../memory/roster.js";
+import "../connectors/slack/index.js";
+import { role, type ChatRole } from "../connectors/roles.js";
 import { addInboxItems, getCursor, setCursor, setPrior, setSlackTeam, sweepRepliedInbox } from "../memory/inbox.js";
 
 /** 10:00–20:00（Asia/Shanghai）3 分钟一轮并通知；其余时段 15 分钟一轮只拉不通知。 */
@@ -57,19 +47,17 @@ export const state = {
 };
 
 let me = "";
-let creds: SlackCreds | undefined;
 
 // 挂靠和查询分类都要前文，拉一次两边共用
 const priorCache = new Map<string, string[]>();
 
-async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem): Promise<string[]> {
+async function priorLines(chat: ChatRole, item: InboxItem): Promise<string[]> {
   const hit = priorCache.get(item.id);
   if (hit) return hit;
-  const roster = userNames();
-  const ctx = await fetchContext(call, item, async (id) => roster.get(id) ?? (await lookupUserName(call, id)) ?? "");
+  const ctx = await chat.context(item);
   const stored = ctx.map((c) => ({ ts: c.ts, ...(c.userId ? { userId: c.userId } : {}), userName: c.userName, text: c.text }));
   if (stored.length) setPrior(item.id, stored);
-  const lines = priorText(stored, { kind: item.kind, peer: item.userName, peerId: item.userId });
+  const lines = chat.renderPrior(stored, { kind: item.kind, peer: item.userName, peerId: item.userId });
   priorCache.set(item.id, lines);
   if (priorCache.size > 200) priorCache.clear();
   return lines;
@@ -78,29 +66,30 @@ async function priorLines(call: ReturnType<typeof slackCaller>, item: InboxItem)
 export async function syncSlackOnce(): Promise<number> {
   if (state.running) return 0;
   state.running = true;
+  let chat: ChatRole | undefined;
   try {
-    creds ??= await loadSlackCreds();
-    if (!creds) {
-      state.configured = false;
-      return 0;
-    }
-    state.configured = true;
-    const call = slackCaller(creds);
+    const c = (chat = role("chat"));
     if (!me) {
-      const auth = (await call("auth.test", {})) as { user_id?: string; team_id?: string; url?: string };
-      me = String(auth.user_id ?? "");
-      if (auth.team_id) setSlackTeam(auth.team_id);
+      // self() 只在有凭证时才会抛：那是接口或网络出错，不是没接入
+      const auth = await c.self().catch((e: unknown) => {
+        state.configured = true;
+        throw e;
+      });
+      if (!auth) {
+        state.configured = false;
+        return 0;
+      }
+      me = auth.id;
+      if (auth.teamId) setSlackTeam(auth.teamId);
       if (auth.url) setCursor("slack:url", auth.url);
     }
+    state.configured = true;
     if (me && getCursor("slack:me") !== me) setCursor("slack:me", me);
     // 每轮同步都扫一遍收件箱：我随时会直接在 Slack 里读掉或回掉，Friday 得跟着收，
     // 否则界面上一直挂着我已经处理完的事（这正是「回复了还是有待办」的由来）。
     if (me) {
       try {
-        const lastRead = await fetchLastRead(call);
-        const swept = await sweepRepliedInbox(async (item) =>
-          isRead(item, lastRead, item.channelId) || (await repliedSince(call, me, item)),
-        );
+        const swept = await sweepRepliedInbox(await c.settledChecker(me));
         if (swept) {
           console.log(`把 ${swept} 条我已在 Slack 读过或回过的消息标成已处理`);
           await settleQueryTasks();
@@ -115,13 +104,13 @@ export async function syncSlackOnce(): Promise<number> {
     const cursors: Record<string, string | undefined> = Object.fromEntries(keys.map((k) => [k, getCursor(k)]));
     // 私聊游标按 channel 记，fetchSlack 里按需查；这里给它一个懒读取的代理。
     const proxy = new Proxy(cursors, { get: (t, k: string) => (k in t ? t[k] : getCursor(k)) });
-    const { items, cursors: next } = await fetchSlack(call, me, proxy, Date.now(), getCursor("slack:url"));
+    const { items, cursors: next } = await c.pull(me, proxy, Date.now(), getCursor("slack:url"));
     const added = addInboxItems(items);
     for (const [k, v] of Object.entries(next)) setCursor(k, v);
 
     for (const item of added) {
       try {
-        const hit = await attachOnce(item, await priorLines(call, item));
+        const hit = await attachOnce(item, await priorLines(c, item));
         // 挂上了才看这条消息说没说「验收过了」：要推的是它挂靠的那条任务
         if (hit) onSlackAccepted(hit.taskId, item.text, item.userName);
       } catch (e) {
@@ -131,7 +120,7 @@ export async function syncSlackOnce(): Promise<number> {
     // 只有私聊和 @ 我、且带疑问信号的，才值得花一次分类
     await mapLimit(added, 2, async (item) => {
       try {
-        const q = await classifyQuery(item, await priorLines(call, item));
+        const q = await classifyQuery(item, await priorLines(c, item));
         if (q) await startQueryJob(item, q.ask, q.project);
       } catch (e) {
         console.error(`[slack] ${item.id} 查询判定失败：${e instanceof Error ? e.message : String(e)}`);
@@ -142,7 +131,7 @@ export async function syncSlackOnce(): Promise<number> {
     return added.length;
   } catch (e) {
     state.lastError = e instanceof Error ? e.message : String(e);
-    if (/invalid_auth|not_authed|token_revoked/.test(state.lastError)) creds = undefined;
+    if (/invalid_auth|not_authed|token_revoked/.test(state.lastError)) chat?.resetAuth();
     console.error(`[slack] ${state.lastError}`);
     return 0;
   } finally {

@@ -3,7 +3,7 @@ import { app } from "./index.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 
-vi.mock("../connectors/keychain.js", () => ({ keychainGet: async () => undefined }));
+vi.mock("../connectors/slack/keychain.js", () => ({ keychainGet: async () => undefined }));
 
 const post = (id: string, url: string) => app.request(`/tasks/${id}/docs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../config.js";
@@ -6,6 +6,17 @@ import { addPending, createTask, getTask, updateTask } from "../memory/tasks.js"
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { executePending } from "./pipeline.js";
 import { app } from "../api/index.js";
+import { seedBuiltins } from "../connectors/builtin.js";
+
+vi.mock("../connectors/slack/client.js", async (orig) => ({
+  ...(await orig<typeof import("../connectors/slack/client.js")>()),
+  loadSlackCreds: async () => ({ token: "t", cookie: "c" }),
+  postMessage: async () => {
+    throw new Error("channel_not_found");
+  },
+}));
+
+seedBuiltins();
 
 describe("会话结论回流任务卡", () => {
   it("改方案、改回复草稿：待审动作的 detail 和 payload.text 一起换，通过时发的就是新文本", () => {
@@ -73,7 +84,7 @@ describe("会话结论回流任务卡", () => {
     const t = createTask({ title: "y", kind: "slack", source: {}, status: "review" });
     addPending(t.id, { type: "slack_reply", label: "回复", detail: "改好的文本", payload: { channel: "C", text: "改好的文本" } });
     const actionId = getTask(t.id)!.pending![0]!.id;
-    await expect(executePending(t.id, actionId, { slackPost: async () => { throw new Error("channel_not_found"); } })).rejects.toThrow("channel_not_found");
+    await expect(executePending(t.id, actionId)).rejects.toThrow("channel_not_found");
     const after = getTask(t.id)!;
     expect(after.pending).toHaveLength(1);
     expect(after.pending![0]).toMatchObject({ id: actionId, detail: "改好的文本" });
