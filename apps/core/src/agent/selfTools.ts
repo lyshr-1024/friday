@@ -33,15 +33,17 @@ const byYou = (conversationId: string | undefined, what: string): string =>
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
 
-function lastUserMessage(conversationId?: string): { id: string | null; text: string } {
-  if (!conversationId) return { id: null, text: "" };
-  const m = listMessages(conversationId).filter((x) => x.role === "user").at(-1);
-  return { id: m?.id ?? null, text: (m?.content ?? "").trim() };
+function lastUserMessage(conversationId?: string): { id: string | null; prevId: string | null; text: string } {
+  if (!conversationId) return { id: null, prevId: null, text: "" };
+  const users = listMessages(conversationId).filter((x) => x.role === "user");
+  const m = users.at(-1);
+  return { id: m?.id ?? null, prevId: users.at(-2)?.id ?? null, text: (m?.content ?? "").trim() };
 }
 
 export const saidLast = (conversationId?: string): string => lastUserMessage(conversationId).text;
 
-const asked = new Map<string, { path: string; dirty: boolean; after: string | null }>();
+// 会话 → 路径 → 是在哪句用户消息那一轮问的；同意只认紧接着那一轮问过的路径
+const asked = new Map<string, Map<string, { after: string | null }>>();
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
@@ -354,25 +356,27 @@ export const selfToolList = (conversationId?: string) => [
   ),
   tool(
     "worktree_remove",
-    "删一个遗留 worktree（path 必须在 worktrees_leftover 的列表里），一次一个。删了撤不回，所以必须用户单独一句整句同意才执行：先调一次拿到后果说明转告用户，等他回「删掉」再调。有未提交改动的要他回「连改动一起删掉」。",
+    "删一个遗留 worktree（path 必须在 worktrees_leftover 的列表里），一次一个。删了撤不回，所以必须用户单独一句整句同意才执行：问用户之前，对每个要删的路径先各调一次拿到后果说明（只用文字问不算问过），转告用户，等他下一句回「删掉」再逐个调；那一句同意对上一轮问过的路径都有效。有未提交改动的要他回「连改动一起删掉」。",
     { path: z.string().min(1) },
     async ({ path }) => {
       if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能删 worktree，等用户回来。");
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
-      const { id: sayId, text: said } = lastUserMessage(conversationId);
+      const { id: sayId, prevId, text: said } = lastUserMessage(conversationId);
       const key = conversationId ?? "";
-      const prior = asked.get(key);
-      const ok = prior?.path === entry.path && sayId !== null && sayId !== prior.after && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
+      const round = asked.get(key) ?? new Map<string, { after: string | null }>();
+      asked.set(key, round);
+      const prior = round.get(entry.path);
+      const ok = sayId !== null && prior?.after != null && prior.after === prevId && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
       if (!ok) {
-        asked.set(key, { path: entry.path, dirty: entry.dirty, after: sayId });
+        round.set(entry.path, { after: sayId });
         return text(
           entry.dirty
             ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
             : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
         );
       }
-      asked.delete(key);
+      round.delete(entry.path);
       const r = await removeWorktree(entry.repoDir, entry.path, entry.dirty);
       const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
       record({

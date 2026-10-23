@@ -526,7 +526,7 @@ describe("遗留 worktree 工具", () => {
     expect(existsSync(tree)).toBe(true);
   });
 
-  it("同意只对刚问过的那个路径有效", async () => {
+  it("同意只对上一轮问过的路径有效，没问过的照样先问", async () => {
     const a = repoWithWorktree();
     const b = repoWithWorktree();
     createTask({ title: "A", kind: "verbal", source: { worktree: a.tree, repoDir: a.repo }, status: "done" });
@@ -537,9 +537,30 @@ describe("遗留 worktree 工具", () => {
     const outB = await callIn(conv, "worktree_remove", { path: b.tree });
     expect(outB).toContain(`要删 ${b.tree}`);
     expect(existsSync(b.tree)).toBe(true);
-    const outA = await callIn(conv, "worktree_remove", { path: a.tree });
-    expect(outA).toContain(`要删 ${a.tree}`);
-    expect(existsSync(a.tree)).toBe(true);
+    await callIn(conv, "worktree_remove", { path: a.tree });
+    expect(existsSync(a.tree)).toBe(false);
+  });
+
+  it("一轮问了几个，下一句「删掉」全部删掉，不管调用顺序", async () => {
+    const trees = [repoWithWorktree(), repoWithWorktree(), repoWithWorktree()];
+    for (const t of trees) createTask({ title: "批", kind: "verbal", source: { worktree: t.tree, repoDir: t.repo }, status: "done" });
+    const conv = say("把遗留的都清了");
+    for (const t of trees) await callIn(conv, "worktree_remove", { path: t.tree });
+    addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
+    for (const t of trees) await callIn(conv, "worktree_remove", { path: t.tree });
+    for (const t of trees) expect(existsSync(t.tree)).toBe(false);
+  });
+
+  it("问过以后隔了一句别的话，再说「删掉」不算，重新问", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "隔一句", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const conv = say("清一下");
+    await callIn(conv, "worktree_remove", { path: tree });
+    addMessage(conv, { role: "user", kind: "ask", content: "先看看别的" });
+    addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
+    const out = await callIn(conv, "worktree_remove", { path: tree });
+    expect(out).toContain(`要删 ${tree}`);
+    expect(existsSync(tree)).toBe(true);
   });
 
   it("没问过直接回「删掉」→ 不删，返回说明", async () => {
