@@ -301,6 +301,34 @@ CREATE TABLE IF NOT EXISTS schedules (
   last_ref TEXT,
   history TEXT NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS tools (
+  name TEXT PRIMARY KEY,
+  transport TEXT NOT NULL,
+  connection TEXT NOT NULL,
+  scenario TEXT NOT NULL,
+  skill TEXT,
+  projects TEXT NOT NULL DEFAULT '[]',
+  roles TEXT NOT NULL DEFAULT '[]',
+  binaries TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  draft INTEGER NOT NULL DEFAULT 0,
+  health TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_ops (
+  tool TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  input_schema TEXT NOT NULL,
+  level TEXT,
+  level_by TEXT NOT NULL,
+  template TEXT,
+  undo TEXT,
+  PRIMARY KEY (tool, name)
+);
 `;
 
 export const MARKDOWN_TEMPLATES: Record<string, string> = {

@@ -831,7 +831,30 @@ export interface SlackConversation {
   why: string;
 }
 
-export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "custom";
+export type PendingActionType = "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "tool_call" | "custom";
+
+export type ToolTransport = "builtin" | "mcp_http" | "mcp_stdio" | "cli";
+export type ToolLevel = "read" | "reversible" | "irreversible";
+
+/** 取值表达式：「$args.x」「$result.x」「$before.x」，其余当字面量 */
+export interface ToolUndoSpec { op: string; before?: { op: string; args: Record<string, string> }; args: Record<string, string> }
+
+export interface ToolOp {
+  name: string; description: string; inputSchema: Record<string, unknown>;
+  level: ToolLevel | null; levelBy: "friday" | "user" | "builtin";
+  /** cli 专用：argv 模板，元素里的 {name} 换成参数值 */
+  template?: string[];
+  undo?: ToolUndoSpec;
+}
+
+export interface ToolHealth { at: string; ok: boolean; error?: string }
+
+export interface ToolRegistration {
+  name: string; transport: ToolTransport; connection: string; scenario: string;
+  skill?: string; projects: string[]; roles: string[]; binaries: string[];
+  enabled: boolean; draft: boolean; ops: ToolOp[]; health?: ToolHealth;
+  createdAt: string; updatedAt: string;
+}
 
 export interface PendingAction {
   id: string;
