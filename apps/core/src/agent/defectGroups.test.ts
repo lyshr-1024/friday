@@ -156,3 +156,17 @@ describe("启动时清掉老版本挂在缺陷上的动作", () => {
     expect(getTask(b.id)!.pending!.map((p) => p.type)).toEqual(["git_merge", "brief_approve", "slack_reply"]);
   });
 });
+
+describe("修复卡没开起来，名下缺陷不能卡死在处理中", () => {
+  it("准备段没建出 worktree：缺陷标卡住、写明原因，能再开工", async () => {
+    const { createJob } = await import("../memory/jobs.js");
+    const { prepareFailed } = await import("./sessions.js");
+    const card = createTask({ title: "失败的修复卡", kind: "code", status: "processing", source: { fixFor: "s-fail", autonomous: true } });
+    createJob({ id: "job-prep-fail", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: card.id, sessionId: card.id });
+    const d = createTask({ title: "跟着卡的缺陷", kind: "meegle", status: "processing", source: { meegleType: "issue", rootId: card.id, handedAt: at, autonomous: true } });
+    prepareFailed("job-prep-fail");
+    expect(getTask(card.id)!.status).toBe("blocked");
+    expect(getTask(d.id)!.status).toBe("blocked");
+    expect(getTask(d.id)!.progress).toContain("准备段没建出 worktree");
+  });
+});

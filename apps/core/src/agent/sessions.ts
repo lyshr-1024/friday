@@ -6,6 +6,7 @@ import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, latestRunningJob, markAwaiting, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
 import { findTaskBySource, getTask, updateTask } from "../memory/tasks.js";
+import { settleHandedBugs } from "./handedBugs.js";
 import { createTermSession, getTermSession, markInput, otherOpenSessionUsing, refreshCreatedAt, updateTermSession } from "../memory/termSessions.js";
 import { branchExistsSync, branchesForIdSync, currentBranchSync, gitCommonDirSync, gitTopSync } from "./git.js";
 import { jobLog, launchInSession, shellQuote, writeResumeScript, type SessionLaunch } from "./runner.js";
@@ -281,6 +282,7 @@ export async function worktreeReady(jobId: string, path: string): Promise<TermSe
     if (job.taskId) {
       record({ taskId: job.taskId, action: "claude_code_blocked", why, how, evidence: { jobId, path, repoDir: s.repoDir, branch: branch ?? null }, risk: "read", status: "failed" });
       updateTask(job.taskId, { status: "blocked", progress });
+      settleHandedBugs(job.taskId, `「${getTask(job.taskId)?.title.slice(0, 24) ?? "所属任务"}」没开起来：${progress}`);
     }
     publish({ type: "tasks" });
     return undefined;
@@ -308,5 +310,8 @@ export function prepareFailed(jobId: string): Task | undefined {
   if (job.sessionId) updateTermSession(job.sessionId, { status: "exited" });
   if (!job.taskId) return undefined;
   record({ taskId: job.taskId, action: "claude_code_blocked", why: "准备段没建出 worktree", how: "准备段结束时路径文件为空", evidence: { jobId }, risk: "read", status: "failed" });
-  return updateTask(job.taskId, { status: "blocked", progress: "准备段没建出 worktree，打开终端看它的输出" });
+  const t = updateTask(job.taskId, { status: "blocked", progress: "准备段没建出 worktree，打开终端看它的输出" });
+  // 交代进来的缺陷（修复卡名下）跟着标卡住，不然一直挂在处理中，定点和「开工」都接不了
+  settleHandedBugs(job.taskId, `「${t?.title.slice(0, 24) ?? "所属任务"}」准备段没建出 worktree，没开起来`);
+  return t;
 }

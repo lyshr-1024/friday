@@ -3,6 +3,7 @@ import { record } from "../memory/audit.js";
 import { clearAwaiting, getJob, isFridayInput, markNudged, runningJobs } from "../memory/jobs.js";
 import { getTermSession } from "../memory/termSessions.js";
 import { getTask, listTasks, updateTask } from "../memory/tasks.js";
+import { settleHandedBugs } from "./handedBugs.js";
 import { state } from "../scheduler/index.js";
 import { closeRun } from "./runLog.js";
 import { sayToSession } from "./sessions.js";
@@ -61,6 +62,7 @@ export function stalledStarts(now = Date.now()): string[] {
     if (!fridayDriven(owner) || owner.status !== "processing") continue;
     clearAwaiting(job.id);
     updateTask(owner.id, { status: "blocked", progress: "Claude 没起来（开工 20 分钟没回报会话），看终端：多半卡在信任目录、登录这类弹框上" });
+    settleHandedBugs(owner.id, `「${owner.title.slice(0, 24)}」的 Claude 没起来，这条没修`);
     closeRun(job.id, "no_report");
     state.notices.push({ title: "Claude 没起来", body: owner.title, taskId: owner.id });
     record({ taskId: owner.id, action: "round_not_started", why: "开工 20 分钟还没回报会话 id", how: "标卡住，等你看终端", evidence: { jobId: job.id }, risk: "read" });
