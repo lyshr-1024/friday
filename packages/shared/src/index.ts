@@ -379,8 +379,7 @@ export interface TermSession {
 
 /* ---------- 任务中枢与账本 ---------- */
 
-/** slack / meegle 是第二步迁移前的老值，读取时由 core 换成 conversation / work_item */
-export type TaskKind = "work_item" | "conversation" | "slack" | "meegle" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
+export type TaskKind = "work_item" | "conversation" | "verbal" | "doc" | "code" | "learn" | "handbook" | "okr_weekly" | "project" | "other";
 export type TaskStatus = "collected" | "understood" | "processing" | "review" | "done" | "blocked" | "ignored";
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   collected: "刚收进来",
@@ -448,13 +447,12 @@ export interface StageHint {
   at: string;
 }
 
-/** 任务上挂的一份资料链接，不分类型。from 只区分是 Meegle 同步下来的还是你贴的；
-    手贴的跟 meegleId 那条同步链路无关，不会让任务被 Meegle 接管。 */
+/** 任务上挂的一份资料链接，不分类型。from 只区分是外部工具同步下来的还是你贴的；
+    手贴的跟工单同步链路无关，不会让任务被同步接管。 */
 export interface TaskDoc {
   url: string;
   title?: string;
-  /** meegle 是迁移前的老值，读取时换成 sync */
-  from: "sync" | "user" | "meegle";
+  from: "sync" | "user";
   kind?: "link";
 }
 
@@ -466,7 +464,7 @@ export interface BriefDep {
   what: string;
   from?: string;
   status: "pending" | "ready";
-  evidence?: { url?: string; text?: string; at: string; source: "work_item" | "conversation" | "user" | "meegle" | "slack" };
+  evidence?: { url?: string; text?: string; at: string; source: "work_item" | "conversation" | "user" };
 }
 
 /** Friday 对一条需求的书面理解：要做什么、要别人给什么、怎么验收、怎么发、怎么做。自主开工的前置闸 */
@@ -507,8 +505,6 @@ export interface ExternalRef {
 
 export interface MergedItem {
   id: string;
-  /** @deprecated 第二步迁移中 */
-  meegleId?: string;
   title: string;
   url?: string;
   docs?: TaskDoc[];
@@ -529,84 +525,26 @@ export interface TaskSource {
   blockedAt?: string;
   /** 知识库冷启动的锚点卡，值是项目名 */
   knowledgeBootstrap?: string;
-  /** @deprecated 第二步迁移中 */
-  threadId?: string;
-  /** 这条任务对应的 Slack 对话键（channelId:ts） */
-  /** @deprecated 第二步迁移中 */
-  conversation?: string;
   /** 这个 job 在后台跑，没有终端窗口；想看要点「打开终端看」 */
   headless?: boolean;
-  /** 对话所在频道，回帖时用 */
-  /** @deprecated 第二步迁移中 */
-  channelId?: string;
-  /** 问问题的人 */
-  /** @deprecated 第二步迁移中 */
-  userName?: string;
-  /** 回在哪条 thread 下面 */
-  /** @deprecated 第二步迁移中 */
-  threadTs?: string;
-  /** @deprecated 第二步迁移中 */
-  meegleId?: string;
-  /**
-   * 合并进来的其它工单号（二期并进一期时）。同步认领工单要连它一起查，
-   * 否则被合掉那条下次同步会被当成新工单重新建出来。
-   */
-  /** @deprecated 第二步迁移中 */
-  mergedMeegleIds?: string[];
   /**
    * 合并进来的那些需求：名字、链接、以及它自己的文档。被合掉的任务已经删了，
    * 不在这儿存一份，卡片上就只剩一串号码、文档也跟着丢了。
    */
   merged?: MergedItem[];
-  /** Meegle 工单类型键（story / issue / …），用来把需求和缺陷分开 */
-  /** @deprecated 第二步迁移中 */
-  meegleType?: string;
-  /** 这条缺陷在 Meegle 里关联的需求（_field_linked_story）。缺陷标题常常不带需求名，只有这个字段能关联上 */
-  /** @deprecated 第二步迁移中 */
-  linkedStoryId?: string;
-  /** @deprecated 第二步迁移中 */
-  linkedStoryName?: string;
-  /** Friday 主动拉进来当容器的需求：它本来就不在分派列表里，同步时的自动收尾要跳过它 */
-  /** @deprecated 第二步迁移中 */
-  storyContainer?: boolean;
   /** 项目终端的隐藏锚点（kind: project）：不进任务列表，只是让终端有个挂靠的地方 */
   projectTerminal?: string;
   /** 项目 shell 的锚点：跟 projectTerminal 一样不进任务列表 */
   projectShell?: string;
   /** 容器是同步因名下缺陷全完而自动收的（不是你标的）：之后再有开着的缺陷就拉回来 */
   autoClosed?: boolean;
-  /** Meegle 里这条缺陷已到终态（值是状态名），手上的改动挂着「撤掉改动」等你定；同步不再拿它收工 */
-  /** @deprecated 第二步迁移中 */
-  meegleClosed?: string;
-  /** Meegle 空间 key，流转状态要用 */
-  /** @deprecated 第二步迁移中 */
-  meegleProject?: string;
-  /** Meegle 那边的当前状态 key，如 OPEN / REOPENED / IN PROGRESS */
-  /** @deprecated 第二步迁移中 */
-  statusKey?: string;
-  /** tags 字段的原始 label */
-  /** @deprecated 第二步迁移中 */
-  meegleTags?: string[];
-  /** 后台前端开发节点排期结束日 YYYY-MM-DD */
-  /** @deprecated 第二步迁移中 */
-  feDue?: string;
-  /** 服务端开发节点排期结束日 */
-  /** @deprecated 第二步迁移中 */
-  beDue?: string;
   /** 从呼出模式建的任务 */
   summon?: boolean;
-  /** @deprecated 第二步迁移中 */
-  reporter?: string;
   description?: string;
   /** 资料链接：Meegle 同步只增不删，手贴的随时可删 */
   docs?: TaskDoc[];
   /** 你删掉的资料（归一化后的 URL）：Meegle 同步不会再把它们加回来 */
   removedDocs?: string[];
-  /** 当前节点的 node_key，节点流转要用 */
-  /** @deprecated 第二步迁移中 */
-  nodeKey?: string;
-  /** @deprecated 第二步迁移中 */
-  nodeName?: string;
   url?: string;
   note?: string;
   jobId?: string;
@@ -632,7 +570,7 @@ export interface TaskSource {
   branch?: string;
   /** Friday 自学产出的研究笔记，记忆库目录下的相对路径（research/…md） */
   researchFile?: string;
-  /** 从哪条任务派生出来的待办（情境卡里的 todo）。不用 threadId，免得和线程本身那条任务撞上 */
+  /** 从哪条任务派生出来的待办（情境卡里的 todo）。不放对话键，免得和对话本身那条任务撞上 */
   fromTaskId?: string;
   /** 由哪条定时任务触发 */
   scheduleId?: string;
@@ -733,7 +671,6 @@ export const TAG_LABELS: Record<string, string> = {
 
 
 
-/** slack 是迁移前的老值 */
 export type TaskCategory = "conversation" | "defect" | "story" | "other";
 
 export const TASK_CATEGORY_LABEL: Record<TaskCategory, string> = { conversation: "Slack", defect: "缺陷", story: "需求", other: "其他" };
@@ -801,11 +738,6 @@ export interface DeliveryReport {
   decisions?: string[];
 }
 
-export type LegacySourceKey = "threadId" | "conversation" | "channelId" | "userName" | "threadTs" | "meegleId" | "mergedMeegleIds" | "meegleType" | "linkedStoryId" | "linkedStoryName" | "storyContainer" | "meegleClosed" | "meegleProject" | "statusKey" | "meegleTags" | "feDue" | "beDue" | "reporter" | "nodeKey" | "nodeName";
-
-export type ClientMergedItem = Omit<MergedItem, "meegleId">;
-
-export type ClientTaskSource = Omit<TaskSource, LegacySourceKey | "merged"> & { merged?: ClientMergedItem[] };
 
 export interface Task {
   id: string;
@@ -868,8 +800,7 @@ export interface SlackConversation {
   why: string;
 }
 
-/** slack_reply / meegle_update 是迁移前的老值，读取时换成 chat_reply / custom */
-export type PendingActionType = "chat_reply" | "slack_reply" | "meegle_update" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "tool_call" | "custom";
+export type PendingActionType = "chat_reply" | "git_merge" | "start_job" | "handbook_apply" | "okr_submit" | "reproject" | "discard_changes" | "brief_approve" | "tool_call" | "custom";
 
 export type ToolTransport = "builtin" | "mcp_http" | "mcp_stdio" | "cli";
 export type ToolLevel = "read" | "reversible" | "irreversible";
@@ -966,9 +897,6 @@ export interface StateTransition {
   stateKey: string;
   label: string;
 }
-
-/** 前端看到的任务：来源只剩新字段，老键读不到（类型层面强制；核心读取已归一化） */
-export type ClientTask = Omit<Task, "source"> & { source: ClientTaskSource };
 
 export interface TaskBoard {
   tasks: Task[];
@@ -1083,8 +1011,7 @@ export interface ProjectKnowledge {
 /* ---------- 结果账本：Friday 干的活后来怎么样了 ---------- */
 
 export type RunKind = "autonomous" | "query" | "interactive_round" | "story_bug" | "brief";
-/** slack 是迁移前的老值 */
-export type RunTrigger = "retry" | "autostart" | "approve" | "chat" | "slack" | "user" | "schedule" | "rejected" | "followup";
+export type RunTrigger = "retry" | "autostart" | "approve" | "chat" | "user" | "schedule" | "rejected" | "followup";
 export type RunExit = "report" | "no_report" | "window_closed" | "blocked";
 /** closed_unverified：你标了完成，但本地主干里找不到交付的提交（可能是 squash 合并、还没 pull，或者真没合）——不当成收下也不当成白干 */
 /** superseded：同一个会话后面又交了一轮，结局记在最后那一轮上 */
@@ -1285,5 +1212,3 @@ export interface ScheduleView extends Schedule {
 
 export type ScheduleInput = Pick<Schedule, "title" | "cron" | "executor"> &
   Partial<Pick<Schedule, "project" | "prompt" | "mode" | "attended" | "server" | "tool" | "args" | "enabled">>;
-
-export type ClientTaskBoard = Omit<TaskBoard, "tasks"> & { tasks: ClientTask[] };

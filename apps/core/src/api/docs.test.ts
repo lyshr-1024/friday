@@ -42,7 +42,7 @@ describe("资料链接接口", () => {
 
   it("删掉的链接记墓碑，再贴一次就清掉", async () => {
     vi.stubGlobal("fetch", async () => new Response("<title>x</title>"));
-    const t = createTask({ title: "墓碑", kind: "verbal", source: { docs: [{ url: "https://m.example/req", from: "meegle" }] } });
+    const t = createTask({ title: "墓碑", kind: "verbal", source: { docs: [{ url: "https://m.example/req", from: "sync" }] } });
     await app.request(`/tasks/${t.id}/docs?url=${encodeURIComponent("https://m.example/req/")}`, { method: "DELETE" });
     expect(getTask(t.id)!.source.removedDocs).toEqual(["https://m.example/req"]);
     await post(t.id, "https://m.example/req");

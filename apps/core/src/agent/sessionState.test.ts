@@ -43,8 +43,8 @@ describe("任务卡上的会话", () => {
   });
 
   it("缺陷的 rootId 指向已收工的需求：看它自己的会话", () => {
-    const story = createTask({ title: "收工需求", kind: "meegle", source: {}, status: "done" });
-    const bug = createTask({ title: "自己当根", kind: "meegle", source: { rootId: story.id }, status: "processing" });
+    const story = createTask({ title: "收工需求", kind: "work_item", source: {}, status: "done" });
+    const bug = createTask({ title: "自己当根", kind: "work_item", source: { rootId: story.id }, status: "processing" });
     createTermSession({ id: bug.id, project: "p", repoDir: "/r", tmuxName: "r-bug", kind: "interactive", jobId: "j2" });
     expect(taskSession(getTask(bug.id)!).name).toBe("r-bug");
   });

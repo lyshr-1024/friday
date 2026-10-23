@@ -50,16 +50,16 @@ seedBuiltins();
 const issue = () =>
   createTask({
     title: "Fund code 搜不出来",
-    kind: "meegle",
-    source: { meegleId: "24420780", meegleProject: "pk", meegleType: "issue", statusKey: "REOPENED", url: "https://m/x" },
+    kind: "work_item",
+    source: { external: { tool: "meegle", type: "work_item", id: "24420780", kind: "defect", state: { key: "REOPENED" }, attrs: { typeKey: "issue", space: "pk" } }, url: "https://m/x" },
     status: "understood",
   });
 
 const story = () =>
   createTask({
     title: "客户资料新增人脸照片上传",
-    kind: "meegle",
-    source: { meegleId: "24333723", meegleProject: "pk", meegleType: "story", nodeKey: "state_16", url: "https://m/s" },
+    kind: "work_item",
+    source: { external: { tool: "meegle", type: "work_item", id: "24333723", kind: "story", step: { key: "state_16" }, attrs: { typeKey: "story", space: "pk" } }, url: "https://m/s" },
     status: "understood",
   });
 
@@ -79,7 +79,7 @@ describe("缺陷状态流转", () => {
     const res = await post(`/tasks/${t.id}/transition`, { id: "1062795", stateKey: "IN PROGRESS", label: "开始处理" });
     expect(res.status).toBe(200);
     expect(meegleMock.transition).toHaveBeenCalledWith("pk", "24420780", "1062795");
-    expect(((await res.json()) as Task).source.statusKey).toBe("IN PROGRESS");
+    expect(((await res.json()) as Task).source.external?.state?.key).toBe("IN PROGRESS");
     const ev = listAudit({ taskId: t.id })[0]!;
     expect(ev.action).toBe("meegle_transition");
     expect(ev.reversible).toBe(true);
@@ -140,7 +140,7 @@ describe("需求的节点流转", () => {
     expect(meegleMock.confirmNode).toHaveBeenCalledWith("pk", "24333723", "state_16", "rollback", expect.stringContaining("Friday"));
   });
 
-  it("没有 nodeKey 的任务不给流转", async () => {
+  it("没有当前节点的任务不给流转", async () => {
     const t = createTask({ title: "口头交代", kind: "verbal", source: {}, status: "understood" });
     expect((await app.request(`/tasks/${t.id}/node`)).status).toBe(400);
   });
@@ -188,11 +188,11 @@ describe("Friday 推断的归属", () => {
       return "";
     });
     setLauncher(async (_req, name) => { alive.add(name); });
-    const root = createTask({ title: "计费对接", kind: "meegle", source: { meegleId: "S9", meegleType: "story" }, status: "processing", project: "rootproj" });
+    const root = createTask({ title: "计费对接", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S9", kind: "story", attrs: { typeKey: "story" } } }, status: "processing", project: "rootproj" });
     const jobId = await openSession(root, root, { kind: "interactive", project: "rootproj", repoDir: R, task: "x" });
     const wt = addTestWorktree(R, `rootproj-feat-${seq++}`);
     await worktreeReady(jobId, wt);
-    const bug = createTask({ title: "导出按钮点两次重复下载", kind: "slack", source: { rootId: root.id, rootGuess: true }, status: "understood" });
+    const bug = createTask({ title: "导出按钮点两次重复下载", kind: "conversation", source: { rootId: root.id, rootGuess: true }, status: "understood" });
     return { root, bug };
   }
 

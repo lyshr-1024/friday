@@ -119,7 +119,7 @@ describe("tmux 版终端", () => {
 
   it("缺陷自己的 job 收尾不杀需求的会话", async () => {
     const { t: root } = await running("需求2");
-    const bug = createTask({ title: "缺陷2", kind: "meegle", source: { rootId: root.id }, status: "processing" });
+    const bug = createTask({ title: "缺陷2", kind: "work_item", source: { rootId: root.id }, status: "processing" });
     const jobId = await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: R, task: "y" });
     calls = [];
     expect(await closeJobTerminal(jobId, "测试")).toBe(false);
@@ -129,8 +129,8 @@ describe("tmux 版终端", () => {
   });
 
   it("缺陷开的会话：需求收工时照样杀（按收工的任务判，不看 job 归谁）", async () => {
-    const root = createTask({ title: "需求3", kind: "meegle", source: {}, status: "processing", project: "app" });
-    const bug = createTask({ title: "缺陷3", kind: "meegle", source: { rootId: root.id }, status: "processing" });
+    const root = createTask({ title: "需求3", kind: "work_item", source: {}, status: "processing", project: "app" });
+    const bug = createTask({ title: "缺陷3", kind: "work_item", source: { rootId: root.id }, status: "processing" });
     await openSession(root, bug, { kind: "autonomous", project: "app", repoDir: R, task: "z" });
     const name = getTermSession(root.id)!.tmuxName;
     await finishTask(root.id, "done", "测试");
@@ -140,7 +140,7 @@ describe("tmux 版终端", () => {
 
   it("缺陷收工不杀需求的会话；需求收工才杀", async () => {
     const { t: root } = await running("需求");
-    const bug = createTask({ title: "缺陷", kind: "meegle", source: { rootId: root.id }, status: "processing" });
+    const bug = createTask({ title: "缺陷", kind: "work_item", source: { rootId: root.id }, status: "processing" });
     await finishTask(bug.id, "done", "测试");
     expect(calls.some((c) => c[4] === "kill-session")).toBe(false);
     expect(getTermSession(root.id)!.status).toBe("running");
@@ -208,8 +208,8 @@ describe("窗口 / 会话没了：任务得跟着收尾，不能一直挂在 pro
 
 describe("缺陷的 rootId 指向已收工的需求", () => {
   it("缺陷自己的会话在它收工时照样 kill", async () => {
-    const story = createTask({ title: "已收工需求", kind: "meegle", source: {}, status: "done", project: "app" });
-    const bug = createTask({ title: "自己开的缺陷", kind: "meegle", source: { rootId: story.id }, status: "processing", project: "app" });
+    const story = createTask({ title: "已收工需求", kind: "work_item", source: {}, status: "done", project: "app" });
+    const bug = createTask({ title: "自己开的缺陷", kind: "work_item", source: { rootId: story.id }, status: "processing", project: "app" });
     await openSession(bug, bug, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     const name = getTermSession(bug.id)!.tmuxName;
     await finishTask(bug.id, "done", "测试");
@@ -275,7 +275,7 @@ describe("关会话时没交付的 handed 缺陷", () => {
   it("需求收工 / 手动关会话：say 路的 handed 缺陷标 blocked", async () => {
     for (const close of ["finish", "close"] as const) {
       const { t, jobId } = await running(`需求-${close}`);
-      const bug = createTask({ title: "缺陷", kind: "meegle", source: { rootId: t.id, autonomous: true, handedAt: new Date().toISOString() }, status: "processing", project: "app" });
+      const bug = createTask({ title: "缺陷", kind: "work_item", source: { rootId: t.id, autonomous: true, handedAt: new Date().toISOString() }, status: "processing", project: "app" });
       if (close === "finish") await finishTask(t.id, "done", "收工");
       else await closeJobTerminal(jobId, "手动关", t.id);
       expect(getTask(bug.id)!.status).toBe("blocked");

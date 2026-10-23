@@ -111,7 +111,7 @@ describe("建卡会话", () => {
   it("briefRefusal：能建回 undefined，不能建逐条写原因", () => {
     const base = { id: "x", title: "t", kind: "verbal", project: "p", status: "understood", priority: "normal", source: {}, createdAt: "", updatedAt: "" } as unknown as Task;
     expect(briefRefusal(base)).toBeUndefined();
-    expect(briefRefusal({ ...base, source: { meegleType: "defect" } })).toBeUndefined();
+    expect(briefRefusal({ ...base, source: { external: { tool: "meegle", type: "work_item", id: "W1", kind: "defect", attrs: { typeKey: "defect" } } } })).toBeUndefined();
     expect(briefRefusal({ ...base, project: undefined })).toContain("项目");
     expect(briefRefusal({ ...base, source: { jobId: "j" } })).toContain("开过工");
     expect(briefRefusal({ ...base, status: "done" })).toContain("收工");
@@ -119,7 +119,7 @@ describe("建卡会话", () => {
 
   it("不能建的卡回 404 并写明原因", async () => {
     writeProjects({ name: "p-404" });
-    const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-404", status: "understood", source: { scheduleId: "s-1" } });
+    const defect = createTask({ title: "按钮错位", kind: "work_item", project: "p-404", status: "understood", source: { scheduleId: "s-1" } });
     const r = await startBriefJob(defect.id);
     expect(r).toMatchObject({ status: 404 });
     expect((r as { error: string }).error).toContain("定时");
@@ -284,7 +284,7 @@ describe("建卡会话", () => {
 
   it("缺陷：storeBrief 规模强制 small，送审按项目档位", () => {
     writeProjects({ name: "p-bug-all" }, { name: "p-bug-big", extra: ["方案送审：大的"] });
-    const bug = (project: string) => story(project, { kind: "meegle", title: "列表排序错乱", source: { meegleType: "defect", meegleId: "9" } });
+    const bug = (project: string) => story(project, { kind: "work_item", title: "列表排序错乱", source: { external: { tool: "meegle", type: "work_item", id: "9", kind: "defect", attrs: { typeKey: "defect" } } } });
     const a = bug("p-bug-all");
     expect(briefRefusal(getTask(a.id)!)).toBeUndefined();
     expect(store(a.id, { ...goodBrief, size: "large" })).toEqual({ ok: true, review: "pending" });
@@ -307,7 +307,7 @@ describe("建卡会话", () => {
   it("briefPrompt：缺陷带复现段，需求不带", () => {
     writeProjects({ name: "p-bp" });
     const p = loadProjects().find((x) => x.name === "p-bp")!;
-    const bug = story("p-bp", { kind: "meegle", source: { meegleType: "defect", meegleId: "9" } });
+    const bug = story("p-bp", { kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "9", kind: "defect", attrs: { typeKey: "defect" } } } });
     const text = briefPrompt(bug, p);
     expect(text).toContain("复现");
     expect(text).toContain("friday_brief");
@@ -323,10 +323,10 @@ describe("建卡会话", () => {
     addInboxItems([{ id: "m1", kind: "mention", channelId: "C1", channelName: "proj-fund", userId: "U1", userName: "产品小王", text: "排序默认按近一年", permalink: "https://slack.test/m1", ts: "100.1" }]);
     const t = createTask({
       title: "基金筛选加排序",
-      kind: "meegle",
+      kind: "work_item",
       project: "p-pr",
       status: "understood",
-      source: { description: "按收益率排序", docs: [{ url: "https://lark.test/docx/abc", title: "PRD", from: "meegle" }], meegleId: "123" },
+      source: { external: { tool: "meegle", type: "work_item", id: "123" }, description: "按收益率排序", docs: [{ url: "https://lark.test/docx/abc", title: "PRD", from: "sync" }] },
     });
     // 工单号和对话键同在一条任务上时，对话键是一条边（external 只放工单）
     linkUp(taskNode(t.id), extNode("slack", "conversation", "C1:100.1"), "rule", "迁移：任务同时带工单号和对话键");
@@ -399,8 +399,8 @@ describe("建卡队列", () => {
     updateSettings({ autonomous: true });
     writeProjects({ name: "p-adopt" });
     const intake = (project: string) => ({ kind: "start" as const, confidence: 90, project, detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" });
-    const hit = createTask({ title: "缺陷甲", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: intake("p-adopt") } });
-    const miss = createTask({ title: "缺陷乙", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: intake("不存在的项目") } });
+    const hit = createTask({ title: "缺陷甲", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W2", kind: "defect", attrs: { typeKey: "issue" } }, intake: intake("p-adopt") } });
+    const miss = createTask({ title: "缺陷乙", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W3", kind: "defect", attrs: { typeKey: "issue" } }, intake: intake("不存在的项目") } });
     await briefTick();
     const g = getTask(hit.id)!;
     expect(g.project).toBe("p-adopt");
@@ -413,11 +413,11 @@ describe("建卡队列", () => {
   it("adoptIntakeProject：你清掉项目（projectBy user）不再猜回去；已有项目不动", () => {
     writeProjects({ name: "p-keep" }, { name: "p-other" });
     const intake = { kind: "start" as const, confidence: 90, project: "p-keep", detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" };
-    const cleared = createTask({ title: "缺陷丁", kind: "meegle", status: "understood", source: { meegleType: "issue", intake, projectBy: "user" } });
+    const cleared = createTask({ title: "缺陷丁", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W4", kind: "defect", attrs: { typeKey: "issue" } }, intake, projectBy: "user" } });
     adoptIntakeProject(cleared);
     expect(getTask(cleared.id)!.project).toBeFalsy();
     expect(listAudit({ taskId: cleared.id }).some((e) => e.action === "project_guessed")).toBe(false);
-    const has = createTask({ title: "缺陷戊", kind: "meegle", project: "p-other", status: "understood", source: { meegleType: "issue", intake } });
+    const has = createTask({ title: "缺陷戊", kind: "work_item", project: "p-other", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W5", kind: "defect", attrs: { typeKey: "issue" } }, intake } });
     adoptIntakeProject(has);
     expect(getTask(has.id)!.project).toBe("p-other");
     expect(listAudit({ taskId: has.id }).some((e) => e.action === "project_guessed")).toBe(false);
@@ -427,7 +427,7 @@ describe("建卡队列", () => {
     clearJobs();
     updateSettings({ autonomous: false });
     writeProjects({ name: "p-adopt-off" });
-    const t = createTask({ title: "缺陷丙", kind: "meegle", status: "understood", source: { meegleType: "issue", intake: { kind: "start", confidence: 90, project: "p-adopt-off", detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" } } });
+    const t = createTask({ title: "缺陷丙", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W6", kind: "defect", attrs: { typeKey: "issue" } }, intake: { kind: "start", confidence: 90, project: "p-adopt-off", detail: "d", why: "w", at: "2026-10-01T00:00:00.000Z" } } });
     await briefTick();
     expect(getTask(t.id)!.project).toBeFalsy();
   });
@@ -628,7 +628,7 @@ describe("审核、打回、改档、依赖", () => {
     expect(await tool(chat(t), "task_update", { rebuildBrief: true })).toContain("在后台重建");
     expect(anchorOf(t.id)?.source.jobId).toBe("job-tu");
     expect(listMessages(chat(t)).some((m) => m.kind === "run" && m.content === `→ ${taskTag(getTask(t.id)!)}：理解卡在后台重建` && m.taskIds?.[0] === t.id)).toBe(true);
-    const defect = createTask({ title: "按钮错位", kind: "meegle", project: "p-tu", status: "understood", source: { scheduleId: "s-2" } });
+    const defect = createTask({ title: "按钮错位", kind: "work_item", project: "p-tu", status: "understood", source: { scheduleId: "s-2" } });
     expect(await tool(chat(defect), "task_update", { rebuildBrief: true })).toContain("定时");
   });
 

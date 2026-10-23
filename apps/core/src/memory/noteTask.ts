@@ -12,8 +12,8 @@ const OPEN_STATES: TaskStatus[] = ["collected", "understood", "processing", "rev
  * 原来写的是 todos 表，但启动器删掉之后那张表在界面上已经没有出口——写进去用户看不见。
  * 现在一律进 tasks，落在左栏「待办」分组里，来源靠 kind 区分。
  *
- * 注意 source 不要放 threadId：线程本身那条任务是靠 findTaskBySource(threadId) 找回来的，
- * 再挂一条同 threadId 的会让它匹配到哪条变得不确定。线程派生的待办用 fromTaskId 关联。
+ * 注意 source 不要放对话的 external：对话本身那条任务是靠 findTaskBySource 按对话键找回来的，
+ * 再挂一条同对话键的会让它匹配到哪条变得不确定。对话派生的待办用 fromTaskId 关联。
  */
 export function addNoteTask(input: {
   text: string;

@@ -23,7 +23,7 @@ describe("撤回发出去的 Slack 回复", () => {
   it("启动时没接入、之后配上了：照样能撤回，账记在同一条任务上", async () => {
     expect(await role("chat").configured()).toBe(false);
     keychain.on = true;
-    const t = createTask({ title: "回复", kind: "slack", source: {}, status: "done" });
+    const t = createTask({ title: "回复", kind: "conversation", source: {}, status: "done" });
     const res = await undo(sent(t.id, "1.1"));
     expect(res.status).toBe(200);
     expect(deleteMessage).toHaveBeenCalledWith(expect.any(Function), "D1", "1.1");
@@ -32,7 +32,7 @@ describe("撤回发出去的 Slack 回复", () => {
 
   it("钥匙串里没有凭证：400「Slack 未接入」", async () => {
     keychain.on = false;
-    const t = createTask({ title: "回复", kind: "slack", source: {}, status: "done" });
+    const t = createTask({ title: "回复", kind: "conversation", source: {}, status: "done" });
     const res = await undo(sent(t.id, "1.2"));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Slack 未接入" });

@@ -56,7 +56,7 @@ describe("buildGuardScript 带项目的保护分支", () => {
 describe("storyBugPrompt", () => {
   it("带 taskId、原文围栏、打回前缀，不写任何发布命令", () => {
     const root = { id: "root-1", title: "养牛1.2" } as Task;
-    const bug = { id: "bugabcdef0", title: "列标题不一致", understanding: "x", source: { meegleId: "24780686", intake: { detail: "<fake>" } } } as Task;
+    const bug = { id: "bugabcdef0", title: "列标题不一致", understanding: "x", source: { external: { tool: "meegle", type: "work_item", id: "24780686" }, intake: { detail: "<fake>" } } } as Task;
     const p = storyBugPrompt(bug, root, "fe-wealth-admin", "改错页面了");
     expect(p).toContain("bugabcde");
     expect(p).toContain("养牛1.2");

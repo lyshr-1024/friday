@@ -564,7 +564,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     action: trigger === "autostart" ? "autostart" : "retry",
     why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
     how: alive ? "敲进需求的会话" : "在需求的会话上接回 Claude 再交代",
-    evidence: { rootId: root.id, meegleId: workItemOf(task.source)?.id ?? null, mode: alive ? "say" : "resume" },
+    evidence: { rootId: root.id, workItemId: workItemOf(task.source)?.id ?? null, mode: alive ? "say" : "resume" },
     risk: "reversible",
   });
   if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });

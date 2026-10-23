@@ -99,12 +99,12 @@ export function candidates(input: MatchInput): Candidate[] {
     out.push({ task, why, strength });
   };
 
-  const meegleId = snapshot.browser ? idFromUrl(snapshot.browser.url) : undefined;
-  if (meegleId) for (const t of tasks) if (workItemOf(t.source)?.id === meegleId) push(t, `你正开着这条工单 #${meegleId}`, "sure");
+  const openId = snapshot.browser ? idFromUrl(snapshot.browser.url) : undefined;
+  if (openId) for (const t of tasks) if (workItemOf(t.source)?.id === openId) push(t, `你正开着这条工单 #${openId}`, "sure");
 
   if (snapshot.selection) {
     // 必须带 # 或工单类型前缀：裸的四位数字在日常文本里到处都是（年份、金额、行号），
-    // 撞上某个 meegleId 就会把无关任务的不可逆待审动作送上 HUD 按钮，还标着「确定」
+    // 撞上某个工单号就会把无关任务的不可逆待审动作送上 HUD 按钮，还标着「确定」
     const id = /(?:#|Defect|Issue|Story|Bug|工单|需求|缺陷)\s*[#-]?\s*(\d{3,})/i.exec(snapshot.selection)?.[1];
     if (id) for (const t of tasks) if (workItemOf(t.source)?.id === id) push(t, `选中的文字里有工单号 #${id}`, "sure");
   }

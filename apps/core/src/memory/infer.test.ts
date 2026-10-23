@@ -45,7 +45,7 @@ describe("extNode", () => {
 
 describe("inferTaskLinks", () => {
   it("老库遗留的线程任务连到 slack:thread，普通对话不由它连", () => {
-    const old = createTask({ title: "老线程", kind: "conversation", source: { threadId: "TH-infer" } });
+    const old = createTask({ title: "老线程", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "TH-infer", attrs: { legacy: "thread" } } } });
     const conv = createTask({ title: "新对话", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "C7:7.7" } } });
     inferTaskLinks(old);
     inferTaskLinks(conv);

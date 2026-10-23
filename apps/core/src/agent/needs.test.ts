@@ -78,8 +78,8 @@ describe("boardBlock", () => {
 
   it("最近 3 条消息碰过的任务给完整块", () => {
     const conv = createConversation().id;
-    const t = createTask({ title: "知许：改 segment", kind: "slack", status: "processing", understanding: "过期饲料罐提交逻辑要改", plan: "variant_mode 改 exclusive", source: {} });
-    const other = createTask({ title: "没碰过的", kind: "slack", status: "processing", understanding: "不该出现的理解", source: {} });
+    const t = createTask({ title: "知许：改 segment", kind: "conversation", status: "processing", understanding: "过期饲料罐提交逻辑要改", plan: "variant_mode 改 exclusive", source: {} });
+    const other = createTask({ title: "没碰过的", kind: "conversation", status: "processing", understanding: "不该出现的理解", source: {} });
     addMessage(conv, { role: "assistant", kind: "note", content: "好", taskIds: [t.id] });
     const out = boardBlock(conv);
     expect(out).toContain("variant_mode 改 exclusive");
@@ -89,7 +89,7 @@ describe("boardBlock", () => {
 
   it("Friday 自己问的归属问题不说成终端在问", () => {
     const conv = createConversation().id;
-    const t = createTask({ title: "开户详情页", kind: "meegle", status: "understood", source: {} });
+    const t = createTask({ title: "开户详情页", kind: "work_item", status: "understood", source: {} });
     updateTask(t.id, { attention: "intake", progress: "这条工单是财富后台还是新BO项目的？" });
     addMessage(conv, { role: "assistant", kind: "note", content: "问", taskIds: [t.id] });
     const out = boardBlock(conv);
@@ -126,7 +126,7 @@ describe("boardBlock", () => {
 
   it("完整块也算进 6000：单块超长被截断并带标记，三块都超长也不爆", () => {
     const conv = createConversation().id;
-    const ids = [1, 2, 3].map((i) => createTask({ title: `大任务${i}`, kind: "slack", status: "processing", understanding: `理解${i}\n` + "长".repeat(10_000), source: {} }));
+    const ids = [1, 2, 3].map((i) => createTask({ title: `大任务${i}`, kind: "conversation", status: "processing", understanding: `理解${i}\n` + "长".repeat(10_000), source: {} }));
     addMessage(conv, { role: "assistant", kind: "note", content: "a", taskIds: [ids[0]!.id] });
     const one = boardBlock(conv);
     expect(one.length).toBeLessThanOrEqual(6000);

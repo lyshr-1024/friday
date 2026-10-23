@@ -60,7 +60,7 @@ describe("收素材", () => {
   });
 
   it("任务：本周动过的，排除 ignored 和周报 / 手册任务本身", () => {
-    const keep = createTask({ title: "SaaS 计费明细", kind: "meegle", source: { meegleId: "24514104" }, status: "processing" });
+    const keep = createTask({ title: "SaaS 计费明细", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24514104" } }, status: "processing" });
     const ign = createTask({ title: "不管了", kind: "verbal", source: {}, status: "understood" });
     updateTask(ign.id, { status: "ignored" });
     createTask({ title: "OKR 周报 · x", kind: "okr_weekly", source: {}, status: "review" });
@@ -71,9 +71,9 @@ describe("收素材", () => {
   });
 
   it("任务：还在待办里没动过的不算（Meegle 同步每 15 分钟会刷一遍 updatedAt）", () => {
-    createTask({ title: "排队的需求", kind: "meegle", source: { meegleId: "1001" }, status: "understood", stage: "todo" });
+    createTask({ title: "排队的需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "1001" } }, status: "understood", stage: "todo" });
     createTask({ title: "刚收进来的", kind: "verbal", source: {}, status: "collected" });
-    createTask({ title: "待办里但已经在开发", kind: "meegle", source: { meegleId: "1002" }, status: "understood", stage: "dev" });
+    createTask({ title: "待办里但已经在开发", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "1002" } }, status: "understood", stage: "dev" });
     const texts = collectTasks(week).map((m) => m.text);
     expect(texts.some((t) => t.includes("排队的需求") || t.includes("刚收进来的"))).toBe(false);
     expect(texts.some((t) => t.includes("待办里但已经在开发"))).toBe(true);

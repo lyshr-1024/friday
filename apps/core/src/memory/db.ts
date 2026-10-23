@@ -10,6 +10,7 @@ import { config } from "../config.js";
 import { MARKDOWN_TEMPLATES, SCHEMA } from "./schema.js";
 import { linksNeedMigration, migrateLinks } from "./links.js";
 import { backupDb, count, externalRefsMigrated, migrateExternalRefs } from "./migrateExternal.js";
+import { LEGACY_THREAD_ABSENT_SQL } from "./externalRef.js";
 
 let instance: DatabaseSync | undefined;
 
@@ -115,7 +116,7 @@ export function migrate(d: DatabaseSync): void {
   if (!jobCols.includes("claude_session_id")) d.exec("ALTER TABLE jobs ADD COLUMN claude_session_id TEXT");
   if (!jobCols.includes("terminal")) d.exec("ALTER TABLE jobs ADD COLUMN terminal TEXT");
   // 这个 job 是替哪条任务干的：开工时写死归属，终端连回来时按它认领，
-  // 不然每开一次工就长出一条新任务（工单的 meegleId / linkedStoryId 全丢）
+  // 不然每开一次工就长出一条新任务（工单号 / 所属需求全丢）
   if (!jobCols.includes("task_id")) d.exec("ALTER TABLE jobs ADD COLUMN task_id TEXT");
   if (!jobCols.includes("session_id")) d.exec("ALTER TABLE jobs ADD COLUMN session_id TEXT");
   // Friday 驾驶的一轮还欠一次交付（friday_done / friday_blocked）；Stop 时据此催一次
@@ -148,7 +149,7 @@ export function migrate(d: DatabaseSync): void {
   d.exec(`UPDATE tasks SET status = 'understood'
           WHERE status = 'review'
             AND pending LIKE '%"start_job"%'
-            AND pending NOT LIKE '%"slack_reply"%'
+            AND pending NOT LIKE '%"slack_reply"%' -- 迁移前的老值：这条在外部引用迁移之前跑
             AND pending NOT LIKE '%"chat_reply"%'
             AND pending NOT LIKE '%"git_merge"%'
             AND pending NOT LIKE '%"handbook_apply"%'`);
@@ -166,7 +167,7 @@ export function migrate(d: DatabaseSync): void {
           stage_by = 'auto'
           WHERE stage IS NULL
             AND kind NOT IN ('okr_weekly', 'handbook')
-            AND json_extract(source, '$.threadId') IS NULL
+            AND ${LEGACY_THREAD_ABSENT_SQL}
             AND IFNULL(json_extract(source, '$.external.attrs.legacy'), '') != 'thread'
             AND json_extract(source, '$.fromTaskId') IS NULL`);
   // 上面那条曾经没排除周报 / 手册卡，review 状态的被补成了 testing，卡上能点「已上线」直接收工

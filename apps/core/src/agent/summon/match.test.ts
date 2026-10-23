@@ -60,7 +60,7 @@ describe("页面标题与文档链接", () => {
   });
 
   it("开着的 Lark 文档是某条任务挂着的资料就是 sure，带不带跟踪参数都认", () => {
-    const t = task({ id: "doc", source: { docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v?from=from_copylink", from: "meegle", title: "免佣卡多时段" }] } });
+    const t = task({ id: "doc", source: { docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v?from=from_copylink", from: "sync", title: "免佣卡多时段" }] } });
     const out = candidates({
       snapshot: snap({ browser: { url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v", title: "免佣卡多时段 - Lark云文档" } }),
       tasks: [t, task({ id: "x" })],

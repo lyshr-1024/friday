@@ -61,7 +61,7 @@ describe("HUD 在 Slack 前台", () => {
 
   it("拉不到实时时退回库里那条，仍能给出 scene 和挂着的任务", async () => {
     addInboxItems([{ id: "H3:1", kind: "mention", channelId: "H3", channelName: "team-fallback", userId: "U3", userName: "拂晓", text: "验收问题改一下", permalink: "p", ts: "100" }]);
-    const t = createTask({ title: "养牛活动验收", kind: "meegle", source: {}, status: "processing" });
+    const t = createTask({ title: "养牛活动验收", kind: "work_item", source: {}, status: "processing" });
     linkUp(extNode("slack", "conversation", "H3:100"), taskNode(t.id), "rule", "x");
     const scene = (await slackScene("#team-fallback", undefined))!;
     expect(scene.conv).toBe("H3:100");
@@ -70,7 +70,7 @@ describe("HUD 在 Slack 前台", () => {
   });
 
   it("实时拿到的对话挂着任务时也要找出来", async () => {
-    const t = createTask({ title: "多语言字段", kind: "meegle", source: {}, status: "processing" });
+    const t = createTask({ title: "多语言字段", kind: "work_item", source: {}, status: "processing" });
     linkUp(extNode("slack", "conversation", "D9:902"), taskNode(t.id), "user", "x");
     dmMock.mockResolvedValue({ channelId: "D9", lines: [{ ts: "902", userName: "Shawn", text: "催排期" }] });
     expect((await slackScene(undefined, "Shawn"))?.taskId).toBe(t.id);
@@ -141,7 +141,7 @@ describe("HUD 在 Slack 前台", () => {
   });
 
   it("整段对话里出现过工单号就自动挂上，收件箱里没这条也认得", async () => {
-    const t = createTask({ title: "多语言字段", kind: "meegle", source: { meegleId: "24487610" }, status: "understood" });
+    const t = createTask({ title: "多语言字段", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24487610" } }, status: "understood" });
     dmMock.mockResolvedValue({
       channelId: "D7",
       lines: [
@@ -155,7 +155,7 @@ describe("HUD 在 Slack 前台", () => {
   });
 
   it("工单号只出现在前几条、最后一条没有，也照样挂得上", async () => {
-    const t = createTask({ title: "月结账单", kind: "meegle", source: { meegleId: "24400009" }, status: "understood" });
+    const t = createTask({ title: "月结账单", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24400009" } }, status: "understood" });
     dmMock.mockResolvedValue({
       channelId: "D8",
       lines: [
@@ -169,8 +169,8 @@ describe("HUD 在 Slack 前台", () => {
   it("对话里贴的需求文档链接也能对上任务——产品发的多是文档不是工单号", async () => {
     const t = createTask({
       title: "免佣卡多时段",
-      kind: "meegle",
-      source: { meegleId: "24400010", docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v", from: "meegle" }] },
+      kind: "work_item",
+      source: { external: { tool: "meegle", type: "work_item", id: "24400010" }, docs: [{ url: "https://longbridge-group.jp.larksuite.com/wiki/C2z7wK0hiiz7v", from: "sync" }] },
       status: "understood",
     });
     dmMock.mockResolvedValue({
@@ -185,7 +185,7 @@ describe("HUD 在 Slack 前台", () => {
 
   it("已经挂过的对话不重复挂，也不被自动推断覆盖", async () => {
     const mine = createTask({ title: "我手动挂的", kind: "verbal", source: {}, status: "understood" });
-    createTask({ title: "工单号那条", kind: "meegle", source: { meegleId: "24487611" }, status: "understood" });
+    createTask({ title: "工单号那条", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24487611" } }, status: "understood" });
     linkUp(extNode("slack", "conversation", "D6:602"), taskNode(mine.id), "user", "我自己挂的");
     dmMock.mockResolvedValue({
       channelId: "D6",

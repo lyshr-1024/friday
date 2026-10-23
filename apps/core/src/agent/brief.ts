@@ -42,13 +42,10 @@ export function briefBasis(t: Task): string {
 
 const clip = (v: unknown, n: number): string => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
-// 老名字 meegle / slack 是迁移前的写法，收进来一律写成新名字
 const EVIDENCE_SOURCE = new Map<unknown, NonNullable<BriefDep["evidence"]>["source"]>([
   ["work_item", "work_item"],
   ["conversation", "conversation"],
   ["user", "user"],
-  ["meegle", "work_item"],
-  ["slack", "conversation"],
 ]);
 
 export function parseBrief(raw: unknown, ctx: { featureIds: Set<string>; basis: string; at?: string }): Brief | string {

@@ -6,7 +6,7 @@ import { signalScore } from "../memory/stageSignals.js";
 import { PROMOTE_AFTER, answerHint, isAdvance, onSignal, onSlackAccepted, saysAccepted, setStage } from "./stage.js";
 
 const mk = (stage: "todo" | "dev" | "testing" | "accepted" | "released" = "todo") => {
-  const t = createTask({ title: `活 ${Math.random()}`, kind: "meegle", source: { meegleId: String(Math.random()) }, project: "demo" });
+  const t = createTask({ title: `活 ${Math.random()}`, kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: String(Math.random()) } }, project: "demo" });
   return updateTask(t.id, { stage })!;
 };
 
@@ -72,7 +72,7 @@ describe("任务阶段", () => {
 
   it("没有 stage 的任务（Slack 回消息）不参与阶段", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "回个消息", kind: "slack", source: { threadId: `th-${Math.random()}` } });
+    const t = createTask({ title: "回个消息", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: `th-${Math.random()}`, attrs: { legacy: "thread" } } } });
     expect(onSignal(t.id, { signal: "branch_commit", to: "dev", ask: "", why: "" }).kind).toBe("skipped");
   });
 

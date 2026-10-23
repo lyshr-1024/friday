@@ -9,7 +9,7 @@ const ago = (min: number) => new Date(NOW - min * 60000).toISOString();
 describe("菜单栏状态", () => {
   it("在问你 > 等你 > 在干活 > 空闲，计数只算要你出手的", () => {
     expect(trayStatus(NOW)).toEqual({ state: "idle", count: 0, items: [], doing: [] });
-    createTask({ title: "卡住的", kind: "meegle", source: {}, status: "blocked" });
+    createTask({ title: "卡住的", kind: "work_item", source: {}, status: "blocked" });
     expect(trayStatus(NOW)).toEqual({ state: "idle", count: 0, items: [], doing: [] });
 
     const busy = createTask({ title: "在跑的", kind: "code", source: {}, status: "processing" });
@@ -31,7 +31,7 @@ describe("菜单栏状态", () => {
   });
 
   it("Friday 在做只列它自己全权跑的", () => {
-    const auto = createTask({ title: "自主修缺陷", kind: "meegle", source: { autonomous: true }, status: "processing" });
+    const auto = createTask({ title: "自主修缺陷", kind: "work_item", source: { autonomous: true }, status: "processing" });
     expect(trayStatus(NOW).doing).toContainEqual({ taskId: auto.id, title: "自主修缺陷" });
     expect(trayStatus(NOW).doing.map((d) => d.title)).not.toContain("在跑的");
   });

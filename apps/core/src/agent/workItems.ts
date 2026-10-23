@@ -102,7 +102,7 @@ export async function ensureContainers(items: WorkItemsRole = role("workItems"))
       // 只有之后新来的缺陷才拉回——原来一律复活，标多少次完成都会被翻回来（2026-09-28）
       if (!closedBefore.source.autoClosed && newest <= closedBefore.updatedAt) continue;
       updateTask(closedBefore.id, { status: "understood", source: { autoClosed: undefined } });
-      record({ taskId: closedBefore.id, action: "story_container_revived", why: "名下还有没处理完的缺陷", how: "容器之前被自动收尾误收，拉回待办", evidence: { meegleId: storyId }, risk: "read" });
+      record({ taskId: closedBefore.id, action: "story_container_revived", why: "名下还有没处理完的缺陷", how: "容器之前被自动收尾误收，拉回待办", evidence: { workItemId: storyId }, risk: "read" });
       made += 1;
       continue;
     }
@@ -125,7 +125,7 @@ export async function ensureContainers(items: WorkItemsRole = role("workItems"))
       action: "story_container_created",
       why: "名下有分派给我的缺陷",
       how: "把需求拉进任务板当容器，缺陷挂在它下面",
-      evidence: { meegleId: storyId, statusKey: story.stateKey },
+      evidence: { workItemId: storyId, state: story.stateKey },
       risk: "read",
     });
     made += 1;
@@ -184,7 +184,7 @@ export async function addWorkItemByRef(
   const item = await items.fetchOne(ref);
   const input = workItemToTask(item, loadProjects(), true, items);
   const task = createTask({ ...input, kind: "work_item", source: { url: item.url, ...input.source } });
-  record({ taskId: task.id, action: "task_create", why: "用户贴了工单链接让 Friday 建进任务板", how: "按链接单拉 Meegle 工单", evidence: { meegleId: item.id, projectKey: item.projectKey, status: item.status }, risk: "reversible" });
+  record({ taskId: task.id, action: "task_create", why: "用户贴了工单链接让 Friday 建进任务板", how: "按链接单拉 Meegle 工单", evidence: { workItemId: item.id, projectKey: item.projectKey, status: item.status }, risk: "reversible" });
   return { task, existed: false };
 }
 
@@ -218,7 +218,7 @@ export async function transitionToInProgress(t: Task, items?: WorkItemsRole): Pr
     return { moved: true, label: to.label };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    record({ taskId: t.id, action: "meegle_transition", why, how: "workflow transition-state → IN PROGRESS", evidence: { meegleId: workItemOf(t.source)?.id, error }, risk: "read", status: "failed" });
+    record({ taskId: t.id, action: "meegle_transition", why, how: "workflow transition-state → IN PROGRESS", evidence: { workItemId: workItemOf(t.source)?.id, error }, risk: "read", status: "failed" });
     return { moved: false, why: error };
   }
 }
@@ -278,7 +278,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
       input.source.docs = docs.length ? docs : undefined;
       if (!existing) {
         const t = createTask({ ...input, kind: "work_item", source: { url: item.url, ...input.source } });
-        record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { meegleId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
+        record({ taskId: t.id, action: "task_create", why: "Meegle 把这个工单分派给你", how: "同步分派列表时建任务", evidence: { workItemId: item.id, node: item.node ?? null, priority: item.priority ?? null }, risk: "read" });
         added++;
         fillDocTitles(t.id);
         fresh.push({ task: t, item });
@@ -291,7 +291,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
         if (existing.source.closedExternally) {
           // 关了又被 Reopen 分派回来：手上的改动还要用，「撤掉改动」收回
           updateTask(existing.id, { status: existing.source.jobId ? "processing" : "understood", progress: `Meegle 里又是 ${item.status}，接着改`, pending: (existing.pending ?? []).filter((p) => p.type !== "discard_changes"), source: { closedExternally: undefined } });
-          record({ taskId: existing.id, action: "meegle_reopened", why: `Meegle 里这条缺陷又是 ${item.status}`, how: "撤回「撤掉改动」，改动留着接着用", evidence: { meegleId: item.id }, risk: "read" });
+          record({ taskId: existing.id, action: "meegle_reopened", why: `Meegle 里这条缺陷又是 ${item.status}`, how: "撤回「撤掉改动」，改动留着接着用", evidence: { workItemId: item.id }, risk: "read" });
           reopened++;
         }
         if (isSelf) {
@@ -317,7 +317,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
         const synced = own?.id === item.id ? input.source : asHost(input.source, own, false);
         const source = { ...synced, ...clearHanded(existing).source, ...(rehand ? { handBackNote: `测试在 Meegle 里把它 Reopen 了（${item.status}），上一轮的修法没过` } : {}) };
         updateTask(existing.id, { ...patch, status: "understood", attention: undefined, pending: [], source, stage: rehand ? "todo" : "dev", stageBy: "auto", stagePrev: existing.stage, releasedAt: undefined });
-        record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { meegleId: item.id }, risk: "read" });
+        record({ taskId: existing.id, action: "meegle_reopened", why: "Meegle 里这个工单被 Reopen，又分派给你", how: `状态 ${item.status}，从${existing.status === "done" ? "已完成" : "已忽略"}拉回待办`, evidence: { workItemId: item.id }, risk: "read" });
         // 合进去的改动被打回来了：这是比「被你改过」更强的负信号
         for (const r of runsForTask(existing.id)) if (r.outcome === "merged_as_is" || r.outcome === "merged_modified" || r.outcome === "closed_unverified") setRunOutcome(r.id, "reopened", `Meegle ${item.status}`);
         state.notices.push({ title: `Meegle 工单 Reopen · ${item.projectName}`, body: item.name.slice(0, 120), taskId: existing.id });
@@ -345,7 +345,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
         if (!containerDone(kids)) continue;
         updateTask(t.id, { source: { autoClosed: true } });
         await finishTask(t.id, "done", "名下的缺陷都处理完了", { keepTerminal: true });
-        record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { meegleId: ext.id }, risk: "read" });
+        record({ taskId: t.id, action: "meegle_done", why: "名下的缺陷都处理完了", how: `${kids.length} 条缺陷全部收工，需求容器一起收尾`, evidence: { workItemId: ext.id }, risk: "read" });
         closed++;
         continue;
       }
@@ -373,7 +373,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
         const why = `Meegle 里已经是 ${status}${root ? `；它在需求「${root.title}」的会话里改过，改动跟需求混在同一条分支上，要撤得你在需求终端里自己 revert` : ""}`;
         await finishTask(t.id, "done", why, { keepTerminal: true });
         if (root) updateTask(t.id, { progress: why });
-        record({ taskId: t.id, action: "meegle_done", why, how: "工单已到终态，收工", evidence: { meegleId: ext.id, statusKey: now.stateKey }, risk: "read" });
+        record({ taskId: t.id, action: "meegle_done", why, how: "工单已到终态，收工", evidence: { workItemId: ext.id, state: now.stateKey }, risk: "read" });
         closed++;
         continue;
       }
@@ -383,7 +383,7 @@ export async function syncWorkItemsOnce(items?: WorkItemsRole): Promise<{ added:
       }
       if (!(await wi.released(ext))) continue;
       await finishTask(t.id, "done", "「FE 发布」节点已经走完", { keepTerminal: true });
-      record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { meegleId: ext.id }, risk: "read" });
+      record({ taskId: t.id, action: "meegle_done", why: "「FE 发布」节点已经走完", how: "前端已发布，从需求池里收掉", evidence: { workItemId: ext.id }, risk: "read" });
       closed++;
     }
     // 缺陷关联的需求不在任务板里时，拉进来当容器
@@ -448,7 +448,7 @@ export async function intakeWorkItem(task: Task, item: MeegleWorkItem, judge = j
       action: "intake_ask",
       why: verdict.why || "自己判断不了，需要用户给一句",
       how: verdict.question,
-      evidence: { meegleId: item.id, ...(parentId(task) ? { linkedStoryId: parentId(task) } : {}) },
+      evidence: { workItemId: item.id, ...(parentId(task) ? { parentId: parentId(task) } : {}) },
       risk: "read",
     });
     state.notices.push({ title: `有条工单要问你 · ${item.projectName}`, body: verdict.question, taskId: task.id });

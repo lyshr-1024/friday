@@ -296,10 +296,10 @@ describe("需求会话里的交付归到缺陷", () => {
     meegle.transitions = [toDev];
     meegle.calls = [];
     meegle.failWith = "";
-    const root = createTask({ title: `需求 ${tag}`, kind: "meegle", source: {}, project: "demo", status: "processing" });
+    const root = createTask({ title: `需求 ${tag}`, kind: "work_item", source: {}, project: "demo", status: "processing" });
     createJob({ id: `job-root-${tag}`, project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: root.id, sessionId: root.id });
     const bs = Array.from({ length: bugs }, (_, i) =>
-      createTask({ title: `缺陷 ${tag}${i}`, kind: "meegle", source: { rootId: root.id, autonomous: true, handedAt: new Date().toISOString(), meegleProject: "p", meegleId: `${100 + i}`, statusKey: "OPEN" }, project: "demo", status: "processing" }));
+      createTask({ title: `缺陷 ${tag}${i}`, kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: `${100 + i}`, state: { key: "OPEN" }, attrs: { space: "p" } }, rootId: root.id, autonomous: true, handedAt: new Date().toISOString() }, project: "demo", status: "processing" }));
     return { root, bs, job: `job-root-${tag}` };
   };
   const call = async (job: string, name: string, args: Record<string, unknown>) =>
@@ -313,7 +313,7 @@ describe("需求会话里的交付归到缺陷", () => {
     expect(bug.pending ?? []).toEqual([]);
     expect(bug.report?.summary).toBe("修好了");
     expect(meegle.calls).toEqual([["p", "100", "1122151"]]);
-    expect(bug.source.statusKey).toBe("IN PROGRESS");
+    expect(bug.source.external?.state?.key).toBe("IN PROGRESS");
     expect(getTask(root.id)!.report).toBeUndefined();
     expect(text).toContain("已转开发中");
   });
@@ -355,7 +355,7 @@ describe("需求会话里的交付归到缺陷", () => {
 
   it("job 是替另一条缺陷 X 跑的：不带 taskId 的 friday_done 归 X，不动 handed 缺陷 Y", async () => {
     const { root, bs } = setup("g");
-    const x = createTask({ title: "缺陷 X", kind: "meegle", source: { rootId: root.id, autonomous: true, jobId: "job-x-g" }, project: "demo", status: "processing" });
+    const x = createTask({ title: "缺陷 X", kind: "work_item", source: { rootId: root.id, autonomous: true, jobId: "job-x-g" }, project: "demo", status: "processing" });
     createJob({ id: "job-x-g", project: "demo", dir: "/tmp", task: "x", logPath: "/tmp/x.log", taskId: x.id, sessionId: root.id });
     await call("job-x-g", "friday_done", { summary: "好了", testResult: "过" });
     expect(getTask(x.id)!.status).toBe("review");

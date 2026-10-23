@@ -13,16 +13,16 @@ beforeAll(() => {
 });
 
 const mk = (title: string, project: string, extra: Partial<Parameters<typeof createTask>[0]> = {}): Task =>
-  createTask({ title, kind: "meegle", source: {}, project, status: "understood", ...extra });
+  createTask({ title, kind: "work_item", source: {}, project, status: "understood", ...extra });
 
 describe("口头交代先找已有的事", () => {
   it("话里带工单号，命中板上那条工单", () => {
-    const t = mk("陪伴日记模板去掉三大指数收盘方向", "fe-wealth-admin", { source: { meegleId: "24519027" } });
+    const t = mk("陪伴日记模板去掉三大指数收盘方向", "fe-wealth-admin", { source: { external: { tool: "meegle", type: "work_item", id: "24519027" } } });
     expect(findSameThing("24519027 这条今天要改完")?.id).toBe(t.id);
   });
 
   it("挂在需求下的缺陷，报需求号也能找到", () => {
-    const t = mk("奖品图片必填缺红星", "fe-wealth-admin", { source: { meegleId: "24532477", linkedStoryId: "24440539" } });
+    const t = mk("奖品图片必填缺红星", "fe-wealth-admin", { source: { external: { tool: "meegle", type: "work_item", id: "24532477", parent: { id: "24440539" } } } });
     expect(findSameThing("养牛 24440539 的验收问题")?.id).toBe(t.id);
   });
 

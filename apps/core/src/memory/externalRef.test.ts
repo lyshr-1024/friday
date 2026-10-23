@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PendingAction, TaskSource } from "@friday/shared";
-import { extraConversationOf, legacyMirror, migrateKind, migratePending, migrateTrigger, normalizeSource, stripLegacy, syncSourcePatch } from "./externalRef.js";
+import type { PendingAction } from "@friday/shared";
+import { extraConversationOf, migrateKind, migratePending, migrateTrigger, normalizeSource } from "./externalRef.js";
 
 const meegleDefect = {
   meegleId: "24420780",
@@ -51,7 +51,6 @@ describe("normalizeSource", () => {
     expect(s.brief?.deps[0]?.evidence?.source).toBe("work_item");
     expect(s.brief?.deps[1]?.evidence?.source).toBe("conversation");
     expect(s.url).toBe("https://m/24420780");
-    expect(s.meegleId).toBe("24420780");
   });
 
   it.each([
@@ -98,78 +97,13 @@ describe("normalizeSource", () => {
     expect(normalizeSource(once as Record<string, unknown>)).toEqual(once);
   });
 
-  it.each([["meegle", meegleDefect], ["slack", slackQuery]])("legacyMirror 还原老键：%s", (_, raw) => {
-    const mirrored = legacyMirror(stripLegacy(normalizeSource(raw))) as Record<string, unknown>;
-    for (const [k, v] of Object.entries(raw)) {
-      if (k === "docs" || k === "brief" || k === "merged") continue;
-      expect(mirrored[k], k).toEqual(v);
-    }
-    expect((mirrored.merged as Array<{ meegleId: string }> | undefined)?.[0]?.meegleId).toBe(raw === meegleDefect ? "24400002" : undefined);
-  });
-
-  it("stripLegacy 删掉所有老键，留下新键与中性字段", () => {
-    const s = stripLegacy(normalizeSource(meegleDefect)) as Record<string, unknown>;
+  it("剥掉所有老键，留下新键与中性字段", () => {
+    const s = normalizeSource(meegleDefect) as Record<string, unknown>;
     for (const k of ["meegleId", "meegleType", "statusKey", "meegleProject", "linkedStoryId", "linkedStoryName", "meegleTags", "feDue", "beDue", "nodeKey", "nodeName", "reporter", "mergedMeegleIds", "storyContainer", "meegleClosed"]) expect(s[k], k).toBeUndefined();
+    for (const k of ["conversation", "channelId", "threadTs", "userName", "threadId"]) expect((normalizeSource(slackQuery) as Record<string, unknown>)[k], k).toBeUndefined();
     expect((s.merged as Array<Record<string, unknown>>)[0]!.meegleId).toBeUndefined();
     expect(s.external).toBeDefined();
     expect(s.url).toBe("https://m/24420780");
-  });
-});
-
-describe("syncSourcePatch", () => {
-  const cur = normalizeSource(meegleDefect);
-
-  it("老键补丁带动新键", () => {
-    const patch = { statusKey: "IN PROGRESS", linkedStoryId: "999", storyContainer: false } as Partial<TaskSource>;
-    const s = syncSourcePatch(cur, patch);
-    expect(s.external?.state?.key).toBe("IN PROGRESS");
-    expect(s.external?.parent).toEqual({ id: "999", name: "客户资料新增人脸照片上传" });
-    expect(s.container).toBe(false);
-    expect(s.external?.schedule).toEqual(cur.external?.schedule);
-  });
-
-  it("老键清空时新键也清", () => {
-    const patch = { linkedStoryId: undefined, linkedStoryName: undefined, meegleClosed: undefined } as Partial<TaskSource>;
-    const s = syncSourcePatch(cur, patch);
-    expect(s.external?.parent).toBeUndefined();
-    expect(s.closedExternally).toBeUndefined();
-  });
-
-  it("新键补丁反写老键", () => {
-    const patch: Partial<TaskSource> = { external: { ...cur.external!, state: { key: "CLOSED" }, tags: ["x"] }, mergedIds: ["1", "2"], container: false, closedExternally: "已终止" };
-    const s = syncSourcePatch(cur, patch);
-    expect(s.statusKey).toBe("CLOSED");
-    expect(s.meegleTags).toEqual(["x"]);
-    expect(s.mergedMeegleIds).toEqual(["1", "2"]);
-    expect(s.storyContainer).toBe(false);
-    expect(s.meegleClosed).toBe("已终止");
-    expect(s.feDue).toBe("2026-10-30");
-  });
-
-  it("merged 两种形状互补", () => {
-    const legacy = { merged: [{ meegleId: "7", title: "t" }] } as Partial<TaskSource>;
-    expect(syncSourcePatch(cur, legacy).merged).toEqual([{ id: "7", meegleId: "7", title: "t" }]);
-    const fresh: Partial<TaskSource> = { merged: [{ id: "8", title: "u" }] };
-    expect(syncSourcePatch(cur, fresh).merged).toEqual([{ id: "8", meegleId: "8", title: "u" }]);
-  });
-
-  it("补丁没碰的键两边都不变", () => {
-    const patch: Partial<TaskSource> = { note: "hi" };
-    expect(syncSourcePatch(cur, patch)).toEqual({ ...cur, note: "hi" });
-  });
-
-  it("对话老键补丁带动 external", () => {
-    const c = normalizeSource(slackQuery);
-    const patch = { threadTs: "3.4", userName: "千一" } as Partial<TaskSource>;
-    const s = syncSourcePatch(c, patch);
-    expect(s.external?.attrs).toEqual({ channelId: "C1", threadTs: "3.4" });
-    expect(s.external?.author).toBe("千一");
-  });
-
-  it("新建时只给老键也补出新键", () => {
-    const patch = { meegleId: "1", meegleType: "story" } as Partial<TaskSource>;
-    const s = syncSourcePatch({ note: "n" }, patch);
-    expect(s.external).toMatchObject({ tool: "meegle", type: "work_item", id: "1", kind: "story" });
   });
 });
 
@@ -187,8 +121,8 @@ describe("migrate*", () => {
 
   it("migratePending：slack_reply → chat_reply，meegle_update → custom", () => {
     const old: PendingAction[] = [
-      { id: "a", type: "slack_reply", label: "回复", detail: "d", payload: { channel: "C1", threadTs: "1.2", userName: "灵雨", text: "看到了" } },
-      { id: "b", type: "meegle_update", label: "改状态", detail: "d", payload: { x: 1 } },
+      { id: "a", type: "slack_reply" as PendingAction["type"], label: "回复", detail: "d", payload: { channel: "C1", threadTs: "1.2", userName: "灵雨", text: "看到了" } },
+      { id: "b", type: "meegle_update" as PendingAction["type"], label: "改状态", detail: "d", payload: { x: 1 } },
       { id: "c", type: "git_merge", label: "合并", detail: "d", payload: { branch: "b" } },
     ];
     const out = migratePending(old);
@@ -197,55 +131,5 @@ describe("migrate*", () => {
     expect(out[1]!.type).toBe("custom");
     expect(out[2]).toEqual(old[2]);
     expect(migratePending(out)).toEqual(out);
-  });
-});
-
-describe("syncSourcePatch 边界", () => {
-  it("给工单的 external 打补丁不动对话老键", () => {
-    const cur = normalizeSource({ meegleId: "5", conversation: "C1:9.9" });
-    const s = syncSourcePatch(cur, { external: { ...cur.external!, state: { key: "CLOSED" } } });
-    expect(s.conversation).toBe("C1:9.9");
-    expect(s.statusKey).toBe("CLOSED");
-  });
-});
-
-describe("老键清空不留旧值", () => {
-  it("带 meegleId 的整组补丁把 attrs 清成 undefined 的键一起清掉，重读一致", () => {
-    const cur = normalizeSource(meegleDefect);
-    const patch = { meegleId: "24420780", nodeKey: undefined, nodeName: undefined, reporter: undefined, linkedStoryId: undefined, linkedStoryName: undefined, feDue: undefined, beDue: undefined, meegleTags: undefined, statusKey: undefined } as Partial<TaskSource>;
-    const s = syncSourcePatch(cur, patch);
-    expect(s.external?.attrs).toEqual({ typeKey: "issue", space: "projectlb" });
-    for (const k of ["parent", "schedule", "tags", "state", "step"] as const) expect(s.external?.[k], k).toBeUndefined();
-    const reread = normalizeSource(JSON.parse(JSON.stringify(s)) as Record<string, unknown>);
-    expect(reread.external).toEqual(s.external);
-  });
-
-  it("单独把 nodeKey 补丁成 undefined：step 只留 name，两个都清则 step 消失，且重读一致", () => {
-    const cur = normalizeSource(meegleDefect);
-    const s1 = syncSourcePatch(cur, { nodeKey: undefined } as Partial<TaskSource>);
-    expect(s1.external?.step).toEqual({ name: "前端开发" });
-    const s2 = syncSourcePatch(s1, { nodeName: undefined } as Partial<TaskSource>);
-    expect(s2.external?.step).toBeUndefined();
-    expect(normalizeSource(JSON.parse(JSON.stringify(s2)) as Record<string, unknown>).external).toEqual(s2.external);
-    const s3 = syncSourcePatch(cur, { nodeKey: "qa" } as Partial<TaskSource>);
-    expect(s3.external?.step).toEqual({ key: "qa", name: "前端开发" });
-    expect(s3.nodeKey).toBe("qa");
-  });
-
-  it("工具自己加的 attrs 在重建时留着", () => {
-    const cur = normalizeSource({ ...meegleDefect, external: { ...normalizeSource(meegleDefect).external!, attrs: { ...normalizeSource(meegleDefect).external!.attrs, extra: "x" } } });
-    const s = syncSourcePatch(cur, { meegleId: "24420780", reporter: undefined } as Partial<TaskSource>);
-    expect(s.external?.attrs?.extra).toBe("x");
-    expect(s.external?.attrs?.reporter).toBeUndefined();
-  });
-
-  it("对话侧：channelId / threadTs / userName 清空后 external 里也没有", () => {
-    const cur = normalizeSource(slackQuery);
-    const patch = { channelId: undefined, threadTs: undefined, userName: undefined } as Partial<TaskSource>;
-    const s = syncSourcePatch(cur, patch);
-    expect(s.external).toEqual({ tool: "slack", type: "conversation", id: "C1:1.2" });
-    expect(normalizeSource(JSON.parse(JSON.stringify(s)) as Record<string, unknown>).external).toEqual(s.external);
-    const s2 = syncSourcePatch(cur, { conversation: "C1:1.2", channelId: undefined, userName: undefined } as Partial<TaskSource>);
-    expect(s2.external).toEqual({ tool: "slack", type: "conversation", id: "C1:1.2", attrs: { threadTs: "1.2" } });
   });
 });

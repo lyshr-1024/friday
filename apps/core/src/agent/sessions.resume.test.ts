@@ -175,15 +175,15 @@ describe("autostart 不碰你自己的交互式会话", () => {
     const dir = repo("asapp");
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## asapp\n- 目录：${dir}\n`);
     updateSettings({ autonomous: true });
-    const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "AS-S1", meegleType: "story" }, status: "processing", project: "asapp" });
+    const story = createTask({ title: "需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "AS-S1", kind: "story", attrs: { typeKey: "story" } } }, status: "processing", project: "asapp" });
     const jobId = await openSession(story, story, { kind: "interactive", project: "asapp", repoDir: dir, task: "x" });
     await worktreeReady(jobId, addTestWorktree(dir, "asapp-feat-s"));
     const bug = createTask({
       title: "缺陷",
-      kind: "meegle",
+      kind: "work_item",
       status: "understood",
       project: "asapp",
-      source: { meegleType: "issue", meegleId: "AS-B1", linkedStoryId: "AS-S1", intake: { kind: "start", confidence: 95, project: "asapp", detail: "改一下", why: "具体", at: new Date().toISOString() } },
+      source: { external: { tool: "meegle", type: "work_item", id: "AS-B1", kind: "defect", parent: { id: "AS-S1" }, attrs: { typeKey: "issue" } }, intake: { kind: "start", confidence: 95, project: "asapp", detail: "改一下", why: "具体", at: new Date().toISOString() } },
     });
     calls = [];
     launched = [];
@@ -200,14 +200,14 @@ describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求"
     for (const j of runningJobs()) finishJob(j.id, 0);
     const dir = repo("r1app");
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## r1app\n- 目录：${dir}\n`);
-    const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "R1-S1", meegleType: "story" }, status: "processing", project: "r1app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "R1-S1", kind: "story", attrs: { typeKey: "story" } } }, status: "processing", project: "r1app" });
     const storyJob = await openSession(story, story, { kind: "interactive", project: "r1app", repoDir: dir, task: "x" });
     await worktreeReady(storyJob, addTestWorktree(dir, "r1app-feat-s"));
     setJobSession(storyJob, "sess-story");
     finishJob(storyJob, 0);
     updateTermSession(story.id, { status: "exited" });
     const intake = { kind: "start" as const, confidence: 95, project: "r1app", detail: "改一下", why: "具体", at: new Date().toISOString() };
-    const bugA = createTask({ title: "缺陷甲", kind: "meegle", status: "understood", project: "r1app", source: { meegleType: "issue", meegleId: "R1-B1", linkedStoryId: "R1-S1", intake } });
+    const bugA = createTask({ title: "缺陷甲", kind: "work_item", status: "understood", project: "r1app", source: { external: { tool: "meegle", type: "work_item", id: "R1-B1", kind: "defect", parent: { id: "R1-S1" }, attrs: { typeKey: "issue" } }, intake } });
 
     const after = await startAutonomousJob(getTask(bugA.id)!, "r1app", dir, "修甲", "retry");
     const bugJob = after.source.jobId!;
@@ -220,7 +220,7 @@ describe("缺陷在需求的会话里跑一次自主运行：会话仍归需求"
     updateTermSession(story.id, { status: "exited" });
 
     updateSettings({ autonomous: true });
-    const bugB = createTask({ title: "缺陷乙", kind: "meegle", status: "understood", project: "r1app", source: { meegleType: "issue", meegleId: "R1-B2", linkedStoryId: "R1-S1", intake } });
+    const bugB = createTask({ title: "缺陷乙", kind: "work_item", status: "understood", project: "r1app", source: { external: { tool: "meegle", type: "work_item", id: "R1-B2", kind: "defect", parent: { id: "R1-S1" }, attrs: { typeKey: "issue" } }, intake } });
     calls = [];
     launched = [];
     expect(await autostartTick(Date.now() + AUTOSTART_SETTLE_MS + 60_000)).toBe(0);
@@ -253,14 +253,14 @@ const working = (rootId: string) => db().prepare("UPDATE term_sessions SET last_
 
 async function testingStory(name: string, kind: "interactive" | "autonomous" = "interactive") {
   const dir = repo(name);
-  const root = createTask({ title: `需求 ${name}`, kind: "meegle", source: { meegleId: `${name}-S`, meegleType: "story", ...(kind === "autonomous" ? { autonomous: true } : {}) }, status: "processing", project: name, stage: "testing" });
+  const root = createTask({ title: `需求 ${name}`, kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: `${name}-S`, kind: "story", attrs: { typeKey: "story" } }, ...(kind === "autonomous" ? { autonomous: true } : {}) }, status: "processing", project: name, stage: "testing" });
   const rootJobId = await openSession(root, root, { kind, project: name, repoDir: dir, task: "x" });
   const wt = addTestWorktree(dir, `${name}-feat-s`);
   await worktreeReady(rootJobId, wt);
   // 默认 Claude 空闲（这一轮说完了）；要测「在干活」的自己把 last_input_at 推后
   db().prepare("UPDATE term_sessions SET last_input_at = ?, last_stop_at = ? WHERE id = ?").run(new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() - 30_000).toISOString(), root.id);
   const bug = (n = 1) =>
-    createTask({ title: `缺陷 ${name} ${n}`, kind: "meegle", status: "understood", stage: "todo", project: name, source: { meegleType: "issue", meegleId: `${name}-B${n}`, linkedStoryId: `${name}-S` } });
+    createTask({ title: `缺陷 ${name} ${n}`, kind: "work_item", status: "understood", stage: "todo", project: name, source: { external: { tool: "meegle", type: "work_item", id: `${name}-B${n}`, kind: "defect", parent: { id: `${name}-S` }, attrs: { typeKey: "issue" } } } });
   return { root: getTask(root.id)!, rootJobId, bug, wt };
 }
 
@@ -488,7 +488,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
     updateTask(bug.id, { status: "done", stage: "testing", source: { jobId: "old-job" } });
-    await syncWorkItemsOnce(reopened(bug.source.meegleId!));
+    await syncWorkItemsOnce(reopened(bug.source.external!.id));
     const after = getTask(bug.id)!;
     expect(after).toMatchObject({ status: "understood", stage: "todo" });
     expect(after.source.handedAt).toBeUndefined();
@@ -511,7 +511,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     updateTask(bug.id, { status: "done" });
     updateTask(root.id, { stage: "released" });
-    await syncWorkItemsOnce(reopened(bug.source.meegleId!));
+    await syncWorkItemsOnce(reopened(bug.source.external!.id));
     const after = getTask(bug.id)!;
     expect(after).toMatchObject({ status: "understood", stage: "dev" });
     expect(after.source.handedAt).toBeUndefined();
@@ -668,11 +668,11 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
   it("旧版留下的 -p 还在跑：Meegle Reopen 这一轮跳过，退出后下一轮再处理", async () => {
     const { bug, jobId } = await headless("sbmreopenrun");
     updateTask(bug.id, { status: "done", stage: "testing" });
-    expect((await syncWorkItemsOnce(reopened(bug.source.meegleId!))).reopened).toBe(0);
+    expect((await syncWorkItemsOnce(reopened(bug.source.external!.id))).reopened).toBe(0);
     expect(getTask(bug.id)).toMatchObject({ status: "done", stage: "testing", source: { jobId } });
     expect(getTask(bug.id)!.source.handBackNote).toBeUndefined();
     finishJob(jobId, 0);
-    expect((await syncWorkItemsOnce(reopened(bug.source.meegleId!))).reopened).toBe(1);
+    expect((await syncWorkItemsOnce(reopened(bug.source.external!.id))).reopened).toBe(1);
     expect(getTask(bug.id)).toMatchObject({ status: "understood", stage: "todo" });
     expect(getTask(bug.id)!.source.jobId).toBeUndefined();
     updateTask(bug.id, { status: "ignored" });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ClientTask as Task } from "@friday/shared";
+import type { Task } from "@friday/shared";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { taskDocAdd, taskDocRemove } from "../lib/core";
 import { useImeGuard } from "../lib/ime";

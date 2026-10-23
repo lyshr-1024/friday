@@ -4,7 +4,7 @@ import { db } from "./db.js";
 import { inferTaskLinks, taskNode } from "./infer.js";
 import { extNode, linkUp } from "./links.js";
 import { publish } from "../bus.js";
-import { EXTRA_CONVERSATION_WHY, extraConversationOf, legacyMirror, migrateKind, migratePending, normalizeSource, stripLegacy, syncSourcePatch } from "./externalRef.js";
+import { EXTRA_CONVERSATION_WHY, extraConversationOf, migrateKind, migratePending, normalizeSource } from "./externalRef.js";
 
 interface Row {
   id: string;
@@ -89,7 +89,7 @@ export function createTask(input: {
 }): Task {
   const id = randomUUID();
   const t = now();
-  const source = legacyMirror(normalizeSource(input.source as Record<string, unknown>));
+  const source = normalizeSource(input.source as Record<string, unknown>);
   db()
     .prepare(
       "INSERT INTO tasks (id, seq, title, kind, source, project, status, priority, understanding, plan, due, stage, stage_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -127,7 +127,7 @@ export function updateTask(
 ): Task | undefined {
   const cur = getTask(id);
   if (!cur) return undefined;
-  const next = { ...cur, ...patch, source: syncSourcePatch(cur.source, patch.source ?? {}) };
+  const next = { ...cur, ...patch, source: normalizeSource({ ...cur.source, ...patch.source }) };
   if (cur.status !== "blocked" && next.status === "blocked") next.source.blockedAt = now();
   db()
     .prepare(
@@ -179,7 +179,7 @@ export function deleteTask(id: string): TaskRow | undefined {
 export function restoreTask(input: TaskRow): boolean {
   const row = { ...input };
   const old = typeof row.source === "string" ? (JSON.parse(row.source) as Record<string, unknown>) : undefined;
-  if (old) row.source = JSON.stringify(stripLegacy(normalizeSource(old)));
+  if (old) row.source = JSON.stringify(normalizeSource(old));
   if (typeof row.kind === "string") row.kind = migrateKind(row.kind);
   if (typeof row.pending === "string") row.pending = JSON.stringify(migratePending(JSON.parse(row.pending) as PendingAction[]));
   const cols = Object.keys(row).filter((c) => c !== "seq");

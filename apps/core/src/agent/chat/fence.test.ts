@@ -13,7 +13,7 @@ const item = (text: string, over: Partial<InboxItem> = {}): InboxItem => ({
 });
 
 const task = (id: string): Task => ({
-  id, seq: 1, title: `任务 ${id}`, kind: "meegle", source: {}, status: "understood",
+  id, seq: 1, title: `任务 ${id}`, kind: "work_item", source: {}, status: "understood",
   priority: "normal", createdAt: "2026-09-20T00:00:00Z", updatedAt: "2026-09-20T00:00:00Z",
 });
 

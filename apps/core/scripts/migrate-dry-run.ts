@@ -23,7 +23,7 @@ source.exec(`VACUUM INTO '${copyPath.replace(/'/g, "''")}'`);
 source.close();
 
 const { migrate } = await import("../src/memory/db.js");
-const { EXTRA_CONVERSATION_WHY, LEGACY_KEYS } = await import("../src/memory/externalRef.js");
+const { EXTRA_CONVERSATION_WHY, LEGACY_KEYS, hasLegacyMerged } = await import("../src/memory/externalRef.js");
 const { MIGRATION_KEY } = await import("../src/memory/migrateExternal.js");
 
 const d = new DatabaseSync(copyPath);
@@ -40,8 +40,7 @@ const leftovers = () => {
   for (const r of d.prepare("SELECT source FROM tasks").all() as Array<{ source: string }>) {
     try {
       const s = JSON.parse(r.source) as Record<string, unknown>;
-      const merged = Array.isArray(s.merged) && (s.merged as Array<Record<string, unknown>>).some((m) => "meegleId" in m);
-      if (LEGACY_KEYS.some((k) => k in s) || merged) keys++;
+      if (LEGACY_KEYS.some((k) => k in s) || hasLegacyMerged(s)) keys++;
     } catch {
       bad++;
     }

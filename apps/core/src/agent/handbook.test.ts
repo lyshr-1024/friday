@@ -198,7 +198,7 @@ describe("distillPrompt：带上规则 id、手改标记、久未确认、Friday
 
 describe("outcomeCandidates：Friday 的交付被打回、被你改过，也是要学的", () => {
   it("取水位之后的打回原因和「又提交了几次」，带任务标题；原样收下的不算", () => {
-    const t = createTask({ title: "修上市日", kind: "meegle", source: {}, project: "whale-console", status: "review" });
+    const t = createTask({ title: "修上市日", kind: "work_item", source: {}, project: "whale-console", status: "review" });
     createRun({ id: "oc-1", jobId: "oc-1", taskId: t.id, project: "whale-console", kind: "autonomous", trigger: "retry" });
     finishRun("oc-1", { exit: "report" });
     setRunOutcome("oc-1", "rejected", "改错页面了");

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ConversationSummary, ModelId, ClientTask as Task } from "@friday/shared";
+import type { ConversationSummary, ModelId, Task } from "@friday/shared";
 import { MODEL_OPTIONS } from "@friday/shared";
 import { conversations, coreBaseUrl, jobsSweep, mainConversation, mainPresence, routines, settings, updateSettings } from "../lib/core";
 import { ModelSelect } from "./ModelSelect";

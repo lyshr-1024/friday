@@ -22,9 +22,14 @@ const WORK_ATTRS = [
   ["reporter", "reporter"],
 ] as const;
 
-const WORK = new Set<string>(WORK_KEYS);
-const DERIVED_ATTRS = new Set<string>(["typeKey", ...WORK_ATTRS.map(([, a]) => a)]);
-const CHAT = new Set<string>(CHAT_KEYS);
+/** 迁移后来源里不该再出现的老键 */
+export const LEGACY_KEYS: string[] = [...WORK_KEYS, ...CHAT_KEYS, ...RENAMED.map(([old]) => old)];
+
+/** merged[] 里还有老键（工单号叫 meegleId） */
+export const hasLegacyMerged = (s: Raw): boolean => Array.isArray(s.merged) && (s.merged as Raw[]).some((m) => "meegleId" in m);
+
+/** 启动迁移在外部引用迁移之前跑的 SQL 要认老 thread 行：老库里它们只有 threadId */
+export const LEGACY_THREAD_ABSENT_SQL = "json_extract(source, '$.threadId') IS NULL";
 
 function parentOf(r: Raw): ExternalRef["parent"] {
   const id = str(r.linkedStoryId);
@@ -70,14 +75,14 @@ function conversationFromLegacy(r: Raw): ExternalRef | undefined {
 }
 
 const migrateDocs = (docs: unknown): TaskDoc[] | undefined =>
-  Array.isArray(docs) ? (docs as TaskDoc[]).map((d) => (d.from === "meegle" ? { ...d, from: "sync" } : d)) : undefined;
+  Array.isArray(docs) ? (docs as TaskDoc[]).map((d) => ((d.from as string) === "meegle" ? { ...d, from: "sync" } : d)) : undefined;
 
 function migrateMerged(items: unknown): MergedItem[] | undefined {
   if (!Array.isArray(items)) return undefined;
   return (items as Array<Partial<MergedItem>>).map((m) => {
-    const id = (m.id ?? m.meegleId)!;
+    const { meegleId, ...rest } = m as Partial<MergedItem> & { meegleId?: string };
     const docs = migrateDocs(m.docs);
-    return { ...m, id, meegleId: id, ...(docs ? { docs } : {}) } as MergedItem;
+    return { ...rest, id: (m.id ?? meegleId)!, ...(docs ? { docs } : {}) } as MergedItem;
   });
 }
 
@@ -101,7 +106,10 @@ function migrateNested(s: Raw): void {
   if (s.brief !== undefined) s.brief = migrateBrief(s.brief);
 }
 
-/** 老形状 → 新形状：缺的新键从老键补，已有新键为准；迁移期间老键留着 */
+/**
+ * 老形状 → 新形状，老键一律剥掉。读取时（toTask）永久兜底：迁移前的老行、老快照、迁移失败的库都靠它；
+ * 已有新键为准，幂等
+ */
 export function normalizeSource(raw: Raw): TaskSource {
   const s: Raw = { ...raw };
   if (!s.external) {
@@ -110,116 +118,7 @@ export function normalizeSource(raw: Raw): TaskSource {
   }
   for (const [old, neu] of RENAMED) if (s[neu] === undefined && raw[old] !== undefined) s[neu] = raw[old];
   migrateNested(s);
-  return s as TaskSource;
-}
-
-function legacyWork(e: ExternalRef): Raw {
-  const a = e.attrs ?? {};
-  return {
-    meegleId: e.id,
-    meegleType: a.typeKey ?? (e.kind === "story" ? "story" : e.kind === "defect" ? "issue" : undefined),
-    statusKey: e.state?.key,
-    linkedStoryId: e.parent?.id,
-    linkedStoryName: e.parent?.name,
-    meegleTags: e.tags,
-    feDue: e.schedule?.frontend,
-    beDue: e.schedule?.backend,
-    nodeKey: e.step?.key,
-    nodeName: e.step?.name,
-    ...Object.fromEntries(WORK_ATTRS.map(([k, attr]) => [k, a[attr]])),
-  };
-}
-
-function legacyChat(e: ExternalRef): Raw {
-  const a = e.attrs ?? {};
-  const thread = a.legacy === "thread";
-  return { conversation: thread ? undefined : e.id, threadId: thread ? e.id : undefined, channelId: a.channelId, threadTs: a.threadTs, userName: e.author };
-}
-
-const legacyOf = (e: ExternalRef): Raw => (e.type === "work_item" ? legacyWork(e) : legacyChat(e));
-
-/** 新键 → 老键，给还没切到新字段的读者 */
-export function legacyMirror(src: TaskSource): TaskSource {
-  const s: Raw = { ...src };
-  if (src.external) Object.assign(s, legacyOf(src.external));
-  for (const [old, neu] of RENAMED) if (neu in s) s[old] = s[neu];
-  if (s.merged !== undefined) s.merged = migrateMerged(s.merged);
-  return s as TaskSource;
-}
-
-function patchWorkItem(s: Raw, touched: string[]): void {
-  const ext = s.external as ExternalRef | undefined;
-  if (!ext || ext.type !== "work_item" || touched.includes("meegleId")) {
-    const fresh = workItemFromLegacy(s);
-    const kept = ext?.type === "work_item" ? Object.fromEntries(Object.entries(ext.attrs ?? {}).filter(([k]) => !DERIVED_ATTRS.has(k))) : {};
-    const attrs = { ...kept, ...fresh?.attrs };
-    if (fresh) s.external = { ...fresh, ...(Object.keys(attrs).length ? { attrs } : {}) };
-    else if (ext?.type === "work_item") s.external = conversationFromLegacy(s);
-    return;
-  }
-  const next: ExternalRef = { ...ext, attrs: { ...ext.attrs } };
-  const set = <K extends keyof ExternalRef>(k: K, v: ExternalRef[K] | undefined) => {
-    if (v === undefined) delete next[k];
-    else next[k] = v;
-  };
-  const attr = (k: string, v: string | undefined) => {
-    if (v === undefined) delete next.attrs![k];
-    else next.attrs![k] = v;
-  };
-  for (const k of touched) {
-    if (k === "meegleType") {
-      next.kind = kindOf(str(s.meegleType));
-      attr("typeKey", str(s.meegleType));
-    } else if (k === "statusKey") set("state", str(s.statusKey) ? { key: str(s.statusKey)! } : undefined);
-    else if (k === "linkedStoryId" || k === "linkedStoryName") set("parent", parentOf(s));
-    else if (k === "meegleTags") set("tags", Array.isArray(s.meegleTags) ? (s.meegleTags as string[]) : undefined);
-    else if (k === "feDue" || k === "beDue") set("schedule", scheduleOf(s));
-    else if (k === "nodeKey" || k === "nodeName") set("step", stepOf(s));
-    else {
-      const a = WORK_ATTRS.find(([old]) => old === k);
-      if (a) attr(a[1], str(s[k]));
-    }
-  }
-  if (!Object.keys(next.attrs!).length) delete next.attrs;
-  s.external = next;
-}
-
-function patchConversation(s: Raw, touched: string[]): void {
-  const ext = s.external as ExternalRef | undefined;
-  if (ext?.type === "work_item") return;
-  if (!ext || touched.includes("conversation") || touched.includes("threadId")) {
-    s.external = conversationFromLegacy(s);
-    return;
-  }
-  const attrs = compact({ ...ext.attrs, channelId: str(s.channelId), threadTs: str(s.threadTs) }) as Record<string, string> | undefined;
-  const author = str(s.userName);
-  const { attrs: _a, author: _u, ...rest } = ext;
-  s.external = { ...rest, ...(author ? { author } : {}), ...(attrs ? { attrs } : {}) };
-}
-
-/**
- * updateTask 合并完 source 之后两套键对齐：补丁里给的是哪套就以哪套为准、推出另一套；
- * 补丁没碰的键两边都不动（没切换的写入方改老键时不能被旧的新键盖回去）
- */
-export function syncSourcePatch(cur: TaskSource, patch: Partial<TaskSource>): TaskSource {
-  const s: Raw = { ...cur, ...patch };
-  const keys = Object.keys(patch);
-  if ("external" in patch) {
-    const type = patch.external?.type ?? cur.external?.type;
-    for (const k of type === "conversation" ? CHAT_KEYS : type === "work_item" ? WORK_KEYS : []) delete s[k];
-    if (patch.external) Object.assign(s, legacyOf(patch.external));
-  } else {
-    const work = keys.filter((k) => WORK.has(k));
-    if (work.length) patchWorkItem(s, work);
-    const chat = keys.filter((k) => CHAT.has(k));
-    if (chat.length) patchConversation(s, chat);
-    if (s.external === undefined) delete s.external;
-  }
-  for (const [old, neu] of RENAMED) {
-    if (neu in patch) s[old] = s[neu];
-    else if (old in patch) s[neu] = s[old];
-  }
-  migrateNested(s);
+  for (const k of LEGACY_KEYS) delete s[k];
   return s as TaskSource;
 }
 
@@ -230,16 +129,6 @@ export function extraConversationOf(raw: Raw): string | undefined {
   return str(raw.meegleId) ? str(raw.conversation) : undefined;
 }
 
-/** 迁移后来源里不该再出现的老键 */
-export const LEGACY_KEYS: string[] = [...WORK_KEYS, ...CHAT_KEYS, ...RENAMED.map(([old]) => old)];
-
-export function stripLegacy(src: TaskSource): TaskSource {
-  const s: Raw = { ...src };
-  for (const k of LEGACY_KEYS) delete s[k];
-  if (Array.isArray(s.merged)) s.merged = (s.merged as MergedItem[]).map(({ meegleId: _m, ...m }) => m);
-  return s as TaskSource;
-}
-
 const KINDS: Record<string, TaskKind> = { meegle: "work_item", slack: "conversation" };
 export const migrateKind = (kind: string): TaskKind => KINDS[kind] ?? (kind as TaskKind);
 
@@ -248,8 +137,9 @@ export const migrateTrigger = (t: string): RunTrigger => (t === "slack" ? "chat"
 /** 老 slack_reply 的 payload 换成 { to, text }：发给谁只认 to，频道和 thread 在 to.attrs 里由工具解释 */
 export function migratePending(list: PendingAction[]): PendingAction[] {
   return list.map((p) => {
-    if (p.type === "meegle_update") return { ...p, type: "custom" };
-    if (p.type !== "slack_reply") return p;
+    const type = p.type as string;
+    if (type === "meegle_update") return { ...p, type: "custom" };
+    if (type !== "slack_reply") return p;
     const pl = p.payload as { channel?: string; threadTs?: string; userName?: string; text?: string };
     const channel = pl.channel ?? "";
     const attrs = compact({ channelId: channel || undefined, threadTs: pl.threadTs }) as Record<string, string> | undefined;

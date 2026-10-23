@@ -76,18 +76,18 @@ describe("任务中枢", () => {
 
   it("建任务、按来源去重、推进状态、待审核动作进出", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "回复灵雨：登录报错", kind: "slack", source: { threadId: "th-1" }, project: "whale-console", priority: "high", understanding: "灵雨追问工单 #1" });
+    const t = createTask({ title: "回复灵雨：登录报错", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "th-1", attrs: { legacy: "thread" } } }, project: "whale-console", priority: "high", understanding: "灵雨追问工单 #1" });
     expect(t.status).toBe("collected");
-    expect(findTaskBySource((s) => s.threadId === "th-1")?.id).toBe(t.id);
+    expect(findTaskBySource((s) => s.external?.id === "th-1")?.id).toBe(t.id);
     updateTask(t.id, { status: "processing", plan: "先查工单再回" });
-    const withPending = addPending(t.id, { type: "slack_reply", label: "发回复", detail: "回复灵雨", payload: { channel: "D1", text: "看到了" } })!;
+    const withPending = addPending(t.id, { type: "chat_reply", label: "发回复", detail: "回复灵雨", payload: { to: { tool: "slack", type: "conversation", id: "D1" }, text: "看到了" } })!;
     expect(withPending.status).toBe("review");
     expect(withPending.pending).toHaveLength(1);
     const taken = takePending(t.id, withPending.pending![0]!.id)!;
     expect(taken.action.type).toBe("chat_reply");
     expect(taken.task.pending).toBeUndefined();
     updateTask(t.id, { status: "done" });
-    expect(findTaskBySource((s) => s.threadId === "th-1")).toBeUndefined();
+    expect(findTaskBySource((s) => s.external?.id === "th-1")).toBeUndefined();
     expect(listTasks("done").map((x) => x.id)).toContain(t.id);
     expect(taskBoard().counts.done).toBe(1);
   });
@@ -130,50 +130,35 @@ describe("按 id 前缀找任务", () => {
   });
 });
 
-describe("迁移期间新老两套来源键对齐", () => {
-  it("建任务给老键：存进库的两套都有；老键补丁带动新键；新键补丁反写老键；没碰的不变", () => {
+describe("来源只存新键", () => {
+  const stored = (id: string) => JSON.parse((db().prepare("SELECT source FROM tasks WHERE id = ?").get(id) as { source: string }).source) as Record<string, unknown>;
+
+  it("库里的老形状行：读出来是新形状，再写一次库里也只剩新键", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "双写", kind: "meegle", source: { meegleId: "777", meegleType: "issue", statusKey: "OPEN", feDue: "2026-11-01" } });
-    expect(t.kind).toBe("work_item");
-    const stored = JSON.parse((db().prepare("SELECT source FROM tasks WHERE id = ?").get(t.id) as { source: string }).source);
-    expect(stored.meegleId).toBe("777");
-    expect(stored.external).toMatchObject({ id: "777", kind: "defect", state: { key: "OPEN" } });
+    const t = createTask({ title: "老行", kind: "work_item", source: {} });
+    db()
+      .prepare("UPDATE tasks SET kind = 'meegle', source = ? WHERE id = ?")
+      .run(JSON.stringify({ meegleId: "777", meegleType: "issue", statusKey: "OPEN", feDue: "2026-11-01", mergedMeegleIds: ["776"] }), t.id);
+    const read = getTask(t.id)!;
+    expect(read.kind).toBe("work_item");
+    expect(read.source.external).toMatchObject({ id: "777", kind: "defect", state: { key: "OPEN" }, schedule: { frontend: "2026-11-01" } });
+    expect(read.source.mergedIds).toEqual(["776"]);
+    expect(Object.keys(read.source)).not.toContain("meegleId");
+    expect(findTaskBySource((s) => s.external?.id === "777")?.id).toBe(t.id);
 
-    const a = updateTask(t.id, { source: { statusKey: "IN PROGRESS" } })!;
-    expect(a.source.external?.state?.key).toBe("IN PROGRESS");
-    expect(a.source.statusKey).toBe("IN PROGRESS");
-
-    const b = updateTask(t.id, { source: { external: { ...a.source.external!, schedule: { frontend: "2026-12-01" } } } })!;
-    expect(b.source.feDue).toBe("2026-12-01");
-    expect(b.source.statusKey).toBe("IN PROGRESS");
-
-    const c = updateTask(t.id, { source: { note: "x" } })!;
-    expect(c.source.external).toEqual(b.source.external);
-    expect(c.source.statusKey).toBe("IN PROGRESS");
-    expect(c.source.feDue).toBe("2026-12-01");
+    const after = updateTask(t.id, { source: { note: "x" } })!;
+    expect(after.source.external).toEqual(read.source.external);
+    expect(Object.keys(stored(t.id)).filter((k) => ["meegleId", "meegleType", "statusKey", "feDue", "mergedMeegleIds"].includes(k))).toEqual([]);
+    expect(stored(t.id).external).toMatchObject({ id: "777" });
   });
 
-  it("清掉 external 时对应的老键一起清，读回来不会被老键重建", () => {
+  it("external 整个替换；清成 undefined 读回来也没有", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "清来源", kind: "slack", source: { conversation: "C1:1.1", channelId: "C1", userName: "a", meegleTags: ["x"] } });
-    expect(t.kind).toBe("conversation");
+    const t = createTask({ title: "清来源", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "C1:1.1", author: "a", attrs: { channelId: "C1" } }, note: "n" } });
+    const b = updateTask(t.id, { source: { external: { ...t.source.external!, author: undefined } } })!;
+    expect(b.source.external?.author).toBeUndefined();
     const after = updateTask(t.id, { source: { external: undefined } })!;
     expect(after.source.external).toBeUndefined();
-    expect(after.source.conversation).toBeUndefined();
-    expect(after.source.meegleTags).toEqual(["x"]);
-  });
-});
-
-describe("同步整组写老键", () => {
-  it("清成 undefined 的节点、报告人经 updateTask 落库后重读也没有", () => {
-    initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "节点", kind: "meegle", source: { meegleId: "888", nodeKey: "fe", nodeName: "前端", reporter: "r" } });
-    expect(t.source.external?.step).toEqual({ key: "fe", name: "前端" });
-    expect(t.source.external?.attrs).toMatchObject({ reporter: "r" });
-    const after = updateTask(t.id, { source: { meegleId: "888", nodeKey: undefined, nodeName: undefined, reporter: undefined } })!;
-    expect(after.source.external?.attrs).toBeUndefined();
-    expect(after.source.external?.step).toBeUndefined();
-    expect(getTask(t.id)!.source.external?.attrs).toBeUndefined();
-    expect(getTask(t.id)!.source.external?.step).toBeUndefined();
+    expect(getTask(t.id)!.source).toEqual({ note: "n" });
   });
 });

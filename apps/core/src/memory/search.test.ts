@@ -24,9 +24,9 @@ describe("snippet", () => {
 
 describe("全局搜索", () => {
   beforeEach(() => {
-    createTask({ title: "【BO 后台】任务类型下拉框缺少「日内融平仓」", kind: "meegle", status: "understood", priority: "high", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "defect" }, description: "测试环境 lb staging canary 1" } });
-    createTask({ title: "自动平仓重构", kind: "meegle", status: "understood", priority: "normal", source: { external: { tool: "meegle", type: "work_item", id: "2", kind: "story" } } });
-    createTask({ title: "已经忽略掉的平仓工单", kind: "meegle", status: "ignored", priority: "low", source: { external: { tool: "meegle", type: "work_item", id: "3", kind: "defect" } } });
+    createTask({ title: "【BO 后台】任务类型下拉框缺少「日内融平仓」", kind: "work_item", status: "understood", priority: "high", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "defect" }, description: "测试环境 lb staging canary 1" } });
+    createTask({ title: "自动平仓重构", kind: "work_item", status: "understood", priority: "normal", source: { external: { tool: "meegle", type: "work_item", id: "2", kind: "story" } } });
+    createTask({ title: "已经忽略掉的平仓工单", kind: "work_item", status: "ignored", priority: "low", source: { external: { tool: "meegle", type: "work_item", id: "3", kind: "defect" } } });
   });
 
   it("需求和缺陷都能搜到，并带上分类", () => {

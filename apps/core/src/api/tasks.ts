@@ -381,7 +381,7 @@ export const tasks = new Hono()
       action: "task_merged",
       why: "两条需求是同一件事，二期接着一期做",
       how: `把「${from.title}」并进「${into.title}」`,
-      evidence: { fromTaskId: from.id, fromMeegleId: fromId ?? null, mergedMeegleIds: ids },
+      evidence: { fromTaskId: from.id, fromWorkItemId: fromId ?? null, mergedIds: ids },
       risk: "reversible",
       ...(row ? { undo: { kind: "restore_task", row } } : {}),
     });

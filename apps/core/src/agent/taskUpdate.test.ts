@@ -23,7 +23,7 @@ const to = (channelId: string, author?: string): ExternalRef => ({ tool: "slack"
 
 describe("会话结论回流任务卡", () => {
   it("改方案、改回复草稿：待审动作的 detail 和 payload.text 一起换，通过时发的就是新文本", () => {
-    const t = createTask({ title: "知许：改 segment", kind: "conversation", source: { threadId: "th-1" }, status: "understood", plan: "先看群里的完整要求" });
+    const t = createTask({ title: "知许：改 segment", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "th-1", attrs: { legacy: "thread" } } }, status: "understood", plan: "先看群里的完整要求" });
     addPending(t.id, { type: "chat_reply", label: "回复 知许", detail: "收到，我看下", payload: { to: to("C1", "知许"), text: "收到，我看下" } });
     const r = updateTaskFromChat(t.id, { plan: "variant_mode 改 exclusive，conditions 加 pending_feed_g_at_17<=0", replyDraft: "改法定了：variant_mode 改 exclusive，今天下午提 MR" })!;
     expect(r.changed).toEqual(["方案", "回复草稿"]);
@@ -37,7 +37,7 @@ describe("会话结论回流任务卡", () => {
     expect(updateTaskFromChat(t.id, { replyDraft: "在 config 里" })!.changed).toEqual(["新挂回复草稿"]);
     expect(getTask(t.id)!.pending![0]).toMatchObject({ type: "chat_reply", label: "回复 拂晓", detail: "在 config 里", payload: { to: to("D9", "拂晓"), text: "在 config 里" } });
 
-    const old = createTask({ title: "老线程", kind: "conversation", source: { threadId: "th-9" }, status: "review" });
+    const old = createTask({ title: "老线程", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "th-9", attrs: { legacy: "thread" } } }, status: "review" });
     expect(updateTaskFromChat(old.id, { replyDraft: "好的" })!.changed).toEqual([]);
     expect(getTask(old.id)!.pending ?? []).toHaveLength(0);
   });
@@ -85,7 +85,7 @@ describe("会话结论回流任务卡", () => {
   });
 
   it("dropReply 撤掉待审回复；没变化就不记", () => {
-    const t = createTask({ title: "x", kind: "conversation", source: { threadId: "th-2" }, status: "review" });
+    const t = createTask({ title: "x", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "th-2", attrs: { legacy: "thread" } } }, status: "review" });
     addPending(t.id, { type: "chat_reply", label: "回复", detail: "a", payload: { to: to("C"), text: "a" } });
     expect(updateTaskFromChat(t.id, { dropReply: true })!.changed).toEqual(["撤掉回复"]);
     expect(getTask(t.id)!.pending ?? []).toHaveLength(0);
@@ -126,7 +126,7 @@ describe("会话结论回流任务卡", () => {
 
   it("答了归属就把 Friday 的提问收掉，不然它还挂在「待我决定」里", () => {
     writeFileSync(join(config.dataDir, "projects.md"), "## whale-console\n- 目录：/x/whale-console\n");
-    const t = createTask({ title: "【NZ-开户详情页】无人脸照片时展示「暂无照片」", kind: "meegle", source: { meegleId: "24519239" }, status: "understood" });
+    const t = createTask({ title: "【NZ-开户详情页】无人脸照片时展示「暂无照片」", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24519239" } }, status: "understood" });
     updateTask(t.id, { attention: "intake", progress: "这条工单是财富后台还是新BO项目的？" });
     updateTaskFromChat(t.id, { project: "whale-console" });
     expect(getTask(t.id)!.attention).toBeUndefined();
@@ -141,7 +141,7 @@ describe("会话里纠正这条任务在哪条分支上做", () => {
     const repo = mainRepo("contest");
     execFileSync("git", ["-C", repo, "branch", "feat/m-1-contest"]);
     writeFileSync(join(config.dataDir, "projects.md"), `## contest\n- 目录：${repo}\n`);
-    const t = createTask({ title: "需求", kind: "meegle", project: "contest", status: "blocked", source: { branch: "fix/m-1-wrong", worktree: "/tmp/gone" } });
+    const t = createTask({ title: "需求", kind: "work_item", project: "contest", status: "blocked", source: { branch: "fix/m-1-wrong", worktree: "/tmp/gone" } });
 
     expect(updateTaskFromChat(t.id, { branch: "feat/nope" })!.changed.join()).toMatch(/仓库里没有 feat\/nope/);
     expect(getTask(t.id)!.source.branch).toBe("fix/m-1-wrong");
@@ -161,8 +161,8 @@ describe("会话里纠正这条任务在哪条分支上做", () => {
 
 describe("会话里说需求做完了", () => {
   it("名下缺陷一起标完成，changed 里说清几条", async () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: { meegleId: "cs-1" }, status: "understood" });
-    const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "cd-1", linkedStoryId: "cs-1" }, status: "review" });
+    const story = createTask({ title: "需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "cs-1" } }, status: "understood" });
+    const bug = createTask({ title: "缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "cd-1", parent: { id: "cs-1" } } }, status: "review" });
     const r = updateTaskFromChat(story.id, { status: "done" })!;
     expect(r.changed).toContain("名下 1 条缺陷一起标完成");
     await new Promise((ok) => setTimeout(ok, 50));

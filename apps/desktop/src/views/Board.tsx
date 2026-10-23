@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, workItemOf, type AuditEvent, type ExternalRef, type PendingAction, type Stage, type ClientTask as Task, type ClientTaskBoard as TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, workItemOf, type AuditEvent, type ExternalRef, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen, taskDismissPending } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -291,19 +291,19 @@ function factRight(t: Task): string {
   const bits: string[] = [];
   if (t.pending?.length) bits.push(`${t.pending.length} 个动作等你点头`);
   if (selfRun(t) && t.report?.verify.length) bits.push(`${t.report.verify.length} 个验收点`);
-  const { frontend: feDue, backend: beDue } = scheduleOf(t) ?? {};
-  const due = feDue ?? beDue ?? t.due;
+  const { frontend, backend } = scheduleOf(t) ?? {};
+  const due = frontend ?? backend ?? t.due;
   if (due) bits.push(dueLabel(due.length === 10 ? `${due}T00:00:00` : due));
   return bits.join(" · ");
 }
 
 function queuedRight(t: Task): string {
-  const { frontend: feDue, backend: beDue } = scheduleOf(t) ?? {};
-  if (feDue) {
-    const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
-    return d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天到期" : `排期 ${feDue.slice(5)}`;
+  const { frontend, backend } = scheduleOf(t) ?? {};
+  if (frontend) {
+    const d = Math.round((new Date(`${frontend}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    return d < 0 ? `逾期 ${-d} 天` : d === 0 ? "今天到期" : `排期 ${frontend.slice(5)}`;
   }
-  if (beDue) return `服务端 ${beDue.slice(5)}`;
+  if (backend) return `服务端 ${backend.slice(5)}`;
   if (t.due) return dueLabel(t.due);
   if (t.progress) return t.progress.slice(0, 40);
   if (t.stage) return `${STAGE_LABEL[t.stage]}${t.priority === "high" ? " · 高优先级" : ""}`;
@@ -311,10 +311,10 @@ function queuedRight(t: Task): string {
 }
 
 function dueBits(t: Task): string[] {
-  const feDue = scheduleOf(t)?.frontend;
-  if (!feDue) return [];
-  const d = Math.round((new Date(`${feDue}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
-  return [`排期 ${feDue.slice(5)}`, ...(d < 0 ? [`逾期 ${-d} 天`] : [])];
+  const frontend = scheduleOf(t)?.frontend;
+  if (!frontend) return [];
+  const d = Math.round((new Date(`${frontend}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  return [`排期 ${frontend.slice(5)}`, ...(d < 0 ? [`逾期 ${-d} 天`] : [])];
 }
 
 /** 列表行的灰字：你在做的写状态位，Friday 自主的写交付，缺陷写它在哪个会话里改 */

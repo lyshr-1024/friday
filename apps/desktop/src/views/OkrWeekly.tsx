@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { OkrRow, OkrWeeklyDraft, ClientTask as Task } from "@friday/shared";
+import type { OkrRow, OkrWeeklyDraft, Task } from "@friday/shared";
 import { saveOkrDraft } from "../lib/core";
 
 type Edit = { objectId: number; content?: string; pct?: number; checked?: boolean };

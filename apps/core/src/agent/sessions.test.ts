@@ -60,9 +60,9 @@ beforeEach(() => {
 const sent = () => calls.filter((c) => c[4] === "send-keys" && c.includes("-l")).map((c) => c.at(-1));
 
 describe("根任务与会话", () => {
-  it("缺陷按 linkedStoryId 找到需求当根，并把 rootId 写回", () => {
-    const story = createTask({ title: "养牛计划", kind: "meegle", source: { meegleId: "S1" }, status: "understood" });
-    const bug = createTask({ title: "积分错位", kind: "meegle", source: { meegleId: "B1", linkedStoryId: "S1" }, status: "understood" });
+  it("缺陷按所属需求找到需求当根，并把 rootId 写回", () => {
+    const story = createTask({ title: "养牛计划", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S1" } }, status: "understood" });
+    const bug = createTask({ title: "积分错位", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "B1", parent: { id: "S1" } } }, status: "understood" });
     expect(resolveRoot(bug).id).toBe(story.id);
     expect(getTask(bug.id)!.source.rootId).toBe(story.id);
     const loose = createTask({ title: "散任务", kind: "verbal", source: {}, status: "understood" });
@@ -105,10 +105,10 @@ describe("根任务与会话", () => {
   });
 
   it("需求的会话在跑：缺陷的活转达进去，不开新会话", async () => {
-    const root = createTask({ title: "计费", kind: "meegle", source: { meegleId: "S2" }, status: "processing", project: "app" });
+    const root = createTask({ title: "计费", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S2" } }, status: "processing", project: "app" });
     const jobId = await openSession(root, root, { kind: "interactive", project: "app", repoDir: R, task: "x" });
     await worktreeReady(jobId, addTestWorktree(R, "app-feat-billing"));
-    const bug = createTask({ title: "合计没刷新", kind: "meegle", source: { meegleId: "B2", linkedStoryId: "S2" }, status: "understood" });
+    const bug = createTask({ title: "合计没刷新", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "B2", parent: { id: "S2" } } }, status: "understood" });
     const jobs = listJobs(1000).length;
     expect(await joinRootSession(bug, resolveRoot(bug), "账单页合计没刷新")).toBe("joined");
     expect(sent().at(-1)).toContain("顺带再改一条同需求下的缺陷");
@@ -117,8 +117,8 @@ describe("根任务与会话", () => {
   });
 
   it("需求还没有会话：缺陷不转达", async () => {
-    const root = createTask({ title: "没开工的需求", kind: "meegle", source: { meegleId: "S3" }, status: "understood", project: "app" });
-    const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "B3", linkedStoryId: "S3" }, status: "understood" });
+    const root = createTask({ title: "没开工的需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S3" } }, status: "understood", project: "app" });
+    const bug = createTask({ title: "缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "B3", parent: { id: "S3" } } }, status: "understood" });
     expect(await joinRootSession(bug, root, "x")).toBe("no-session");
   });
 
@@ -283,17 +283,17 @@ describe("准备段失败 / 被拒收之后还能再开工", () => {
 
 describe("根任务已收工：缺陷不跟进去", () => {
   it("rootId 指向的需求已完成：缺陷自己当根，rootId 留着不改", () => {
-    const story = createTask({ title: "收工的需求", kind: "meegle", source: { meegleId: "S9" }, status: "understood" });
-    const bug = createTask({ title: "后来的缺陷", kind: "meegle", source: { meegleId: "B9", linkedStoryId: "S9", rootId: story.id }, status: "understood" });
+    const story = createTask({ title: "收工的需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S9" } }, status: "understood" });
+    const bug = createTask({ title: "后来的缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "B9", parent: { id: "S9" } }, rootId: story.id }, status: "understood" });
     updateTask(story.id, { status: "done" });
     expect(resolveRoot(getTask(bug.id)!).id).toBe(bug.id);
     expect(getTask(bug.id)!.source.rootId).toBe(story.id);
   });
 
-  it("按 linkedStoryId 找到的需求已忽略：不写 rootId", () => {
-    const story = createTask({ title: "忽略的需求", kind: "meegle", source: { meegleId: "S10" }, status: "understood" });
+  it("按所属需求找到的需求已忽略：不写 rootId", () => {
+    const story = createTask({ title: "忽略的需求", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S10" } }, status: "understood" });
     updateTask(story.id, { status: "ignored" });
-    const bug = createTask({ title: "缺陷", kind: "meegle", source: { meegleId: "B10", linkedStoryId: "S10" }, status: "understood" });
+    const bug = createTask({ title: "缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "B10", parent: { id: "S10" } } }, status: "understood" });
     expect(resolveRoot(bug).id).toBe(bug.id);
     expect(getTask(bug.id)!.source.rootId).toBeUndefined();
   });
@@ -336,7 +336,7 @@ describe("记着的分支和仓库对不上：以仓库为准", () => {
     addTestWorktree(repoDir, "app-contest", "feat/m-24457294-ai-contest");
     execFileSync("git", ["-C", repoDir, "branch", "feat/m-124457294-other"]);
     const got = launched();
-    const story = createTask({ title: "AI 助理养成赛活动", kind: "meegle", source: { meegleId: "24457294" }, status: "processing", project: "app" });
+    const story = createTask({ title: "AI 助理养成赛活动", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "24457294" } }, status: "processing", project: "app" });
     await openSession(story, story, { kind: "interactive", project: "app", repoDir, task: "x" });
     expect(got.existingBranch).toBe("feat/m-24457294-ai-contest");
     expect(getTask(story.id)!.source.branch).toBe("feat/m-24457294-ai-contest");
@@ -347,7 +347,7 @@ describe("记着的分支和仓库对不上：以仓库为准", () => {
     const repoDir = mainRepo("app");
     execFileSync("git", ["-C", repoDir, "branch", "feat/m-555-real"]);
     const got = launched();
-    const t = createTask({ title: "纠正过的", kind: "meegle", source: { meegleId: "555", branch: "fix/m-555-wrong" }, status: "processing", project: "app" });
+    const t = createTask({ title: "纠正过的", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "555" }, branch: "fix/m-555-wrong" }, status: "processing", project: "app" });
     await openSession(t, t, { kind: "interactive", project: "app", repoDir, task: "x" });
     expect(got.existingBranch).toBe("feat/m-555-real");
   });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { ClientTask as Task } from "@friday/shared";
+import type { Task } from "@friday/shared";
 import { STAGE_LABEL, workItemOf } from "@friday/shared";
 import { Related } from "./Related";
 

@@ -25,7 +25,7 @@ describe("开工前的体检", () => {
 
 describe("reportBackToOrigin", () => {
   it("干完活把结果写回来源任务并标成待你看", () => {
-    const origin = createTask({ title: "拂晓：改一下文案", kind: "slack", source: {}, status: "processing" });
+    const origin = createTask({ title: "拂晓：改一下文案", kind: "conversation", source: {}, status: "processing" });
     const created = createTask({ title: "whale-console：改文案", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
     const done = updateTask(created.id, { progress: "改完了，跑过测试" })!;
     reportBackToOrigin(done);
@@ -36,7 +36,7 @@ describe("reportBackToOrigin", () => {
   });
 
   it("来源已经收工就不动它", () => {
-    const origin = createTask({ title: "已完成的事", kind: "slack", source: {}, status: "done" });
+    const origin = createTask({ title: "已完成的事", kind: "conversation", source: {}, status: "done" });
     const done = createTask({ title: "活", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
     reportBackToOrigin(done);
     expect(getTask(origin.id)!.status).toBe("done");
@@ -64,8 +64,8 @@ describe("reportBackToOrigin", () => {
 
 describe("二期在一期分支上接着开", () => {
   it("基线任务的分支查得到，开工时才知道从哪儿检出", () => {
-    const first = createTask({ title: "一期", kind: "meegle", source: { branch: "feat/phase-1" }, project: "demo-proj", status: "processing" });
-    const second = createTask({ title: "二期", kind: "meegle", source: { baseTaskId: first.id }, project: "demo-proj", status: "understood" });
+    const first = createTask({ title: "一期", kind: "work_item", source: { branch: "feat/phase-1" }, project: "demo-proj", status: "processing" });
+    const second = createTask({ title: "二期", kind: "work_item", source: { baseTaskId: first.id }, project: "demo-proj", status: "understood" });
     const base = getTask(getTask(second.id)!.source.baseTaskId!)!;
     expect(base.source.branch).toBe("feat/phase-1");
   });
@@ -73,9 +73,9 @@ describe("二期在一期分支上接着开", () => {
 
 describe("两条需求合并成一条", () => {
   it("被并掉那条的工单号记在主任务名下，同步认得出、不会重新建", () => {
-    const into = createTask({ title: "一期", kind: "meegle", source: { meegleId: "S1" }, status: "understood" });
-    updateTask(into.id, { source: { mergedMeegleIds: ["S2"] } });
-    const found = findTaskBySource((s) => s.meegleId === "S2" || (s.mergedMeegleIds ?? []).includes("S2"), true);
+    const into = createTask({ title: "一期", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "S1" } }, status: "understood" });
+    updateTask(into.id, { source: { mergedIds: ["S2"] } });
+    const found = findTaskBySource((s) => s.external?.id === "S2" || (s.mergedIds ?? []).includes("S2"), true);
     expect(found?.id).toBe(into.id);
   });
 });
@@ -83,10 +83,10 @@ describe("两条需求合并成一条", () => {
 describe("测试阶段缺陷交给需求会话后的收尾", () => {
   const mkJob = (id: string, taskId: string) => createJob({ id, project: "app", dir: process.cwd(), logPath: join(tmpdir(), `${id}.log`), taskId });
   const handed = (rootId: string, extra: Record<string, unknown> = {}) =>
-    createTask({ title: "缺陷", kind: "meegle", source: { rootId, autonomous: true, handedAt: new Date().toISOString(), ...extra }, status: "processing", project: "app" });
+    createTask({ title: "缺陷", kind: "work_item", source: { rootId, autonomous: true, handedAt: new Date().toISOString(), ...extra }, status: "processing", project: "app" });
 
   it("headless 缺陷退出没交付：blocked、runs no_report、不挂 git_merge", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: {}, status: "processing", project: "app" });
     const bug = handed(story.id, { jobId: "hj1" });
     mkJob("hj1", bug.id);
     createRun({ id: "hj1", jobId: "hj1", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
@@ -99,7 +99,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("headless 缺陷会话已不在（-1）：run 记 window_closed", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: {}, status: "processing", project: "app" });
     const bug = handed(story.id, { jobId: "hj2" });
     mkJob("hj2", bug.id);
     createRun({ id: "hj2", jobId: "hj2", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
@@ -108,7 +108,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("需求的交互式 Claude 退出：say 路的 handed 缺陷标 blocked，有自己 job 的不动", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: { jobId: "sj1" }, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: { jobId: "sj1" }, status: "processing", project: "app" });
     mkJob("sj1", story.id);
     const bug = handed(story.id);
     createRun({ id: "sj1#x", jobId: "sj1#x", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
@@ -123,7 +123,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("headless 缺陷已用 friday_done 交付（review）后退出：留在 review", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: {}, status: "processing", project: "app" });
     const bug = handed(story.id, { jobId: "hj3" });
     mkJob("hj3", bug.id);
     updateTask(bug.id, { status: "review", report: { summary: "修好了", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
@@ -132,7 +132,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("headless 缺陷用户已标完成后退出：仍是 done、不发通知、run 收尾", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: {}, status: "processing", project: "app" });
     const bug = handed(story.id, { jobId: "hj4" });
     mkJob("hj4", bug.id);
     createRun({ id: "hj4", jobId: "hj4", taskId: bug.id, project: "app", kind: "story_bug", trigger: "autostart" });
@@ -145,7 +145,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("需求停在 review（交付过）时它的 Claude 退出：say 路的 handed 缺陷照样标 blocked", () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: { jobId: "sj2" }, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: { jobId: "sj2" }, status: "processing", project: "app" });
     updateTask(story.id, { status: "review", report: { summary: "做完", changes: [], testSteps: [], testResult: "过", screenshots: [], verify: [], at: new Date().toISOString() } });
     mkJob("sj2", story.id);
     const bug = handed(story.id);
@@ -155,7 +155,7 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
   });
 
   it("用户标完成：story_bug 的 run 记 merged_as_is；忽略记 abandoned", async () => {
-    const story = createTask({ title: "需求", kind: "meegle", source: {}, status: "processing", project: "app" });
+    const story = createTask({ title: "需求", kind: "work_item", source: {}, status: "processing", project: "app" });
     const a = handed(story.id);
     const b = handed(story.id);
     for (const [i, t] of [a, b].entries()) {
@@ -171,20 +171,20 @@ describe("测试阶段缺陷交给需求会话后的收尾", () => {
 
 describe("你收需求，名下缺陷跟着收", () => {
   it("挂在需求下的、交代进需求会话的一起标完成；别的需求的、已收工的不动；Meegle 自动收不级联", async () => {
-    const story = createTask({ title: "新WBO", kind: "meegle", source: { meegleId: "s-100", mergedMeegleIds: ["s-101"], storyContainer: true }, status: "understood" });
-    const a = createTask({ title: "缺陷 A", kind: "meegle", source: { meegleId: "d-1", linkedStoryId: "s-100" }, status: "review" });
-    const b = createTask({ title: "缺陷 B", kind: "meegle", source: { meegleId: "d-2", linkedStoryId: "s-101" }, status: "blocked" });
-    const c = createTask({ title: "缺陷 C", kind: "meegle", source: { meegleId: "d-3", rootId: story.id }, status: "understood" });
-    const other = createTask({ title: "别的需求的缺陷", kind: "meegle", source: { meegleId: "d-4", linkedStoryId: "s-999" }, status: "understood" });
-    const gone = createTask({ title: "早忽略了", kind: "meegle", source: { meegleId: "d-5", linkedStoryId: "s-100" }, status: "ignored" });
+    const story = createTask({ title: "新WBO", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "s-100" }, mergedIds: ["s-101"], container: true }, status: "understood" });
+    const a = createTask({ title: "缺陷 A", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-1", parent: { id: "s-100" } } }, status: "review" });
+    const b = createTask({ title: "缺陷 B", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-2", parent: { id: "s-101" } } }, status: "blocked" });
+    const c = createTask({ title: "缺陷 C", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-3" }, rootId: story.id }, status: "understood" });
+    const other = createTask({ title: "别的需求的缺陷", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-4", parent: { id: "s-999" } } }, status: "understood" });
+    const gone = createTask({ title: "早忽略了", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-5", parent: { id: "s-100" } } }, status: "ignored" });
     await finishTask(story.id, "done", "你把任务标记完成", { withDefects: true });
     expect([a, b, c].map((t) => getTask(t.id)!.status)).toEqual(["done", "done", "done"]);
     expect(getTask(other.id)!.status).toBe("understood");
     expect(getTask(gone.id)!.status).toBe("ignored");
     expect(listAudit({ taskId: story.id }).find((e) => e.action === "story_defects_finished")?.how).toContain("3 条缺陷");
 
-    const story2 = createTask({ title: "需求 2", kind: "meegle", source: { meegleId: "s-200" }, status: "understood" });
-    const d = createTask({ title: "缺陷 D", kind: "meegle", source: { meegleId: "d-6", linkedStoryId: "s-200" }, status: "understood" });
+    const story2 = createTask({ title: "需求 2", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "s-200" } }, status: "understood" });
+    const d = createTask({ title: "缺陷 D", kind: "work_item", source: { external: { tool: "meegle", type: "work_item", id: "d-6", parent: { id: "s-200" } } }, status: "understood" });
     await finishTask(story2.id, "done", "「FE 发布」节点已经走完", { keepTerminal: true });
     expect(getTask(d.id)!.status).toBe("understood");
   });

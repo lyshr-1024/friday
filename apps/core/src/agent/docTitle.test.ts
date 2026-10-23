@@ -10,11 +10,11 @@ describe("资料链接", () => {
   });
   it("合并去重，用户加的不被同步覆盖，已有标题保留", () => {
     const a = [{ url: "https://x.feishu.cn/docx/A", title: "PRD", from: "user" as const }];
-    const b = [{ url: "https://x.feishu.cn/docx/A/", from: "meegle" as const }, { url: "https://figma.com/file/B", from: "meegle" as const }];
+    const b = [{ url: "https://x.feishu.cn/docx/A/", from: "sync" as const }, { url: "https://figma.com/file/B", from: "sync" as const }];
     expect(mergeDocs(a, b)).toEqual([a[0], b[1]]);
   });
   it("合并时补上没有的标题", () => {
-    expect(mergeDocs([{ url: "https://a/1", from: "meegle" }], [{ url: "https://a/1", title: "T", from: "meegle" }])).toEqual([{ url: "https://a/1", title: "T", from: "meegle" }]);
+    expect(mergeDocs([{ url: "https://a/1", from: "sync" }], [{ url: "https://a/1", title: "T", from: "sync" }])).toEqual([{ url: "https://a/1", title: "T", from: "sync" }]);
   });
   it("取不到标题时显示域名 + 末段路径", () => {
     expect(fallbackTitle("https://www.figma.com/file/B123/Export-Center")).toBe("figma.com / Export-Center");
@@ -30,7 +30,7 @@ describe("资料链接", () => {
     expect(migrateDocs([{ url: "https://d/4", from: "user" }])).toEqual([{ url: "https://d/4", from: "user" }]);
   });
   it("同步进来的资料绕开你删过的（墓碑），其余照加", () => {
-    const incoming = [{ url: "https://a/1/", from: "meegle" as const }, { url: "https://a/2", from: "meegle" as const }];
+    const incoming = [{ url: "https://a/1/", from: "sync" as const }, { url: "https://a/2", from: "sync" as const }];
     expect(syncDocs([], incoming, [normUrl("https://a/1")])).toEqual([incoming[1]]);
     expect(syncDocs([], incoming, undefined)).toEqual(incoming);
   });
@@ -40,7 +40,7 @@ describe("资料链接", () => {
     vi.unstubAllGlobals();
   });
   it("启动补标题：只补没有标题的开着的任务，已有的不动", async () => {
-    const t = createTask({ title: "补标题", kind: "verbal", source: { docs: [{ url: "https://a/has", title: "已有", from: "user" }, { url: "https://a/none", from: "meegle" }] } });
+    const t = createTask({ title: "补标题", kind: "verbal", source: { docs: [{ url: "https://a/has", title: "已有", from: "user" }, { url: "https://a/none", from: "sync" }] } });
     const done = createTask({ title: "收工的", kind: "verbal", source: { docs: [{ url: "https://a/done", from: "user" }] } });
     updateTask(done.id, { status: "done" });
     const asked: string[] = [];

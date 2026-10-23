@@ -74,7 +74,7 @@ describe("送审档位", () => {
 
 describe("briefBasis", () => {
   it("正文或资料变了指纹就变", () => {
-    const t = task({ title: "T", source: { description: "d", docs: [{ url: "u1", from: "meegle" }] } });
+    const t = task({ title: "T", source: { description: "d", docs: [{ url: "u1", from: "sync" }] } });
     expect(briefBasis(t)).toBe(briefBasis({ ...t }));
     expect(briefBasis({ ...t, source: { ...t.source, description: "d2" } })).not.toBe(briefBasis(t));
     expect(briefBasis({ ...t, source: { ...t.source, docs: [] } })).not.toBe(briefBasis(t));
@@ -96,11 +96,11 @@ describe("parseBrief", () => {
     expect(parseBrief({ ...ok, acceptance: { source: "x", cases: ["a"] } }, ctx)).toMatch(/acceptance\.source/);
     expect((parseBrief({ ...ok, deps: [{ what: "x", status: "weird" }] }, ctx) as Brief).deps[0]!.status).toBe("pending");
   });
-  it("依赖出处收新老两种写法，一律存新名字；认不得的不收出处", () => {
+  it("依赖出处只认 work_item / conversation / user；认不得的（含迁移前的 meegle / slack）不收出处", () => {
     const at = "2026-10-20T00:00:00Z";
     const deps = ["work_item", "conversation", "user", "meegle", "slack", "toString"].map((source) => ({ what: source, status: "ready", evidence: { source, at } }));
     const r = parseBrief({ ...ok, deps }, ctx) as Brief;
-    expect(r.deps.map((d) => d.evidence?.source)).toEqual(["work_item", "conversation", "user", "work_item", "conversation", undefined]);
+    expect(r.deps.map((d) => d.evidence?.source)).toEqual(["work_item", "conversation", "user", undefined, undefined, undefined]);
   });
   it("钳长度和条数", () => {
     const r = parseBrief({ ...ok, todo: "a".repeat(5000), acceptance: { source: "own", cases: Array.from({ length: 40 }, () => "c".repeat(400)) } }, ctx) as Brief;

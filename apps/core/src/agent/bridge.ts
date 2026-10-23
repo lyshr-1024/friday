@@ -135,7 +135,7 @@ export const BRIEF_TOOL: BridgeTool = {
             evidence: {
               type: "object",
               description: "ready 的出处",
-              properties: { source: { type: "string", enum: ["work_item", "conversation", "user", "meegle", "slack"], description: "work_item 工单、conversation 聊天、user 用户说的" }, url: str("链接"), text: str("原话"), at: str("什么时候给的，ISO 时间") },
+              properties: { source: { type: "string", enum: ["work_item", "conversation", "user"], description: "work_item 工单、conversation 聊天、user 用户说的" }, url: str("链接"), text: str("原话"), at: str("什么时候给的，ISO 时间") },
               required: ["source"],
             },
           },

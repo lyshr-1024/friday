@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { PendingAction } from "@friday/shared";
-import { EXTRA_CONVERSATION_WHY, LEGACY_KEYS, extraConversationOf, migrateKind, migratePending, normalizeSource, stripLegacy } from "./externalRef.js";
+import { EXTRA_CONVERSATION_WHY, LEGACY_KEYS, hasLegacyMerged, extraConversationOf, migrateKind, migratePending, normalizeSource } from "./externalRef.js";
 import { extNode, order, veto } from "./links.js";
 
 export const MIGRATION_KEY = "migration:external-refs";
@@ -55,7 +55,7 @@ function verify(d: DatabaseSync, before: { tasks: number; runs: number }): void 
   for (const r of d.prepare("SELECT id, kind, source, pending FROM tasks").all() as Array<{ id: string; kind: string; source: string; pending: string | null }>) {
     const src = JSON.parse(r.source) as Record<string, unknown>;
     const left = LEGACY_KEYS.filter((k) => k in src);
-    if (Array.isArray(src.merged) && (src.merged as Array<Record<string, unknown>>).some((m) => "meegleId" in m)) left.push("merged[].meegleId");
+    if (hasLegacyMerged(src)) left.push("merged[] 的老工单号");
     if (left.length) throw new Error(`任务 ${r.id} 还有老键：${left.join("、")}`);
     if (r.kind === "meegle" || r.kind === "slack") throw new Error(`任务 ${r.id} 的 kind 还是 ${r.kind}`);
     if (r.pending?.includes('"slack_reply"')) throw new Error(`任务 ${r.id} 还挂着 slack_reply`);
@@ -81,7 +81,7 @@ export function migrateExternalRefs(d: DatabaseSync, backup = ""): { tasks: numb
     for (const r of rows) {
       const old = JSON.parse(r.source) as Record<string, unknown>;
       const pending = r.pending ? JSON.stringify(migratePending(JSON.parse(r.pending) as PendingAction[])) : null;
-      upd.run(migrateKind(r.kind), JSON.stringify(stripLegacy(normalizeSource(old))), pending, r.id);
+      upd.run(migrateKind(r.kind), JSON.stringify(normalizeSource(old)), pending, r.id);
       const conv = extraConversationOf(old);
       if (!conv) continue;
       const [from, to] = order({ kind: "task", ref: r.id }, extNode("slack", "conversation", conv));

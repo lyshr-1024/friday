@@ -1,6 +1,7 @@
 import type { DiffFile, RunExit, RunKind, RunOutcome, RunRecord, RunsProjectSummary, RunsSummary, RunTrigger, UsageRange } from "@friday/shared";
 import { db } from "./db.js";
 import { rangeStart } from "./usage.js";
+import { migrateTrigger } from "./externalRef.js";
 
 /**
  * 结果账本：Friday 每次替你干活，从开工的把握到最后你收没收下，一行记完。
@@ -39,7 +40,7 @@ const toRun = (r: Row): RunRecord => ({
   taskId: r.task_id,
   project: r.project,
   kind: r.kind,
-  trigger: r.trigger,
+  trigger: migrateTrigger(r.trigger),
   ...(r.intake_confidence !== null ? { intakeConfidence: r.intake_confidence } : {}),
   startedAt: r.started_at,
   ...(r.ended_at ? { endedAt: r.ended_at } : {}),

@@ -187,7 +187,7 @@ export async function autostartTick(now = Date.now()): Promise<number> {
       action: "autostart",
       why: `理解卡${brief.review === "approved" ? "你审过" : "按项目规则不用审"}、依赖齐了`,
       how: `在 ${r.project.name} 上按理解卡自主开工，没等你点`,
-      evidence: { review: brief.review, project: r.project.name, meegleId: workItemOf(t.source)?.id ?? null },
+      evidence: { review: brief.review, project: r.project.name, workItemId: workItemOf(t.source)?.id ?? null },
       risk: "reversible",
     });
     state.notices.push({ title: `Friday 自己开工了 · ${r.project.name}`, body: t.title.slice(0, 120), taskId: t.id });

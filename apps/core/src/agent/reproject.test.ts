@@ -51,10 +51,10 @@ async function fridayOnWrongProject() {
   writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## wrongapp\n- 目录：${wrong}\n\n## rightapp\n- 目录：${right}\n`);
   const t = createTask({
     title: "表格单元格被截断",
-    kind: "meegle",
+    kind: "work_item",
     status: "understood",
     project: "wrongapp",
-    source: { meegleType: "issue", projectBy: "friday", intake: { kind: "start", confidence: 72, project: "wrongapp", detail: "单元格加 Tooltip", why: "描述具体", at: new Date().toISOString() } },
+    source: { external: { tool: "meegle", type: "work_item", id: "W7", kind: "defect", attrs: { typeKey: "issue" } }, projectBy: "friday", intake: { kind: "start", confidence: 72, project: "wrongapp", detail: "单元格加 Tooltip", why: "描述具体", at: new Date().toISOString() } },
   });
   const started = await startAutonomousJob(t, "wrongapp", wrong, "单元格加 Tooltip", "autostart");
   const jobId = started.source.jobId!;
@@ -132,14 +132,14 @@ describe("改项目：Friday 自主干过活的先挂回退清单", () => {
 
 describe("改项目：不是 Friday 自主干的活", () => {
   it("还没开工的直接改，记成你定的", () => {
-    const t = createTask({ title: "排队中", kind: "meegle", status: "understood", project: "wrongapp", source: { meegleType: "issue", projectBy: "friday" } });
+    const t = createTask({ title: "排队中", kind: "work_item", status: "understood", project: "wrongapp", source: { external: { tool: "meegle", type: "work_item", id: "W8", kind: "defect", attrs: { typeKey: "issue" } }, projectBy: "friday" } });
     const r = requestProjectChange(t.id, "rightapp")!;
     expect(r.kind).toBe("set");
     expect(getTask(t.id)).toMatchObject({ project: "rightapp", source: { projectBy: "user" } });
   });
 
   it("卡片上选了项目也要把 Friday 的提问收掉，不然会话还以为它没得到答复", () => {
-    const t = createTask({ title: "蚂蚁抽奖活动 AC 与 Appid 不匹配", kind: "meegle", status: "understood", source: { meegleId: "24660264" } });
+    const t = createTask({ title: "蚂蚁抽奖活动 AC 与 Appid 不匹配", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "24660264" } } });
     updateTask(t.id, { attention: "intake", progress: "这条工单是哪个项目的（whale-console 还是 fe-wealth-admin）？" });
     expect(requestProjectChange(t.id, "fe-wealth-admin")!.kind).toBe("set");
     expect(getTask(t.id)).toMatchObject({ project: "fe-wealth-admin", progress: "项目定为 fe-wealth-admin" });
@@ -154,10 +154,10 @@ describe("改项目：不是 Friday 自主干的活", () => {
 });
 
 describe("需求定项目，缺陷跟着走", () => {
-  const story = (meegleId: string, project?: string) =>
-    createTask({ title: `需求 ${meegleId}`, kind: "meegle", status: "understood", ...(project ? { project } : {}), source: { meegleId, storyContainer: true } });
+  const story = (id: string, project?: string) =>
+    createTask({ title: `需求 ${id}`, kind: "work_item", status: "understood", ...(project ? { project } : {}), source: { external: { tool: "meegle", type: "work_item", id }, container: true } });
   const defect = (storyId: string, extra: Partial<Parameters<typeof createTask>[0]> = {}) =>
-    createTask({ title: `缺陷 of ${storyId}`, kind: "meegle", status: "understood", ...extra, source: { meegleId: `d-${Math.random()}`, linkedStoryId: storyId, ...(extra.source ?? {}) } });
+    createTask({ title: `缺陷 of ${storyId}`, kind: "work_item", status: "understood", ...extra, source: { external: { tool: "meegle", type: "work_item", id: `d-${Math.random()}`, parent: { id: storyId } }, ...(extra.source ?? {}) } });
 
   it("没项目的缺陷、跟着旧项目走的缺陷都改；你单独指定过的不动", () => {
     const s = story("st-1", "old-app");
@@ -196,9 +196,9 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
     if (o.dirty) writeFileSync(join(wt, "a.ts"), "x");
     const t = createTask({
       title: `缺陷 ${id}`,
-      kind: "meegle",
+      kind: "work_item",
       status: o.status ?? "processing",
-      source: { meegleId: id, meegleProject: "p1", meegleType: "issue", jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `fix/${id}` },
+      source: { external: { tool: "meegle", type: "work_item", id, kind: "defect", attrs: { typeKey: "issue", space: "p1" } }, jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `fix/${id}` },
     });
     createTermSession({ id: t.id, project: "app", repoDir: repo, tmuxName: `app-${id}`, kind: "interactive", jobId: `job-${id}` });
     updateTermSession(t.id, { status: "exited", worktree: wt, branch: `fix/${id}` });
@@ -206,7 +206,7 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
   }
 
   it("卡住的缺陷被关了也收工（原来只看待办和待审，blocked 的一直挂着）", async () => {
-    const t = createTask({ title: "缺陷 blk", kind: "meegle", status: "blocked", source: { meegleId: "cd-blk", meegleProject: "p1", meegleType: "issue" } });
+    const t = createTask({ title: "缺陷 blk", kind: "work_item", status: "blocked", source: { external: { tool: "meegle", type: "work_item", id: "cd-blk", kind: "defect", attrs: { typeKey: "issue", space: "p1" } } } });
     await syncWorkItemsOnce(closedConn());
     expect(getTask(t.id)!.status).toBe("done");
   });
@@ -247,11 +247,11 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
   it("挂着等你定的时候又被 Reopen 分派回来：撤回「撤掉改动」，接着改", async () => {
     const { t } = defectWithWork({ commit: true });
     await syncWorkItemsOnce(closedConn());
-    const back = [{ id: t.source.meegleId, name: t.title, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: "https://x/r", createdAt: "2026-09-01T00:00:00Z" }];
+    const back = [{ id: t.source.external!.id, name: t.title, typeName: "Defect", typeKey: "issue", links: [], status: "Reopened", projectName: "demo", url: "https://x/r", createdAt: "2026-09-01T00:00:00Z" }];
     expect((await syncWorkItemsOnce(closedConn(back))).reopened).toBe(1);
     const cur = getTask(t.id)!;
     expect(cur.pending ?? []).toEqual([]);
-    expect(cur.source.meegleClosed).toBeUndefined();
+    expect(cur.source.closedExternally).toBeUndefined();
     expect(cur.status).toBe("processing");
   });
 
@@ -260,10 +260,10 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
     const repo = mainRepo(`app-${id}`);
     const wt = addTestWorktree(repo, `app-${id}-story`, `feat/${id}`);
     sh(wt, "commit", "-q", "--allow-empty", "-m", "story work");
-    const story = createTask({ title: "需求已收工", kind: "meegle", status: "done", source: { meegleId: `${id}-s`, meegleType: "story", worktree: wt, repoDir: repo, branch: `feat/${id}` } });
+    const story = createTask({ title: "需求已收工", kind: "work_item", status: "done", source: { external: { tool: "meegle", type: "work_item", id: `${id}-s`, kind: "story", attrs: { typeKey: "story" } }, worktree: wt, repoDir: repo, branch: `feat/${id}` } });
     createTermSession({ id: story.id, project: "app", repoDir: repo, tmuxName: `app-${id}-s`, kind: "interactive", jobId: `job-${id}-s` });
     updateTermSession(story.id, { worktree: wt, branch: `feat/${id}` });
-    const t = createTask({ title: "交代进去的缺陷", kind: "meegle", status: "processing", source: { meegleId: id, meegleProject: "p1", meegleType: "issue", rootId: story.id, handedAt: "2026-10-20T00:00:00Z", jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `feat/${id}` } });
+    const t = createTask({ title: "交代进去的缺陷", kind: "work_item", status: "processing", source: { external: { tool: "meegle", type: "work_item", id, kind: "defect", attrs: { typeKey: "issue", space: "p1" } }, rootId: story.id, handedAt: "2026-10-20T00:00:00Z", jobId: `job-${id}`, repoDir: repo, worktree: wt, branch: `feat/${id}` } });
     await syncWorkItemsOnce(closedConn());
     expect(getTask(t.id)!.status).toBe("done");
     expect(getTask(t.id)!.pending ?? []).toEqual([]);
@@ -272,8 +272,8 @@ describe("Meegle 里缺陷关了，手上的改动等你定撤不撤", () => {
   });
 
   it("在需求会话里改的：改动拆不出来，收工时写明要你自己 revert", async () => {
-    const root = createTask({ title: "养牛1.2", kind: "meegle", status: "processing", source: { meegleId: "cd-story", meegleType: "story" } });
-    const t = createTask({ title: "缺陷 in story", kind: "meegle", status: "blocked", source: { meegleId: "cd-in-story", meegleProject: "p1", meegleType: "issue", jobId: "job-in-story", rootId: root.id, linkedStoryId: "cd-story" } });
+    const root = createTask({ title: "养牛1.2", kind: "work_item", status: "processing", source: { external: { tool: "meegle", type: "work_item", id: "cd-story", kind: "story", attrs: { typeKey: "story" } } } });
+    const t = createTask({ title: "缺陷 in story", kind: "work_item", status: "blocked", source: { external: { tool: "meegle", type: "work_item", id: "cd-in-story", kind: "defect", parent: { id: "cd-story" }, attrs: { typeKey: "issue", space: "p1" } }, jobId: "job-in-story", rootId: root.id } });
     await syncWorkItemsOnce(closedConn());
     const cur = getTask(t.id)!;
     expect(cur.status).toBe("done");

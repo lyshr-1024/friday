@@ -35,7 +35,7 @@ beforeEach(() => {
 
 describe("开工：任务卡菜单、接口和会话里的 task_start 走同一套", () => {
   it("没定项目：拒绝，说清要先选项目", async () => {
-    const t = createTask({ title: "没项目", kind: "meegle", status: "understood", source: { meegleType: "issue" } });
+    const t = createTask({ title: "没项目", kind: "work_item", status: "understood", source: { external: { tool: "meegle", type: "work_item", id: "W9", kind: "defect", attrs: { typeKey: "issue" } } } });
     expect(await startTask(t)).toEqual({ error: "任务没有关联项目，先选个项目", status: 400 });
   });
 
@@ -77,7 +77,7 @@ describe("开工：任务卡菜单、接口和会话里的 task_start 走同一�
   });
 
   it("「交给 Friday 改」的 /retry 已经并进 /start", async () => {
-    const t = createTask({ title: "没项目 2", kind: "meegle", status: "understood", source: {} });
+    const t = createTask({ title: "没项目 2", kind: "work_item", status: "understood", source: {} });
     expect((await app.request(`/tasks/${t.id}/retry`, { method: "POST" })).status).toBe(404);
     const res = await app.request(`/tasks/${t.id}/start`, { method: "POST" });
     expect(res.status).toBe(400);

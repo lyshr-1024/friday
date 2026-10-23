@@ -13,7 +13,7 @@ describe("Slack 挂靠接口", () => {
   it("手动挂上去，再摘掉", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     addInboxItems([{ id: "A1:1", kind: "dm", channelId: "A1", channelName: "私聊", userId: "U1", userName: "拂晓", text: "改一下", permalink: "p", ts: "1" }]);
-    const t = createTask({ title: "养牛活动验收", kind: "meegle", source: {}, status: "understood" });
+    const t = createTask({ title: "养牛活动验收", kind: "work_item", source: {}, status: "understood" });
 
     const up = await app.request(`/slack/${encodeURIComponent("A1:1")}/attach`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
@@ -29,7 +29,7 @@ describe("Slack 挂靠接口", () => {
   it("摘掉之后自动推断不会再把它连回来", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     addInboxItems([{ id: "A2:1", kind: "dm", channelId: "A2", channelName: "私聊", userId: "U2", userName: "夕瑶", text: "x", permalink: "p", ts: "1" }]);
-    const t = createTask({ title: "别的事", kind: "meegle", source: {}, status: "understood" });
+    const t = createTask({ title: "别的事", kind: "work_item", source: {}, status: "understood" });
     await app.request(`/slack/${encodeURIComponent("A2:1")}/attach`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });
@@ -59,7 +59,7 @@ describe("Slack 挂靠接口", () => {
 describe("频道挂靠接口", () => {
   it("把一个频道登记到需求上，再取消", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "养牛计划1.0", kind: "meegle", source: {}, status: "understood" });
+    const t = createTask({ title: "养牛计划1.0", kind: "work_item", source: {}, status: "understood" });
 
     const up = await app.request(`/slack/channel/${encodeURIComponent("一起养牛")}/task`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
@@ -74,7 +74,7 @@ describe("频道挂靠接口", () => {
 
   it("频道名带不带 # 都是同一个", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "导出中心", kind: "meegle", source: {}, status: "understood" });
+    const t = createTask({ title: "导出中心", kind: "work_item", source: {}, status: "understood" });
     await app.request(`/slack/channel/${encodeURIComponent("#导出中心-需求")}/task`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });
@@ -96,7 +96,7 @@ describe("频道挂靠接口", () => {
       { id: "C5:2", kind: "mention", channelId: "C5", channelName: "#一起养牛", userId: "U1", userName: "拂晓", text: "再看看", permalink: "p", ts: "2" },
       { id: "C6:1", kind: "dm", channelId: "C6", channelName: "私聊", userId: "U2", userName: "夕瑶", text: "x", permalink: "p", ts: "3" },
     ]);
-    const t = createTask({ title: "养牛计划1.0", kind: "meegle", source: {}, status: "understood" });
+    const t = createTask({ title: "养牛计划1.0", kind: "work_item", source: {}, status: "understood" });
     await app.request(`/slack/channel/${encodeURIComponent("一起养牛")}/task`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ taskId: t.id }),
     });

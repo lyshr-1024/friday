@@ -95,7 +95,7 @@ describe("挂过一天没动的 Slack 待决定", () => {
 
   it("老库遗留的线程引用不是等你回的对话，不归档", async () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
-    const t = createTask({ title: "老线程", kind: "conversation", source: { threadId: "th-old" }, status: "review" });
+    const t = createTask({ title: "老线程", kind: "conversation", source: { external: { tool: "slack", type: "conversation", id: "th-old", attrs: { legacy: "thread" } } }, status: "review" });
     await archiveStaleTasks(Date.parse(t.updatedAt) + STALE_MS + 1);
     expect(getTask(t.id)!.status).toBe("review");
   });

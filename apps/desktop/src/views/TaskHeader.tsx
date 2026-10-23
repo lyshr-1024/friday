@@ -1,4 +1,4 @@
-import type { ClientTask as Task } from "@friday/shared";
+import type { Task } from "@friday/shared";
 import { SESSION_STATE_LABEL, STAGE_LABEL, workItemOf } from "@friday/shared";
 import { Icon } from "./Icon";
 import { MoreMenu, type DialogAction } from "./TaskDialog";
