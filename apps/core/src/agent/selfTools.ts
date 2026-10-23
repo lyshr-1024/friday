@@ -15,7 +15,7 @@ import { leftoverWorktrees } from "../api/worktrees.js";
 import { removeWorktree } from "./git.js";
 import { scheduleByConversation } from "../memory/schedules.js";
 import { getTask } from "../memory/tasks.js";
-import { consentGate, lastUserMessage } from "./consent.js";
+import { consents, lastUserMessage } from "./consent.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -34,7 +34,17 @@ const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringi
 
 export const saidLast = (conversationId?: string): string => lastUserMessage(conversationId).text;
 
-const removeGate = consentGate();
+// 会话 → 路径 → 是在哪句用户消息那一轮问的；同意只认紧接着那一轮问过的路径
+const asked = new Map<string, Map<string, { after: string | null }>>();
+
+function roundOf(conversationId?: string): Map<string, { after: string | null }> {
+  const key = conversationId ?? "";
+  const round = asked.get(key) ?? new Map<string, { after: string | null }>();
+  asked.set(key, round);
+  return round;
+}
+
+const REGISTERED = "（已登记为问过：用户下一句回同意后再调这个工具就会真删，不是工具出错）";
 
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
@@ -330,11 +340,15 @@ export const selfToolList = (conversationId?: string) => [
   ),
   tool(
     "worktrees_leftover",
-    "列遗留的 git worktree（任务收工后留在磁盘上的），每行 `路径 · 分支 · 有没有未提交改动 · 所属任务 #N`。",
+    "列遗留的 git worktree（任务收工后留在磁盘上的），每行 `路径 · 分支 · 有没有未提交改动 · 所属任务 #N`。列出来就算问过用户要不要删：用户下一句回「删掉」，逐个调 worktree_remove 就会删。",
     {},
     async () => {
       const list = leftoverWorktrees();
       if (!list.length) return text("没有遗留的 worktree");
+      // 列给用户看就是在问要不要删；模型常只用文字问、不先调 worktree_remove，不这样登记一句「删掉」永远删不掉
+      const round = roundOf(conversationId);
+      const { id: sayId } = lastUserMessage(conversationId);
+      for (const w of list) round.set(w.path, { after: sayId });
       return text(
         list
           .map((w) => {
@@ -347,22 +361,25 @@ export const selfToolList = (conversationId?: string) => [
   ),
   tool(
     "worktree_remove",
-    "删一个遗留 worktree（path 必须在 worktrees_leftover 的列表里），一次一个。删了撤不回，所以必须用户单独一句整句同意才执行：先调一次拿到后果说明转告用户，等他回「删掉」再调。有未提交改动的要他回「连改动一起删掉」。",
+    "删一个遗留 worktree（path 必须在 worktrees_leftover 的列表里），一次一个。删了撤不回，所以必须用户单独一句整句同意才执行：问用户之前，对每个要删的路径先各调一次拿到后果说明（只用文字问不算问过），转告用户，等他下一句回「删掉」再逐个调；那一句同意对上一轮问过的路径都有效。有未提交改动的要他回「连改动一起删掉」。",
     { path: z.string().min(1) },
     async ({ path }) => {
       if (conversationId && scheduleByConversation(conversationId)) return text("定时任务里不能删 worktree，等用户回来。");
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
-      // 问完到同意之间变脏了，key 对不上，要重新问
-      const gate = removeGate(conversationId, `${entry.path}|${entry.dirty}`, entry.dirty ? ["连改动一起删掉"] : ["删掉", "删掉吧", "删"]);
-      if (!gate.ok) {
+      const { id: sayId, prevId, text: said } = lastUserMessage(conversationId);
+      const round = roundOf(conversationId);
+      const prior = round.get(entry.path);
+      const ok = sayId !== null && prior?.after != null && prior.after === prevId && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
+      if (!ok) {
+        round.set(entry.path, { after: sayId });
         return text(
           entry.dirty
-            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
-            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
+            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」${REGISTERED}`
+            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」${REGISTERED}`,
         );
       }
-      const said = gate.said;
+      round.delete(entry.path);
       const r = await removeWorktree(entry.repoDir, entry.path, entry.dirty);
       const branchNote = r.branchDeleted ? `，分支 ${r.branch} 也删了` : r.branch ? `，分支 ${r.branch} 没合并留着` : "";
       record({

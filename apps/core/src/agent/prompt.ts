@@ -2,7 +2,7 @@ import type { MemoryContext } from "../memory/context.js";
 import { handbookBlock } from "../memory/rules.js";
 import { protectedBranches } from "../memory/projects.js";
 import { replyLanguageLine } from "./lang.js";
-import { UNTRUSTED_NOTE } from "./fence.js";
+import { UNTRUSTED_NOTE, untrusted } from "./fence.js";
 import { catalogBlock } from "./toolCatalog.js";
 
 // 只到分钟：精确到秒的话每轮系统提示都不同，提示缓存永远不中
@@ -26,7 +26,7 @@ const WITH_SKILLS = [
   "派去终端之后你只做决定和转发，不替它想方案：改哪里、怎么改由它看着代码定。你就算能 Read 到几个文件，也没有这个项目的 skill 和完整上下文，别据此给结论。",
 ];
 
-export function friday(memory?: MemoryContext, skills = false, task?: string, relayPlaybook?: string): string {
+export function friday(memory?: MemoryContext, skills = false, task?: string, relayPlaybook?: string, recent?: string): string {
   const sections = [
     "你是 Friday，用户的私人助理，常驻在他的 Mac 菜单栏里。用户是前端工程师，主力 TypeScript，也读 Go / Rust 后端代码。",
     "用简体中文回答，直接给结论和要点，不要客套和复述问题。全程用简体中文，包括中间的任何说明。",
@@ -52,6 +52,12 @@ export function friday(memory?: MemoryContext, skills = false, task?: string, re
   ];
   if (relayPlaybook) {
     sections.push(`你自己攒的「怎么把活转给终端」经验手册（每条都是从你转得不到位、用户自己动手敲进终端的那些次里学来的，优先照它做）：\n${relayPlaybook}`);
+  }
+  if (recent) {
+    sections.push(
+      "【刚才的对话】这是新开的一段会话，看不到之前聊过什么；下面是主对话最近几条原文。用户这句如果是接着上一句说的（「删掉」「是的」「就按这个」），按这里理解它指什么：",
+      untrusted("主对话最近几条", recent),
+    );
   }
   if (task) {
     sections.push(

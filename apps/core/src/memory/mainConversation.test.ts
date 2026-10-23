@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { transcriptPath } from "../agent/runner.js";
 import { config } from "../config.js";
 import { addMessage, createConversation, deleteConversation, listMessages, listMessagesForTask, setClaudeSessionId } from "./conversations.js";
-import { mainConversationId, mainResume } from "./mainConversation.js";
+import { mainConversationId, mainResume, recentDialogue } from "./mainConversation.js";
 import { db } from "./db.js";
 import { getCursor, setCursor } from "./inbox.js";
 import { createTask } from "./tasks.js";
@@ -76,6 +76,34 @@ describe("主对话", () => {
     expect(mainResume(today)).toBeDefined();
     addMessage(id, { role: "user", kind: "ask", content: "q39" });
     expect(mainResume(today)).toBeUndefined();
+  });
+});
+
+describe("换会话后补上最近的对话", () => {
+  it("取最后几条：用户、Friday、主动消息各标清楚，跳过报错，按时间顺序", () => {
+    const id = mainConversationId();
+    addMessage(id, { role: "user", kind: "ask", content: "很早的一句" });
+    for (let i = 0; i < 10; i++) addMessage(id, { role: "user", kind: "ask", content: `第${i}句` });
+    addMessage(id, { role: "assistant", kind: "notice", content: "#3 修登录 · 待验收" });
+    addMessage(id, { role: "assistant", kind: "error", content: "连不上" });
+    addMessage(id, { role: "assistant", kind: "ask", content: "要删这 5 个，回「删掉」" });
+    const out = recentDialogue(id);
+    expect(out).not.toContain("很早的一句");
+    expect(out).not.toContain("连不上");
+    expect(out).toContain("用户：第9句");
+    expect(out).toContain("Friday（主动）：#3 修登录 · 待验收");
+    expect(out.indexOf("用户：第9句")).toBeLessThan(out.indexOf("Friday：要删这 5 个，回「删掉」"));
+  });
+
+  it("单条截断、整块超长从最早的砍，没有消息就空串", () => {
+    const empty = createConversation().id;
+    expect(recentDialogue(empty)).toBe("");
+    const id = mainConversationId();
+    for (let i = 0; i < 10; i++) addMessage(id, { role: "user", kind: "ask", content: `${i}`.repeat(1000) });
+    const out = recentDialogue(id);
+    expect(out.length).toBeLessThanOrEqual(2200);
+    expect(out).toContain("9".repeat(100));
+    expect(out).not.toContain("0".repeat(100));
   });
 });
 

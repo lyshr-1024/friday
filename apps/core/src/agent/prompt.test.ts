@@ -18,6 +18,14 @@ describe("系统提示", () => {
     expect(friday(undefined, false)).not.toContain("【任务板】");
   });
 
+  it("换了新会话时带上最近的对话，围栏包住；没给就不出这一段", () => {
+    const s = friday(undefined, false, undefined, undefined, "用户：把遗留的清了\nFriday：要删这 5 个，回「删掉」");
+    expect(s).toContain("【刚才的对话】");
+    expect(s).toContain('<untrusted source="主对话最近几条">');
+    expect(s).toContain("Friday：要删这 5 个，回「删掉」");
+    expect(friday(undefined, false)).not.toContain("【刚才的对话】");
+  });
+
   it("task_start 描述不再带 mode，路由段说明「收下」指批准", () => {
     const s = friday(undefined, false);
     expect(s).not.toContain("mode=interactive");

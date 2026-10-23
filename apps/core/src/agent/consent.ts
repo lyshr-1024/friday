@@ -11,10 +11,11 @@ export function leadingRef(raw: string): { seq?: number; said: string } {
   return m ? { seq: Number(m[1]), said: raw.slice(m[0].length) } : { said: raw };
 }
 
-export function lastUserMessage(conversationId?: string): { id: string | null; text: string } {
-  if (!conversationId) return { id: null, text: "" };
-  const m = listMessages(conversationId).filter((x) => x.role === "user").at(-1);
-  return { id: m?.id ?? null, text: (m?.content ?? "").trim() };
+export function lastUserMessage(conversationId?: string): { id: string | null; prevId: string | null; text: string } {
+  if (!conversationId) return { id: null, prevId: null, text: "" };
+  const users = listMessages(conversationId).filter((x) => x.role === "user");
+  const m = users.at(-1);
+  return { id: m?.id ?? null, prevId: users.at(-2)?.id ?? null, text: (m?.content ?? "").trim() };
 }
 
 export type ConsentGate = (conversationId: string | undefined, key: string, forms: string[]) => { ok: true; said: string } | { ok: false };
