@@ -3,7 +3,7 @@ import type { Snapshot, SummonRules } from "@friday/shared";
 import { type AllowedIds, cardPrompt, parseCard } from "./card.js";
 import "../../connectors/meegle/index.js";
 
-const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "slack_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"], registry: ["whale-console", "fe-wealth-admin"] };
+const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "chat_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"], registry: ["whale-console", "fe-wealth-admin"] };
 
 const snapshot: Snapshot = {
   at: 0,

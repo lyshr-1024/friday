@@ -10,7 +10,7 @@ import { addProjectHints, hintsFrom } from "../memory/projectHints.js";
 import { closeTaskTerminal } from "./terminal.js";
 import { setStage } from "./stage.js";
 import { requestProjectChange } from "./reproject.js";
-import { dismissToolCall, finishDefectsOf, openDefectsOf } from "./pipeline.js";
+import { chatReply, dismissToolCall, finishDefectsOf, openDefectsOf, replyTarget } from "./pipeline.js";
 import { onTaskDone } from "./knowledge.js";
 import { markDepReady } from "./briefJob.js";
 
@@ -141,7 +141,7 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     changed.push(prev?.verify?.length ? "验收列表（已勾选状态清零）" : "验收列表");
   }
 
-  const reply = (task.pending ?? []).find((p) => p.type === "chat_reply" || p.type === "slack_reply");
+  const reply = (task.pending ?? []).find((p) => p.type === "chat_reply");
   if (patch.dropReply && reply) {
     // 「不用回了」跟在列表里忽略是同一个判断：Friday 认为该回，你说不用
     task = removePending(taskId, reply.id) ?? task;
@@ -154,19 +154,9 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
         task = updatePending(taskId, reply.id, { detail: text, payload: { ...reply.payload, text, edited: true } }) ?? task;
         changed.push("回复草稿");
       }
-    } else if (task.source.conversation && task.source.channelId) {
-      // 之前没挂回复动作：频道和线程 ts 从任务来源上取
-      task = addPending(taskId, {
-        type: "slack_reply",
-        label: `回复 ${task.source.userName ?? "对方"}`,
-        detail: text,
-        payload: {
-          channel: task.source.channelId,
-          text,
-          ...(task.source.threadTs ? { threadTs: task.source.threadTs } : {}),
-          ...(task.source.userName ? { userName: task.source.userName } : {}),
-        },
-      }) ?? task;
+    } else if (replyTarget(task)) {
+      // 之前没挂回复动作：回到哪段对话从任务来源上取
+      task = addPending(taskId, chatReply(replyTarget(task)!, text)) ?? task;
       changed.push("新挂回复草稿");
     }
   }

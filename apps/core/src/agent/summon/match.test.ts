@@ -161,7 +161,7 @@ describe("candidates", () => {
 
 describe("defaultActions", () => {
   it("有待审动作时第一个是通过并执行", () => {
-    const t = task({ status: "review", pending: [{ id: "a1", type: "slack_reply", label: "回复拂晓", detail: "草稿", payload: {} }] });
+    const t = task({ status: "review", pending: [{ id: "a1", type: "chat_reply", label: "回复拂晓", detail: "草稿", payload: {} }] });
     const [first] = defaultActions(t, undefined, snap());
     expect(first).toMatchObject({ kind: "approve_pending", taskId: "t1", actionId: "a1" });
   });

@@ -149,7 +149,7 @@ describe("建卡会话", () => {
     writeProjects({ name: "p-re" });
     const t = story("p-re", { source: { description: "按收益率排序", briefFailed: { at: "2026-10-01T00:00:00.000Z", why: "会话异常退出" } } });
     addPending(t.id, { type: "brief_approve", label: "方案看过，开工", detail: "旧的", payload: {} }, { keepStatus: true });
-    addPending(t.id, { type: "slack_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
+    addPending(t.id, { type: "chat_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
     store(t.id, goodBrief);
     const after = getTask(t.id)!;
     expect(after.pending!.filter((p) => p.type === "brief_approve")).toHaveLength(1);
@@ -326,8 +326,10 @@ describe("建卡会话", () => {
       kind: "meegle",
       project: "p-pr",
       status: "understood",
-      source: { description: "按收益率排序", docs: [{ url: "https://lark.test/docx/abc", title: "PRD", from: "meegle" }], conversation: "C1:100.1", meegleId: "123" },
+      source: { description: "按收益率排序", docs: [{ url: "https://lark.test/docx/abc", title: "PRD", from: "meegle" }], meegleId: "123" },
     });
+    // 工单号和对话键同在一条任务上时，对话键是一条边（external 只放工单）
+    linkUp(taskNode(t.id), slackNode("C1:100.1"), "rule", "迁移：任务同时带工单号和对话键");
     addInboxItems([{ id: "m2", kind: "dm", channelId: "D2", channelName: "", userId: "U2", userName: "后端小李", text: "接口下周给", permalink: "https://slack.test/m2", ts: "200.1" }]);
     linkUp(taskNode(t.id), slackNode("D2:200.1"), "user", "你挂的");
     const [p, p2] = loadProjects().filter((x) => x.name === "p-pr" || x.name === "p-pr2");
@@ -448,7 +450,7 @@ describe("建卡队列", () => {
     const a = story("p-st");
     updateTask(a.id, { source: { brief: brief("stale-basis", "pending") } });
     addPending(a.id, { type: "brief_approve", label: "方案看过，开工", detail: "x", payload: {} }, { keepStatus: true });
-    addPending(a.id, { type: "slack_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
+    addPending(a.id, { type: "chat_reply", label: "回复", detail: "别的", payload: {} }, { keepStatus: true });
     const b = story("p-st");
     updateTask(b.id, { source: { brief: brief("stale-basis", "approved") } });
     const c = story("p-st");

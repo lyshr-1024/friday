@@ -1,10 +1,11 @@
 import { Hono } from "hono";
-import { startQueryJob } from "../agent/slack/queryJob.js";
+import { startQueryJob } from "../agent/chat/queryJob.js";
 import { channelNode, conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp, neighbors, unlink } from "../memory/links.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
+import { role } from "../connectors/roles.js";
 
 const bare = (name: string) => name.replace(/^#/, "");
 
@@ -35,7 +36,7 @@ export const slack = new Hono()
     const items = findConversation(conv);
     const first = items[0];
     if (!first) return c.json({ error: "对话不存在" }, 404);
-    const task = addNoteTask({ text: withoutMentions(first.text), source: { conversation: conv, channelId: first.channelId, userName: first.userName, ...(first.threadTs ? { threadTs: first.threadTs } : {}) } });
+    const task = addNoteTask({ text: withoutMentions(first.text), source: { external: role("chat").external(first) } });
     linkUp(slackNode(conv), taskNode(task.id), "user", "你把这段对话建成了任务");
     return c.json(task);
   })

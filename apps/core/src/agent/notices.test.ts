@@ -95,7 +95,7 @@ describe("postNotices", () => {
     expect(noticeText(mt, needOf(mt)!)).toBe(`#${mt.seq} 合 · 待验收\n交付了：改好了\n测试结果：ok\n说「#${mt.seq} 合并吧」收下，或说哪里不对。`);
     const s = createTask({ title: "发", kind: "code", status: "review", source: {} });
     updateTask(s.id, { report: report("R1") });
-    addPending(s.id, { type: "slack_reply", label: "回复", detail: "d", payload: {} } as never);
+    addPending(s.id, { type: "chat_reply", label: "回复", detail: "d", payload: {} } as never);
     const st = getTask(s.id)!;
     expect(noticeText(st, needOf(st)!)).toBe(`#${st.seq} 发 · 待验收\n交付了：改好了\n测试结果：ok\n说「#${st.seq} 发」发出去，或说怎么改。`);
   });

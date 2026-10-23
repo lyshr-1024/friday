@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ExternalRef } from "@friday/shared";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { reportPath, runsDir } from "./runner.js";
 import { tmpdir } from "node:os";
@@ -49,14 +50,14 @@ describe("reportBackToOrigin", () => {
   it("来源是一段 Slack 对话时，顺带挂一条回复草稿", () => {
     const origin = createTask({
       title: "拂晓：在哪配",
-      kind: "slack",
-      source: { conversation: "D1:1", channelId: "D1", userName: "拂晓" },
+      kind: "conversation",
+      source: { external: { tool: "slack", type: "conversation", id: "D1:1", author: "拂晓", attrs: { channelId: "D1" } } },
       status: "processing",
     });
     const created = createTask({ title: "查代码", kind: "code", source: { fromTaskId: origin.id }, status: "review" });
     reportBackToOrigin(updateTask(created.id, { progress: "在 config/app.ts 里配" })!);
     const reply = (getTask(origin.id)!.pending ?? []).find((p) => p.type === "chat_reply");
-    expect(reply?.payload.channel).toBe("D1");
+    expect((reply?.payload.to as ExternalRef | undefined)?.attrs?.channelId).toBe("D1");
     expect(String(reply?.payload.text)).toContain("config/app.ts");
   });
 });

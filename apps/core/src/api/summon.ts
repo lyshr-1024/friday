@@ -7,6 +7,7 @@ import { finishTask, startAutonomousJob } from "../agent/pipeline.js";
 import { addWorkItemByRef } from "../agent/workItems.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
+import { role } from "../connectors/roles.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { getJob } from "../memory/jobs.js";
 import { say } from "../agent/terminal.js";
@@ -14,8 +15,8 @@ import { resumeInSession } from "../agent/sessions.js";
 import { loadProjects, matchEnv, resolveProject } from "../memory/projects.js";
 import { askStream } from "../agent/claude.js";
 import { classifyIntent } from "../agent/summon/intent.js";
-import { startQueryJob } from "../agent/slack/queryJob.js";
-import { attachedTasks, candidateTasks } from "../agent/slack/attach.js";
+import { startQueryJob } from "../agent/chat/queryJob.js";
+import { attachedTasks, candidateTasks } from "../agent/chat/attach.js";
 import { conversationKey, slackNode, taskNode, withoutMentions } from "../memory/infer.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { linkUp } from "../memory/links.js";
@@ -115,13 +116,7 @@ async function runIntent(
       const first = items[0]!;
       const task = addNoteTask({
         text: withoutMentions(first.text),
-        source: {
-          conversation: conv,
-          channelId: first.channelId,
-          userName: first.userName,
-          ...(first.threadTs ? { threadTs: first.threadTs } : {}),
-          ...(project ? { projectBy: "friday" as const } : {}),
-        },
+        source: { external: role("chat").external(first), ...(project ? { projectBy: "friday" as const } : {}) },
         ...(project ? { project } : {}),
         ...(ctx.scene ? { understanding: ctx.scene.slice(0, 4000) } : {}),
       });

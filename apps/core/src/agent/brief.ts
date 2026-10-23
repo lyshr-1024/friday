@@ -42,6 +42,15 @@ export function briefBasis(t: Task): string {
 
 const clip = (v: unknown, n: number): string => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
+// 老名字 meegle / slack 是迁移前的写法，收进来一律写成新名字
+const EVIDENCE_SOURCE = new Map<unknown, NonNullable<BriefDep["evidence"]>["source"]>([
+  ["work_item", "work_item"],
+  ["conversation", "conversation"],
+  ["user", "user"],
+  ["meegle", "work_item"],
+  ["slack", "conversation"],
+]);
+
 export function parseBrief(raw: unknown, ctx: { featureIds: Set<string>; basis: string; at?: string }): Brief | string {
   if (!raw || typeof raw !== "object") return "理解卡必须是一个对象";
   const r = raw as Record<string, unknown>;
@@ -61,8 +70,9 @@ export function parseBrief(raw: unknown, ctx: { featureIds: Set<string>; basis: 
     const from = clip(o.from, 100);
     if (from) dep.from = from;
     const ev = o.evidence as Record<string, unknown> | undefined;
-    if (ev && typeof ev === "object" && (ev.source === "meegle" || ev.source === "slack" || ev.source === "user")) {
-      dep.evidence = { source: ev.source, at: clip(ev.at, 40) || ctx.at || new Date().toISOString() };
+    const source = ev && typeof ev === "object" ? EVIDENCE_SOURCE.get(ev.source) : undefined;
+    if (ev && source) {
+      dep.evidence = { source, at: clip(ev.at, 40) || ctx.at || new Date().toISOString() };
       const url = clip(ev.url, 500);
       const text = clip(ev.text, 500);
       if (url) dep.evidence.url = url;

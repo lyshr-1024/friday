@@ -235,7 +235,7 @@ export const migrateKind = (kind: string): TaskKind => KINDS[kind] ?? (kind as T
 
 export const migrateTrigger = (t: string): RunTrigger => (t === "slack" ? "chat" : (t as RunTrigger));
 
-/** 迁移期间 chat_reply 的 payload 仍带老键（channel / threadTs / userName），没切换的执行方照样读得到 */
+/** 老 slack_reply 的 payload 换成 { to, text }：发给谁只认 to，频道和 thread 在 to.attrs 里由工具解释 */
 export function migratePending(list: PendingAction[]): PendingAction[] {
   return list.map((p) => {
     if (p.type === "meegle_update") return { ...p, type: "custom" };
@@ -250,6 +250,6 @@ export function migratePending(list: PendingAction[]): PendingAction[] {
       ...(pl.userName ? { author: pl.userName } : {}),
       ...(attrs ? { attrs } : {}),
     };
-    return { ...p, type: "chat_reply", payload: { ...p.payload, to } };
+    return { ...p, type: "chat_reply", payload: { to, text: pl.text ?? p.detail } };
   });
 }

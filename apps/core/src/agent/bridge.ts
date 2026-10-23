@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { workItemOf, type DeliveryReport, type Job, type Task } from "@friday/shared";
+import { conversationOf, workItemOf, type DeliveryReport, type Job, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
@@ -134,7 +134,7 @@ export const BRIEF_TOOL: BridgeTool = {
             evidence: {
               type: "object",
               description: "ready 的出处",
-              properties: { source: { type: "string", enum: ["meegle", "slack", "user"] }, url: str("链接"), text: str("原话"), at: str("什么时候给的，ISO 时间") },
+              properties: { source: { type: "string", enum: ["work_item", "conversation", "user", "meegle", "slack"], description: "work_item 工单、conversation 聊天、user 用户说的" }, url: str("链接"), text: str("原话"), at: str("什么时候给的，ISO 时间") },
               required: ["source"],
             },
           },
@@ -269,9 +269,9 @@ async function currentBranch(dir: string): Promise<string> {
  *   那是你和它在前几轮聊定的结论（task_update 写进去的），丢了它就忘了你已经拍过的板。
  */
 export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday" = "terminal"): string {
-  const conv = task.source.conversation;
-  const msgs = conv ? listInbox(true, 200).filter((i) => conversationKey(i) === conv) : [];
-  const who = task.source.userName ?? msgs[0]?.userName;
+  const conv = conversationOf(task.source);
+  const msgs = conv ? listInbox(true, 200).filter((i) => conversationKey(i) === conv.id) : [];
+  const who = conv?.author ?? msgs[0]?.userName;
   const projectName = task.project ?? job?.project;
   const project = loadProjects().find((p) => p.name === projectName);
   const knowledge = projectName ? knowledgeBlock(projectName, [task.title, task.understanding].join("\n")) : "";

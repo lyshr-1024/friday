@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, type AuditEvent, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
+import { BACKEND_TAGS, ROLLBACK_LABEL, SESSION_STATE_LABEL, STAGE_GROUP_ORDER, STAGE_LABEL, STAGE_ORDER, briefable, isFridayRun, taskCategory, type AuditEvent, type ExternalRef, type PendingAction, type Stage, type Task, type TaskBoard, type TaskCategory, type SlackConversation } from "@friday/shared";
 import { audit as fetchAudit, auditUndo, inbox as fetchInbox, syncMeegle, taskApprove, taskBoard, taskConfirmNode, taskDelete, taskEdit, taskPin, taskResearch, taskRoot, taskSet, taskStart, taskCreate,  taskVerify, taskStage, taskStageHint, detachConversation, linkChannel, unlinkChannel, projectList, taskSetProject, taskMerge, jobReopen, taskReopen, taskDismissPending } from "../lib/core";
 import { AttachmentStrip, Linkified, decodeSlack, extractUrls, fmtTime, Picker } from "./shared";
 import { useImeGuard } from "../lib/ime";
@@ -36,8 +36,9 @@ function ResearchNote({ id, file }: { id: string; file: string }) {
 /** 点下去会发生什么。不可逆的动作必须先说清楚，否则用户不敢按。 */
 function consequence(a: PendingAction, conv?: SlackConversation): string | null {
   if (a.type === "chat_reply") {
-    const who = String(a.payload.userName ?? "对方");
-    const where = a.payload.threadTs
+    const to = a.payload.to as ExternalRef | undefined;
+    const who = to?.author ?? "对方";
+    const where = to?.attrs?.threadTs
       ? `回在 ${who} 那条下面${conv?.channelName ? `（${conv.channelName}）` : ""}`
       : `发到与 ${who} 的私聊`;
     return `以你的身份${where}。发出后撤不回，会记进操作记录。`;

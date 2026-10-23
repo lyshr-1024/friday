@@ -12,7 +12,7 @@ describe("Friday 注入终端的文本与自己拉起的会话", () => {
   it("只有自主 / 后台任务的 session 算 Friday 的；交互式终端里是用户在说话", () => {
     const a = createTask({ title: "a", kind: "code", source: { autonomous: true }, status: "processing" });
     const b = createTask({ title: "b", kind: "code", source: {}, status: "processing" });
-    const q = createTask({ title: "q", kind: "slack", source: { headless: true }, status: "processing" });
+    const q = createTask({ title: "q", kind: "conversation", source: { headless: true }, status: "processing" });
     createJob({ id: "j-auto", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: a.id });
     createJob({ id: "j-me", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: b.id });
     createJob({ id: "j-q", project: "demo", dir: "/tmp", logPath: "/tmp/x.log", taskId: q.id });

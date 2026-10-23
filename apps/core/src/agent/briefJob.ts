@@ -1,4 +1,4 @@
-import { briefRefusal, conversationKey, taskCategory, workItemOf, type Brief, type RunTrigger, type Task } from "@friday/shared";
+import { briefRefusal, conversationKey, conversationOf, taskCategory, workItemOf, type Brief, type RunTrigger, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { listFeatures, matchFeatures } from "../memory/features.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
@@ -26,7 +26,7 @@ const anchorOf = (taskId: string): Task | undefined => findTaskBySource((s) => s
 const running = (t: Task | undefined): boolean => Boolean(t?.source.jobId && getJob(t.source.jobId)?.status === "running");
 
 function slackText(t: Task): string {
-  const convs = new Set([t.source.conversation, ...neighbors(taskNode(t.id), "slack").map((n) => n.ref)].filter((c): c is string => !!c));
+  const convs = new Set([conversationOf(t.source)?.id, ...neighbors(taskNode(t.id), "slack").map((n) => n.ref)].filter((c): c is string => !!c));
   if (!convs.size) return "";
   const msgs = listInbox(true, CONV_SCAN_LIMIT)
     .filter((i) => convs.has(conversationKey(i)))
@@ -71,7 +71,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     "",
     "最后调一次 friday_brief 把理解卡报给 Friday：",
     "- todo：这条需求要做什么",
-    "- deps：[{ what, from?, status: pending|ready, evidence?: { source: meegle|slack|user, url?, text?, at } }]",
+    "- deps：[{ what, from?, status: pending|ready, evidence?: { source: work_item|conversation|user, url?, text?, at } }]",
     "- acceptance：{ source: cases|prd|own（用例来自现成用例 / PRD / 你自己写的）, cases: [用例，一条一句], note? }",
     "- release：怎么发（跟版本、单独发、要不要开关）",
     "- plan：方案（改哪些文件、怎么改；读不到、拿不准的写在「要你拍板」那段）",

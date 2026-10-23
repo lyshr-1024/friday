@@ -3,13 +3,19 @@ import { queryJobPrompt, startQueryJob } from "./queryJob.js";
 import { setTmuxRunner } from "../tmux.js";
 import { listJobs } from "../../memory/jobs.js";
 import { findTaskBySource } from "../../memory/tasks.js";
-import type { InboxItem } from "@friday/shared";
+import { conversationOf, type ExternalRef, type InboxItem } from "@friday/shared";
+import { seedBuiltins } from "../../connectors/builtin.js";
+import "../../connectors/slack/index.js";
 import { initMemory } from "../../memory/db.js";
 import { createTask, updateTask } from "../../memory/tasks.js";
 import { createJob } from "../../memory/jobs.js";
 import { onJobExit } from "../pipeline.js";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { reportPath, runsDir, jobLog } from "../runner.js";
+
+seedBuiltins();
+
+const conv = (id: string, channelId: string, author: string): ExternalRef => ({ tool: "slack", type: "conversation", id, author, attrs: { channelId } });
 
 describe("queryJobPrompt", () => {
   const one = [{ name: "whale-console", dir: "/w" }];
@@ -60,8 +66,8 @@ describe("查询任务收工", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const task = createTask({
       title: "回答拂晓：分群奖励在哪配",
-      kind: "slack",
-      source: { conversation: "D1:1789000010.0", channelId: "D1", userName: "拂晓" },
+      kind: "conversation",
+      source: { external: conv("D1:1789000010.0", "D1", "拂晓") },
       status: "processing",
     });
     const id = "queryjob1";
@@ -73,7 +79,7 @@ describe("查询任务收工", () => {
     const out = onJobExit(id, 0)!;
     expect(out.status).toBe("review");
     expect(out.pending?.map((p) => p.type)).toEqual(["chat_reply"]);
-    expect(out.pending![0]!.payload.channel).toBe("D1");
+    expect((out.pending![0]!.payload.to as ExternalRef).attrs?.channelId).toBe("D1");
     expect(out.pending![0]!.detail).toContain("分群 tab");
   });
 
@@ -81,8 +87,8 @@ describe("查询任务收工", () => {
     initMemory(process.env.FRIDAY_DATA_DIR!);
     const task = createTask({
       title: "回答夕瑶：这个字段哪来的",
-      kind: "slack",
-      source: { conversation: "D2:1789000020.0", channelId: "D2", userName: "夕瑶" },
+      kind: "conversation",
+      source: { external: conv("D2:1789000020.0", "D2", "夕瑶") },
       status: "processing",
     });
     const id = "queryjob2";
@@ -99,16 +105,16 @@ describe("查询任务收工", () => {
     const task = createTask({
       title: "帮忙看下导出",
       kind: "verbal",
-      source: { conversation: "A3:1", channelId: "A3", userName: "柠萌" },
+      source: { external: conv("A3:1", "A3", "柠萌") },
       status: "processing",
     });
     const id = "queryjob3";
     createJob({ id, project: "whale-console", dir: "/tmp", task: "帮忙看下导出", logPath: jobLog(id), taskId: task.id });
-    // 走终端派单（autonomous），不是 headless 查询任务——但 source.conversation 仍然存在
+    // 走终端派单（autonomous），不是 headless 查询任务——但来源对话仍然存在
     updateTask(task.id, { source: { jobId: id, autonomous: true } });
 
     const out = onJobExit(id, 0)!;
-    expect(out.pending?.map((p) => p.type) ?? []).not.toContain("slack_reply");
+    expect(out.pending?.map((p) => p.type) ?? []).not.toContain("chat_reply");
     expect(out.status).toBe("blocked");
   });
 });
@@ -123,7 +129,7 @@ describe("startQueryJob：tmux 起不来", () => {
     const jobs = listJobs(1000).length;
     const item = { userName: "拂晓", channelId: "C1", channelName: "#x", text: "这在哪配置？", ts: "1.1", userId: "U1" } as unknown as InboxItem;
     await expect(startQueryJob(item, "这在哪配置？", "app")).rejects.toThrow("brew install tmux");
-    const t = findTaskBySource((s) => s.channelId === "C1", true)!;
+    const t = findTaskBySource((s) => conversationOf(s)?.id === "C1:1.1", true)!;
     expect(t.status).toBe("blocked");
     expect(t.progress).toContain("brew install tmux");
     expect(listJobs(1000).length).toBe(jobs);

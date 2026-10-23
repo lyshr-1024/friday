@@ -140,7 +140,7 @@ describe("会话里批准和打回", () => {
 
   function slackTask() {
     const t = createTask({ title: "回拂晓", kind: "verbal", source: { conversationId: createConversation().id }, status: "review" });
-    addPending(t.id, { type: "slack_reply", label: "回复拂晓", detail: "明天上线", payload: { channel: "D1", text: "明天上线" } }, { keepStatus: true });
+    addPending(t.id, { type: "chat_reply", label: "回复拂晓", detail: "明天上线", payload: { to: { tool: "slack", type: "conversation", id: "D1:1", attrs: { channelId: "D1" } }, text: "明天上线" } }, { keepStatus: true });
     return t;
   }
 

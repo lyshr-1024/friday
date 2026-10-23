@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { InboxItem } from "@friday/shared";
+import type { ExternalRef, InboxItem } from "@friday/shared";
 import { untrusted } from "../../agent/fence.js";
 import { listInbox, CONV_SCAN_LIMIT } from "../../memory/inbox.js";
 import { conversationKey } from "../../memory/infer.js";
@@ -120,6 +120,17 @@ async function call(caller: Caller, op: string, args: Record<string, unknown>): 
   return r.value;
 }
 
+/** 对话引用：id 是对话键，频道和 thread 进 attrs，只有这里解释 */
+function external(item: InboxItem): ExternalRef {
+  return {
+    tool: "slack",
+    type: "conversation",
+    id: conversationKey(item),
+    ...(item.userName ? { author: item.userName } : {}),
+    attrs: { channelId: item.channelId, ...(item.threadTs ? { threadTs: item.threadTs } : {}) },
+  };
+}
+
 implementRole("chat", "slack", {
   configured: slackConfigured,
   async self() {
@@ -140,8 +151,14 @@ implementRole("chat", "slack", {
     const lastRead = await fetchLastRead(api);
     return async (item) => isRead(item, lastRead, item.channelId) || (await repliedSince(api, me, item));
   },
-  post: async (args, caller) =>
-    (await call(caller, "post", { channel: args.channel, text: args.text, ...(args.threadTs ? { threadTs: args.threadTs } : {}) })) as { ts: string; permalink?: string },
+  external,
+  replyable: (to) => Boolean(to.attrs?.channelId),
+  async post({ to, text }, caller) {
+    const channel = to.attrs?.channelId;
+    if (!channel) throw new Error("这段对话没有记频道，发不了");
+    const threadTs = to.attrs?.threadTs;
+    return (await call(caller, "post", { channel, text, ...(threadTs ? { threadTs } : {}) })) as { ts: string; permalink?: string };
+  },
   async remove(args, caller) {
     await call(caller, "delete", { channel: args.channel, ts: args.ts });
   },

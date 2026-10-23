@@ -1,9 +1,9 @@
-import { isQueryTask } from "@friday/shared";
+import { conversationOf, isQueryTask } from "@friday/shared";
 import { record } from "../../memory/audit.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../../memory/inbox.js";
 import { conversationKey } from "../../memory/infer.js";
 import { listTasks, removePending, updateTask } from "../../memory/tasks.js";
-import { finishTask } from "../pipeline.js";
+import { finishTask, replyTarget } from "../pipeline.js";
 
 const OPEN = ["processing", "review", "blocked"] as const;
 
@@ -16,9 +16,9 @@ export async function settleQueryTasks(): Promise<number> {
   );
   let n = 0;
   for (const t of listTasks([...OPEN], 200)) {
-    const conv = t.source.conversation;
+    const conv = conversationOf(t.source)?.id;
     if (!conv || !settled.has(conv) || !isQueryTask(t.source)) continue;
-    for (const p of t.pending ?? []) if (p.type === "chat_reply" || p.type === "slack_reply") removePending(t.id, p.id);
+    for (const p of t.pending ?? []) if (p.type === "chat_reply") removePending(t.id, p.id);
     updateTask(t.id, { progress: "你自己在 Slack 里回了" });
     await finishTask(t.id, "done", "你自己在 Slack 里回了");
     record({
@@ -44,7 +44,9 @@ const EXECUTABLE = new Set(["start_job", "git_merge"]);
 export async function archiveStaleTasks(now = Date.now()): Promise<number> {
   let n = 0;
   for (const t of listTasks(["review", "blocked"], 200)) {
-    if (!t.source.conversation) continue;
+    // 只认能回的对话：老库遗留的线程引用不是「等你回」的事
+    const conv = replyTarget(t)?.id;
+    if (!conv) continue;
     const idle = now - Date.parse(t.updatedAt);
     if (idle < STALE_MS) continue;
     if ((t.pending ?? []).some((p) => EXECUTABLE.has(p.type))) continue;
@@ -55,7 +57,7 @@ export async function archiveStaleTasks(now = Date.now()): Promise<number> {
       action: "archived_stale",
       why: `这条挂了 ${days} 天没动`,
       how: "自动归档，回复草稿作废，没有发出去",
-      evidence: { conversation: t.source.conversation, idleDays: days },
+      evidence: { conversation: conv, idleDays: days },
       risk: "reversible",
       undo: { kind: "reopen_task", id: t.id, status: t.status },
     });

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { InboxItem, Task } from "@friday/shared";
 import { record } from "../../memory/audit.js";
-import { conversationKey, slackNode, taskNode } from "../../memory/infer.js";
+import { slackNode, taskNode } from "../../memory/infer.js";
+import { role } from "../../connectors/roles.js";
 import { createRun } from "../../memory/runs.js";
 import { linkUp } from "../../memory/links.js";
 import { loadProjects } from "../../memory/projects.js";
@@ -42,11 +43,12 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
   const picked = project ? all.filter((p) => p.name === project) : all;
   if (!picked.length) return undefined;
 
-  const conv = conversationKey(item);
+  const external = role("chat").external(item);
+  const conv = external.id;
   const task = createTask({
     title: `回答 ${item.userName}：${ask.slice(0, 40)}`,
-    kind: "slack",
-    source: { conversation: conv, channelId: item.channelId, userName: item.userName, repoDir: picked[0]!.dir, ...(item.threadTs ? { threadTs: item.threadTs } : {}) },
+    kind: "conversation",
+    source: { external, repoDir: picked[0]!.dir },
     ...(project ? { project } : {}),
     status: "processing",
     understanding: `${item.userName} 在 ${item.channelName} 问：${item.text}`,
@@ -64,7 +66,7 @@ export async function startQueryJob(item: InboxItem, ask: string, project?: stri
     record({ taskId: task.id, action: "claude_code_blocked", why: "后台查询没能起会话", how: reason, evidence: { jobId: id, conversation: conv }, risk: "read", status: "failed" });
     throw e;
   }
-  createRun({ id, jobId: id, taskId: task.id, project: picked[0]!.name, kind: "query", trigger: "slack" });
+  createRun({ id, jobId: id, taskId: task.id, project: picked[0]!.name, kind: "query", trigger: "chat" });
 
   record({
     taskId: task.id,

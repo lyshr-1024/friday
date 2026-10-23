@@ -65,7 +65,12 @@ export interface ChatRole {
   context(item: InboxItem): Promise<ChatLine[]>;
   /** 每轮同步取一次已读游标，返回判定函数：已读或我已回 */
   settledChecker(me: string): Promise<(item: InboxItem) => Promise<boolean>>;
-  post(args: { channel: string; text: string; threadTs?: string }, caller: Caller): Promise<{ ts: string; permalink?: string }>;
+  /** 收件箱里一条消息所在对话在卡上的引用 */
+  external(item: InboxItem): ExternalRef;
+  /** 这个引用能不能回（老库遗留的线程引用没有频道，回不了） */
+  replyable(to: ExternalRef): boolean;
+  /** 回到 to 指的那段对话里；频道、thread 这些只有工具认得，业务侧原样递 to */
+  post(args: { to: ExternalRef; text: string }, caller: Caller): Promise<{ ts: string; permalink?: string }>;
   remove(args: { channel: string; ts: string }, caller: Caller): Promise<void>;
   live(channel?: string, person?: string): Promise<{ channelId?: string; lines: ChatLine[]; me?: string }>;
   parseTitle(title: string): { channel?: string; person?: string };
@@ -92,6 +97,12 @@ export function implementRole<R extends RoleName>(name: R, tool: string, impl: R
 export function workItemsFor(ext: ExternalRef): WorkItemsRole | undefined {
   const hit = impls.get("workItems");
   return hit && hit.tool === ext.tool ? (hit.impl as WorkItemsRole) : undefined;
+}
+
+/** 同 workItemsFor：按引用自己的工具找，给不该因为工具停用就抛的判断用 */
+export function chatFor(ext: ExternalRef): ChatRole | undefined {
+  const hit = impls.get("chat");
+  return hit && hit.tool === ext.tool ? (hit.impl as ChatRole) : undefined;
 }
 
 export function role<R extends RoleName>(name: R): RoleImpl[R] {

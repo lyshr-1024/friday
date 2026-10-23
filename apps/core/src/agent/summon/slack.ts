@@ -7,7 +7,7 @@ import { role, type ChatLine } from "../../connectors/roles.js";
 import { bareName, mentionsMe, prettyName, renderMentions, type Live } from "../../connectors/slack/live.js";
 import { userNames } from "../../connectors/slack/roster.js";
 import { normUrl } from "../docTitle.js";
-import { attachedTasks } from "../slack/attach.js";
+import { attachedTasks } from "../chat/attach.js";
 import { linkUp } from "../../memory/links.js";
 import { listTasks } from "../../memory/tasks.js";
 
@@ -103,7 +103,7 @@ export async function slackScene(channel?: string, person?: string): Promise<Sla
   const anchorAt = live.lines.map((l) => mentionsMe(l.text, me)).lastIndexOf(true);
   const anchor = anchorAt >= 0 ? lines[anchorAt] : lines.at(-1);
   if (anchor && live.channelId) {
-    const conv = `${live.channelId}:${anchor.threadTs ?? anchor.ts}`;
+    const conv = conversationKey({ channelId: live.channelId, ts: anchor.ts, threadTs: anchor.threadTs });
     const taskId = attachedTasks(conv)[0] ?? attachByTicket(conv, lines);
     return {
       conv,

@@ -160,7 +160,7 @@ describe("知识库冷启动", () => {
 
   it("finishBootstrap：只读查询任务不补进历史", async () => {
     ingestBootstrap("p-q", repo, { features: [{ name: "基金筛选" }] });
-    const q = createTask({ title: "基金筛选怎么排序的", kind: "slack", project: "p-q", status: "done", source: { headless: true, conversation: "C1:1.0" } });
+    const q = createTask({ title: "基金筛选怎么排序的", kind: "conversation", project: "p-q", status: "done", source: { headless: true, external: { tool: "slack", type: "conversation", id: "C1:1.0" } } });
     const anchor = createTask({ title: "知识库冷启动：p-q", kind: "project", status: "processing", project: "p-q", source: { knowledgeBootstrap: "p-q", repoDir: repo, headless: true, jobId: "job-q" } });
     createJob({ id: "job-q", project: "p-q", dir: repo, logPath: "/tmp/job-q.log", taskId: anchor.id });
     await finishBootstrap(anchor, "job-q", 0);

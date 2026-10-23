@@ -5,6 +5,9 @@ import { addInboxItems } from "../memory/inbox.js";
 import { createTask, getTask } from "../memory/tasks.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, slackNode } from "../memory/infer.js";
+import { seedBuiltins } from "../connectors/builtin.js";
+
+seedBuiltins();
 
 describe("Slack 挂靠接口", () => {
   it("手动挂上去，再摘掉", async () => {
@@ -32,7 +35,7 @@ describe("Slack 挂靠接口", () => {
     });
     await app.request(`/slack/${encodeURIComponent("A2:1")}/attach/${t.id}`, { method: "DELETE" });
 
-    const { candidateTasks } = await import("../agent/slack/attach.js");
+    const { candidateTasks } = await import("../agent/chat/attach.js");
     expect(candidateTasks("A2:1", [getTask(t.id)!]).map((x) => x.id)).not.toContain(t.id);
   });
 

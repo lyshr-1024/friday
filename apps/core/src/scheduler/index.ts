@@ -1,9 +1,9 @@
 import type { InboxItem, Notice } from "@friday/shared";
 import { autoDraftTick } from "../agent/weekly/index.js";
-import { attachOnce } from "../agent/slack/attach.js";
-import { classifyQuery } from "../agent/slack/query.js";
-import { startQueryJob } from "../agent/slack/queryJob.js";
-import { archiveStaleTasks, settleQueryTasks } from "../agent/slack/settle.js";
+import { attachOnce } from "../agent/chat/attach.js";
+import { classifyQuery } from "../agent/chat/query.js";
+import { startQueryJob } from "../agent/chat/queryJob.js";
+import { archiveStaleTasks, settleQueryTasks } from "../agent/chat/settle.js";
 import { syncWorkItemsOnce } from "../agent/workItems.js";
 import { autostartTick, yieldsToStory } from "../agent/autostart.js";
 import { briefTick } from "../agent/briefJob.js";

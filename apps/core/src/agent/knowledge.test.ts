@@ -132,7 +132,7 @@ describe("知识库收工记账", () => {
     writeFileSync(join(config.dataDir, "projects.md"), `# 项目\n\n## p-skip\n- 目录：${repo}\n`);
     const ask = vi.fn(async () => JSON.stringify({ features: [{ name: "订单列表", what: "w" }] }));
     const base = { ...mkTask(), project: "p-skip", status: "done" as const, report: reportWith(["src/orders/b.ts — 改列宽"]) };
-    expect(await learnFromTask({ ...base, source: { headless: true, conversation: "C1:1.0", branch: "x" } }, ask)).toBeUndefined();
+    expect(await learnFromTask({ ...base, source: { headless: true, external: { tool: "slack", type: "conversation", id: "C1:1.0" }, branch: "x" } }, ask)).toBeUndefined();
     expect(await learnFromTask({ ...base, kind: "project" }, ask)).toBeUndefined();
     expect(ask).not.toHaveBeenCalled();
   });

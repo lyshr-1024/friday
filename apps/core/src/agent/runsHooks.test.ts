@@ -130,8 +130,8 @@ describe("runs 三处记账", () => {
   it("后台查询调 friday_done 不算「你开的终端」一轮——它的账只在查询那一行", async () => {
     const repo = repoOnBranch("main-ish");
     createJob({ id: "rh-q", project: "demo", dir: repo, task: "查一下", logPath: "/tmp/x.log" });
-    const t = createTask({ title: "查询", kind: "slack", source: { jobId: "rh-q", headless: true, conversation: "C1:1" }, project: "demo", status: "processing" });
-    createRun({ id: "rh-q", jobId: "rh-q", taskId: t.id, project: "demo", kind: "query", trigger: "slack" });
+    const t = createTask({ title: "查询", kind: "conversation", source: { jobId: "rh-q", headless: true, external: { tool: "slack", type: "conversation", id: "C1:1" } }, project: "demo", status: "processing" });
+    createRun({ id: "rh-q", jobId: "rh-q", taskId: t.id, project: "demo", kind: "query", trigger: "chat" });
     await rpc("rh-q", "friday_done", { summary: "查到了", testResult: "无" });
     expect(runsForTask(t.id).map((r) => r.kind)).toEqual(["query"]);
   });

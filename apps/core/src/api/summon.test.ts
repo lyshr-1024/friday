@@ -54,7 +54,7 @@ describe("POST /summon/act", () => {
 
   it("mark_done 对挂着 pending 动作的任务收工：状态变 done 且 pending 清空", async () => {
     const task = createTask({ title: "呼出模式标完成", kind: "verbal", source: {} });
-    addPending(task.id, { type: "slack_reply", label: "回复拂晓", detail: "草稿", payload: { text: "好的" } });
+    addPending(task.id, { type: "chat_reply", label: "回复拂晓", detail: "草稿", payload: { text: "好的" } });
 
     const res = await app.request("/summon/act", {
       method: "POST",

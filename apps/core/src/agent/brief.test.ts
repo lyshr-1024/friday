@@ -17,7 +17,7 @@ describe("briefable", () => {
     expect(briefable(task({ kind: "verbal", project: "p" }))).toBe(true);
     expect(briefable(task({ kind: "work_item", project: "p", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "defect" } } }))).toBe(true);
     expect(briefable(task({ kind: "verbal" }))).toBe(false);
-    expect(briefable(task({ kind: "slack", project: "p", source: { headless: true, conversation: "c:1" } }))).toBe(false);
+    expect(briefable(task({ kind: "conversation", project: "p", source: { headless: true, external: { tool: "slack", type: "conversation", id: "c:1" } } }))).toBe(false);
     expect(briefable(task({ kind: "work_item", project: "p", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "story" }, container: true } }))).toBe(false);
     expect(briefable(task({ kind: "code", project: "p", source: { jobId: "j" } }))).toBe(false);
     expect(briefable(task({ kind: "code", project: "p", stage: "dev" }))).toBe(false);
@@ -95,6 +95,12 @@ describe("parseBrief", () => {
     expect(parseBrief({ ...ok, todo: "" }, ctx)).toMatch(/todo/);
     expect(parseBrief({ ...ok, acceptance: { source: "x", cases: ["a"] } }, ctx)).toMatch(/acceptance\.source/);
     expect((parseBrief({ ...ok, deps: [{ what: "x", status: "weird" }] }, ctx) as Brief).deps[0]!.status).toBe("pending");
+  });
+  it("依赖出处收新老两种写法，一律存新名字；认不得的不收出处", () => {
+    const at = "2026-10-20T00:00:00Z";
+    const deps = ["work_item", "conversation", "user", "meegle", "slack", "toString"].map((source) => ({ what: source, status: "ready", evidence: { source, at } }));
+    const r = parseBrief({ ...ok, deps }, ctx) as Brief;
+    expect(r.deps.map((d) => d.evidence?.source)).toEqual(["work_item", "conversation", "user", "work_item", "conversation", undefined]);
   });
   it("钳长度和条数", () => {
     const r = parseBrief({ ...ok, todo: "a".repeat(5000), acceptance: { source: "own", cases: Array.from({ length: 40 }, () => "c".repeat(400)) } }, ctx) as Brief;

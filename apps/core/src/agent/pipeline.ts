@@ -4,8 +4,8 @@ import { finishBootstrap } from "./knowledgeBootstrap.js";
 import { finishBriefJob, rejectBrief, withoutApprove } from "./briefJob.js";
 import { briefBasis } from "./brief.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
-import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
-import { briefable, isQueryTask, workItemOf } from "@friday/shared";
+import type { ExternalRef, OkrWeeklyDraft, PendingAction, Task, RunRecord, RunTrigger } from "@friday/shared";
+import { briefable, conversationOf, isQueryTask, workItemOf } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -14,7 +14,7 @@ import { resolveProject } from "../memory/projects.js";
 import { addPending, findTaskBySource, getTask, listTasks, removePending, taskTag, updatePending, updateTask } from "../memory/tasks.js";
 import { addMessage, conversationExists } from "../memory/conversations.js";
 import "../connectors/slack/index.js";
-import { role } from "../connectors/roles.js";
+import { chatFor, role } from "../connectors/roles.js";
 import type { HandbookDraft } from "./handbook.js";
 import { autonomousPrompt, storyBugPrompt } from "./runner.js";
 import { baseBranchOf, claudeGone, continueRootSession, joinRootSession, openSession, resolveRoot, resumeInSession, reviveSession, runInSession, sayToSession } from "./sessions.js";
@@ -213,8 +213,8 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
   const report = collectReport(jobId);
   closeRun(jobId, report ? "report" : exitCode === -1 ? "window_closed" : "no_report");
   fillRunCost(jobId);
-  // 查询任务没有分支、不该挂 git_merge，要挂 slack_reply
-  const conv = isQueryTask(job.task.source) ? job.task.source.conversation : undefined;
+  // 查询任务没有分支、不该挂 git_merge，要挂 chat_reply
+  const conv = isQueryTask(job.task.source) ? conversationOf(job.task.source) : undefined;
   if (conv) {
     const draft = report ? queryReplyDraft(report) : undefined;
     let t = updateTask(job.task.id, {
@@ -223,19 +223,7 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
       progress: report ? "查完了，等你看" : `没查出结果（退出码 ${exitCode}）`,
       ...(report ? { report } : {}),
     })!;
-    if (draft && !(t.pending ?? []).some((p) => p.type === "chat_reply" || p.type === "slack_reply")) {
-      t = addPending(t.id, {
-        type: "slack_reply",
-        label: `回复 ${job.task.source.userName ?? "对方"}`,
-        detail: draft,
-        payload: {
-          channel: job.task.source.channelId ?? "",
-          text: draft,
-          ...(job.task.source.threadTs ? { threadTs: job.task.source.threadTs } : {}),
-          ...(job.task.source.userName ? { userName: job.task.source.userName } : {}),
-        },
-      })!;
-    }
+    if (draft && !(t.pending ?? []).some((p) => p.type === "chat_reply")) t = addPending(t.id, chatReply(conv, draft))!;
     record({ taskId: t.id, action: "slack_query_done", why: "查询任务结束", how: report ? "已生成答案与草稿" : `退出码 ${exitCode}，没有报告`, evidence: { jobId, exitCode }, risk: "read", status: report ? "done" : "failed" });
     return t;
   }
@@ -270,6 +258,17 @@ export function onJobExit(jobId: string, exitCode: number): Task | undefined {
 }
 
 
+/** 回到 to 那段对话的待审回复：发给谁只认 to */
+export function chatReply(to: ExternalRef, text: string): Omit<PendingAction, "id"> {
+  return { type: "chat_reply", label: `回复 ${to.author ?? "对方"}`, detail: text, payload: { to, text } };
+}
+
+/** 任务来源那段对话，能回才给（老库的线程引用没有频道） */
+export function replyTarget(t: Task): ExternalRef | undefined {
+  const to = conversationOf(t.source);
+  return to && chatFor(to)?.replyable(to) ? to : undefined;
+}
+
 /**
  * 干完活回流到来源：Slack 待办派生出代码任务，任务做完了那条待办还挂着，
  * 用户既没收到「可以回复了」也不知道该关掉它。把结果写回去并备好回复草稿。
@@ -288,29 +287,15 @@ export function reportBackToOrigin(done: Task): void {
     attention: "review",
   })!;
 
-  const channel = origin.source.channelId;
-  const already = (next.pending ?? []).some((p) => p.type === "chat_reply" || p.type === "slack_reply");
-  if (origin.source.conversation && channel && !already) {
-    const reply = `${summary.slice(0, 500)}`;
-    next = addPending(next.id, {
-      type: "slack_reply",
-      label: `回复 ${origin.source.userName ?? "对方"}`,
-      detail: reply,
-      payload: {
-        channel,
-        text: reply,
-        ...(origin.source.threadTs ? { threadTs: origin.source.threadTs } : {}),
-        ...(origin.source.userName ? { userName: origin.source.userName } : {}),
-      },
-    })!;
-  }
+  const to = replyTarget(origin);
+  if (to && !(next.pending ?? []).some((p) => p.type === "chat_reply")) next = addPending(next.id, chatReply(to, summary.slice(0, 500)))!;
 
   record({
     taskId: origin.id,
     action: "job_reported_back",
     why: "派出去的活做完了，来源那条还挂着",
     how: line,
-    evidence: { doneTaskId: done.id, hasReply: Boolean(origin.source.conversation && channel) },
+    evidence: { doneTaskId: done.id, hasReply: Boolean(to) },
     risk: "reversible",
   });
 }
@@ -392,10 +377,10 @@ export async function executePending(
   if (!taken) throw new Error("待审核动作不存在");
   const { action } = taken;
   try {
-    if (action.type === "chat_reply" || action.type === "slack_reply") {
-      const p = action.payload as { channel: string; text: string; threadTs?: string; userName?: string };
-      // 记账（slack_reply_sent、撤回用的 ts）由 slack 工具的 post 做
-      await role("chat").post({ channel: p.channel, text: p.text, ...(p.threadTs ? { threadTs: p.threadTs } : {}) }, { kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id });
+    if (action.type === "chat_reply") {
+      const p = action.payload as { to: ExternalRef; text: string };
+      // 记账（slack_reply_sent、撤回用的 ts）由工具的 post 做
+      await role("chat").post({ to: p.to, text: p.text }, { kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id });
     } else if (action.type === "start_job") {
       const p = action.payload as { project: string; dir: string; detail: string; confidence?: number };
       const t0 = getTask(taskId);

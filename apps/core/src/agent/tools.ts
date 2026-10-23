@@ -30,7 +30,7 @@ import { createSchedule, deleteSchedule, getSchedule, listSchedules, scheduleByC
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
 import { listInbox } from "../memory/inbox.js";
 import { conversationKey } from "../memory/infer.js";
-import { attachedTasks } from "./slack/attach.js";
+import { attachedTasks } from "./chat/attach.js";
 import { resolveProject } from "../memory/projects.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
@@ -590,7 +590,7 @@ export const fridayToolList = (conversationId?: string) => [
           return text(
             `用户还没明确同意「${action.label}」，不执行。这条动作会做的是：${action.detail}。先核对用户要的是不是这件事：不是的话（比如他要推送，这条却是合并），直接告诉他挂着的动作不是他要的、没有能批准的，绝不能教他用这条动作的同意词去批准它。是的话，请他单独回一句${forms.map((f) => `「${f}」`).join("、")}中的一个再调；带问号或附加要求的都不算同意。`,
           );
-        if (action.type === "chat_reply" || action.type === "slack_reply") {
+        if (action.type === "chat_reply") {
           const body = override?.trim() || String(action.payload.text ?? action.detail);
           const shown = listMessages(conversationId!).filter((m) => m.role === "assistant" && m.kind === "ask").at(-1);
           if (!shown || !squash(shown.content).includes(squash(body))) return text("先把要发的原文完整贴给用户，等他说「发」再调——上一轮你还没给他看过这段原文。");
@@ -724,7 +724,6 @@ const squash = (s: string) => s.replace(/\s+/g, "");
 // 批准不可逆的动作只认用户这一轮的原话，而且整句就是一个短的同意：「发吧，语气再软点」「能合并吗？」都是还在商量
 const APPROVAL: Partial<Record<PendingActionType, string[]>> = {
   chat_reply: ["发", "发吧", "发出去", "就这么发", "可以发", "发送"],
-  slack_reply: ["发", "发吧", "发出去", "就这么发", "可以发", "发送"],
   git_merge: ["合并", "合并吧", "可以合并", "合吧", "通过"],
   okr_submit: ["提交", "提交吧", "可以提交", "通过"],
   start_job: ["开工", "开工吧", "开始做", "开始做吧", "通过"],

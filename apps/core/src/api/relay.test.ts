@@ -28,6 +28,9 @@ const { linkUp } = await import("../memory/links.js");
 const { slackNode, taskNode } = await import("../memory/infer.js");
 const { listTasks } = await import("../memory/tasks.js");
 const { saveAttachment } = await import("../memory/attachments.js");
+const { seedBuiltins } = await import("../connectors/builtin.js");
+const { conversationOf } = await import("@friday/shared");
+seedBuiltins();
 
 async function relay(body: unknown): Promise<string> {
   const res = await app.request("/summon/relay", {
@@ -161,7 +164,7 @@ describe("POST /summon/relay", () => {
 
     const body = await relay({ text: "建成任务", conv: "CT:100", project: "demo", scene: "波波说：分页留白\nFriday 的判断：这是 demo 的持仓记录表" });
     expect(body).toContain('"did":"slack_task"');
-    const task = listTasks(["understood"], 50).find((t) => t.source.conversation === "CT:100")!;
+    const task = listTasks(["understood"], 50).find((t) => conversationOf(t.source)?.id === "CT:100")!;
     expect(task.title).toBe("这个在基础组件中优化一下");
     expect(task.project).toBe("demo");
     expect(task.source.projectBy).toBe("friday");
@@ -171,7 +174,7 @@ describe("POST /summon/relay", () => {
   it("HUD 给的项目不在注册表里就不写，别把编出来的名字落到任务上", async () => {
     addInboxItems([{ id: "CU:100", kind: "mention", channelId: "CU", channelName: "#x", userId: "U8", userName: "bo.li", text: "看下这个", permalink: "p", ts: "100" }]);
     await relay({ text: "建成任务", conv: "CU:100", project: "不存在的项目" });
-    const task = listTasks(["understood"], 50).find((t) => t.source.conversation === "CU:100")!;
+    const task = listTasks(["understood"], 50).find((t) => conversationOf(t.source)?.id === "CU:100")!;
     expect(task.project).toBeUndefined();
     expect(task.source.projectBy).toBeUndefined();
   });

@@ -192,7 +192,7 @@ describe("migrate*", () => {
     ];
     const out = migratePending(old);
     expect(out[0]!.type).toBe("chat_reply");
-    expect(out[0]!.payload).toMatchObject({ text: "看到了", to: { tool: "slack", type: "conversation", id: "C1:1.2", author: "灵雨", attrs: { channelId: "C1", threadTs: "1.2" } } });
+    expect(out[0]!.payload).toEqual({ text: "看到了", to: { tool: "slack", type: "conversation", id: "C1:1.2", author: "灵雨", attrs: { channelId: "C1", threadTs: "1.2" } } });
     expect(out[1]!.type).toBe("custom");
     expect(out[2]).toEqual(old[2]);
     expect(migratePending(out)).toEqual(out);
