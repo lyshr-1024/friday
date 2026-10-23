@@ -551,6 +551,29 @@ describe("遗留 worktree 工具", () => {
     for (const t of trees) expect(existsSync(t.tree)).toBe(false);
   });
 
+  it("列过清单就算问过：下一句「删掉」直接删干净的，有改动的仍要「连改动一起删掉」", async () => {
+    const clean = repoWithWorktree();
+    const dirty = repoWithWorktree();
+    writeFileSync(join(dirty.tree, "wip.txt"), "x\n");
+    createTask({ title: "干净", kind: "verbal", source: { worktree: clean.tree, repoDir: clean.repo }, status: "done" });
+    createTask({ title: "有改动", kind: "verbal", source: { worktree: dirty.tree, repoDir: dirty.repo }, status: "done" });
+    const conv = say("把任务清理一下");
+    await callIn(conv, "worktrees_leftover", {});
+    addMessage(conv, { role: "user", kind: "ask", content: "删掉" });
+    await callIn(conv, "worktree_remove", { path: clean.tree });
+    const out = await callIn(conv, "worktree_remove", { path: dirty.tree });
+    expect(existsSync(clean.tree)).toBe(false);
+    expect(existsSync(dirty.tree)).toBe(true);
+    expect(out).toContain("确认请回「连改动一起删掉」");
+  });
+
+  it("确认提示告诉模型已登记、下一句同意再调就会删", async () => {
+    const { repo, tree } = repoWithWorktree();
+    createTask({ title: "提示", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });
+    const out = await callIn(say("看看"), "worktree_remove", { path: tree });
+    expect(out).toContain("已登记");
+  });
+
   it("问过以后隔了一句别的话，再说「删掉」不算，重新问", async () => {
     const { repo, tree } = repoWithWorktree();
     createTask({ title: "隔一句", kind: "verbal", source: { worktree: tree, repoDir: repo }, status: "done" });

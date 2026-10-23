@@ -45,6 +45,15 @@ export const saidLast = (conversationId?: string): string => lastUserMessage(con
 // 会话 → 路径 → 是在哪句用户消息那一轮问的；同意只认紧接着那一轮问过的路径
 const asked = new Map<string, Map<string, { after: string | null }>>();
 
+function roundOf(conversationId?: string): Map<string, { after: string | null }> {
+  const key = conversationId ?? "";
+  const round = asked.get(key) ?? new Map<string, { after: string | null }>();
+  asked.set(key, round);
+  return round;
+}
+
+const REGISTERED = "（已登记为问过：用户下一句回同意后再调这个工具就会真删，不是工具出错）";
+
 const PROJECT_FIELDS = ["目录", "别名", "说明", "保护分支", "方案送审", "环境", "频道"] as const satisfies readonly ProjectFieldKey[];
 const REVIEW_LEVELS = ["全部", "大的", "不用"];
 
@@ -339,11 +348,15 @@ export const selfToolList = (conversationId?: string) => [
   ),
   tool(
     "worktrees_leftover",
-    "列遗留的 git worktree（任务收工后留在磁盘上的），每行 `路径 · 分支 · 有没有未提交改动 · 所属任务 #N`。",
+    "列遗留的 git worktree（任务收工后留在磁盘上的），每行 `路径 · 分支 · 有没有未提交改动 · 所属任务 #N`。列出来就算问过用户要不要删：用户下一句回「删掉」，逐个调 worktree_remove 就会删。",
     {},
     async () => {
       const list = leftoverWorktrees();
       if (!list.length) return text("没有遗留的 worktree");
+      // 列给用户看就是在问要不要删；模型常只用文字问、不先调 worktree_remove，不这样登记一句「删掉」永远删不掉
+      const round = roundOf(conversationId);
+      const { id: sayId } = lastUserMessage(conversationId);
+      for (const w of list) round.set(w.path, { after: sayId });
       return text(
         list
           .map((w) => {
@@ -363,17 +376,15 @@ export const selfToolList = (conversationId?: string) => [
       const entry = leftoverWorktrees().find((w) => w.path === path);
       if (!entry) return text("这个路径不在遗留列表里，不删");
       const { id: sayId, prevId, text: said } = lastUserMessage(conversationId);
-      const key = conversationId ?? "";
-      const round = asked.get(key) ?? new Map<string, { after: string | null }>();
-      asked.set(key, round);
+      const round = roundOf(conversationId);
       const prior = round.get(entry.path);
       const ok = sayId !== null && prior?.after != null && prior.after === prevId && (entry.dirty ? consents(said, ["连改动一起删掉"]) : consents(said, ["删掉", "删掉吧", "删"]));
       if (!ok) {
         round.set(entry.path, { after: sayId });
         return text(
           entry.dirty
-            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」`
-            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」`,
+            ? `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。里面有没提交的改动，会一起丢。确认请回「连改动一起删掉」${REGISTERED}`
+            : `要删 ${entry.path}（分支 ${entry.branch ?? "无"}）。删了撤不回。确认的话请用户单独回一句「删掉」${REGISTERED}`,
         );
       }
       round.delete(entry.path);
