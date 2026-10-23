@@ -195,7 +195,7 @@ export interface ExternalRef {
 - [ ] **Step 5: 真实库副本验证**：`tsx apps/core/scripts/migrate-dry-run.ts "$HOME/Library/Application Support/Friday/todos.db"`，输出贴进报告；有任何残留或行数不符就停下报告（这是计划里唯一读取真实用户数据的地方，只读、拷贝在临时目录）。
 - [ ] **Step 6: 提交** `外部引用：迁移演练脚本`
 
-### Task 7: 收件表通用化（可选，见交付说明）
+### Task 7: 收件表通用化（2026-10-23 用户定：本轮跳过，后面再说；执行时不派发，Task 8 的验收 grep 不检查 `InboxItem` 与 `inbox` 表）
 
 **Files:**
 - Modify: `apps/core/src/memory/schema.ts`（`inbox` 加 `tool TEXT NOT NULL DEFAULT 'slack'`、`attrs TEXT`）、`memory/db.ts`（`ALTER` 两列；`channel_name` / `thread_ts` 的值拷进 `attrs`；**老列保留不删**，避免重建一张 13 列的表，下一个版本再删）、`memory/inbox.ts`、`packages/shared` 的 `InboxItem`（`channelId` / `channelName` / `threadTs` 改为从 `attrs` 读，类型上保留为工具填的可选字段 → 本任务把 `InboxItem` 拆成通用部分 `{ id, tool, kind, author, authorId, text, permalink, ts, receivedAt, done, prior?, attrs }`，`channelId` 等只在 `connectors/slack/` 与 `agent/chat/` 内经 `role("chat")` 的访问器读）
