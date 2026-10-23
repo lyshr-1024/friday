@@ -1,3 +1,4 @@
+import { removeTool, saveTool } from "../connectors/registry.js";
 import { renderHandbook, restoreRules } from "../memory/rules.js";
 import { writeHandbook } from "../memory/handbooks.js";
 import { restoreFeatures, writeKnowledge } from "../memory/features.js";
@@ -650,6 +651,12 @@ export const tasks = new Hono()
       const md = readMemoryFile("projects");
       if (plan.before !== null && projectSection(md, plan.name) === null) return c.json({ error: `项目「${plan.name}」已经不在登记里（可能改了名），没法撤销这次改动` }, 409);
       writeMemoryFile("projects", replaceProjectSection(md, plan.name, plan.before));
+      setEventStatus(c.req.param("id"), "undone");
+      return c.json({ ok: true });
+    }
+    if (plan.kind === "restore_tool") {
+      if (plan.before) saveTool(plan.before);
+      else removeTool(plan.name);
       setEventStatus(c.req.param("id"), "undone");
       return c.json({ ok: true });
     }

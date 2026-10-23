@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { RulesSnapshot } from "./rules.js";
 import type { AuditEvent, AuditStatus, Risk } from "@friday/shared";
 import { db } from "./db.js";
-import type { SettingsUpdate } from "@friday/shared";
+import type { SettingsUpdate, ToolRegistration } from "@friday/shared";
 
 interface Row {
   id: string;
@@ -29,6 +29,7 @@ export type Undo =
   | { kind: "meegle_node"; projectKey: string; workItemId: string; nodeKey: string }
   | { kind: "restore_memory"; snapshot: { rules?: RulesSnapshot; handbooks?: Record<string, string>; decisions: string; people: string; projects: string } }
   | { kind: "restore_project"; name: string; before: string | null }
+  | { kind: "restore_tool"; name: string; before: ToolRegistration | null }
   | { kind: "restore_task"; row: Record<string, string | number | null> }
   | { kind: "stage_set"; taskId: string; stage: string | null }
   | { kind: "delete_okr_reports"; ids: number[] }

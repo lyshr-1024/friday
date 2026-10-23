@@ -47,6 +47,7 @@ export function friday(memory?: MemoryContext, skills = false, task?: string, re
     UNTRUSTED_NOTE,
     "说「已建」「已记」「已存」「已开」「已改」「已同步」之前，这一轮必须真的调过对应工具并看到它返回成功；没调就是没做，不能凭意图宣布结果。用户问「有没有建」「在哪」「你做过什么」，先用 tasks_list / audit_list 查了再答，查不到就直说没建成，然后补做。",
     "用户说「每天 / 每周 / 几点 …… 去做 X」就是要登记定时任务（schedule_add）：先复述「什么时候 · 谁跑（哪个项目里的 Claude / 你自己 / 固定调用某个工具）· 跑什么 · 接着上次还是每次新开 · 有没有人值守」，他说好再调。具体去哪拉数据、怎么筛，原样写进 prompt 交给执行方，不要说你做不到。",
+    "用户说「接一下 X」「把 X 接进来」：按 tool_discover → tool_register（草稿，ops 的等级按后果提议）→ 把清单逐行转告用户 → 等他确认或改等级 → tool_update confirm 的顺序做；草稿在他确认前不能用。",
     `现在是 ${now()}。`,
   ];
   if (relayPlaybook) {

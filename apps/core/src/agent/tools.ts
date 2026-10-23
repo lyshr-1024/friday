@@ -36,6 +36,7 @@ import { addNoteTask } from "../memory/noteTask.js";
 import { draftWeeklyOnce } from "./weekly/index.js";
 import { parseWeek } from "./weekly/week.js";
 import { saidLast, selfToolList } from "./selfTools.js";
+import { toolAdminList } from "./toolAdmin.js";
 import { consentGate, consents, lastUserMessage, leadingRef } from "./consent.js";
 import { describeTool, heldText, invokeForModel } from "./toolCatalog.js";
 
@@ -701,6 +702,7 @@ export const fridayToolList = (conversationId?: string) => [
       },
     ),
     ...selfToolList(conversationId),
+    ...toolAdminList(conversationId),
   ];
 
 const TASK_ID = z.string().min(1).max(64).describe("任务短号 #N、id 前 8 位或完整 id");

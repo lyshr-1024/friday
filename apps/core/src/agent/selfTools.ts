@@ -27,7 +27,7 @@ const settingsPatch = z.object(Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s
 const SCHEDULED_CONFIG = "定时任务里不能改 Friday 的配置，等用户回来。";
 const inSchedule = (conversationId?: string) => Boolean(conversationId && scheduleByConversation(conversationId));
 
-const byYou = (conversationId: string | undefined, what: string): string =>
+export const byYou = (conversationId: string | undefined, what: string): string =>
   conversationId && !scheduleByConversation(conversationId) ? `你在对话里让 Friday ${what}` : `Friday 自己调用工具${what}`;
 
 const show = (v: unknown) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
