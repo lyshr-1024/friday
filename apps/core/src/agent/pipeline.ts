@@ -11,7 +11,8 @@ import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
-import { addPending, findTaskBySource, getTask, listTasks, updatePending, updateTask } from "../memory/tasks.js";
+import { addPending, findTaskBySource, getTask, listTasks, removePending, taskTag, updatePending, updateTask } from "../memory/tasks.js";
+import { addMessage, conversationExists } from "../memory/conversations.js";
 import "../connectors/slack/index.js";
 import { role } from "../connectors/roles.js";
 import type { HandbookDraft } from "./handbook.js";
@@ -459,6 +460,8 @@ export async function executePending(
       const p = action.payload as { tool: string; op: string; args: Record<string, unknown> };
       const r = await invokeTool({ kind: "friday", why: "你审核通过", taskId, approvedPendingId: action.id }, p.tool, p.op, p.args);
       if (r.kind !== "ok") throw new Error(r.kind === "refused" ? r.why : `${p.tool}.${p.op} 没执行：${r.kind}`);
+      const out = r.text.slice(0, 2000);
+      tellRequester(taskId, action.payload, `用户批了，${p.tool}.${p.op} 已执行：${out}`, `批了，${p.tool}.${p.op} 已执行：\n${out}`);
       // 模型在干活中途要的一次调用，批了不等于任务收工
       return getTask(taskId)!;
     } else if (action.type === "git_merge") {
@@ -490,7 +493,8 @@ export async function executePending(
     // 有些分支（比如 okr_submit）失败前已经把更新过的动作放回去了，这里不重复放一遍旧的
     const cur = getTask(taskId);
     if (cur && !(cur.pending ?? []).some((p) => p.id === action.id)) {
-      updateTask(taskId, { pending: [...(cur.pending ?? []), action], status: "review" });
+      // tool_call 是干活中途挂的，执行失败不能把在跑的任务翻成待审、提前让出并发名额
+      updateTask(taskId, { pending: [...(cur.pending ?? []), action], ...(action.type === "tool_call" ? {} : { status: "review" as const }) });
     }
     throw e;
   }
@@ -500,6 +504,31 @@ export async function executePending(
   onTaskDone(t, done);
   await closeTaskTerminal(done, "待审动作全部执行完，任务完成");
   return done;
+}
+
+/** 待审的 tool_call 有了结果：告诉当初要它的终端（jobId）和主对话（conversationId） */
+function tellRequester(taskId: string, payload: Record<string, unknown>, toTerminal: string, toConversation: string): void {
+  const jobId = typeof payload.jobId === "string" ? payload.jobId : undefined;
+  const sessionId = jobId ? getJob(jobId)?.sessionId : undefined;
+  if (sessionId) void sayToSession(sessionId, toTerminal).catch((e) => console.warn(`[tool_call] 结果没敲进终端：${e instanceof Error ? e.message : String(e)}`));
+  const conv = typeof payload.conversationId === "string" ? payload.conversationId : undefined;
+  if (conv && conversationExists(conv)) {
+    const t = getTask(taskId);
+    addMessage(conv, { role: "assistant", kind: "run", content: `→ ${t ? taskTag(t) : taskId.slice(0, 8)}：${toConversation}`, taskIds: [taskId] });
+  }
+}
+
+/** 你没批一条挂着的 tool_call：只撤这一条，任务状态和运行结局都不动（不是打回） */
+export function dismissToolCall(taskId: string, actionId: string, why = "你没批"): Task | { error: string; status: 400 | 404 } {
+  const t = getTask(taskId);
+  const action = t?.pending?.find((p) => p.id === actionId);
+  if (!t || !action) return { error: "待审核动作不存在", status: 404 };
+  if (action.type !== "tool_call") return { error: "只有外部工具调用能「不执行」", status: 400 };
+  const p = action.payload as { tool: string; op: string; args: Record<string, unknown> };
+  const updated = removePending(taskId, actionId) ?? t;
+  record({ taskId, action: "tool_call_dismissed", why, how: `撤掉待审：执行 ${p.tool}.${p.op}，不执行`, evidence: { tool: p.tool, op: p.op, args: p.args }, risk: "read" });
+  tellRequester(taskId, action.payload, `用户没批 ${p.tool}.${p.op}，换个做法或在交付里写明`, `没批 ${p.tool}.${p.op}，不执行`);
+  return updated;
 }
 
 /** 需求在测试中：缺陷交代进需求自己的会话，Claude 空闲就敲进去、在干活就等，退出了就在需求自己的 Claude 会话上接回 */

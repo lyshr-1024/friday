@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ToolLevel, ToolOp, ToolRegistration } from "@friday/shared";
 import { builtins } from "../connectors/builtin.js";
+import { badUndo, stable, undoSpecSchema } from "../connectors/invoke.js";
 import { listTools as mcpListTools, mcpServers, type McpToolInfo } from "../connectors/mcp.js";
 import { listStdioTools } from "../connectors/mcpStdio.js";
 import { getTool, listTools, removeTool, saveTool } from "../connectors/registry.js";
@@ -23,9 +24,11 @@ const removeGate = consentGate();
 const CONFIRM = ["确认", "登记吧", "就这样"];
 const REMOVE = ["删掉", "删掉吧"];
 const RANK: Record<string, number> = { read: 0, reversible: 1, irreversible: 2, null: 3 };
-const stable = (v: unknown): string =>
-  Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
 const READ_NAME = /^(get|list|index|describe|search|query|read|export|preview|has)/;
+const WRITE_VERB = new Set(["delete", "remove", "update", "create", "set", "deploy", "apply", "send", "post", "write", "drop", "exec", "run"]);
+/** 名字按 _ - . 和驼峰拆词，哪一段是写动词都不算只读（get_and_delete、getAndDelete） */
+const readName = (n: string) =>
+  READ_NAME.test(n) && !n.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[\s_.-]+/).some((w) => WRITE_VERB.has(w.toLowerCase()));
 
 const execOut = (cmd: string, args: string[]) =>
   new Promise<string | undefined>((resolve) => {
@@ -57,8 +60,16 @@ function skillDirs(name: string): string[] {
   return found;
 }
 
-const opLine = (o: ToolOp) => `${o.name} · ${o.level ?? "未定级"} · ${o.description.slice(0, 80)}`;
-const manifest = (r: ToolRegistration) => `${r.name}（${r.transport}，${r.draft ? "草稿" : r.enabled ? "已启用" : "已停用"}）\n${r.ops.map((o) => `- ${opLine(o)}`).join("\n")}`;
+const argsLine = (a: Record<string, string>) => Object.entries(a).map(([k, v]) => `${k}=${v}`).join(", ");
+// 用户确认的是会真正跑的东西：连哪、敲什么命令、撤销调什么，不只是名字和等级
+const opLine = (r: Pick<ToolRegistration, "connection">, o: ToolOp) =>
+  [
+    `${o.name} · ${o.level ?? "未定级"} · ${o.description.slice(0, 80)}`,
+    o.template ? `  命令：${r.connection} ${o.template.join(" ")}` : "",
+    o.undo ? `  撤销 = 调 ${o.undo.op}(${argsLine(o.undo.args)})${o.undo.before ? `，先调 ${o.undo.before.op}(${argsLine(o.undo.before.args)}) 取快照` : ""}` : "",
+  ].filter(Boolean).join("\n");
+const manifest = (r: ToolRegistration) =>
+  `${r.name}（${r.transport} · 连接 ${r.connection}，${r.draft ? "草稿" : r.enabled ? "已启用" : "已停用"}）\n${r.ops.map((o) => `- ${opLine(r, o)}`).join("\n")}`;
 
 const fetchOps = (reg: ToolRegistration): Promise<McpToolInfo[]> => (reg.transport === "mcp_stdio" ? listStdioTools(reg.connection) : mcpListTools(reg.connection));
 
@@ -68,17 +79,17 @@ const opSchema = z.object({
   inputSchema: z.object({}).passthrough(),
   level: z.enum(["read", "reversible", "irreversible"]),
   template: z.array(z.string()).optional().describe("cli 专用：argv 模板，{参数名} 换成参数值"),
-  undo: z.object({}).passthrough().optional().describe("reversible 必须带：{op, args, before?}，值可写 $args.x / $result.x / $before.x"),
+  undo: undoSpecSchema.optional().describe("reversible 必须带：{op, args, before?: {op, args}}，op 是本工具里的操作名，args 的值都是字符串，可写 $args.x / $result.x / $before.x"),
 });
 
 function normalizeOp(o: z.infer<typeof opSchema>): ToolOp {
   let level: ToolLevel = o.level;
-  if (level === "read" && !READ_NAME.test(o.name)) level = "irreversible";
+  if (level === "read" && !readName(o.name)) level = "irreversible";
   if (level === "reversible" && !o.undo) level = "irreversible";
   return {
     name: o.name, description: o.description, inputSchema: o.inputSchema as Record<string, unknown>, level, levelBy: "friday",
     ...(o.template ? { template: o.template } : {}),
-    ...(o.undo ? { undo: o.undo as unknown as NonNullable<ToolOp["undo"]> } : {}),
+    ...(o.undo ? { undo: o.undo } : {}),
   };
 }
 
@@ -143,6 +154,10 @@ export function toolAdminList(conversationId?: string) {
         const names = ops.map((o) => o.name);
         const dup = names.find((n, i) => names.indexOf(n) !== i);
         if (dup) return text(`操作名重复：${dup}`);
+        for (const o of ops) {
+          const bad = o.undo && badUndo(o.undo, ops);
+          if (bad) return text(`${o.name} 的${bad}`);
+        }
         const saved = saveTool({
           name, transport, connection, scenario, ...(skill ? { skill } : {}),
           projects: projects ?? [], roles: [], binaries: binaries ?? [],
@@ -201,7 +216,7 @@ export function toolAdminList(conversationId?: string) {
         ops = ops.map((o) => {
           if (!(o.name in lv)) return o;
           let level = lv[o.name] as ToolLevel;
-          if (level === "read" && !READ_NAME.test(o.name)) {
+          if (level === "read" && !readName(o.name)) {
             refusedRead.push(o.name);
             return o;
           }
@@ -222,7 +237,8 @@ export function toolAdminList(conversationId?: string) {
         };
         let consented = false;
         if (confirm || lowering) {
-          const key = `update|${name}|${createHash("sha1").update(stable({ ops: next.ops.map((o) => [o.name, o.level]), enabled: next.enabled, draft: next.draft, scenario: next.scenario, projects: next.projects })).digest("hex")}`;
+          // 问完到同意之间草稿可能被重新登记：连接、命令模板、撤销变了都得重问
+          const key = `update|${name}|${createHash("sha1").update(stable({ transport: next.transport, connection: next.connection, ops: next.ops.map((o) => [o.name, o.level, o.template ?? null, o.undo ?? null]), enabled: next.enabled, draft: next.draft, scenario: next.scenario, projects: next.projects })).digest("hex")}`;
           const gate = confirmGate(conversationId, key, CONFIRM);
           if (!gate.ok) {
             const why = [confirm ? `启用 ${name}` : "", lowering ? "调低了操作的风险等级（调低后对应操作可直接执行）" : ""].filter(Boolean).join("，并");

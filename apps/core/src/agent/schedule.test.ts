@@ -4,7 +4,7 @@ vi.mock("./pipeline.js", () => ({
   startAutonomousJob: vi.fn(async (t) => t),
   reopenTask: vi.fn(async (id) => ({ task: { id }, terminal: false })),
 }));
-vi.mock("../connectors/invoke.js", () => ({ invokeTool: vi.fn(async () => ({ kind: "ok", text: "done" })) }));
+vi.mock("../connectors/invoke.js", async (orig) => ({ ...(await orig<typeof import("../connectors/invoke.js")>()), invokeTool: vi.fn(async () => ({ kind: "ok", text: "done" })) }));
 vi.mock("./runs.js", () => ({ startRun: vi.fn(), subscribe: vi.fn(() => () => {}), isRunning: vi.fn(() => false) }));
 vi.mock("../memory/projects.js", async (orig) => ({
   ...(await orig<typeof import("../memory/projects.js")>()),

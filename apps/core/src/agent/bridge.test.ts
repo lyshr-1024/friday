@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type { StateTransition } from "@friday/shared";
 import { listAudit } from "../memory/audit.js";
 import { rmSync as rmFile, writeFileSync as writeFile } from "node:fs";
@@ -35,7 +36,7 @@ defineBuiltin({
   ops: [
     { name: "get", description: "读", input: {}, level: "read", run: async () => ({ text: "读到了" }) },
     { name: "flip", description: "翻", input: {}, level: "reversible", run: async () => { bridgeRuns.put++; return { text: "翻了" }; } },
-    { name: "put", description: "写", input: {}, level: "irreversible", run: async () => { bridgeRuns.put++; return { text: "写了" }; } },
+    { name: "put", description: "写", input: { x: z.number().optional() }, level: "irreversible", run: async () => { bridgeRuns.put++; return { text: "写了" }; } },
   ],
 });
 seedBuiltins();

@@ -61,7 +61,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     `这个项目的用例从哪来：${p.extra["用例"] ?? NO_CASES}`,
     "",
     "怎么做：",
-    "1. 读需求：PRD 是飞书文档用 tool_call lark read，其他网页用 friday_web_read（长文按返回的 offset 接着读）。读不到的写进 plan 里「要你拍板」那段，不要猜。",
+    "1. 读需求：PRD 是飞书文档用 tool_call lark read，其他网页用 friday_web_read；两者长文都分段返回，按结尾给的 offset 接着读到「读完了」。读不到的写进 plan 里「要你拍板」那段，不要猜。",
     "2. 在仓库里 grep 定位要改哪里（页面、组件、接口、路由），方案落到具体文件。",
     "3. 用例：按上面「用例从哪来」导出；没有现成的就自己写，覆盖 golden path、边界、回归，至少一条。",
     isDefect(t) ? DEFECT_RULE : undefined,

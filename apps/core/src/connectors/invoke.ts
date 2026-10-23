@@ -1,4 +1,5 @@
-import type { ToolOp, ToolRegistration } from "@friday/shared";
+import { z } from "zod";
+import type { ToolOp, ToolRegistration, ToolUndoSpec } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { addPending, getTask } from "../memory/tasks.js";
 import { builtin, type OpResult } from "./builtin.js";
@@ -31,6 +32,25 @@ const parseJson = (text: string): unknown => {
   }
 };
 
+/** 键排序后的 JSON：同一组参数换个顺序也认成同一个 */
+export const stable = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
+
+const strMap = z.object({}).catchall(z.string());
+export const undoSpecSchema = z.object({
+  op: z.string().min(1),
+  args: strMap,
+  before: z.object({ op: z.string().min(1), args: strMap }).strict().optional(),
+}).strict();
+
+/** 撤销说明的形状和指向的操作；不对就返回原因 */
+export function badUndo(spec: unknown, ops: Pick<ToolOp, "name">[]): string | undefined {
+  const p = undoSpecSchema.safeParse(spec);
+  if (!p.success) return `撤销说明格式不对（要 {op, args, before?}，args 的值都是字符串）：${z.prettifyError(p.error)}`;
+  const missing = [p.data.op, p.data.before?.op].filter((o): o is string => Boolean(o) && !ops.some((x) => x.name === o));
+  return missing.length ? `撤销说明里的操作不存在：${missing.join("、")}` : undefined;
+}
+
 const dig = (v: unknown, path: string[]): unknown =>
   path.reduce<unknown>((cur, k) => (cur && typeof cur === "object" ? (cur as Record<string, unknown>)[k] : undefined), v);
 
@@ -43,9 +63,11 @@ function resolve(spec: Record<string, string>, scope: Record<string, unknown>): 
   );
 }
 
+const builtinOp = (tool: string, op: string) => builtin(tool)?.ops.find((o) => o.name === op);
+
 async function execOp(reg: ToolRegistration, op: ToolOp, args: Record<string, unknown>): Promise<Exec> {
   if (reg.transport === "builtin") {
-    const code = builtin(reg.name)?.ops.find((o) => o.name === op.name)!;
+    const code = builtinOp(reg.name, op.name)!;
     return { ...(await code.run(args)), ...(code.audit ? { audit: code.audit } : {}) };
   }
   if (reg.transport === "mcp_http") {
@@ -66,13 +88,26 @@ async function execOp(reg: ToolRegistration, op: ToolOp, args: Record<string, un
   throw new Error(`未知传输 ${reg.transport}`);
 }
 
-export async function invokeTool(caller: Caller, tool: string, opName: string, args: Record<string, unknown>): Promise<InvokeResult> {
+export async function invokeTool(caller: Caller, tool: string, opName: string, rawArgs: Record<string, unknown>): Promise<InvokeResult> {
   const reg = getTool(tool);
   if (!reg || !reg.enabled || reg.draft) return refused(`工具 ${tool} 没登记或没启用`);
   const op = reg.ops.find((o) => o.name === opName);
-  if (!op || (reg.transport === "builtin" && !builtin(tool)?.ops.some((o) => o.name === opName))) return refused(`${tool} 里没有操作 ${opName}`);
+  const code = reg.transport === "builtin" ? builtinOp(tool, opName) : undefined;
+  if (!op || (reg.transport === "builtin" && !code)) return refused(`${tool} 里没有操作 ${opName}`);
   const level = op.level;
   if (level === null) return refused(`${opName} 还没定级，先让用户定`);
+
+  let args = rawArgs;
+  if (code) {
+    const parsed = z.object(code.input).strict().safeParse(rawArgs);
+    if (!parsed.success) return refused(`${tool}.${opName} 参数不对：${z.prettifyError(parsed.error)}`);
+    args = parsed.data as Record<string, unknown>;
+  }
+  const spec: ToolUndoSpec | undefined = reg.transport === "builtin" || level !== "reversible" ? undefined : op.undo;
+  if (spec) {
+    const bad = badUndo(spec, reg.ops);
+    if (bad) return refused(`${tool}.${opName} 的${bad}，先修登记再调`);
+  }
 
   if (caller.kind === "model" && caller.taskId && reg.projects.length) {
     const project = getTask(caller.taskId)?.project;
@@ -84,6 +119,10 @@ export async function invokeTool(caller: Caller, tool: string, opName: string, a
     if (caller.kind === "model") {
       const shown = JSON.stringify(args);
       if (!caller.taskId) return { kind: "needs_consent", summary: `要执行 ${tool}.${opName}（参数 ${shown.slice(0, 300)}），撤不回` };
+      const same = stable({ tool, op: opName, args });
+      // 模型没等到结果又调了一次：批两次就是不可逆操作执行两遍
+      const dup = getTask(caller.taskId)?.pending?.find((p) => p.type === "tool_call" && stable({ tool: p.payload.tool, op: p.payload.op, args: p.payload.args }) === same);
+      if (dup) return { kind: "held", pendingId: dup.id };
       const t = addPending(caller.taskId, {
         type: "tool_call",
         label: `执行 ${tool}.${opName}`,
@@ -97,7 +136,6 @@ export async function invokeTool(caller: Caller, tool: string, opName: string, a
   }
 
   let before: unknown;
-  const spec = reg.transport === "builtin" || level !== "reversible" ? undefined : op.undo;
   if (spec?.before) {
     const snapOp = reg.ops.find((o) => o.name === spec.before!.op);
     if (!snapOp) return refused(`${tool} 里没有撤销要用的操作 ${spec.before.op}`);
@@ -106,16 +144,17 @@ export async function invokeTool(caller: Caller, tool: string, opName: string, a
   }
 
   const res = await execOp(reg, op, args);
-  const undo = spec
-    ? { kind: "tool_undo" as const, tool, op: spec.op, args: resolve(spec.args, { args, result: res.value, before }) }
-    : res.undo;
+  const undoArgs = spec ? resolve(spec.args, { args, result: res.value, before }) : undefined;
+  // 已经写出去了，账必须记；撤销参数取不到就不带撤销，免得撤的时候把空值写回去
+  const lost = undoArgs ? Object.keys(undoArgs).filter((k) => undoArgs[k] === undefined) : [];
+  const undo = spec ? (lost.length ? undefined : { kind: "tool_undo" as const, tool, op: spec.op, args: undoArgs! }) : res.undo;
 
   if (level !== "read" || caller.kind === "model") {
     record({
       ...("taskId" in caller && caller.taskId ? { taskId: caller.taskId } : {}),
       action: res.audit ?? `${tool}_${opName}`,
       why: caller.why,
-      how: `调 ${tool}.${opName}`,
+      how: `调 ${tool}.${opName}${lost.length ? `；撤销要的 ${lost.join("、")} 没取到值，这次撤不了` : ""}`,
       evidence: { tool, op: opName, args, caller: caller.kind, ...("quote" in caller && caller.quote ? { quote: caller.quote } : {}), ...res.evidence },
       risk: level,
       ...(caller.kind === "friday" && caller.approvedPendingId ? { status: "approved" as const } : {}),

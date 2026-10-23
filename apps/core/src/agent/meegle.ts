@@ -213,7 +213,7 @@ export async function listTaskTransitions(t: Task, items: WorkItemsRole = role("
 
 /** 转到终态（Resolved / Closed…）就不用再修了，任务直接收掉，不必等下一次同步。 */
 export async function applyTransition(t: Task, to: StateTransition, items: WorkItemsRole = role("workItems"), caller: Caller = clicked(t, to.label)): Promise<Task> {
-  await items.transition(meegleRef(t), to, caller);
+  await items.transition(meegleRef(t), to, caller, t.source.statusKey);
   const moved = updateTask(t.id, { source: { statusKey: to.stateKey } })!;
   return items.stateOf(to.stateKey, to.label) === "done" ? (await finishTask(t.id, "done", `Meegle 流转到「${to.label}」`, { keepTerminal: true }))! : moved;
 }

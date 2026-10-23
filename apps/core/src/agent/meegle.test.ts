@@ -590,7 +590,7 @@ describe("applyTransition 的账本", () => {
   });
 
   it("转到 CLOSED 也收工，不只认 RESOLVED", async () => {
-    const t = mkTask({ title: "缺陷 c1", kind: "meegle", source: { meegleProject: "p", meegleId: "c1", statusKey: "OPEN" }, project: "demo", status: "understood" });
+    const t = mkTask({ title: "缺陷 c1", kind: "meegle", source: { meegleProject: "p", meegleId: "4401", statusKey: "OPEN" }, project: "demo", status: "understood" });
     const after = await applyTransition(t, { id: "2", label: "关闭", stateKey: "CLOSED" });
     expect(after.status).toBe("done");
     expect(readTask(t.id)!.status).toBe("done");

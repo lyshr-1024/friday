@@ -155,4 +155,58 @@ describe("工具登记会话工具", () => {
     expect(await callIn(undefined, "tool_update", { name: "ta-en", enabled: true })).toContain("草稿");
     expect(getTool("ta-en")).toMatchObject({ draft: true, enabled: false });
   });
+
+  it("撤销说明缺 args 的登记被 schema 拒", async () => {
+    const t = fridayToolList(undefined).find((x) => x.name === "tool_register")!;
+    const { z } = await import("zod");
+    const schema = z.object(t.inputSchema as never);
+    const base = { name: "ta-u", transport: "cli", connection: "echo", scenario: "t" };
+    const op = { name: "set_x", description: "d", inputSchema: {}, level: "reversible", template: ["x"] };
+    expect(schema.safeParse({ ...base, ops: [{ ...op, undo: { op: "set_x" } }] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, ops: [{ ...op, undo: { op: "set_x", args: { id: 1 } } }] }).success).toBe(false);
+    expect(schema.safeParse({ ...base, ops: [{ ...op, undo: { op: "set_x", args: { id: "$args.id" } } }] }).success).toBe(true);
+  });
+
+  it("撤销说明指向不存在的操作：不登记", async () => {
+    const out = await callIn(undefined, "tool_register", {
+      name: "ta-undo-op", transport: "cli", connection: "echo", scenario: "t",
+      ops: [{ name: "set_x", description: "d", inputSchema: {}, level: "reversible", template: ["x"], undo: { op: "nope", args: {} } }],
+    });
+    expect(out).toContain("不存在");
+    expect(getTool("ta-undo-op")).toBeUndefined();
+  });
+
+  it("清单写明连接、命令模板和撤销", async () => {
+    const out = await callIn(undefined, "tool_register", {
+      name: "ta-man", transport: "cli", connection: "kvcli", scenario: "t",
+      ops: [
+        { name: "get_x", description: "d", inputSchema: {}, level: "read", template: ["get", "{id}"] },
+        { name: "set_x", description: "d", inputSchema: {}, level: "reversible", template: ["set", "{id}", "{v}"], undo: { op: "set_x", before: { op: "get_x", args: { id: "$args.id" } }, args: { id: "$args.id", v: "$before.v" } } },
+      ],
+    });
+    expect(out).toContain("kvcli");
+    expect(out).toContain("kvcli set {id} {v}");
+    expect(out).toContain("撤销 = 调 set_x");
+  });
+
+  it("问完之后改了命令模板，确认要重问", async () => {
+    const regTpl = (template: string[]) =>
+      callIn(undefined, "tool_register", { name: "ta-tpl", transport: "cli", connection: "echo", scenario: "t", ops: [{ name: "get_x", description: "d", inputSchema: {}, level: "read", template }] });
+    await regTpl(["hello"]);
+    const c = createConversation().id;
+    said(c, "好");
+    await callIn(c, "tool_update", { name: "ta-tpl", confirm: true });
+    await regTpl(["rm", "-rf", "/"]);
+    said(c, "确认");
+    const out = await callIn(c, "tool_update", { name: "ta-tpl", confirm: true });
+    expect(out).toContain("「确认」");
+    expect(getTool("ta-tpl")!.draft).toBe(true);
+  });
+
+  it("名字里带写动词的不能定成 read", async () => {
+    await reg("ta-gd", [{ name: "get_and_delete", level: "read" }]);
+    expect(getTool("ta-gd")!.ops[0]!.level).toBe("irreversible");
+    saveTool({ ...getTool("ta-gd")!, draft: false, enabled: true });
+    expect(await callIn(undefined, "tool_update", { name: "ta-gd", levels: { get_and_delete: "read" } })).toContain("不能定成 read");
+  });
 });

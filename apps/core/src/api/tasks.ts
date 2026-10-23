@@ -20,7 +20,7 @@ import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
 import { TmuxMissingError } from "../agent/tmux.js";
 import { startTask } from "../agent/taskStart.js";
-import { approvePending, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
+import { approvePending, dismissToolCall, finishTask, rejectTask, ReopenBusyError, reopenTask } from "../agent/pipeline.js";
 import { readMemoryFile, undoWrite, writeMemoryFile } from "../memory/files.js";
 import { deleteResearchNote } from "../memory/research.js";
 import { loadProjects, projectSection, replaceProjectSection, resolveProject } from "../memory/projects.js";
@@ -208,6 +208,10 @@ export const tasks = new Hono()
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
+  })
+  .post("/tasks/:id/pending/:actionId/dismiss", (c) => {
+    const r = dismissToolCall(c.req.param("id"), c.req.param("actionId"));
+    return "error" in r ? c.json({ error: r.error }, r.status) : c.json(r);
   })
   .post("/tasks/:id/reject", async (c) => {
     const { reason } = (await c.req.json().catch(() => ({}))) as { reason?: string };

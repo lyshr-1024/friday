@@ -32,7 +32,8 @@ export interface WorkItemsRole {
   transitions(ref: WorkItemRef): Promise<StateTransition[]>;
   /** 按意图找流转：in_progress = 「开始处理」那条；没有就 undefined */
   transitionFor(ref: WorkItemRef, intent: "in_progress"): Promise<StateTransition | undefined>;
-  transition(ref: WorkItemRef, to: StateTransition, caller: Caller): Promise<void>;
+  /** from：调用方记得的当前状态，线上读不到时撤销转回它 */
+  transition(ref: WorkItemRef, to: StateTransition, caller: Caller, from?: string): Promise<void>;
   nodeReadiness(ref: WorkItemRef, nodeKey: string): Promise<{ missing: string[] }>;
   confirmNode(ref: WorkItemRef, nodeKey: string, caller: Caller): Promise<void>;
   rollbackNode(ref: WorkItemRef, nodeKey: string, caller: Caller): Promise<void>;

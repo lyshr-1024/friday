@@ -10,8 +10,10 @@ export const meegleClient = new MeegleConnector();
 
 const normalize = (w: MeegleWorkItem): WorkItem => ({ ...w, kind: kindOf(w.typeKey), state: stateOf(w.statusKey, w.status) });
 
-const ref = { space: z.string().min(1).describe("空间 project key，链接里 /<空间>/story/detail/<工单号> 那段"), id: z.string().min(1).describe("工单号") };
-const node = { ...ref, nodeKey: z.string().min(1).describe("节点 key，如 state_16") };
+// 这些值原样进 meegle CLI 的参数：工单号只能是数字，其余不许 - 开头被当成选项
+const key = z.string().regex(/^[A-Za-z0-9_][\w-]*$/);
+const ref = { space: z.string().regex(/^[A-Za-z0-9_-]+$/).refine((s) => !s.startsWith("-"), "不能以 - 开头").describe("空间 project key，链接里 /<空间>/story/detail/<工单号> 那段"), id: z.string().regex(/^\d+$/, "工单号只能是数字").describe("工单号") };
+const node = { ...ref, nodeKey: key.describe("节点 key，如 state_16") };
 
 const excerpt = (text: string | undefined, max = 2000) => (text && text.length > max ? `${text.slice(0, max)}…（截断）` : text);
 
@@ -43,13 +45,19 @@ defineBuiltin({
     {
       name: "transition",
       description: "按流转 id 改工单状态（流转 id 来自工单当前能走的流转）；撤销时转回原状态",
-      input: { ...ref, transitionId: z.string().min(1), stateKey: z.string().optional().describe("目标状态 key，只用于记账") },
+      input: {
+        ...ref,
+        transitionId: key,
+        stateKey: z.string().optional().describe("目标状态 key，只用于记账"),
+        from: z.string().optional().describe("现在的状态 key；读不到线上状态时撤销转回它"),
+      },
       level: "reversible",
       audit: "meegle_transition",
       async run(args) {
         const space = String(args.space);
         const id = String(args.id);
-        const from = (await meegleClient.getWorkItem(space, id))?.statusKey ?? "";
+        const live = (await meegleClient.getWorkItem(space, id).catch(() => undefined))?.statusKey;
+        const from = live || (typeof args.from === "string" ? args.from : "");
         await meegleClient.transitionState(space, id, String(args.transitionId));
         const to = typeof args.stateKey === "string" ? args.stateKey : undefined;
         return {
@@ -103,7 +111,7 @@ implementRole("workItems", "meegle", {
   released: (r) => meegleClient.feReleased(r.space, r.id),
   transitions: (r) => meegleClient.listTransitions(r.space, r.id),
   transitionFor: async (r) => (await meegleClient.listTransitions(r.space, r.id)).find((t) => t.stateKey === IN_PROGRESS),
-  transition: (r, to, caller) => call(caller, "transition", { space: r.space, id: r.id, transitionId: to.id, stateKey: to.stateKey }),
+  transition: (r, to, caller, from) => call(caller, "transition", { space: r.space, id: r.id, transitionId: to.id, stateKey: to.stateKey, ...(from ? { from } : {}) }),
   nodeReadiness: (r, nodeKey) => meegleClient.nodeReadiness(r.space, r.id, nodeKey),
   confirmNode: (r, nodeKey, caller) => call(caller, "confirm_node", { space: r.space, id: r.id, nodeKey }),
   rollbackNode: (r, nodeKey, caller) => call(caller, "rollback_node", { space: r.space, id: r.id, nodeKey }),
