@@ -33,6 +33,8 @@ export async function startTask(t: Task, trigger: RunTrigger = "retry"): Promise
     const card = fixCardOf(story);
     const unit = [story.status === "done" || story.status === "ignored" ? undefined : story, card].find((u): u is Task => Boolean(u && liveUnitSession(u.id)));
     const group = [t, ...siblingsOf(story, t)];
+    const preparing = [story, card].some((u) => u && getTermSession(u.id)?.status === "preparing");
+    if (!unit && preparing) return { error: "会话还在准备，等它准备好再开工", status: 409 };
     if (!unit) return startCard(card ?? createFixCard(story, group), group, trigger, t.id);
     const prev = t.source.handedAt ? openRunForTask(t.id) : undefined;
     const pending = t.source.handedAt && t.status === "review" ? pendingRunsForTask(t.id) : [];

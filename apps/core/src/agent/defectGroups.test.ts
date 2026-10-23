@@ -52,6 +52,18 @@ describe("defectRoute：往哪个会话交、还是等定点", () => {
     expect(defectRoute(bug("b1"), env({ fixCard: () => card }))).toMatchObject({ kind: "wait", batch: true, unit: { id: "card" } });
   });
 
+  it("你自己开的需求会话：只在需求测试中、Claude 在跑时才往里交；否则等你说开工，不进定点", () => {
+    const mine = (over: Partial<TermSession> = {}) => sess({ kind: "interactive", ...over });
+    expect(defectRoute(bug("b1"), env({ story: () => story({ stage: "testing" }), session: () => mine() }))).toMatchObject({ kind: "hand" });
+    for (const [st, s] of [["dev", mine()], ["testing", mine({ status: "exited" })]] as const) {
+      expect(defectRoute(bug("b1"), env({ story: () => story({ stage: st }), session: () => s }))).toMatchObject({ kind: "wait", batch: false, why: expect.stringContaining("开工") });
+    }
+  });
+
+  it("需求会话还在准备（没 worktree）：等它准备好，不建修复卡", () => {
+    expect(defectRoute(bug("b1"), env({ session: () => sess({ status: "preparing", worktree: undefined }) }))).toMatchObject({ kind: "wait", batch: false, why: "等会话准备好" });
+  });
+
   it("已经在测试中 / 开过工 / 先别做的不排", () => {
     expect(defectRoute(bug("b1", { stage: "testing" }), env())).toBe("已经在测试中");
     expect(defectRoute(bug("b1", {}, { handedAt: at }), env())).toBe("已经开过工");
@@ -108,6 +120,15 @@ describe("修复卡先建好攒着", () => {
   });
 });
 
+describe("修复卡收尾", () => {
+  it("名下缺陷都走空了、还没开过工的修复卡自动收掉", () => {
+    const s = createTask({ title: "空卡需求", kind: "meegle", status: "done", source: { meegleType: "story", meegleId: "6601" } });
+    const card = createTask({ title: "空卡需求 · 修复", kind: "code", status: "understood", source: { fixFor: s.id } });
+    ensureFixCards();
+    expect(getTask(card.id)!.status).toBe("ignored");
+  });
+});
+
 describe("每天定点", () => {
   beforeEach(() => {
     updateSettings({ autonomous: true, defectBatchAt: "10:00" });
@@ -120,6 +141,21 @@ describe("每天定点", () => {
     expect(getCursor("defects:batch:day")).toBe("");
     await defectBatchTick(Date.parse("2026-10-23T02:01:00Z"));
     expect(getCursor("defects:batch:day")).toBe("2026-10-23");
+  });
+
+  it("修复卡没项目：开工时从这组缺陷补上", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "friday-fix-"));
+    execFileSync("git", ["-C", repo, "init", "-q", "-b", "main"]);
+    writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## whale-console\n- 目录：${repo}\n`);
+    setClaudeFinder(async () => "/bin/claude");
+    setTmuxRunner(async (args) => (args[0] === "-V" ? "tmux 3.5a" : args.includes("has-session") ? Promise.reject(new Error("no")) : ""));
+    const s = createTask({ title: "无项目需求", kind: "meegle", status: "done", source: { meegleType: "story", meegleId: "6602" } });
+    const card = createTask({ title: "无项目需求 · 修复", kind: "code", status: "understood", source: { fixFor: s.id } });
+    const d = createTask({ title: "有项目的缺陷", kind: "meegle", status: "understood", project: "whale-console", source: { meegleType: "issue", rootId: card.id } });
+    const { startFixCard } = await import("./pipeline.js");
+    await startFixCard(card, [d], "retry");
+    expect(getTask(card.id)!.project).toBe("whale-console");
+    expect(getTask(card.id)!.status).toBe("processing");
   });
 
   it("到点：需求收工了的缺陷开一张修复卡、记成交给修复卡", async () => {

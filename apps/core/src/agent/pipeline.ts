@@ -621,9 +621,12 @@ export function fixCardDetail(card: Task, defects: Task[]): string {
 
 /** 开修复卡（或修复卡会话没了重开）：卡由 Friday 驾驶，名下这组缺陷记成交代进它的会话 */
 export async function startFixCard(card: Task, defects: Task[], trigger: RunTrigger): Promise<Task> {
-  if (!card.project) throw new Error("修复卡没有项目，先定项目");
-  const r = resolveProject(card.project);
-  if (r.kind !== "match") throw new Error(`找不到项目 ${card.project}`);
+  // 建卡时容器需求常常没项目，缺陷后来才补上：开工时从这组里取
+  const project = card.project ?? defects.find((d) => d.project)?.project;
+  if (!project) throw new Error("修复卡和这组缺陷都没有项目，先定项目");
+  if (!card.project) card = updateTask(card.id, { project })!;
+  const r = resolveProject(project);
+  if (r.kind !== "match") throw new Error(`找不到项目 ${project}`);
   const next = await startAutonomousJob(card, r.project.name, r.project.dir, fixCardDetail(card, defects), trigger);
   if (next.status !== "processing" || !next.source.jobId) return next;
   const at = new Date().toISOString();

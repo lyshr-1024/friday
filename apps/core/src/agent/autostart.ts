@@ -36,7 +36,7 @@ export interface StoryEnv {
   story: (t: Task) => Task | undefined;
   /** 这张需求还没收工的修复卡 */
   fixCard: (story: Task) => Task | undefined;
-  /** 能往里交代的会话：没关、有 worktree */
+  /** 还没关的会话（可能还在准备、没 worktree） */
   session: (id: string) => TermSession | undefined;
   /** 这个会话里还有一组缺陷没修完 */
   occupied: (unitId: string) => boolean;
@@ -46,9 +46,9 @@ export interface StoryEnv {
 
 const isOpenTask = (t: Task | undefined): t is Task => Boolean(t && OPEN_STATUS.has(t.status));
 
-const liveSession = (id: string): TermSession | undefined => {
+const openSessionOf = (id: string): TermSession | undefined => {
   const s = getTermSession(id);
-  return s && s.status !== "closed" && s.worktree ? s : undefined;
+  return s && s.status !== "closed" ? s : undefined;
 };
 
 const defaultSession = (t: Task): TermSession | undefined => getTermSession(resolveRoot(t).id);
@@ -56,7 +56,7 @@ const defaultSession = (t: Task): TermSession | undefined => getTermSession(reso
 const defaultStoryEnv = (): StoryEnv => ({
   story: storyOf,
   fixCard: fixCardOf,
-  session: liveSession,
+  session: openSessionOf,
   occupied: (id) => listTasks("processing").some((x) => x.source.rootId === id && x.source.handedAt),
   batchAt: userSettings().defectBatchAt,
 });
@@ -76,8 +76,15 @@ export function defectRoute(t: Task, env: StoryEnv = defaultStoryEnv()): DefectR
   if (t.attention) return "卡上还挂着要你回答的问题";
   if (t.source.autostartOff) return "你说了先别做";
   const card = env.fixCard(story);
-  const unit = [isOpenTask(story) ? story : undefined, card].find((u): u is Task => Boolean(u && env.session(u.id)));
-  if (unit) return env.occupied(unit.id) ? { kind: "wait", unit, why: "等前一组修完", batch: false } : { kind: "hand", unit };
+  for (const unit of [isOpenTask(story) ? story : undefined, card]) {
+    const s = unit && env.session(unit.id);
+    if (!unit || !s) continue;
+    // 准备段还没建好 worktree：等它，别另开修复卡（建了就成了孤儿）
+    if (!s.worktree || s.status === "preparing") return { kind: "wait", unit, why: "等会话准备好", batch: false };
+    // 你自己开的会话：只沿用原来「测试中、Claude 在跑」才敲字；别的时候往里敲回车会把你输入框里的半句话一起发出去
+    if (s.kind === "interactive" && (unit.stage !== "testing" || s.status !== "running")) return { kind: "wait", unit, why: `会话是你开的，Friday 不往里敲；说「#${t.seq} 开工」交进去`, batch: false };
+    return env.occupied(unit.id) ? { kind: "wait", unit, why: "等前一组修完", batch: false } : { kind: "hand", unit };
+  }
   return { kind: "wait", unit: card ?? story, why: `每天 ${env.batchAt} 跟同需求的缺陷一起修`, batch: true };
 }
 
@@ -174,12 +181,20 @@ export function runningAutonomous(): number {
 export function ensureFixCards(): number {
   let n = 0;
   for (const g of pickBatchGroups([...listTasks("understood"), ...listTasks("collected")])) {
-    const card = g.card ?? createFixCard(g.story, g.defects);
+    // 分组是循环前算的，这期间别处可能已经给这个需求建了卡
+    const card = g.card ?? fixCardOf(g.story) ?? createFixCard(g.story, g.defects);
     for (const d of g.defects) {
       if (d.source.rootId === card.id) continue;
       updateTask(d.id, { source: { rootId: card.id } });
       n++;
     }
+  }
+  // 名下缺陷都走空了（交进了需求会话、被收掉）、自己又没开过工的修复卡：收掉，不留空卡
+  const open = [...OPEN_STATUS];
+  for (const card of listTasks(["understood", "collected"], 2000).filter((x) => x.source.fixFor && !x.source.jobId)) {
+    if (listTasks(open, 2000).some((d) => d.source.rootId === card.id)) continue;
+    updateTask(card.id, { status: "ignored", progress: "名下没有要修的缺陷了" });
+    record({ taskId: card.id, action: "fix_card_dropped", why: "修复卡名下没有要修的缺陷了", how: "收掉空的修复卡", evidence: { storyId: card.source.fixFor }, risk: "reversible" });
   }
   return n;
 }
@@ -243,20 +258,21 @@ export async function defectBatchTick(now = Date.now()): Promise<number> {
   if (!s.autonomous) return 0;
   const { day, hm } = shanghai(now);
   if (hm < s.defectBatchAt || getCursor(BATCH_KEY) === day) return 0;
-  setCursor(BATCH_KEY, day);
   let started = 0;
   for (const g of pickBatchGroups([...listTasks("understood"), ...listTasks("collected")])) {
     try {
-      await startFixCard(g.card ?? createFixCard(g.story, g.defects), g.defects, "autostart");
+      await startFixCard(g.card ?? fixCardOf(g.story) ?? createFixCard(g.story, g.defects), g.defects, "autostart");
       started += g.defects.length;
     } catch (e) {
+      // tmux 没装：今天这批一条都开不了，不记「跑过」，装好后下一轮同步还能补上
       if (e instanceof TmuxMissingError) {
         console.warn(`[defects] ${e.message}，本轮不再尝试`);
-        break;
+        return started;
       }
       console.warn(`[defects] ${g.story.title.slice(0, 40)}：开修复卡出错：${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  setCursor(BATCH_KEY, day);
   return started;
 }
 
