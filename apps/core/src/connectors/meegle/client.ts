@@ -134,7 +134,7 @@ export function pickDocs(fields: Array<{ key: string; name?: string; value: unkn
   for (const [key, name] of DOC_FIELDS) {
     const hit = fields.find((f) => f.key === key) ?? fields.find((f) => f.name && name.test(f.name));
     const url = typeof hit?.value === "string" ? hit.value.trim() : "";
-    if (url) out.push({ url, from: "meegle" });
+    if (url) out.push({ url, from: "sync" });
   }
   return out;
 }

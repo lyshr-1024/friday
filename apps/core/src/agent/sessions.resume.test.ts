@@ -17,7 +17,7 @@ import { closeRunForTask, fillRunCost } from "./runLog.js";
 import { createRun } from "../memory/runs.js";
 import { openSession, resumeInSession, setLauncher, worktreeReady } from "./sessions.js";
 import { handToStorySession, rejectTask, reopenTask, startAutonomousJob } from "./pipeline.js";
-import { syncMeegleOnce } from "./meegle.js";
+import { syncWorkItemsOnce } from "./workItems.js";
 import * as meegleRules from "../connectors/meegle/rules.js";
 import { state } from "../scheduler/index.js";
 import { startTask } from "./taskStart.js";
@@ -488,7 +488,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     const bug = mk();
     expect(await handToStorySession(bug, root)).toBe("handed");
     updateTask(bug.id, { status: "done", stage: "testing", source: { jobId: "old-job" } });
-    await syncMeegleOnce(reopened(bug.source.meegleId!));
+    await syncWorkItemsOnce(reopened(bug.source.meegleId!));
     const after = getTask(bug.id)!;
     expect(after).toMatchObject({ status: "understood", stage: "todo" });
     expect(after.source.handedAt).toBeUndefined();
@@ -511,7 +511,7 @@ describe("交给需求会话修过的缺陷被重开", () => {
     expect(await handToStorySession(bug, root)).toBe("handed");
     updateTask(bug.id, { status: "done" });
     updateTask(root.id, { stage: "released" });
-    await syncMeegleOnce(reopened(bug.source.meegleId!));
+    await syncWorkItemsOnce(reopened(bug.source.meegleId!));
     const after = getTask(bug.id)!;
     expect(after).toMatchObject({ status: "understood", stage: "dev" });
     expect(after.source.handedAt).toBeUndefined();
@@ -668,11 +668,11 @@ describe("重开 / 重交时上一轮的记账（fix round 1）", () => {
   it("旧版留下的 -p 还在跑：Meegle Reopen 这一轮跳过，退出后下一轮再处理", async () => {
     const { bug, jobId } = await headless("sbmreopenrun");
     updateTask(bug.id, { status: "done", stage: "testing" });
-    expect((await syncMeegleOnce(reopened(bug.source.meegleId!))).reopened).toBe(0);
+    expect((await syncWorkItemsOnce(reopened(bug.source.meegleId!))).reopened).toBe(0);
     expect(getTask(bug.id)).toMatchObject({ status: "done", stage: "testing", source: { jobId } });
     expect(getTask(bug.id)!.source.handBackNote).toBeUndefined();
     finishJob(jobId, 0);
-    expect((await syncMeegleOnce(reopened(bug.source.meegleId!))).reopened).toBe(1);
+    expect((await syncWorkItemsOnce(reopened(bug.source.meegleId!))).reopened).toBe(1);
     expect(getTask(bug.id)).toMatchObject({ status: "understood", stage: "todo" });
     expect(getTask(bug.id)!.source.jobId).toBeUndefined();
     updateTask(bug.id, { status: "ignored" });

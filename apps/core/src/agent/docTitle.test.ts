@@ -25,7 +25,7 @@ describe("资料链接", () => {
     expect(larkTitle("<title>  </title>")).toBeUndefined();
   });
   it("旧的四槽 docs 迁成数组", () => {
-    expect(migrateDocs({ req: "https://a/1", design: "https://b/2" })).toEqual([{ url: "https://a/1", from: "meegle" }, { url: "https://b/2", from: "meegle" }]);
+    expect(migrateDocs({ req: "https://a/1", design: "https://b/2" })).toEqual([{ url: "https://a/1", from: "sync" }, { url: "https://b/2", from: "sync" }]);
     expect(migrateDocs({ meegle: "https://c/3" })).toEqual([{ url: "https://c/3", from: "user" }]);
     expect(migrateDocs([{ url: "https://d/4", from: "user" }])).toEqual([{ url: "https://d/4", from: "user" }]);
   });

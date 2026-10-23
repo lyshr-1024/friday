@@ -30,7 +30,7 @@ export function migrateDocs(raw: unknown): TaskDoc[] {
   if (!raw || typeof raw !== "object") return [];
   return Object.entries(raw as Record<string, unknown>)
     .filter(([, v]) => typeof v === "string" && v.trim())
-    .map(([k, v]) => ({ url: (v as string).trim(), from: k === "meegle" ? ("user" as const) : ("meegle" as const) }));
+    .map(([k, v]) => ({ url: (v as string).trim(), from: k === "meegle" ? ("user" as const) : ("sync" as const) }));
 }
 
 function foldDocs(a: TaskDoc[], b: TaskDoc[]): TaskDoc[] {

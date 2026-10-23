@@ -85,12 +85,12 @@ describe("需求的节点与资料链接", () => {
         { key: "field_8190c7", name: "Technical doc URL", value: "https://a/tech" },
         { key: "priority", name: "Priority", value: { label: "P0" } },
       ]),
-    ).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }]);
+    ).toEqual([{ url: "https://a/req", from: "sync" }, { url: "https://a/tech", from: "sync" }]);
     expect(pickDocs([])).toEqual([]);
   });
 
   it("字段 key 换了就按字段名兜底", () => {
-    expect(pickDocs([{ key: "field_xxxxxx", name: "Design URL", value: "https://a/ui" }])).toEqual([{ url: "https://a/ui", from: "meegle" }]);
+    expect(pickDocs([{ key: "field_xxxxxx", name: "Design URL", value: "https://a/ui" }])).toEqual([{ url: "https://a/ui", from: "sync" }]);
   });
 
   it("空串和非字符串当没填", () => {

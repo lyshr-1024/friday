@@ -2,7 +2,8 @@ import { userSettings } from "../settings.js";
 import { getTool } from "./registry.js";
 import type { Chunk } from "./web/index.js";
 import type { LarkDoc } from "./lark/index.js";
-import type { InboxItem, InboxKind, PriorLine, StateTransition } from "@friday/shared";
+import type { ExternalRef, InboxItem, InboxKind, PriorLine, StateTransition } from "@friday/shared";
+import type { Undo } from "../memory/audit.js";
 import type { NewInboxItem } from "../memory/inbox.js";
 import type { MeegleWorkItem } from "./meegle/client.js";
 import type { Caller } from "./invoke.js";
@@ -18,27 +19,37 @@ export interface DocsRole {
 
 export interface WebRole { readChunk(url: string, offset?: number): Promise<Chunk> }
 
-export interface WorkItemRef { space: string; id: string }
 export type WorkItemState = "open" | "in_progress" | "testing" | "done" | "reopened";
 export type WorkItemKind = "story" | "defect" | "other";
 /** 同步链路的一条工单：原 MeegleWorkItem 的全部字段 + 归一化的 kind / state */
 export type WorkItem = MeegleWorkItem & { kind: WorkItemKind; state: WorkItemState };
+/** 撤销说明里工具自己的那几种，只有工具解释 */
+export type WorkItemUndo = Extract<Undo, { kind: "meegle_state" | "meegle_node" }>;
 
+/** ext 一律是卡上的 external：attrs 里空间、节点这些只有工具自己认，业务侧原样递过来 */
 export interface WorkItemsRole {
   listMine(): Promise<WorkItem[]>;
-  fetchOne(ref: WorkItemRef): Promise<WorkItem>;
-  get(ref: WorkItemRef): Promise<{ name: string; typeKey?: string; stateKey: string; stateLabel: string; state: WorkItemState } | undefined>;
-  released(ref: WorkItemRef): Promise<boolean>;
-  transitions(ref: WorkItemRef): Promise<StateTransition[]>;
+  fetchOne(ext: ExternalRef): Promise<WorkItem>;
+  get(ext: ExternalRef): Promise<{ name: string; typeKey?: string; stateKey: string; stateLabel: string; state: WorkItemState } | undefined>;
+  released(ext: ExternalRef): Promise<boolean>;
+  transitions(ext: ExternalRef): Promise<StateTransition[]>;
   /** 按意图找流转：in_progress = 「开始处理」那条；没有就 undefined */
-  transitionFor(ref: WorkItemRef, intent: "in_progress"): Promise<StateTransition | undefined>;
+  transitionFor(ext: ExternalRef, intent: "in_progress"): Promise<StateTransition | undefined>;
   /** from：调用方记得的当前状态，线上读不到时撤销转回它 */
-  transition(ref: WorkItemRef, to: StateTransition, caller: Caller, from?: string): Promise<void>;
-  nodeReadiness(ref: WorkItemRef, nodeKey: string): Promise<{ missing: string[] }>;
-  confirmNode(ref: WorkItemRef, nodeKey: string, caller: Caller): Promise<void>;
-  rollbackNode(ref: WorkItemRef, nodeKey: string, caller: Caller): Promise<void>;
-  undoTransition(ref: WorkItemRef, backTo: string, caller: Caller): Promise<boolean>;
-  parseRef(input: string): WorkItemRef | undefined;
+  transition(ext: ExternalRef, to: StateTransition, caller: Caller, from?: string): Promise<void>;
+  nodeReadiness(ext: ExternalRef): Promise<{ missing: string[] }>;
+  confirmNode(ext: ExternalRef, caller: Caller): Promise<void>;
+  /** 执行工具自己记的撤销说明；工单不让转回去时 false */
+  undo(plan: WorkItemUndo, caller: Caller): Promise<boolean>;
+  /** 同步链路的一条工单在卡上的引用 */
+  external(item: MeegleWorkItem): ExternalRef;
+  /** 所属需求的引用（跟着缺陷的空间走）；没挂需求或查不了时 undefined */
+  parentRef(ext: ExternalRef): ExternalRef | undefined;
+  /** 凭这个引用能不能去工具里查（老卡可能没记空间） */
+  addressable(ext: ExternalRef): boolean;
+  /** 当前节点：流转要 key，展示只要名字；都没记时 undefined */
+  node(ext: ExternalRef): { key?: string; name?: string } | undefined;
+  parseRef(input: string): ExternalRef | undefined;
   idFromUrl(url: string): string | undefined;
   idsIn(text: string): string[];
   stateOf(stateKey: string, stateLabel?: string): WorkItemState;
@@ -72,6 +83,15 @@ const impls = new Map<RoleName, { tool: string; impl: RoleImpl[RoleName] }>();
 
 export function implementRole<R extends RoleName>(name: R, tool: string, impl: RoleImpl[R]): void {
   impls.set(name, { tool, impl });
+}
+
+/**
+ * 按引用自己的工具找解释方：attrs 只有登记它的那个工具认得，跟设置里选的是谁、开没开无关。
+ * 给只读的展示用（节点名这类），工具没装就 undefined
+ */
+export function workItemsFor(ext: ExternalRef): WorkItemsRole | undefined {
+  const hit = impls.get("workItems");
+  return hit && hit.tool === ext.tool ? (hit.impl as WorkItemsRole) : undefined;
 }
 
 export function role<R extends RoleName>(name: R): RoleImpl[R] {

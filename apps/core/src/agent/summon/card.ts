@@ -1,4 +1,5 @@
-import type { PendingActionType, Snapshot, SummonAction, SummonCard, SummonRules } from "@friday/shared";
+import { workItemOf, type PendingActionType, type Snapshot, type SummonAction, type SummonCard, type SummonRules } from "@friday/shared";
+import { workItemsFor } from "../../connectors/roles.js";
 import { askStream } from "../claude.js";
 import { untrusted, UNTRUSTED_NOTE } from "../fence.js";
 import { config } from "../../config.js";
@@ -88,14 +89,15 @@ export function cardPrompt(input: CardInput): { system: string; prompt: string }
       const pending = t.pending?.map((p) => `待审动作 ${p.id}：${p.label}`).join("；") ?? "";
       // 排期和工单号躺在 source 里，原来一个都没给模型——于是产品在 Slack 里催排期时，
       // 就算挂对了任务也只能含糊其辞。这几项正是「什么时候能好」的答案。
-      const s = t.source ?? {};
+      const w = workItemOf(t.source ?? {});
+      const node = w && workItemsFor(w)?.node(w)?.name;
       const facts = [
-        s.meegleId ? `Meegle #${s.meegleId}` : "",
-        s.nodeName ? `当前节点「${s.nodeName}」` : "",
-        s.feDue ? `前端排期到 ${s.feDue}` : "",
-        s.beDue ? `服务端排期到 ${s.beDue}` : "",
+        w ? `Meegle #${w.id}` : "",
+        node ? `当前节点「${node}」` : "",
+        w?.schedule?.frontend ? `前端排期到 ${w.schedule.frontend}` : "",
+        w?.schedule?.backend ? `服务端排期到 ${w.schedule.backend}` : "",
         t.due ? `截止 ${t.due.slice(0, 10)}` : "",
-        s.linkedStoryName ? `属于需求「${s.linkedStoryName}」${s.linkedStoryId ? `#${s.linkedStoryId}` : ""}` : "",
+        w?.parent?.name ? `属于需求「${w.parent.name}」#${w.parent.id}` : "",
       ]
         .filter(Boolean)
         .join("，");

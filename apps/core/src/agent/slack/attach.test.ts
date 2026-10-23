@@ -9,20 +9,20 @@ const item = (text: string, over: Partial<InboxItem> = {}): InboxItem => ({
 });
 
 const task = (id: string, over: Partial<Task> = {}): Task => ({
-  id, seq: 1, title: `任务 ${id}`, kind: "meegle", source: {}, status: "understood",
+  id, seq: 1, title: `任务 ${id}`, kind: "work_item", source: {}, status: "understood",
   priority: "normal", createdAt: "2026-09-20T00:00:00Z", updatedAt: "2026-09-20T00:00:00Z", ...over,
 });
 
 describe("hardSignal", () => {
   it("消息里贴了工单链接就挂到那条工单的任务上", () => {
-    const tasks = [task("t1", { source: { meegleId: "24440539" } }), task("t2")];
+    const tasks = [task("t1", { source: { external: { tool: "meegle", type: "work_item", id: "24440539" } } }), task("t2")];
     const hit = hardSignal(item("这个问题看下 https://project.larksuite.com/projectlb/story/detail/24440539"), tasks, () => [], () => []);
     expect(hit?.taskId).toBe("t1");
     expect(hit?.why).toContain("24440539");
   });
 
   it("裸工单号也算", () => {
-    const tasks = [task("t1", { source: { meegleId: "24440539" } })];
+    const tasks = [task("t1", { source: { external: { tool: "meegle", type: "work_item", id: "24440539" } } })];
     expect(hardSignal(item("24440539 这条改完了吗"), tasks, () => [], () => [])?.taskId).toBe("t1");
   });
 
@@ -39,7 +39,7 @@ describe("hardSignal", () => {
   });
 
   it("工单优先于近期", () => {
-    const tasks = [task("t1", { source: { meegleId: "24440539" } }), task("t5")];
+    const tasks = [task("t1", { source: { external: { tool: "meegle", type: "work_item", id: "24440539" } } }), task("t5")];
     const hit = hardSignal(item("24440539 改完了"), tasks, () => [{ taskId: "t5", userName: "拂晓", hoursAgo: 1 }], () => []);
     expect(hit?.taskId).toBe("t1");
   });

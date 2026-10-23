@@ -20,7 +20,7 @@ import { jobStateLabel } from "./sessionState.js";
 import { clearAttention } from "./bridge.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { rebuildBrief as rebuildBriefJob } from "./briefJob.js";
-import { addMeegleByRef, meegleState, syncMeegleOnce } from "./meegle.js";
+import { addWorkItemByRef, workItemSyncState, syncWorkItemsOnce } from "./workItems.js";
 import { state as slackState, syncSlackOnce } from "../scheduler/index.js";
 import { formatActivity, jobActivity } from "./transcript.js";
 import { createTask, findTaskByRef, findTaskBySource, getTask, listOpenBoardTasks, listTasks, taskTag } from "../memory/tasks.js";
@@ -409,8 +409,8 @@ export const fridayToolList = (conversationId?: string) => [
       "立刻同步一次 Meegle 分派给用户的工单到任务板（新工单建待办、已有的更新、不再分派的自动完成）。用户说“刷一下 Meegle”“拉一下工单”“看看有没有新需求”时用。平时每 15 分钟自动同步一次。",
       {},
       async () => {
-        const r = await syncMeegleOnce();
-        return text(meegleState.lastError ? `同步出错：${meegleState.lastError}` : `同步完成：新增 ${r.added} 条${r.reopened ? `，Reopen 拉回 ${r.reopened} 条` : ""}，自动完成 ${r.closed} 条${meegleState.lastSyncAt ? `（${meegleState.lastSyncAt.slice(11, 16)}）` : ""}。`);
+        const r = await syncWorkItemsOnce();
+        return text(workItemSyncState.lastError ? `同步出错：${workItemSyncState.lastError}` : `同步完成：新增 ${r.added} 条${r.reopened ? `，Reopen 拉回 ${r.reopened} 条` : ""}，自动完成 ${r.closed} 条${workItemSyncState.lastSyncAt ? `（${workItemSyncState.lastSyncAt.slice(11, 16)}）` : ""}。`);
       },
     ),
     tool(
@@ -419,7 +419,7 @@ export const fridayToolList = (conversationId?: string) => [
       { link: z.string().min(1).max(500).describe("Meegle 工单链接，形如 https://project.larksuite.com/projectlb/story/detail/24487610") },
       async ({ link }) => {
         if (!decide("reversible").allowed) return text("操作被拒绝");
-        const r = await addMeegleByRef(link).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+        const r = await addWorkItemByRef(link).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
         if ("error" in r) return text(`加不进来：${r.error}`);
         const { task, existed } = r;
         if (existed) return text(`这条已经在任务板上了：${task.title}（${task.status}）。`);

@@ -1,11 +1,11 @@
-import { syncMeegleOnce as syncOnce } from "./meegle.js";
+import { syncWorkItemsOnce as syncOnce } from "./workItems.js";
 import { createTask as mkTask, findTaskBySource, getTask as readTask, updateTask as setTask } from "../memory/tasks.js";
 import { state as schedState } from "../scheduler/index.js";
 import { createJob, getJob } from "../memory/jobs.js";
 import { createRun, runByJob, setRunOutcome } from "../memory/runs.js";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { listAudit } from "../memory/audit.js";
-import { TASK_CATEGORY_LABEL, taskCategory, type Task } from "@friday/shared";
+import { TASK_CATEGORY_LABEL, taskCategory, workItemOf, type ExternalRef, type Task } from "@friday/shared";
 import { extractLinks, toWorkItem } from "../connectors/meegle/client.js";
 import type { MeegleWorkItem } from "../connectors/meegle/client.js";
 import * as rules from "../connectors/meegle/rules.js";
@@ -13,7 +13,7 @@ import { parseMeegleRef } from "../connectors/meegle/rules.js";
 import { seedBuiltins } from "../connectors/builtin.js";
 import { matchProjectByUrl } from "../memory/projects.js";
 import { updateSettings } from "../settings.js";
-import { addMeegleByRef, applyTransition, intakeWorkItem, matchProject, priorityOf, workItemToTask } from "./meegle.js";
+import { addWorkItemByRef, applyTransition, intakeWorkItem, matchProject, priorityOf, workItemToTask } from "./workItems.js";
 
 const client = vi.hoisted(() => ({
   transitionState: async (..._a: string[]) => {},
@@ -34,6 +34,16 @@ const fakeRole = (over: Record<string, unknown>) => ({ ...rules, ...over }) as n
 /** 同步链路给出的工单带归一化的 kind / state */
 const wi = <T extends { typeKey: string; status: string; statusKey?: string }>(x: T) => ({ ...x, kind: rules.kindOf(x.typeKey), state: rules.stateOf(x.statusKey ?? "", x.status) });
 const got = (stateKey: string, stateLabel: string, name = "缺陷") => ({ name, stateKey, stateLabel, state: rules.stateOf(stateKey, stateLabel) });
+/** 卡上的工单引用；space 是 Meegle 空间，只有工具自己解释（attrs） */
+const ref = (id: string, o: { space?: string; kind?: ExternalRef["kind"]; state?: string; parent?: string; parentName?: string } = {}): ExternalRef => ({
+  tool: "meegle",
+  type: "work_item",
+  id,
+  ...(o.kind ? { kind: o.kind } : {}),
+  ...(o.state ? { state: { key: o.state } } : {}),
+  ...(o.parent ? { parent: { id: o.parent, ...(o.parentName ? { name: o.parentName } : {}) } } : {}),
+  ...(o.space ? { attrs: { space: o.space } } : {}),
+});
 
 const projects = [
   { name: "whale-console", dir: "/x/whale-console", aliases: ["鲸鱼后台", "wbo"], channels: [], urls: ["console.longbridge.xyz/wbo"], envs: [], protected: [], extra: {} },
@@ -114,7 +124,7 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
   const fake = (items: ReturnType<typeof item>[]) => fakeRole({ listMine: async () => items.map(wi) });
 
   it("Friday 里已完成、Meegle 里 Reopened 且又在分派列表 → 回到待办、记账、通知", async () => {
-    const t = mkTask({ title: "缺陷 r1", kind: "meegle", source: { meegleId: "r1", url: "https://x/r1" }, status: "done" });
+    const t = mkTask({ title: "缺陷 r1", kind: "work_item", source: { external: ref("r1"), url: "https://x/r1" }, status: "done" });
     const r = await syncOnce(fake([item("r1", "Reopened")]));
     expect(r.reopened).toBe(1);
     expect(readTask(t.id)!.status).toBe("understood");
@@ -122,7 +132,7 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
   });
 
   it("收工时认不出合没合的交付，工单被 Reopen 也算负信号", async () => {
-    const t = mkTask({ title: "缺陷 r9", kind: "meegle", source: { meegleId: "r9", url: "https://x/r9" }, status: "done" });
+    const t = mkTask({ title: "缺陷 r9", kind: "work_item", source: { external: ref("r9"), url: "https://x/r9" }, status: "done" });
     createRun({ id: "run-r9", jobId: "run-r9", taskId: t.id, project: "demo", kind: "autonomous", trigger: "retry" });
     setRunOutcome("run-r9", "closed_unverified", "你标完成");
     await syncOnce(fake([item("r9", "Reopened")]));
@@ -130,7 +140,7 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
   });
 
   it("Friday 里主动标完成、Meegle 状态不是 Reopen → 不动，免得每 15 分钟翻回来", async () => {
-    const t = mkTask({ title: "缺陷 r2", kind: "meegle", source: { meegleId: "r2", url: "https://x/r2" }, status: "done" });
+    const t = mkTask({ title: "缺陷 r2", kind: "work_item", source: { external: ref("r2"), url: "https://x/r2" }, status: "done" });
     setTask(t.id, { status: "done" });
     const r = await syncOnce(fake([item("r2", "In Progress")]));
     expect(r.reopened).toBe(0);
@@ -140,18 +150,19 @@ describe("Meegle 同步：Reopen 的工单拉回待办", () => {
 
 describe("需求与缺陷分组", () => {
   it("story 归需求，issue 归缺陷，自定义类型和没有类型的归其他", () => {
-    expect(taskCategory({ meegleType: "story" })).toBe("story");
-    expect(taskCategory({ meegleType: "issue" })).toBe("defect");
-    expect(taskCategory({ meegleType: "6a0d931f3129fdef6aba3188" })).toBe("other");
+    const of = (typeKey: string) => ({ external: ref("1", { kind: rules.kindOf(typeKey) }) });
+    expect(taskCategory(of("story"))).toBe("story");
+    expect(taskCategory(of("issue"))).toBe("defect");
+    expect(taskCategory(of("6a0d931f3129fdef6aba3188"))).toBe("other");
     expect(taskCategory({})).toBe("other");
-    expect(TASK_CATEGORY_LABEL[taskCategory({ meegleType: "story" })]).toBe("需求");
+    expect(TASK_CATEGORY_LABEL[taskCategory(of("story"))]).toBe("需求");
   });
 
   it("Slack 线程单独一类，看 threadId 认，它没有 meegleType", () => {
     expect(taskCategory({ threadId: "th-1" })).toBe("slack");
     expect(TASK_CATEGORY_LABEL[taskCategory({ threadId: "th-1" })]).toBe("Slack");
     // Meegle 工单不会有 threadId，不受影响
-    expect(taskCategory({ meegleType: "issue" })).toBe("defect");
+    expect(taskCategory({ external: ref("1", { kind: "defect" }) })).toBe("defect");
   });
 });
 
@@ -195,11 +206,27 @@ describe("排期与标签进任务", () => {
   it("workItemToTask 把它们写进 source，排期没了要能清空", () => {
     const base = { id: "1", name: "后台优化", typeName: "Requirement", typeKey: "story", status: "Open", statusKey: "s", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z" };
     const t = workItemToTask({ ...base, tags: ["Backend Iteration"], feDue: "2026-09-15" }, []);
-    expect(t.source).toMatchObject({ meegleType: "story", meegleTags: ["Backend Iteration"], feDue: "2026-09-15", beDue: undefined, meegleProject: "pk" });
+    expect(t.source.external).toMatchObject({ kind: "story", tags: ["Backend Iteration"], schedule: { frontend: "2026-09-15" }, attrs: { space: "pk" } });
+    expect(t.source.external?.schedule?.backend).toBeUndefined();
     expect(t.understanding).toContain("后台前端排期 2026-09-15");
 
     const cleared = workItemToTask(base, []);
-    expect(cleared.source).toMatchObject({ meegleType: "story", meegleTags: undefined, feDue: undefined, beDue: undefined });
+    expect(cleared.source.external).toMatchObject({ kind: "story" });
+    expect(cleared.source.external?.tags).toBeUndefined();
+    expect(cleared.source.external?.schedule).toBeUndefined();
+  });
+
+  it("同步时工单撤掉了排期和标签，卡上的也跟着清掉", async () => {
+    const t = mkTask({ title: "需求 sch1", kind: "work_item", source: { external: ref("sch1", { space: "p1", kind: "story" }) }, status: "understood" });
+    const item = (o: Record<string, unknown>) => wi({ id: "sch1", name: "需求 sch1", typeName: "Requirement", typeKey: "story", links: [], status: "Open", statusKey: "OPEN", projectName: "demo", projectKey: "p1", url: "https://x/sch1", createdAt: "2026-09-01T00:00:00Z", ...o });
+    const conn = (o: Record<string, unknown>) => fakeRole({ listMine: async () => [item(o)], get: async () => undefined, released: async () => false });
+    await syncOnce(conn({ feDue: "2026-09-15", tags: ["Backend Iteration"] }));
+    expect(readTask(t.id)!.source.external).toMatchObject({ schedule: { frontend: "2026-09-15" }, tags: ["Backend Iteration"] });
+    await syncOnce(conn({}));
+    const after = readTask(t.id)!;
+    expect(after.source.external?.schedule).toBeUndefined();
+    expect(after.source.external?.tags).toBeUndefined();
+    expect(after.source.external?.state?.key).toBe("OPEN");
   });
 
   it("只有服务端排期时理解里写服务端", () => {
@@ -242,10 +269,10 @@ describe("缺陷详情进任务", () => {
       { id: "1", name: "x", typeName: "Defect", typeKey: "issue", statusKey: "REOPENED", status: "Reopened", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", reporter: "木木", description: "**现象**:空" },
       [],
     );
-    expect(t.source.reporter).toBe("木木");
+    expect(t.source.external?.attrs?.reporter).toBe("木木");
     expect(t.source.description).toBe("**现象**:空");
-    expect(t.source.meegleProject).toBe("pk");
-    expect(t.source.statusKey).toBe("REOPENED");
+    expect(t.source.external?.attrs?.space).toBe("pk");
+    expect(t.source.external?.state?.key).toBe("REOPENED");
   });
 });
 
@@ -269,17 +296,17 @@ describe("需求的资料链接与当前节点", () => {
 
   it("带出资料链接与流转要用的 node_key", () => {
     const item = toWorkItem("h", todo, story([{ key: "field_8fe714", name: "Requirement doc URL", value: "https://a/req" }]));
-    expect(item.docs).toEqual([{ url: "https://a/req", from: "meegle" }]);
+    expect(item.docs).toEqual([{ url: "https://a/req", from: "sync" }]);
     expect(item.nodeKey).toBe("state_16");
   });
 
   it("三份资料都写进 source，没填的键不出现", () => {
     const t = workItemToTask(
-      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: [{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }] },
+      { id: "1", name: "x", typeName: "Requirement", typeKey: "story", statusKey: "s", status: "In Development", projectName: "p", projectKey: "pk", links: [], url: "u", createdAt: "2026-09-01T00:00:00Z", nodeKey: "state_16", docs: [{ url: "https://a/req", from: "sync" }, { url: "https://a/tech", from: "sync" }] },
       [],
     );
-    expect(t.source.docs).toEqual([{ url: "https://a/req", from: "meegle" }, { url: "https://a/tech", from: "meegle" }]);
-    expect(t.source.nodeKey).toBe("state_16");
+    expect(t.source.docs).toEqual([{ url: "https://a/req", from: "sync" }, { url: "https://a/tech", from: "sync" }]);
+    expect(t.source.external?.attrs?.nodeKey).toBe("state_16");
   });
 });
 
@@ -348,7 +375,7 @@ describe("新工单 Friday 判断不了归属时问一句", () => {
   };
 
   it("问的是 Friday 自己，不能标成终端在问——这条任务根本没有终端", async () => {
-    const t = mkTask({ title: item.name, kind: "meegle", source: { meegleId: item.id }, status: "understood" });
+    const t = mkTask({ title: item.name, kind: "work_item", source: { external: ref(item.id) }, status: "understood" });
     await intakeWorkItem(t, item, async () => ({ kind: "ask", question: "这条工单是财富后台还是新BO项目的？", why: "标题里两边都沾" }));
     const after = readTask(t.id)!;
     expect(after.attention).toBe("intake");
@@ -357,7 +384,7 @@ describe("新工单 Friday 判断不了归属时问一句", () => {
   });
 
   it("判成 start 也不自己开工，但把判断连同把握落在卡上——自主开工的门禁按它决定", async () => {
-    const t = mkTask({ title: item.name, kind: "meegle", source: { meegleId: item.id }, status: "understood", project: "whale-console" });
+    const t = mkTask({ title: item.name, kind: "work_item", source: { external: ref(item.id) }, status: "understood", project: "whale-console" });
     await intakeWorkItem(t, item, async () => ({ kind: "start", project: "whale-console", detail: "无人脸照片时展示「暂无照片」", why: "现象和页面都写清了", confidence: 85 }));
     const after = readTask(t.id)!;
     expect(after.status).toBe("understood");
@@ -377,7 +404,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
     });
 
   it("节点流转走了但 FE 还没发布 → 留在池子里，不收", async () => {
-    const t = mkTask({ title: "需求 f1", kind: "meegle", source: { meegleId: "f1", meegleProject: "p1", meegleType: "story" }, status: "understood" });
+    const t = mkTask({ title: "需求 f1", kind: "work_item", source: { external: ref("f1", { space: "p1", kind: "story" }) }, status: "understood" });
     const r = await syncOnce(gone(false));
     expect(r.closed).toBe(0);
     expect(readTask(t.id)!.status).toBe("understood");
@@ -385,7 +412,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
 
   it("FE 发布走完 → 收掉，但终端留着：MR 合没合只有终端里的 Claude 知道，等它 friday_finish", async () => {
     createJob({ id: "job-f2", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
-    const t = mkTask({ title: "需求 f2", kind: "meegle", source: { meegleId: "f2", meegleProject: "p1", meegleType: "story", jobId: "job-f2" }, status: "understood" });
+    const t = mkTask({ title: "需求 f2", kind: "work_item", source: { external: ref("f2", { space: "p1", kind: "story" }), jobId: "job-f2" }, status: "understood" });
     // 同一个库里可能还有上一条用例留下的任务，只断言这一条
     await syncOnce(gone(true));
     expect(readTask(t.id)!.status).toBe("done");
@@ -393,8 +420,8 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
   });
 
   it("缺陷没有 FE 发布节点：Meegle 里已经 CLOSED 就收掉，否则它挂着的需求容器会一直被复活", async () => {
-    const story = mkTask({ title: "需求 s4", kind: "meegle", source: { meegleId: "s4", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
-    const bug = mkTask({ title: "缺陷 b4", kind: "meegle", source: { meegleId: "b4", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s4" }, status: "understood" });
+    const story = mkTask({ title: "需求 s4", kind: "work_item", source: { external: ref("s4", { space: "p1", kind: "story" }), container: true }, status: "done" });
+    const bug = mkTask({ title: "缺陷 b4", kind: "work_item", source: { external: ref("b4", { space: "p1", kind: "defect", parent: "s4" }) }, status: "understood" });
     const conn = fakeRole({
       listMine: async () => [],
       get: async () => got("CLOSED", "Closed"),
@@ -406,7 +433,7 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
   });
 
   it("没记项目 key 的老任务不去问 Meegle，也不收", async () => {
-    const t = mkTask({ title: "需求 f3", kind: "meegle", source: { meegleId: "f3" }, status: "understood" });
+    const t = mkTask({ title: "需求 f3", kind: "work_item", source: { external: ref("f3") }, status: "understood" });
     expect((await syncOnce(gone(true))).closed).toBe(0);
     expect(readTask(t.id)!.status).toBe("understood");
   });
@@ -418,39 +445,39 @@ describe("出池判据是「FE 发布」走完，不是「不在分派列表里�
   });
 
   it("缺陷挂的需求不在板上：不管我在需求里有没有角色，都拉进来当容器", async () => {
-    mkTask({ title: "缺陷 b8", kind: "meegle", source: { meegleId: "b8", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s8", linkedStoryName: "清结算需求" }, status: "understood" });
+    mkTask({ title: "缺陷 b8", kind: "work_item", source: { external: ref("b8", { space: "p1", kind: "defect", parent: "s8", parentName: "清结算需求" }) }, status: "understood" });
     const conn = fakeRole({
       listMine: async () => [],
       get: async (ref: { id: string }) => got("0PVM21sG5", "In Technical Solution Confirmation", ref.id === "s8" ? "清结算需求" : "缺陷"),
       released: async () => false,
     });
     await syncOnce(conn);
-    const story = findTaskBySource((s) => s.meegleId === "s8");
-    expect(story?.source.storyContainer).toBe(true);
+    const story = findTaskBySource((s) => workItemOf(s)?.id === "s8");
+    expect(story?.source.container).toBe(true);
     expect(story?.title).toBe("清结算需求");
     expect(story?.status).toBe("understood");
   });
 
   it("需求容器是你自己标完成的：当时还开着的缺陷不再把它拉回来", async () => {
-    const bug = mkTask({ title: "缺陷 b5", kind: "meegle", source: { meegleId: "b5", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s5" }, status: "understood" });
+    const bug = mkTask({ title: "缺陷 b5", kind: "work_item", source: { external: ref("b5", { space: "p1", kind: "defect", parent: "s5" }) }, status: "understood" });
     await new Promise((r) => setTimeout(r, 5));
-    const story = mkTask({ title: "需求 s5", kind: "meegle", source: { meegleId: "s5", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
+    const story = mkTask({ title: "需求 s5", kind: "work_item", source: { external: ref("s5", { space: "p1", kind: "story" }), container: true }, status: "done" });
     await syncOnce(testing);
     expect(readTask(story.id)!.status).toBe("done");
     expect(readTask(bug.id)!.status).toBe("understood");
   });
 
   it("你标完成之后又来了新缺陷 → 拉回来，否则新缺陷藏在已收工的需求下面没处看", async () => {
-    const story = mkTask({ title: "需求 s6", kind: "meegle", source: { meegleId: "s6", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "done" });
+    const story = mkTask({ title: "需求 s6", kind: "work_item", source: { external: ref("s6", { space: "p1", kind: "story" }), container: true }, status: "done" });
     await new Promise((r) => setTimeout(r, 5));
-    mkTask({ title: "缺陷 b6", kind: "meegle", source: { meegleId: "b6", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s6" }, status: "understood" });
+    mkTask({ title: "缺陷 b6", kind: "work_item", source: { external: ref("b6", { space: "p1", kind: "defect", parent: "s6" }) }, status: "understood" });
     await syncOnce(testing);
     expect(readTask(story.id)!.status).toBe("understood");
   });
 
   it("容器是同步自动收的（名下缺陷当时全完了），现在又有开着的缺陷 → 拉回来", async () => {
-    const bug = mkTask({ title: "缺陷 b7", kind: "meegle", source: { meegleId: "b7", meegleProject: "p1", meegleType: "issue", linkedStoryId: "s7" }, status: "done" });
-    const story = mkTask({ title: "需求 s7", kind: "meegle", source: { meegleId: "s7", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "understood" });
+    const bug = mkTask({ title: "缺陷 b7", kind: "work_item", source: { external: ref("b7", { space: "p1", kind: "defect", parent: "s7" }) }, status: "done" });
+    const story = mkTask({ title: "需求 s7", kind: "work_item", source: { external: ref("s7", { space: "p1", kind: "story" }), container: true }, status: "understood" });
     await syncOnce(testing);
     expect(readTask(story.id)!.status).toBe("done");
     // 缺陷被 Reopen：创建时间比容器收工早，只能靠「是自动收的」认出来
@@ -475,7 +502,7 @@ describe("贴链接手动加工单", () => {
     const conn = fakeRole({
       fetchOne: async () => wi({ id: "m1", name: "【SG Guoco开业】抽奖活动", typeName: "Requirement", typeKey: "story", links: [], status: "In Progress", statusKey: "IN_PROGRESS", projectName: "demo", projectKey: "projectlb", url: "https://x/m1", createdAt: "2026-09-11T02:15:32Z", priority: "P1" }),
     });
-    const r = await addMeegleByRef("https://project.larksuite.com/projectlb/story/detail/m1".replace("m1", "1"), conn);
+    const r = await addWorkItemByRef("https://project.larksuite.com/projectlb/story/detail/m1".replace("m1", "1"), conn);
     expect("error" in r).toBe(false);
     const { task, existed } = r as { task: Task; existed: boolean };
     expect(existed).toBe(false);
@@ -486,15 +513,15 @@ describe("贴链接手动加工单", () => {
   });
 
   it("已经在板上的不重复建", async () => {
-    const t = mkTask({ title: "旧的", kind: "meegle", source: { meegleId: "777" }, status: "understood" });
+    const t = mkTask({ title: "旧的", kind: "work_item", source: { external: ref("777") }, status: "understood" });
     const conn = fakeRole({ fetchOne: async () => { throw new Error("不该被调用"); } });
-    const r = await addMeegleByRef("https://project.larksuite.com/projectlb/story/detail/777", conn);
+    const r = await addWorkItemByRef("https://project.larksuite.com/projectlb/story/detail/777", conn);
     expect(r).toEqual({ task: expect.objectContaining({ id: t.id }), existed: true });
   });
 
   it("链接不成形就说清楚要什么，不去调 CLI", async () => {
     const conn = fakeRole({ fetchOne: async () => { throw new Error("不该被调用"); } });
-    const r = await addMeegleByRef("待办里没有这个需求", conn);
+    const r = await addWorkItemByRef("待办里没有这个需求", conn);
     expect(r).toHaveProperty("error");
   });
 });
@@ -508,7 +535,7 @@ describe("缺陷掉出分派列表之后：按你视图的终态收工，测试�
       released: async () => false,
     });
   const defect = (id: string) =>
-    mkTask({ title: `缺陷 ${id}`, kind: "meegle", source: { meegleId: id, meegleProject: "p1", meegleType: "issue", statusKey: "OPEN" }, status: "understood", stage: "todo" });
+    mkTask({ title: `缺陷 ${id}`, kind: "work_item", source: { external: ref(id, { space: "p1", kind: "defect", state: "OPEN" }) }, status: "understood", stage: "todo" });
 
   it("WON'T FIX 的 key 是随机码，按名称认出来收工", async () => {
     const t = defect("s-wf");
@@ -550,18 +577,18 @@ describe("关掉「拉 Meegle 缺陷」", () => {
     updateSettings({ meegleDefects: false });
     const r = await syncOnce(fake([defect("off1")]));
     expect(r.added).toBe(0);
-    expect(findTaskBySource((s) => s.meegleId === "off1", true)).toBeUndefined();
+    expect(findTaskBySource((s) => workItemOf(s)?.id === "off1", true)).toBeUndefined();
   });
 
   it("已经在列表里的缺陷不会被当成「不再分派给你」收掉", async () => {
-    const t = mkTask({ title: "缺陷 off2", kind: "meegle", status: "understood", source: { meegleId: "off2", meegleType: "issue" } });
+    const t = mkTask({ title: "缺陷 off2", kind: "work_item", status: "understood", source: { external: ref("off2", { kind: "defect" }) } });
     updateSettings({ meegleDefects: false });
     await syncOnce(fake([]));
     expect(readTask(t.id)!.status).toBe("understood");
   });
 
   it("开着时缺陷照常参与同步", async () => {
-    const t = mkTask({ title: "旧标题", kind: "meegle", status: "understood", source: { meegleId: "on1", meegleType: "issue" } });
+    const t = mkTask({ title: "旧标题", kind: "work_item", status: "understood", source: { external: ref("on1", { kind: "defect" }) } });
     await syncOnce(fake([defect("on1")]));
     expect(readTask(t.id)!.title).toBe("缺陷 on1");
   });
@@ -573,9 +600,9 @@ describe("同步时缺陷跟着需求的项目走", () => {
     fakeRole({ listMine: async () => (items as Array<{ typeKey: string; status: string; statusKey?: string }>).map(wi), get: async () => got("Testing", "Testing", "需求"), released: async () => false });
 
   it("没项目的补上；你单独给缺陷指定过的不覆盖", async () => {
-    mkTask({ title: "需求 ps1", kind: "meegle", project: "app-a", source: { meegleId: "ps1", meegleProject: "p1", meegleType: "story", storyContainer: true }, status: "understood" });
-    const empty = mkTask({ title: "缺陷 pb1", kind: "meegle", source: { meegleId: "pb1", meegleProject: "p1", meegleType: "issue", linkedStoryId: "ps1" }, status: "understood" });
-    const mine = mkTask({ title: "缺陷 pb2", kind: "meegle", project: "app-b", source: { meegleId: "pb2", meegleProject: "p1", meegleType: "issue", linkedStoryId: "ps1", projectBy: "user" }, status: "understood" });
+    mkTask({ title: "需求 ps1", kind: "work_item", project: "app-a", source: { external: ref("ps1", { space: "p1", kind: "story" }), container: true }, status: "understood" });
+    const empty = mkTask({ title: "缺陷 pb1", kind: "work_item", source: { external: ref("pb1", { space: "p1", kind: "defect", parent: "ps1" }) }, status: "understood" });
+    const mine = mkTask({ title: "缺陷 pb2", kind: "work_item", project: "app-b", source: { external: ref("pb2", { space: "p1", kind: "defect", parent: "ps1" }), projectBy: "user" }, status: "understood" });
     await syncOnce(conn([bug("pb1", "ps1"), bug("pb2", "ps1")]));
     expect(readTask(empty.id)!.project).toBe("app-a");
     expect(readTask(mine.id)!.project).toBe("app-b");
@@ -584,13 +611,13 @@ describe("同步时缺陷跟着需求的项目走", () => {
 
 describe("applyTransition 的账本", () => {
   it("不传 why 时写「你在 Friday 里点了」", async () => {
-    const t = mkTask({ title: "缺陷", kind: "meegle", source: { meegleProject: "p", meegleId: "9", statusKey: "OPEN" }, project: "demo", status: "understood" });
+    const t = mkTask({ title: "缺陷", kind: "work_item", source: { external: ref("9", { space: "p", state: "OPEN" }) }, project: "demo", status: "understood" });
     await applyTransition(t, { id: "1", label: "开始处理", stateKey: "IN PROGRESS" });
     expect(listAudit({ taskId: t.id }).some((e) => e.action === "meegle_transition" && e.why === "你在 Friday 里点了「开始处理」")).toBe(true);
   });
 
   it("转到 CLOSED 也收工，不只认 RESOLVED", async () => {
-    const t = mkTask({ title: "缺陷 c1", kind: "meegle", source: { meegleProject: "p", meegleId: "4401", statusKey: "OPEN" }, project: "demo", status: "understood" });
+    const t = mkTask({ title: "缺陷 c1", kind: "work_item", source: { external: ref("4401", { space: "p", state: "OPEN" }) }, project: "demo", status: "understood" });
     const after = await applyTransition(t, { id: "2", label: "关闭", stateKey: "CLOSED" });
     expect(after.status).toBe("done");
     expect(readTask(t.id)!.status).toBe("done");

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { DeliveryReport, Job, Task } from "@friday/shared";
+import { workItemOf, type DeliveryReport, type Job, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { untrusted } from "./fence.js";
 import { onSignal } from "./stage.js";
@@ -22,7 +22,7 @@ import { replyLanguageLine } from "./lang.js";
 /** 贴在工具返回末尾：工具调用之后那段汇报最容易换成英文 */
 const lang = () => `\n接下来${replyLanguageLine()}。`;
 import { closeRun, closeRunForTask, recordRound, startRound } from "./runLog.js";
-import { transitionToInProgress } from "./meegle.js";
+import { transitionToInProgress } from "./workItems.js";
 import { collectShots } from "./report.js";
 import { runByJob } from "../memory/runs.js";
 import { ingestBootstrap } from "./knowledgeBootstrap.js";
@@ -279,14 +279,14 @@ export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday
   const brief = task.source.brief && renderBrief(task.source.brief);
   return [
     `任务：${task.title}（${task.status}，优先级 ${task.priority}）`,
-    task.understanding ? `这件事是什么：\n${untrusted(task.source.meegleId ? "meegle-understanding" : "task-understanding", task.understanding)}` : "",
+    task.understanding ? `这件事是什么：\n${untrusted(workItemOf(task.source) ? "meegle-understanding" : "task-understanding", task.understanding)}` : "",
     brief ? `理解卡：\n${untrusted("brief", brief)}` : "",
     // plan 默认就是理解卡的渲染文本，一样的不重复带
     audience === "friday" && task.plan && task.plan !== brief ? `和用户聊定的方案：${task.plan}` : "",
     task.progress ? `目前进展：${task.progress}` : "",
     task.source.note ? `用户交代的原话：${task.source.note}` : "",
     task.source.url ? `用户给的链接：${task.source.url}` : "",
-    task.source.meegleId ? `Meegle 工单：#${task.source.meegleId}` : "",
+    workItemOf(task.source) ? `Meegle 工单：#${workItemOf(task.source)!.id}` : "",
     task.source.docs?.length ? `资料：\n${untrusted("docs", task.source.docs.map((d) => `- ${(d.title ?? d.url).slice(0, 200)}：${d.url}`).join("\n"))}` : "",
     task.source.researchFile ? `这是 Friday 自学的一题，完整研究笔记（记忆库 ${task.source.researchFile}）：\n${untrusted("research-note", readResearchNote(task.source.researchFile).slice(0, 6000) || "（笔记文件已不在）")}` : "",
     msgs.length ? `Slack 原文（${msgs[0]!.channelName || "私聊"} · ${msgs[0]!.userName}）：\n${untrusted("slack", msgs.map((i) => `- ${i.userName}：${i.text}`).join("\n").slice(0, 2000))}` : "",

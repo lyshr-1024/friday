@@ -1,4 +1,4 @@
-import type { Stage, Task, TaskKind, TaskSource, TaskStatus } from "@friday/shared";
+import { workItemOf, type Stage, type Task, type TaskKind, type TaskSource, type TaskStatus } from "@friday/shared";
 import { db } from "./db.js";
 import { idsIn as workItemIdsIn } from "../connectors/meegle/rules.js";
 import { loadProjects } from "./projects.js";
@@ -62,7 +62,10 @@ export function addNoteTask(input: {
 export function findSameThing(text: string, tasks = listTasks(OPEN_STATES)): Task | undefined {
   const ids = workItemIdsIn(text);
   if (ids.length) {
-    const byTicket = tasks.find((t) => ids.includes(t.source.meegleId ?? "") || ids.includes(t.source.linkedStoryId ?? ""));
+    const byTicket = tasks.find((t) => {
+      const work = workItemOf(t.source);
+      return ids.includes(work?.id ?? "") || ids.includes(work?.parent?.id ?? "");
+    });
     if (byTicket) return byTicket;
   }
   const named = loadProjects().find((p) => text.includes(p.name) || p.aliases.some((a) => a.length >= 2 && text.includes(a)));

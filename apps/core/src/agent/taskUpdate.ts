@@ -1,4 +1,4 @@
-import type { RollbackReason, Stage, Task, TaskStatus } from "@friday/shared";
+import { workItemOf, type RollbackReason, type Stage, type Task, type TaskStatus } from "@friday/shared";
 import { STAGE_LABEL } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { listTasks, addPending, getTask, removePending, updatePending, updateTask } from "../memory/tasks.js";
@@ -85,10 +85,10 @@ export function updateTaskFromChat(taskId: string, patch: TaskPatch, why = "会�
     const r = addProjectHints(known!.name, hints);
     if (r.changed) changed.push(`记住线索（${[...r.added.aliases, ...r.added.urls].join("、")}）`);
     // 同一个需求下的其他几条归属是同一个答案，一起定了，别再逐条问
-    const story = task.source.linkedStoryId;
+    const story = workItemOf(task.source)?.parent?.id;
     if (story) {
       const siblings = listTasks().filter(
-        (t) => t.id !== taskId && t.source.linkedStoryId === story && !t.project && t.status !== "done" && t.status !== "ignored",
+        (t) => t.id !== taskId && workItemOf(t.source)?.parent?.id === story && !t.project && t.status !== "done" && t.status !== "ignored",
       );
       for (const s of siblings) {
         updateTask(s.id, { project: known!.name, ...(s.attention === "intake" ? { attention: undefined, progress: `归属跟着同需求那条一起定了：${known!.name}` } : {}) });

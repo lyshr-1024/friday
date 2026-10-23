@@ -1,4 +1,4 @@
-import { STAGE_LABEL, briefRefusal, taskCategory, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
+import { STAGE_LABEL, briefRefusal, taskCategory, workItemOf, type AutostartPlan, type Task, type TermSession } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { isFridayProject, loadProjects, resolveProject } from "../memory/projects.js";
@@ -48,7 +48,7 @@ const defaultStoryEnv: StoryEnv = {
 };
 
 export function testingStoryBug(t: Task, env: StoryEnv = defaultStoryEnv): { root: Task } | string {
-  if (t.status !== "understood" || (t.kind !== "work_item" && t.kind !== "meegle")) return "不在排队里";
+  if (t.status !== "understood" || t.kind !== "work_item") return "不在排队里";
   if (taskCategory(t.source) !== "defect") return "不是缺陷";
   if (t.source.jobId) return "已经有终端";
   if (t.stage && t.stage !== "todo") return `已经在${STAGE_LABEL[t.stage]}`;
@@ -187,7 +187,7 @@ export async function autostartTick(now = Date.now()): Promise<number> {
       action: "autostart",
       why: `理解卡${brief.review === "approved" ? "你审过" : "按项目规则不用审"}、依赖齐了`,
       how: `在 ${r.project.name} 上按理解卡自主开工，没等你点`,
-      evidence: { review: brief.review, project: r.project.name, meegleId: t.source.meegleId ?? null },
+      evidence: { review: brief.review, project: r.project.name, meegleId: workItemOf(t.source)?.id ?? null },
       risk: "reversible",
     });
     state.notices.push({ title: `Friday 自己开工了 · ${r.project.name}`, body: t.title.slice(0, 120), taskId: t.id });

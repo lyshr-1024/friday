@@ -1,4 +1,9 @@
-import type { WorkItemKind, WorkItemRef, WorkItemState } from "../roles.js";
+import type { ExternalRef } from "@friday/shared";
+import type { WorkItemKind, WorkItemState } from "../roles.js";
+import type { MeegleWorkItem } from "./client.js";
+
+/** 工单在 Meegle 里的地址：空间 + 工单号。只在这个目录里用，外面一律递 ExternalRef */
+export interface WorkItemRef { space: string; id: string }
 
 /**
  * 终态，跟你 Meegle 视图里勾掉的那几个一致（2026-09-29：已解决 / 已关闭 / 已终止 / WON'T FIX）。
@@ -34,9 +39,55 @@ export function parseMeegleRef(input: string): { projectKey: string; workItemId:
   return m ? { projectKey: m[1]!, workItemId: m[2]! } : undefined;
 }
 
-export function parseRef(input: string): WorkItemRef | undefined {
+const TOOL = "meegle";
+
+function compact(o: Record<string, string | undefined>): Record<string, string> | undefined {
+  const out = Object.fromEntries(Object.entries(o).filter((e): e is [string, string] => Boolean(e[1])));
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** 同步链路的一条工单在卡上的引用：核心字段业务侧读，空间 / 类型键 / 节点 / 报告人进 attrs 只有这里解释 */
+export function external(item: MeegleWorkItem): ExternalRef {
+  const schedule = item.feDue || item.beDue ? { ...(item.feDue ? { frontend: item.feDue } : {}), ...(item.beDue ? { backend: item.beDue } : {}) } : undefined;
+  const attrs = compact({ typeKey: item.typeKey, space: item.projectKey, nodeKey: item.nodeKey, nodeName: item.node, reporter: item.reporter });
+  return {
+    tool: TOOL,
+    type: "work_item",
+    id: item.id,
+    kind: kindOf(item.typeKey),
+    ...(item.statusKey ? { state: { key: item.statusKey } } : {}),
+    ...(item.linkedStory ? { parent: { id: item.linkedStory.id, ...(item.linkedStory.name ? { name: item.linkedStory.name } : {}) } } : {}),
+    ...(schedule ? { schedule } : {}),
+    ...(item.tags ? { tags: item.tags } : {}),
+    ...(attrs ? { attrs } : {}),
+  };
+}
+
+export const addressable = (ext: ExternalRef): boolean => ext.tool === TOOL && Boolean(ext.id && ext.attrs?.space);
+
+/** 引用 → CLI 要的空间和工单号；老卡没记空间时抛 */
+export function spaceRef(ext: ExternalRef): WorkItemRef {
+  if (!addressable(ext)) throw new Error("这条任务没有 Meegle 工单信息");
+  return { space: ext.attrs!.space!, id: ext.id };
+}
+
+export function parentRef(ext: ExternalRef): ExternalRef | undefined {
+  const space = ext.attrs?.space;
+  if (ext.tool !== TOOL || !ext.parent || !space) return undefined;
+  return { tool: TOOL, type: "work_item", id: ext.parent.id, attrs: { space } };
+}
+
+/** 当前节点：流转要 key，展示只要名字，两样有一样就给 */
+export function node(ext: ExternalRef): { key?: string; name?: string } | undefined {
+  if (ext.tool !== TOOL) return undefined;
+  const { nodeKey: key, nodeName: name } = ext.attrs ?? {};
+  if (!key && !name) return undefined;
+  return { ...(key ? { key } : {}), ...(name ? { name } : {}) };
+}
+
+export function parseRef(input: string): ExternalRef | undefined {
   const r = parseMeegleRef(input);
-  return r ? { space: r.projectKey, id: r.workItemId } : undefined;
+  return r ? { tool: TOOL, type: "work_item", id: r.workItemId, attrs: { space: r.projectKey } } : undefined;
 }
 
 export function idFromUrl(url: string): string | undefined {

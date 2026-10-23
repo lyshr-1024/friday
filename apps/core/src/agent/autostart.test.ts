@@ -8,7 +8,8 @@ import { createTask, getTask, listTasks, updateTask } from "../memory/tasks.js";
 import { listAudit } from "../memory/audit.js";
 import { updateSettings } from "../settings.js";
 import { setTmuxRunner } from "./tmux.js";
-import { type Brief, type Task, type TermSession } from "@friday/shared";
+import { type Brief, type ExternalRef, type Task, type TermSession } from "@friday/shared";
+import { kindOf } from "../connectors/meegle/rules.js";
 
 import { autostartPlan, autostartTick, codeEligible, pickAutostart, pickStoryBugs, runningAutonomous, storyPlan, testingStoryBug, yieldsToStory, type AutostartEnv, type StoryEnv } from "./autostart.js";
 import { AUTOSTART_SETTLE_MS } from "./brief.js";
@@ -26,11 +27,15 @@ const NOW = Date.parse("2026-09-28T10:00:00Z");
 const env: AutostartEnv = { now: NOW, running: 0, max: 1 };
 const settled = new Date(NOW - AUTOSTART_SETTLE_MS - 1000).toISOString();
 
+/** 卡上的工单引用；parent 是所属需求 */
+const wi = (kind: ExternalRef["kind"], o: Partial<ExternalRef> = {}): ExternalRef => ({ tool: "meegle", type: "work_item", id: "w-1", kind, ...o });
+const under = (story: string, kind: ExternalRef["kind"] = "defect") => ({ external: wi(kind, { parent: { id: story } }) });
+
 const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
   ({
     id: "t1",
     title: "【新WBO·股票数据】上市日提交不落库",
-    kind: "meegle",
+    kind: "work_item",
     status: "understood",
     priority: "normal",
     project: "whale-console",
@@ -38,7 +43,7 @@ const defect = (over: Partial<Task> = {}, source: Task["source"] = {}): Task =>
     updatedAt: settled,
     ...over,
     source: {
-      meegleType: "issue",
+      external: wi("defect"),
       intake: { kind: "start", confidence: 90, project: "whale-console", detail: "把 listing_date 按 YYYY-MM-DD HH:mm:ss 传", why: "根因和修法都写了", at: settled },
       ...source,
     },
@@ -49,11 +54,11 @@ const brief = (over: Partial<Brief> = {}): Brief => ({
   review: "approved", basis: "prd", at: settled, features: [], ...over,
 });
 const req = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["source"] = {}): Task => {
-  const t = { id: "r1", title: "导出中心", kind: "meegle", status: "understood", priority: "normal", project: "whale-console", createdAt: new Date(NOW).toISOString(), updatedAt: settled, ...over, source: { meegleType: "story", brief: brief(b), ...source } } as Task;
+  const t = { id: "r1", title: "导出中心", kind: "work_item", status: "understood", priority: "normal", project: "whale-console", createdAt: new Date(NOW).toISOString(), updatedAt: settled, ...over, source: { external: wi("story"), brief: brief(b), ...source } } as Task;
   if (t.source.brief && b.basis === undefined) t.source.brief.basis = briefBasis(t);
   return t;
 };
-const bug = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["source"] = {}): Task => req({ id: "b1", title: "上市日提交不落库", ...over }, b, { meegleType: "issue", ...source });
+const bug = (over: Partial<Task> = {}, b: Partial<Brief> = {}, source: Task["source"] = {}): Task => req({ id: "b1", title: "上市日提交不落库", ...over }, b, { external: wi("defect"), ...source });
 const register = (name: string, ...extra: string[]) =>
   writeFileSync(join(process.env.FRIDAY_DATA_DIR!, "projects.md"), `# 项目\n\n## ${name}\n- 目录：/tmp\n${extra.map((l) => `- ${l}\n`).join("")}`);
 
@@ -149,7 +154,7 @@ describe("autostartTick：tmux 没装", () => {
     setTmuxRunner(async () => {
       throw Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" });
     });
-    const t0 = createTask({ title: "缺陷", kind: "meegle", status: "understood", project: "asproj", source: { meegleType: "issue", meegleId: "AS1", brief: brief({ review: "approved" }) } });
+    const t0 = createTask({ title: "缺陷", kind: "work_item", status: "understood", project: "asproj", source: { external: wi("defect", { id: "AS1" }), brief: brief({ review: "approved" }) } });
     const t = updateTask(t0.id, { source: { brief: brief({ review: "approved", basis: briefBasis(t0) }) } })!;
     expect(await autostartTick(NOW)).toBe(0);
     expect(getTask(t.id)!.status).toBe("understood");
@@ -180,19 +185,19 @@ describe("runningAutonomous", () => {
     createTask({ title: "[定时] x", kind: "code", status: "processing", source: { scheduleId: "s-1", jobId: "ra-sched", autonomous: true } });
     expect(runningAutonomous()).toBe(before);
     createJob({ id: "ra-norm", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
-    createTask({ title: "缺陷", kind: "meegle", status: "processing", source: { jobId: "ra-norm", autonomous: true } });
+    createTask({ title: "缺陷", kind: "work_item", status: "processing", source: { jobId: "ra-norm", autonomous: true } });
     expect(runningAutonomous()).toBe(before + 1);
   });
 });
 
-const story = (over: Partial<Task> = {}): Task => ({ id: "root-1", title: "养牛1.2", kind: "meegle", status: "processing", stage: "testing", priority: "normal", createdAt: settled, updatedAt: settled, source: { meegleType: "story", meegleId: "24642659" }, ...over }) as Task;
+const story = (over: Partial<Task> = {}): Task => ({ id: "root-1", title: "养牛1.2", kind: "work_item", status: "processing", stage: "testing", priority: "normal", createdAt: settled, updatedAt: settled, source: { external: wi("story", { id: "24642659" }) }, ...over }) as Task;
 const sess = (over: Partial<TermSession> = {}): TermSession => ({ id: "root-1", project: "x", repoDir: "/r", tmuxName: "x", kind: "interactive", status: "running", worktree: "/r-wt", createdAt: settled, updatedAt: settled, ...over }) as TermSession;
 const senv = (root?: Task, s?: TermSession, occupied = false): StoryEnv => ({ root: () => root, session: () => s, occupied: () => occupied });
-const fresh = defect({ createdAt: new Date(NOW).toISOString() }, { intake: { kind: "queue", why: "模糊", at: settled }, linkedStoryId: "24642659" });
+const fresh = defect({ createdAt: new Date(NOW).toISOString() }, { intake: { kind: "queue", why: "模糊", at: settled }, ...under("24642659") });
 
 describe("testingStoryBug", () => {
-  it("meegleType bug / defect 也算缺陷", () => {
-    for (const meegleType of ["bug", "defect"]) expect(testingStoryBug(defect({}, { meegleType, linkedStoryId: "24642659" }), senv(story(), sess()))).toEqual({ root: story() });
+  it("工单类型键 bug / defect 也算缺陷", () => {
+    for (const typeKey of ["bug", "defect"]) expect(testingStoryBug(defect({}, under("24642659", kindOf(typeKey))), senv(story(), sess()))).toEqual({ root: story() });
   });
   it("需求在测试中、会话在：不看 intake、不等稳定期", () => expect(testingStoryBug(fresh, senv(story(), sess()))).toEqual({ root: story() }));
   it("需求不在测试中 / 没会话 / 会话关了 / 没 worktree / 前一条没修完，各给原因", () => {
@@ -204,8 +209,8 @@ describe("testingStoryBug", () => {
   });
   it("不挂在需求下的缺陷不走这条路", () => expect(testingStoryBug(defect(), senv(undefined))).toBe("不挂在需求下"));
   it("pickStoryBugs 每个需求只挑一条，高优先级先", () => {
-    const a = defect({ id: "a", priority: "low" }, { linkedStoryId: "24642659" });
-    const b = defect({ id: "b", priority: "high" }, { linkedStoryId: "24642659" });
+    const a = defect({ id: "a", priority: "low" }, under("24642659"));
+    const b = defect({ id: "b", priority: "high" }, under("24642659"));
     expect(pickStoryBugs([a, b], senv(story(), sess())).map((x) => x.task.id)).toEqual(["b"]);
   });
   it("storyPlan：通过给 kind story；等前一条给 waiting；旧路不受影响", () => {
@@ -225,7 +230,7 @@ describe("testingStoryBug", () => {
   it("runningAutonomous 不数 handed 的缺陷", () => {
     const before = runningAutonomous();
     createJob({ id: "ra-handed", project: "demo", dir: "/tmp", logPath: "/tmp/x.log" });
-    createTask({ title: "转交的缺陷", kind: "meegle", status: "processing", source: { jobId: "ra-handed", autonomous: true, handedAt: new Date().toISOString() } });
+    createTask({ title: "转交的缺陷", kind: "work_item", status: "processing", source: { jobId: "ra-handed", autonomous: true, handedAt: new Date().toISOString() } });
     expect(runningAutonomous()).toBe(before);
   });
 });
@@ -328,8 +333,8 @@ describe("autostartTick：需求", () => {
     updateSettings({ autonomous: true });
     return dir;
   };
-  const mk = (name: string, review: Brief["review"], meegleType = "story") => {
-    const t = createTask({ title: `需求-${name}`, kind: "meegle", status: "understood", project: name, source: { meegleType, meegleId: name, brief: brief({ review }) } });
+  const mk = (name: string, review: Brief["review"], typeKey = "story") => {
+    const t = createTask({ title: `需求-${name}`, kind: "work_item", status: "understood", project: name, source: { external: wi(kindOf(typeKey), { id: name }), brief: brief({ review }) } });
     return updateTask(t.id, { source: { brief: brief({ review, basis: briefBasis(t) }) } })!;
   };
 
@@ -405,7 +410,7 @@ describe("autostartTick：需求", () => {
     const early = new Date(NOW - 3 * AUTOSTART_SETTLE_MS).toISOString();
     const late = new Date(NOW - 2 * AUTOSTART_SETTLE_MS).toISOString();
     const d = mk("storyapp6", "approved", "issue");
-    const r0 = createTask({ title: "需求", kind: "meegle", status: "understood", project: "storyapp6", source: { meegleType: "story", meegleId: "S6", brief: brief() } });
+    const r0 = createTask({ title: "需求", kind: "work_item", status: "understood", project: "storyapp6", source: { external: wi("story", { id: "S6" }), brief: brief() } });
     const r = updateTask(r0.id, { source: { brief: brief({ basis: briefBasis(r0) }) } })!;
     const db = (await import("../memory/db.js")).db();
     db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(late, r.id);
@@ -422,7 +427,7 @@ describe("autostartTick：需求", () => {
 
 describe("testingStoryBug 对非缺陷回字符串（建卡队列的 skip 对需求无副作用）", () => {
   it("需求不被跳过", () => {
-    const story = defect({}, { meegleType: "story" });
+    const story = defect({}, { external: wi("story") });
     expect(typeof testingStoryBug(story)).toBe("string");
   });
 });

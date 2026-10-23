@@ -13,12 +13,12 @@ const aBrief = (o: Partial<Brief> = {}): Brief => ({
 
 describe("briefable", () => {
   it("没项目、查询任务、容器、已开工、已收工、kind 不对都不建", () => {
-    expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "story" } }))).toBe(true);
+    expect(briefable(task({ kind: "work_item", project: "p", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "story" } } }))).toBe(true);
     expect(briefable(task({ kind: "verbal", project: "p" }))).toBe(true);
-    expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "issue" } }))).toBe(true);
+    expect(briefable(task({ kind: "work_item", project: "p", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "defect" } } }))).toBe(true);
     expect(briefable(task({ kind: "verbal" }))).toBe(false);
     expect(briefable(task({ kind: "slack", project: "p", source: { headless: true, conversation: "c:1" } }))).toBe(false);
-    expect(briefable(task({ kind: "meegle", project: "p", source: { meegleType: "story", storyContainer: true } }))).toBe(false);
+    expect(briefable(task({ kind: "work_item", project: "p", source: { external: { tool: "meegle", type: "work_item", id: "1", kind: "story" }, container: true } }))).toBe(false);
     expect(briefable(task({ kind: "code", project: "p", source: { jobId: "j" } }))).toBe(false);
     expect(briefable(task({ kind: "code", project: "p", stage: "dev" }))).toBe(false);
     expect(briefable(task({ kind: "code", project: "p", status: "done" }))).toBe(false);
@@ -43,8 +43,8 @@ describe("pickBriefQueue 的等待与跳过", () => {
   const NOW = Date.parse("2026-10-22T10:00:00Z");
   const ago = (ms: number) => new Date(NOW - ms).toISOString();
   it("Meegle 来的进来不满 15 分钟不进队列，满了进；口头的刚建就进", () => {
-    const fresh = task({ id: "m1", kind: "meegle", project: "p", createdAt: ago(5 * 60_000) });
-    const old = task({ id: "m2", kind: "meegle", project: "p", createdAt: ago(20 * 60_000) });
+    const fresh = task({ id: "m1", kind: "work_item", project: "p", createdAt: ago(5 * 60_000) });
+    const old = task({ id: "m2", kind: "work_item", project: "p", createdAt: ago(20 * 60_000) });
     const verbal = task({ id: "v1", kind: "verbal", project: "p", createdAt: ago(1000) });
     expect(AUTOSTART_SETTLE_MS).toBe(15 * 60_000);
     expect(pickBriefQueue([fresh], NOW)).toBeUndefined();

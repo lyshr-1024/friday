@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { alreadyAsking, containerDone } from "./meegle.js";
+import { alreadyAsking, containerDone } from "./workItems.js";
 import { updateTaskFromChat } from "./taskUpdate.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

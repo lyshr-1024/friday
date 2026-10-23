@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
-import type { Task, TermSessionKind } from "@friday/shared";
+import { workItemOf, type Task, type TermSessionKind } from "@friday/shared";
 import { config } from "../config.js";
 import { knowledgeBlock } from "../memory/features.js";
 import { handbookBlock } from "../memory/rules.js";
@@ -54,7 +54,7 @@ export function autonomousPrompt(id: string, task: string, project: string): str
 export function storyBugPrompt(task: Task, root: Task, project: string, rejected?: string): string {
   const id = task.id.slice(0, 8);
   const handbook = handbookBlock(project);
-  const body = [`工单号：${task.source.meegleId ?? "无"}`, `标题：${task.title}`, task.understanding, task.source.intake?.detail].filter(Boolean).join("\n");
+  const body = [`工单号：${workItemOf(task.source)?.id ?? "无"}`, `标题：${task.title}`, task.understanding, task.source.intake?.detail].filter(Boolean).join("\n");
   return [
     ...(rejected ? [`上一轮被打回：${rejected}`, ""] : []),
     `这是需求「${root.title}」提测后拉出来的缺陷，Friday 任务 id ${id}。你在项目 ${project} 里这条需求自己的会话和分支上接着改。`,

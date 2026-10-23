@@ -14,8 +14,8 @@ function task(over: Partial<Task> = {}): Task {
     id: "t1",
     seq: 1,
     title: "提现规则 tab 错位",
-    kind: "meegle",
-    source: { meegleId: "1234" },
+    kind: "work_item",
+    source: { external: { tool: "meegle", type: "work_item", id: "1234" } },
     project: "whale-console",
     status: "understood",
     priority: "normal",
@@ -179,7 +179,7 @@ describe("defaultActions", () => {
 
 describe("buildRules", () => {
   it("只按项目对上的（maybe）只给「打开任务」，不给标记完成 / 开工；工单号对上的（sure）照旧", () => {
-    const running = task({ id: "run", status: "processing", source: { jobId: "j1", meegleId: "1234" } });
+    const running = task({ id: "run", status: "processing", source: { jobId: "j1", external: { tool: "meegle", type: "work_item", id: "1234" } } });
     const maybe = buildRules({
       snapshot: snap({ app: { bundleId: "com.google.Chrome", name: "Chrome", title: "鲸鱼后台验收文档" } }),
       tasks: [running],

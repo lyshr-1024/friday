@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot, SummonRules } from "@friday/shared";
 import { type AllowedIds, cardPrompt, parseCard } from "./card.js";
+import "../../connectors/meegle/index.js";
 
 const allowed: AllowedIds = { taskIds: ["t1", "t2"], actionIds: { t1: { a1: "slack_reply" }, t2: { a2: "git_merge" } }, projects: ["whale-console"], registry: ["whale-console", "fe-wealth-admin"] };
 
@@ -87,17 +88,18 @@ describe("cardPrompt", () => {
       title: "多语言字段",
       status: "understood",
       project: "whale-console",
-      kind: "meegle",
+      kind: "work_item",
       createdAt: 0,
       updatedAt: 0,
       source: {
-        meegleId: "24487610",
-        meegleProject: "saas",
-        feDue: "2026-10-08",
-        beDue: "2026-09-30",
-        nodeName: "后台前端开发",
-        linkedStoryId: "24400001",
-        linkedStoryName: "月结账单",
+        external: {
+          tool: "meegle",
+          type: "work_item",
+          id: "24487610",
+          schedule: { frontend: "2026-10-08", backend: "2026-09-30" },
+          parent: { id: "24400001", name: "月结账单" },
+          attrs: { space: "saas", nodeName: "后台前端开发" },
+        },
       },
     } as never;
     const { prompt } = cardPrompt({ snapshot, rules, candidates: [{ task, why: "这段 Slack 对话挂着这条任务", strength: "sure" }] });

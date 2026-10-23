@@ -4,7 +4,7 @@ import { attachOnce } from "../agent/slack/attach.js";
 import { classifyQuery } from "../agent/slack/query.js";
 import { startQueryJob } from "../agent/slack/queryJob.js";
 import { archiveStaleTasks, settleQueryTasks } from "../agent/slack/settle.js";
-import { syncMeegleOnce } from "../agent/meegle.js";
+import { syncWorkItemsOnce } from "../agent/workItems.js";
 import { autostartTick, yieldsToStory } from "../agent/autostart.js";
 import { briefTick } from "../agent/briefJob.js";
 import { watchStageSignals } from "../agent/stageWatch.js";
@@ -178,7 +178,7 @@ export function startScheduler(): void {
   state.nextSyncAt = new Date(Date.now() + 5_000).toISOString();
   setTimeout(tick, 5_000).unref();
   const meegleTick = async () => {
-    await syncMeegleOnce();
+    await syncWorkItemsOnce();
     await briefAndAutostart();
     setTimeout(meegleTick, MEEGLE_MS).unref();
   };

@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { Snapshot, SummonAction, SummonRelayResult } from "@friday/shared";
+import { workItemOf, type Snapshot, type SummonAction, type SummonRelayResult } from "@friday/shared";
 import { summon } from "../agent/summon/index.js";
 import { pagePath } from "../agent/summon/match.js";
 import { finishTask, startAutonomousJob } from "../agent/pipeline.js";
-import { addMeegleByRef } from "../agent/meegle.js";
+import { addWorkItemByRef } from "../agent/workItems.js";
 import { addNoteTask } from "../memory/noteTask.js";
 import { getTask } from "../memory/tasks.js";
 import { readMemoryFile, writeMemoryFile } from "../memory/files.js";
@@ -185,7 +185,7 @@ export const summonApi = new Hono()
         return c.json({ ok: true, message: "已记进记忆库" });
       }
       case "meegle_add": {
-        const added = await addMeegleByRef(action.url);
+        const added = await addWorkItemByRef(action.url);
         if ("error" in added) return c.json({ error: added.error }, 400);
         return c.json({ ok: true, taskId: added.task.id, message: added.existed ? "任务板上已经有这条了" : "已加进任务板" });
       }
@@ -264,7 +264,7 @@ export const summonApi = new Hono()
       // 这一轮里 Friday 用 task_add 建了任务（「建个任务跟进一下…」这类带说明的话走的是模型，不是零模型那条）：
       // 把它带回去，HUD 好跳过去——原来只回一句「已建」，人还停在原来的 app 里
       const created = listTasks(["collected", "understood", "processing", "review"], 20)
-        .filter((t) => t.createdAt >= startedAt && !t.source.meegleId)
+        .filter((t) => t.createdAt >= startedAt && !workItemOf(t.source))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       await finish({ kind: "asked", message: answer, ...(created ? { taskId: created.id } : {}) });
     });

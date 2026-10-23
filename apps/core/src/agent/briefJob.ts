@@ -1,4 +1,4 @@
-import { briefRefusal, conversationKey, taskCategory, type Brief, type RunTrigger, type Task } from "@friday/shared";
+import { briefRefusal, conversationKey, taskCategory, workItemOf, type Brief, type RunTrigger, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { listFeatures, matchFeatures } from "../memory/features.js";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
@@ -53,7 +53,7 @@ export function briefPrompt(t: Task, p: Project, note?: string): string {
     `给项目 ${p.name}（${p.dir}）的一条需求写理解卡。这是**只读**任务：只读需求和代码，不改任何文件、不建分支、不提交；改文件的工具会被守卫直接拒绝。`,
     "",
     `需求：\n${untrusted("task", `标题：${t.title}\n${t.source.description ?? ""}`)}`,
-    t.source.meegleId ? `Meegle 工单：#${t.source.meegleId}` : undefined,
+    workItemOf(t.source) ? `Meegle 工单：#${workItemOf(t.source)!.id}` : undefined,
     docs ? `资料（PRD、设计稿等）：\n${untrusted("docs", docs)}` : undefined,
     slack ? `挂在这条需求上的 Slack 讨论：\n${untrusted("slack", slack)}` : undefined,
     knowledge ? `知识库里跟这条需求相关的功能（方括号里是功能 id）：\n${untrusted("knowledge", knowledge)}` : undefined,

@@ -1,4 +1,4 @@
-import type { LinkNode, Task } from "@friday/shared";
+import { workItemOf, type LinkNode, type Task } from "@friday/shared";
 import { linkUp } from "./links.js";
 import { loadProjects, matchProjectByUrl, normalizeUrlPrefix } from "./projects.js";
 import { idsIn as workItemIdsIn } from "../connectors/meegle/rules.js";
@@ -48,8 +48,9 @@ export function inferTaskLinks(task: Task): number {
   if (project) add(projectNode(project), "任务归属的项目");
 
   // ② 工单：自己是工单，或挂在某个需求下
-  if (src.meegleId) add(meegleNode(src.meegleId), "这条任务就是这个工单");
-  if (src.linkedStoryId) add(meegleNode(src.linkedStoryId), `缺陷挂在需求 ${src.linkedStoryName ?? src.linkedStoryId} 下`);
+  const work = workItemOf(src);
+  if (work) add(meegleNode(work.id), "这条任务就是这个工单");
+  if (work?.parent) add(meegleNode(work.parent.id), `缺陷挂在需求 ${work.parent.name ?? work.parent.id} 下`);
 
   // ③ Slack 线程
   if (src.threadId) add(threadNode(src.threadId), "这条任务是从这个 Slack 线程来的");
@@ -57,7 +58,7 @@ export function inferTaskLinks(task: Task): number {
   // ④ 正文里提到的工单号和页面地址。source.note 是口头交代的原话，
   //    source.description 是 Meegle 缺陷正文——复现步骤里的环境地址就在那儿，漏了等于白做
   const text = [task.title, task.understanding, task.plan, task.progress, src.note, src.description].filter(Boolean).join("\n");
-  for (const id of workItemIdsIn(text)) if (id !== src.meegleId) add(meegleNode(id), "任务正文里提到了这个工单号");
+  for (const id of workItemIdsIn(text)) if (id !== work?.id) add(meegleNode(id), "任务正文里提到了这个工单号");
   const projects = loadProjects();
   for (const url of urlsIn(text)) {
     add(urlNode(url), "任务正文里提到了这个页面");

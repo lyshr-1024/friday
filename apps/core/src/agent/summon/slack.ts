@@ -1,3 +1,4 @@
+import { workItemOf } from "@friday/shared";
 import { conversationKey, slackNode, taskNode, urlsIn } from "../../memory/infer.js";
 import { idsIn as workItemIdsIn } from "../../connectors/meegle/rules.js";
 import { listInbox } from "../../memory/inbox.js";
@@ -42,10 +43,13 @@ function attachByTicket(conv: string, lines: ChatLine[]): string | undefined {
 
   const tasks = listTasks([...OPEN], 200);
   const byTicket = ids.size
-    ? tasks.find((t) => (t.source.meegleId && ids.has(t.source.meegleId)) || (t.source.linkedStoryId && ids.has(t.source.linkedStoryId)))
+    ? tasks.find((t) => {
+        const work = workItemOf(t.source);
+        return Boolean(work && (ids.has(work.id) || (work.parent && ids.has(work.parent.id))));
+      })
     : undefined;
   if (byTicket) {
-    linkUp(slackNode(conv), taskNode(byTicket.id), "rule", `这段对话里提到了工单 ${byTicket.source.meegleId ?? byTicket.source.linkedStoryId}`);
+    linkUp(slackNode(conv), taskNode(byTicket.id), "rule", `这段对话里提到了工单 ${workItemOf(byTicket.source)!.id}`);
     return byTicket.id;
   }
 

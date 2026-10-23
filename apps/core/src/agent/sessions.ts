@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import type { Job, Task, TermSession, TermSessionKind } from "@friday/shared";
+import { workItemOf, type Job, type Task, type TermSession, type TermSessionKind } from "@friday/shared";
 import { publish } from "../bus.js";
 import { record } from "../memory/audit.js";
 import { createJob, finishJob, getJob, latestRunningJob, markAwaiting, recordTerminalInput, reviveJob, setJobDir } from "../memory/jobs.js";
@@ -28,9 +28,9 @@ export function resolveRoot(task: Task): Task {
     const root = getTask(task.source.rootId);
     return isOpen(root) ? root : task;
   }
-  const story = task.source.linkedStoryId;
+  const story = workItemOf(task.source)?.parent?.id;
   if (!story) return task;
-  const root = findTaskBySource((s) => s.meegleId === story || (s.mergedMeegleIds ?? []).includes(story));
+  const root = findTaskBySource((s) => workItemOf(s)?.id === story || (s.mergedIds ?? []).includes(story));
   if (!root || root.id === task.id) return task;
   updateTask(task.id, { source: { rootId: root.id } });
   return root;
@@ -55,10 +55,11 @@ function pickBranch(root: Task, owner: Task, repoDir: string): string | undefine
     record({ taskId: t.id, action: "branch_gone", why: `记着的分支 ${b} 本地和 origin 上都没有了（合并后删了，或你手动纠正过）`, how: "清掉这条记录，按仓库里实际有的分支重新认", evidence: { branch: b, worktree: t.source.worktree ?? null }, risk: "reversible" });
   }
   for (const t of holders) {
-    const found = t.source.meegleId ? branchesForIdSync(repoDir, t.source.meegleId)[0] : undefined;
+    const id = workItemOf(t.source)?.id;
+    const found = id ? branchesForIdSync(repoDir, id)[0] : undefined;
     if (!found) continue;
     updateTask(root.id, { source: { branch: found } });
-    record({ taskId: root.id, action: "branch_adopted", why: `仓库里已经有带工单号 ${t.source.meegleId} 的分支 ${found}，是之前在做的那条`, how: "接着在这条分支上做，不另起分支", evidence: { branch: found }, risk: "reversible" });
+    record({ taskId: root.id, action: "branch_adopted", why: `仓库里已经有带工单号 ${id} 的分支 ${found}，是之前在做的那条`, how: "接着在这条分支上做，不另起分支", evidence: { branch: found }, risk: "reversible" });
     return found;
   }
   return undefined;

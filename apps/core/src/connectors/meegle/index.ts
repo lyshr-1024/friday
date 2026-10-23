@@ -1,10 +1,11 @@
+import type { ExternalRef } from "@friday/shared";
 import { z } from "zod";
 import { untrusted } from "../../agent/fence.js";
 import { defineBuiltin } from "../builtin.js";
 import { invokeTool, type Caller } from "../invoke.js";
 import { implementRole, type WorkItem } from "../roles.js";
 import { MeegleConnector, type MeegleWorkItem } from "./client.js";
-import { idFromUrl, idsIn, kindOf, ownsHost, parseRef, stateOf } from "./rules.js";
+import { addressable, external, idFromUrl, idsIn, kindOf, node, ownsHost, parentRef, parseRef, spaceRef, stateOf } from "./rules.js";
 
 export const meegleClient = new MeegleConnector();
 
@@ -13,7 +14,7 @@ const normalize = (w: MeegleWorkItem): WorkItem => ({ ...w, kind: kindOf(w.typeK
 // 这些值原样进 meegle CLI 的参数：工单号只能是数字，其余不许 - 开头被当成选项
 const key = z.string().regex(/^[A-Za-z0-9_][\w-]*$/);
 const ref = { space: z.string().regex(/^[A-Za-z0-9_-]+$/).refine((s) => !s.startsWith("-"), "不能以 - 开头").describe("空间 project key，链接里 /<空间>/story/detail/<工单号> 那段"), id: z.string().regex(/^\d+$/, "工单号只能是数字").describe("工单号") };
-const node = { ...ref, nodeKey: key.describe("节点 key，如 state_16") };
+const nodeInput = { ...ref, nodeKey: key.describe("节点 key，如 state_16") };
 
 const excerpt = (text: string | undefined, max = 2000) => (text && text.length > max ? `${text.slice(0, max)}…（截断）` : text);
 
@@ -70,7 +71,7 @@ defineBuiltin({
     {
       name: "confirm_node",
       description: "完成工单的当前节点，推给下游；撤销时回滚这个节点",
-      input: node,
+      input: nodeInput,
       level: "reversible",
       audit: "meegle_node_confirm",
       async run(args) {
@@ -82,7 +83,7 @@ defineBuiltin({
     {
       name: "rollback_node",
       description: "回滚工单的一个节点（撤销「完成节点」）；撤销时重新完成它",
-      input: node,
+      input: nodeInput,
       level: "reversible",
       audit: "meegle_node_rollback",
       async run(args) {
@@ -101,26 +102,57 @@ async function call(caller: Caller, op: string, args: Record<string, unknown>): 
 
 const IN_PROGRESS = "IN PROGRESS";
 
+/** 节点类操作：空间、工单号、节点都从引用的 attrs 里取 */
+function nodeArgs(ext: ExternalRef): { space: string; id: string; nodeKey: string } {
+  const n = node(ext);
+  if (!n?.key) throw new Error("这条任务没有可流转的 Meegle 节点");
+  return { ...spaceRef(ext), nodeKey: n.key };
+}
+
 implementRole("workItems", "meegle", {
   listMine: async () => (await meegleClient.fetchWorkItems()).map(normalize),
-  fetchOne: async (r) => normalize(await meegleClient.fetchOne(r.space, r.id)),
-  async get(r) {
+  fetchOne: async (ext) => {
+    const r = spaceRef(ext);
+    return normalize(await meegleClient.fetchOne(r.space, r.id));
+  },
+  async get(ext) {
+    const r = spaceRef(ext);
     const w = await meegleClient.getWorkItem(r.space, r.id);
     return w && { name: w.name, typeKey: w.typeKey, stateKey: w.statusKey, stateLabel: w.status, state: stateOf(w.statusKey, w.status) };
   },
-  released: (r) => meegleClient.feReleased(r.space, r.id),
-  transitions: (r) => meegleClient.listTransitions(r.space, r.id),
-  transitionFor: async (r) => (await meegleClient.listTransitions(r.space, r.id)).find((t) => t.stateKey === IN_PROGRESS),
-  transition: (r, to, caller, from) => call(caller, "transition", { space: r.space, id: r.id, transitionId: to.id, stateKey: to.stateKey, ...(from ? { from } : {}) }),
-  nodeReadiness: (r, nodeKey) => meegleClient.nodeReadiness(r.space, r.id, nodeKey),
-  confirmNode: (r, nodeKey, caller) => call(caller, "confirm_node", { space: r.space, id: r.id, nodeKey }),
-  rollbackNode: (r, nodeKey, caller) => call(caller, "rollback_node", { space: r.space, id: r.id, nodeKey }),
-  async undoTransition(r, backTo, caller) {
-    const back = (await meegleClient.listRawTransitions(r.space, r.id)).find((x) => x.state_key === backTo);
+  released: (ext) => {
+    const r = spaceRef(ext);
+    return meegleClient.feReleased(r.space, r.id);
+  },
+  transitions: (ext) => {
+    const r = spaceRef(ext);
+    return meegleClient.listTransitions(r.space, r.id);
+  },
+  transitionFor: async (ext) => {
+    const r = spaceRef(ext);
+    return (await meegleClient.listTransitions(r.space, r.id)).find((t) => t.stateKey === IN_PROGRESS);
+  },
+  transition: (ext, to, caller, from) => call(caller, "transition", { ...spaceRef(ext), transitionId: to.id, stateKey: to.stateKey, ...(from ? { from } : {}) }),
+  nodeReadiness: (ext) => {
+    const a = nodeArgs(ext);
+    return meegleClient.nodeReadiness(a.space, a.id, a.nodeKey);
+  },
+  confirmNode: (ext, caller) => call(caller, "confirm_node", nodeArgs(ext)),
+  async undo(plan, caller) {
+    const [space, id] = [plan.projectKey, plan.workItemId];
+    if (plan.kind === "meegle_node") {
+      await call(caller, "rollback_node", { space, id, nodeKey: plan.nodeKey });
+      return true;
+    }
+    const back = (await meegleClient.listRawTransitions(space, id)).find((x) => x.state_key === plan.backTo);
     if (!back) return false;
-    await call(caller, "transition", { space: r.space, id: r.id, transitionId: String(back.id), stateKey: backTo });
+    await call(caller, "transition", { space, id, transitionId: String(back.id), stateKey: plan.backTo });
     return true;
   },
+  external,
+  parentRef,
+  addressable,
+  node,
   parseRef,
   idFromUrl,
   idsIn,

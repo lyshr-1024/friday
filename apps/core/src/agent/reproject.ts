@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import type { Task } from "@friday/shared";
+import { workItemOf, type Task } from "@friday/shared";
 import { record } from "../memory/audit.js";
 import { getJob } from "../memory/jobs.js";
 import { resolveProject } from "../memory/projects.js";
@@ -92,10 +92,12 @@ function checklist(f: Footprint, to: string): string {
  * Friday 已经在上面自主干过活的（那得走回退清单）都不动。
  */
 function inheritToDefects(story: Task, before?: string): void {
-  const ids = new Set([...(story.source.meegleId ? [story.source.meegleId] : []), ...(story.source.mergedMeegleIds ?? [])]);
+  const own = workItemOf(story.source)?.id;
+  const ids = new Set([...(own ? [own] : []), ...(story.source.mergedIds ?? [])]);
   if (!ids.size) return;
   for (const d of listTasks(["collected", "understood", "processing", "review", "blocked"], 2000)) {
-    if (d.id === story.id || !d.source.linkedStoryId || !ids.has(d.source.linkedStoryId)) continue;
+    const parent = workItemOf(d.source)?.parent?.id;
+    if (d.id === story.id || !parent || !ids.has(parent)) continue;
     const inherited = !d.project || (d.project === before && d.source.projectBy !== "user");
     if (!inherited || d.project === story.project || isFridayWork(d)) continue;
     updateTask(d.id, { project: story.project });
@@ -203,7 +205,7 @@ export function holdClosedDefect(t: Task, status: string): boolean {
     "说「完成，不执行」：只收卡，改动留着，worktree 进设置页「遗留 worktree」。",
     f.pushed ? `远端分支 origin/${f.branch} 和上面的 MR 不在撤销范围，要关得你自己去关。` : "",
   ].filter(Boolean).join("\n");
-  updateTask(t.id, { progress: `Meegle 里已经是 ${status}，手上的改动等你定撤不撤`, source: { meegleClosed: status } });
+  updateTask(t.id, { progress: `Meegle 里已经是 ${status}，手上的改动等你定撤不撤`, source: { closedExternally: status } });
   addPending(t.id, { type: "discard_changes", label: "缺陷已关：撤掉改动", detail, payload: { status } });
   record({
     taskId: t.id,

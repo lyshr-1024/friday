@@ -11,10 +11,10 @@ import { getAttachment, saveAttachment } from "../memory/attachments.js";
 import { readResearchNote } from "../memory/research.js";
 import { fillDocTitles, mergeDocs, normUrl } from "../agent/docTitle.js";
 import { historyState, learnHistoryOnce, restoreMemorySnapshot } from "../agent/handbook.js";
-import { applyTransition, confirmNode, listTaskTransitions, meegleState, nodeReadiness, syncMeegleOnce } from "../agent/meegle.js";
-import { role } from "../connectors/roles.js";
+import { applyTransition, confirmNode, listTaskTransitions, workItemSyncState, nodeReadiness, syncWorkItemsOnce } from "../agent/workItems.js";
+import { role, workItemsFor } from "../connectors/roles.js";
 import { z } from "zod";
-import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus } from "@friday/shared";
+import { conversationKey, STAGE_ORDER, type InboxItem, type RollbackReason, type SlackConversation, type Stage, type StateTransition, type Task, type TaskStatus, workItemOf } from "@friday/shared";
 import { CONV_SCAN_LIMIT, listInbox } from "../memory/inbox.js";
 import { neighbors } from "../memory/links.js";
 import { channelNode, taskNode } from "../memory/infer.js";
@@ -29,7 +29,7 @@ import { needOf } from "../agent/needs.js";
 import { autostartEnv, autostartPlan, runningAutonomous } from "../agent/autostart.js";
 import { updateSettings, userSettings } from "../settings.js";
 import { publish } from "../bus.js";
-import { matchProject } from "../agent/meegle.js";
+import { matchProject } from "../agent/workItems.js";
 import { closeJobTerminal, closeTaskTerminal } from "../agent/terminal.js";
 import { taskSession } from "../agent/sessionState.js";
 import { setVerified } from "../agent/bridge.js";
@@ -67,6 +67,11 @@ const newTask = z.object({
   project: z.string().max(80).optional(),
   due: z.iso.date().optional(),
 });
+
+function hasNode(t: Task): boolean {
+  const ext = workItemOf(t.source);
+  return Boolean(ext && workItemsFor(ext)?.node(ext)?.key);
+}
 
 // slack 工具在注册处被停用时 role 会抛：任务板照常出，只是没有前文、算没接入
 function chatRole() {
@@ -140,7 +145,7 @@ export const tasks = new Hono()
     const next = updatePending(t.id, action.id, { payload: draft as unknown as Record<string, unknown>, label });
     return next ? c.json(next) : c.json({ error: "任务不存在" }, 404);
   })
-  .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncMeegleOnce()), ...(meegleState.lastError ? { error: meegleState.lastError } : {}) }))
+  .post("/tasks/sync-meegle", async (c) => c.json({ ...(await syncWorkItemsOnce()), ...(workItemSyncState.lastError ? { error: workItemSyncState.lastError } : {}) }))
   .get("/tasks", async (c) => {
     const board = taskBoard();
     const plan = autostartEnv();
@@ -153,7 +158,7 @@ export const tasks = new Hono()
     return c.json({
       ...board,
       tasks: board.tasks.map((t) => withSlack(withSession(t))),
-      meegleSyncedAt: meegleState.lastSyncAt,
+      meegleSyncedAt: workItemSyncState.lastSyncAt,
       slackConfigured: (await chatRole()?.configured()) ?? false,
     });
   })
@@ -336,7 +341,7 @@ export const tasks = new Hono()
   })
   /**
    * 把另一条需求并进这条：二期跟一期是同一件事、同一个分支，板上不该并排两条。
-   * 被并掉那条的工单号记进 mergedMeegleIds，同步才认得出它、不会重新建一条。
+   * 被并掉那条的工单号记进 mergedIds，同步才认得出它、不会重新建一条。
    */
   .post("/tasks/:id/merge", async (c) => {
     const parsed = z.object({ fromTaskId: z.string().min(1) }).safeParse(await c.req.json().catch(() => null));
@@ -346,37 +351,37 @@ export const tasks = new Hono()
     if (!into || !from) return c.json({ error: "任务不存在" }, 404);
     if (into.id === from.id) return c.json({ error: "不能和自己合并" }, 400);
 
+    const fromId = workItemOf(from.source)?.id;
     const ids = [
-      ...(into.source.mergedMeegleIds ?? []),
-      ...(from.source.meegleId ? [from.source.meegleId] : []),
-      ...(from.source.mergedMeegleIds ?? []),
-    ].filter((x, i, a) => a.indexOf(x) === i && x !== into.source.meegleId);
+      ...(into.source.mergedIds ?? []),
+      ...(fromId ? [fromId] : []),
+      ...(from.source.mergedIds ?? []),
+    ].filter((x, i, a) => a.indexOf(x) === i && x !== workItemOf(into.source)?.id);
     // 两边的描述都留着：合并不是丢掉一半内容
-    const understanding = [into.understanding, `—— 并入 #${from.source.meegleId ?? from.id}「${from.title}」——`, from.understanding]
+    const understanding = [into.understanding, `—— 并入 #${fromId ?? from.id}「${from.title}」——`, from.understanding]
       .filter(Boolean)
       .join("\n\n");
     // 名字和链接一起存下来：被合掉那条马上就删了，只留号码的话卡片上没法显示也点不开
     const merged = [
       ...(into.source.merged ?? []),
-      ...(from.source.meegleId
+      ...(fromId
         ? [{
-            id: from.source.meegleId,
-            meegleId: from.source.meegleId,
+            id: fromId,
             title: from.title,
             ...(from.source.url ? { url: from.source.url } : {}),
             ...(from.source.docs?.length ? { docs: from.source.docs } : {}),
           }]
         : []),
       ...(from.source.merged ?? []),
-    ].filter((m, i, a) => a.findIndex((x) => x.meegleId === m.meegleId) === i);
-    const next = updateTask(into.id, { understanding, source: { mergedMeegleIds: ids, merged, docs: mergeDocs(into.source.docs ?? [], from.source.docs ?? []) } })!;
+    ].filter((m, i, a) => a.findIndex((x) => x.id === m.id) === i);
+    const next = updateTask(into.id, { understanding, source: { mergedIds: ids, merged, docs: mergeDocs(into.source.docs ?? [], from.source.docs ?? []) } })!;
     const row = deleteTask(from.id);
     record({
       taskId: into.id,
       action: "task_merged",
       why: "两条需求是同一件事，二期接着一期做",
       how: `把「${from.title}」并进「${into.title}」`,
-      evidence: { fromTaskId: from.id, fromMeegleId: from.source.meegleId ?? null, mergedMeegleIds: ids },
+      evidence: { fromTaskId: from.id, fromMeegleId: fromId ?? null, mergedMeegleIds: ids },
       risk: "reversible",
       ...(row ? { undo: { kind: "restore_task", row } } : {}),
     });
@@ -487,7 +492,7 @@ export const tasks = new Hono()
   .get("/tasks/:id/node", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
-    if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
+    if (!hasNode(t)) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
     try {
       return c.json(await nodeReadiness(t));
     } catch (e) {
@@ -497,7 +502,7 @@ export const tasks = new Hono()
   .post("/tasks/:id/node/confirm", async (c) => {
     const t = getTask(c.req.param("id"));
     if (!t) return c.json({ error: "任务不存在" }, 404);
-    if (!t.source.nodeKey) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
+    if (!hasNode(t)) return c.json({ error: "这条任务没有可流转的 Meegle 节点" }, 400);
     try {
       return c.json(await confirmNode(t, undefined, { kind: "user", why: "你在 Friday 里点了「完成当前节点」", taskId: t.id }));
     } catch (e) {
@@ -581,8 +586,8 @@ export const tasks = new Hono()
         if (into && back) {
           updateTask(into.id, {
             source: {
-              mergedMeegleIds: (into.source.mergedMeegleIds ?? []).filter((x) => x !== back),
-              merged: (into.source.merged ?? []).filter((m) => m.meegleId !== back),
+              mergedIds: (into.source.mergedIds ?? []).filter((x) => x !== back),
+              merged: (into.source.merged ?? []).filter((m) => m.id !== back),
             },
           });
         }
@@ -672,10 +677,7 @@ export const tasks = new Hono()
     }
     if (plan.kind === "meegle_node" || plan.kind === "meegle_state") {
       try {
-        const items = role("workItems");
-        const ref = { space: plan.projectKey, id: plan.workItemId };
-        const undo = { kind: "user", why: "你点了撤销" } as const;
-        const done = plan.kind === "meegle_node" ? (await items.rollbackNode(ref, plan.nodeKey, undo), true) : await items.undoTransition(ref, plan.backTo, undo);
+        const done = await role("workItems").undo(plan, { kind: "user", why: "你点了撤销" });
         if (!done) return c.json({ error: "Meegle 不允许转回原状态，请去网页操作" }, 409);
       } catch (e) {
         return c.json({ error: `转回失败：${e instanceof Error ? e.message : String(e)}` }, 409);

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { mapLimit } from "../../connectors/exec.js";
-import type { Task } from "@friday/shared";
+import { workItemOf, type Task } from "@friday/shared";
 import { listTasks } from "../../memory/tasks.js";
 import type { Week } from "./week.js";
 
@@ -65,7 +65,7 @@ export function collectTasks(week: Week): Material[] {
     .filter((t) => t.updatedAt >= from && t.updatedAt < to && t.kind !== "okr_weekly" && t.kind !== "handbook" && t.kind !== "project" && !untouched(t))
     .map((t, i) => ({
       id: `t${i + 1}`,
-      text: [t.title, t.source.meegleId ? `m-${t.source.meegleId}` : "", t.project ? `项目 ${t.project}` : "", t.stage ? `阶段 ${t.stage}` : "", `状态 ${t.status}`, t.report?.summary ? `交付：${t.report.summary.slice(0, 200)}` : ""].filter(Boolean).join(" · "),
+      text: [t.title, workItemOf(t.source) ? `m-${workItemOf(t.source)!.id}` : "", t.project ? `项目 ${t.project}` : "", t.stage ? `阶段 ${t.stage}` : "", `状态 ${t.status}`, t.report?.summary ? `交付：${t.report.summary.slice(0, 200)}` : ""].filter(Boolean).join(" · "),
     }));
 }
 

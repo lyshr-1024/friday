@@ -1,4 +1,4 @@
-import type { InboxItem, Task } from "@friday/shared";
+import { workItemOf, type InboxItem, type Task } from "@friday/shared";
 import { askStream, SMALL_MODEL } from "../claude.js";
 import { UNTRUSTED_NOTE, untrusted } from "../fence.js";
 import { config } from "../../config.js";
@@ -28,7 +28,7 @@ export function hardSignal(item: InboxItem, tasks: Task[], recent: RecentLookup,
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
   for (const id of workItemIdsIn(item.text)) {
-    const hit = tasks.find((t) => t.source.meegleId === id || t.source.linkedStoryId === id);
+    const hit = tasks.find((t) => workItemOf(t.source)?.id === id || workItemOf(t.source)?.parent?.id === id);
     if (hit) return { taskId: hit.id, why: `消息里提到了工单 ${id}` };
   }
 

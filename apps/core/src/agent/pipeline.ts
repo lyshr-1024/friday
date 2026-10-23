@@ -5,7 +5,7 @@ import { finishBriefJob, rejectBrief, withoutApprove } from "./briefJob.js";
 import { briefBasis } from "./brief.js";
 import { commitsAheadSync, currentBranchSync, commitsSinceSync, isMergedSync } from "./git.js";
 import type { OkrWeeklyDraft, Task, RunRecord, RunTrigger } from "@friday/shared";
-import { briefable, isQueryTask } from "@friday/shared";
+import { briefable, isQueryTask, workItemOf } from "@friday/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listAudit, record, setEventStatus, setEventUndo, updateEventEvidence } from "../memory/audit.js";
@@ -60,10 +60,12 @@ function settleRun(r: RunRecord, t: Task, status: "done" | "ignored", why: strin
  * 所以你收需求时要把它们一起收（2026-10-20，用户定）。
  */
 export function openDefectsOf(story: Task): Task[] {
-  const ids = new Set([...(story.source.meegleId ? [story.source.meegleId] : []), ...(story.source.mergedMeegleIds ?? [])]);
-  return listTasks(["collected", "understood", "processing", "review", "blocked"], 2000).filter(
-    (t) => t.id !== story.id && (t.source.rootId === story.id || Boolean(t.source.linkedStoryId && ids.has(t.source.linkedStoryId))),
-  );
+  const own = workItemOf(story.source)?.id;
+  const ids = new Set([...(own ? [own] : []), ...(story.source.mergedIds ?? [])]);
+  return listTasks(["collected", "understood", "processing", "review", "blocked"], 2000).filter((t) => {
+    const parent = workItemOf(t.source)?.parent?.id;
+    return t.id !== story.id && (t.source.rootId === story.id || Boolean(parent && ids.has(parent)));
+  });
 }
 
 /** 你收需求时名下缺陷跟着收；缺陷先收，否则关需求终端时 settleHandedBugs 会把交代进去的缺陷标成卡住 */
@@ -577,7 +579,7 @@ export async function handToStorySession(task: Task, root: Task, opts: { rejecte
     action: trigger === "autostart" ? "autostart" : "retry",
     why: trigger === "autostart" ? `需求「${root.title.slice(0, 24)}」在测试中，缺陷直接在它的分支上修` : opts.rejected ? "打回后重交" : "你让它重新开工",
     how: alive ? "敲进需求的会话" : "在需求的会话上接回 Claude 再交代",
-    evidence: { rootId: root.id, meegleId: task.source.meegleId ?? null, mode: alive ? "say" : "resume" },
+    evidence: { rootId: root.id, meegleId: workItemOf(task.source)?.id ?? null, mode: alive ? "say" : "resume" },
     risk: "reversible",
   });
   if (trigger === "autostart") state.notices.push({ title: `Friday 接手了一条缺陷 · ${project}`, body: task.title.slice(0, 120), taskId: task.id });
