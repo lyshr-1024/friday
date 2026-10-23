@@ -65,10 +65,10 @@ export function openDefectsOf(story: Task): Task[] {
 }
 
 /** 你收需求时名下缺陷跟着收；缺陷先收，否则关需求终端时 settleHandedBugs 会把交代进去的缺陷标成卡住 */
-export async function finishDefectsOf(story: Task, status: "done" | "ignored"): Promise<number> {
+export async function finishDefectsOf(story: Task, status: "done" | "ignored", reason?: string): Promise<number> {
   const kids = openDefectsOf(story);
   if (!kids.length) return 0;
-  const why = status === "done" ? `你把所属需求「${story.title}」标了完成，名下缺陷一起收` : `你忽略了所属需求「${story.title}」，名下缺陷一起收`;
+  const why = reason ?? (status === "done" ? `你把所属需求「${story.title}」标了完成，名下缺陷一起收` : `你忽略了所属需求「${story.title}」，名下缺陷一起收`);
   for (const d of kids) await finishTask(d.id, status, why);
   record({ taskId: story.id, action: "story_defects_finished", why, how: `${kids.length} 条缺陷一起标${status === "done" ? "完成" : "忽略"}，要接着改的单独重新打开`, evidence: { taskIds: kids.map((d) => d.id) }, risk: "reversible" });
   return kids.length;
