@@ -223,14 +223,19 @@ export function syncSourcePatch(cur: TaskSource, patch: Partial<TaskSource>): Ta
   return s as TaskSource;
 }
 
+export const EXTRA_CONVERSATION_WHY = "迁移：任务同时带工单号和对话键";
+
 /** 老行同时带工单号和对话键时，external 只放得下工单，对话键另外建边 */
 export function extraConversationOf(raw: Raw): string | undefined {
   return str(raw.meegleId) ? str(raw.conversation) : undefined;
 }
 
+/** 迁移后来源里不该再出现的老键 */
+export const LEGACY_KEYS: string[] = [...WORK_KEYS, ...CHAT_KEYS, ...RENAMED.map(([old]) => old)];
+
 export function stripLegacy(src: TaskSource): TaskSource {
   const s: Raw = { ...src };
-  for (const k of [...WORK_KEYS, ...CHAT_KEYS, ...RENAMED.map(([old]) => old)]) delete s[k];
+  for (const k of LEGACY_KEYS) delete s[k];
   if (Array.isArray(s.merged)) s.merged = (s.merged as MergedItem[]).map(({ meegleId: _m, ...m }) => m);
   return s as TaskSource;
 }

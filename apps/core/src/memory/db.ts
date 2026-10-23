@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { TaskDoc } from "@friday/shared";
 
@@ -8,7 +8,8 @@ import type { TaskDoc } from "@friday/shared";
 const { DatabaseSync: Database } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 import { config } from "../config.js";
 import { MARKDOWN_TEMPLATES, SCHEMA } from "./schema.js";
-import { migrateLinks } from "./links.js";
+import { linksNeedMigration, migrateLinks } from "./links.js";
+import { backupDb, externalRefsMigrated, migrateExternalRefs } from "./migrateExternal.js";
 
 let instance: DatabaseSync | undefined;
 
@@ -56,11 +57,24 @@ function migrateTaskDocs(d: DatabaseSync): void {
   d.exec("COMMIT");
 }
 
+/** 内存库没有目录，也没什么要保的，不备份 */
+function backupBeforeMigrate(d: DatabaseSync): string {
+  const file = (d.prepare("PRAGMA database_list").all() as Array<{ name: string; file: string }>).find((r) => r.name === "main")?.file;
+  if (!file) return "";
+  const path = backupDb(d, dirname(file));
+  console.log(`[migrate] 迁移前备份：${path}`);
+  return path;
+}
+
 // 增量列：CREATE TABLE IF NOT EXISTS 不会给老库加列，这里按需补。
 export function migrate(d: DatabaseSync): void {
+  // 外部引用这一轮（links 收成 ext + 任务 / 待审 / runs）要动数据，先整库备份；两样都不用迁的正常启动不备份
+  const external = !externalRefsMigrated(d);
+  const backup = external || linksNeedMigration(d) ? backupBeforeMigrate(d) : "";
   // 判断链路删掉了，这三张表连同里面的数据一起收走
   for (const t of ["threads", "lessons", "thresholds"]) d.exec(`DROP TABLE IF EXISTS ${t}`);
-  // 补 channel / slack 的那次重建并进来了：没有 ext 的老表一定带 'meegle'，一次搬完
+  // 补 channel / slack 的那次重建并进来了：没有 ext 的老表一定带 'meegle'，一次搬完。
+  // 失败照旧往外抛：后面的任务迁移和标记都不跑，下次启动带新备份重来
   const moved = migrateLinks(d);
   if (moved.kept || moved.merged) console.log(`[migrate] links 收成 ext：${moved.kept} 条，合并 ${moved.merged} 条`);
   const featCols = (d.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>).map((c) => c.name);
@@ -150,6 +164,7 @@ export function migrate(d: DatabaseSync): void {
           WHERE stage IS NULL
             AND kind NOT IN ('okr_weekly', 'handbook')
             AND json_extract(source, '$.threadId') IS NULL
+            AND IFNULL(json_extract(source, '$.external.attrs.legacy'), '') != 'thread'
             AND json_extract(source, '$.fromTaskId') IS NULL`);
   // 上面那条曾经没排除周报 / 手册卡，review 状态的被补成了 testing，卡上能点「已上线」直接收工
   d.exec("UPDATE tasks SET stage = NULL, stage_by = NULL WHERE kind IN ('okr_weekly', 'handbook') AND stage_by = 'auto'");
@@ -162,6 +177,16 @@ export function migrate(d: DatabaseSync): void {
     d.prepare("UPDATE jobs SET status = 'done', exit_code = -1, finished_at = ? WHERE status = 'running' AND session_id IS NULL").run(at);
     const note = d.prepare("UPDATE tasks SET progress = ?, updated_at = ? WHERE id = ? AND status = 'processing'");
     for (const j of legacy) if (j.task_id) note.run("旧版终端已不可接回，需重新开工", at, j.task_id);
+  }
+
+  if (external) {
+    // 失败已整体回滚、不写标记：启动照常（读取端 toTask 会把老形状归一），下次启动带新备份重试
+    try {
+      const r = migrateExternalRefs(d, backup);
+      if (r) console.log(`[migrate] 外部引用：任务 ${r.tasks} 条、runs ${r.runs} 条、补边 ${r.extraLinks} 条`);
+    } catch (e) {
+      console.error("[migrate] 外部引用迁移失败，已回滚：", e);
+    }
   }
 }
 

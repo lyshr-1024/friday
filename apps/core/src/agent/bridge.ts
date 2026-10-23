@@ -9,7 +9,8 @@ import { knowledgeBlock } from "../memory/features.js";
 import { loadProjects, projectDetail, protectedBranches } from "../memory/projects.js";
 import { addPending, createTask, findTaskBySource, getTask, listTasks, tasksByIdPrefix, handedUnderRoot, updateTask } from "../memory/tasks.js";
 import { listInbox } from "../memory/inbox.js";
-import { conversationKey } from "../memory/infer.js";
+import { conversationKey, extNeighbors, taskNode } from "../memory/infer.js";
+import { EXTRA_CONVERSATION_WHY } from "../memory/externalRef.js";
 import { state } from "../scheduler/index.js";
 import { personNote } from "../memory/files.js";
 import { readResearchNote } from "../memory/research.js";
@@ -270,7 +271,10 @@ async function currentBranch(dir: string): Promise<string> {
  */
 export function contextFor(task: Task, job?: Job, audience: "terminal" | "friday" = "terminal"): string {
   const conv = conversationOf(task.source);
-  const msgs = conv ? listInbox(true, 200).filter((i) => conversationKey(i) === conv.id) : [];
+  // 老库里同时带工单号的任务，对话键迁移时挪到了一条边上（external 只放得下工单）
+  const moved = extNeighbors(taskNode(task.id), "slack", "conversation").filter((n) => n.why === EXTRA_CONVERSATION_WHY);
+  const convs = new Set([conv?.id, ...moved.map((n) => n.ref)].filter(Boolean));
+  const msgs = convs.size ? listInbox(true, 200).filter((i) => convs.has(conversationKey(i))) : [];
   const who = conv?.author ?? msgs[0]?.userName;
   const projectName = task.project ?? job?.project;
   const project = loadProjects().find((p) => p.name === projectName);

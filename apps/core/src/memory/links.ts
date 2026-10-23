@@ -125,14 +125,19 @@ function fromOld(kind: string, ref: string): { node: LinkNode; vetoed: boolean }
   return { node: ext ? extNode(ext[0], ext[1], bare) : { kind: kind as LinkKind, ref: bare }, vetoed };
 }
 
+/** 没有 ext 的老表一定带 'meegle' */
+export function linksNeedMigration(d: DatabaseSync): boolean {
+  const sql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get() as { sql?: string } | undefined)?.sql ?? "";
+  return sql.includes("'meegle'");
+}
+
 /**
  * 老端点 meegle / slack / thread / channel 收成 ext。kind 一换，order() 的字符串比较可能翻方向，
  * 否决的 ! 也得按 unlink 的规矩重新落到排序后的那一头，否则 rejected() 查不到。
  * 正反各存过一行的边迁过去会撞成一条：留 source 强的，同级留新的。
  */
 export function migrateLinks(d: DatabaseSync): { kept: number; merged: number } {
-  const sql = (d.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get() as { sql?: string } | undefined)?.sql ?? "";
-  if (!sql.includes("'meegle'")) return { kept: 0, merged: 0 };
+  if (!linksNeedMigration(d)) return { kept: 0, merged: 0 };
   d.exec("BEGIN");
   try {
     d.exec("ALTER TABLE links RENAME TO links_old");

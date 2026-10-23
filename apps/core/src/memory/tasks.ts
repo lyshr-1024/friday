@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { DeliveryReport, PendingAction, Stage, StageBy, StageHint, Task, TaskAttention, TaskBoard, TaskKind, TaskSource, TaskStatus, Urgency } from "@friday/shared";
 import { db } from "./db.js";
-import { inferTaskLinks } from "./infer.js";
+import { inferTaskLinks, taskNode } from "./infer.js";
+import { extNode, linkUp } from "./links.js";
 import { publish } from "../bus.js";
-import { legacyMirror, migrateKind, migratePending, normalizeSource, syncSourcePatch } from "./externalRef.js";
+import { EXTRA_CONVERSATION_WHY, extraConversationOf, legacyMirror, migrateKind, migratePending, normalizeSource, stripLegacy, syncSourcePatch } from "./externalRef.js";
 
 interface Row {
   id: string;
@@ -174,14 +175,21 @@ export function deleteTask(id: string): TaskRow | undefined {
   return r;
 }
 
-/** 按 deleteTask 交出的快照把行放回去。 */
-export function restoreTask(row: TaskRow): boolean {
+/** 按 deleteTask 交出的快照把行放回去。迁移前记的快照是老形状，放回去前一样迁成新形状。 */
+export function restoreTask(input: TaskRow): boolean {
+  const row = { ...input };
+  const old = typeof row.source === "string" ? (JSON.parse(row.source) as Record<string, unknown>) : undefined;
+  if (old) row.source = JSON.stringify(stripLegacy(normalizeSource(old)));
+  if (typeof row.kind === "string") row.kind = migrateKind(row.kind);
+  if (typeof row.pending === "string") row.pending = JSON.stringify(migratePending(JSON.parse(row.pending) as PendingAction[]));
   const cols = Object.keys(row).filter((c) => c !== "seq");
   if (!cols.length) return false;
   const kept = typeof row.seq === "number" ? (db().prepare("SELECT 1 FROM tasks WHERE seq = ? AND id != ?").get(row.seq, row.id as string) ? undefined : row.seq) : undefined;
   db()
     .prepare(`INSERT OR REPLACE INTO tasks (seq, ${cols.join(", ")}) VALUES (${kept ?? nextSeq()}, ${cols.map(() => "?").join(", ")})`)
     .run(...cols.map((c) => row[c] as never));
+  const conv = old && extraConversationOf(old);
+  if (conv) linkUp(taskNode(row.id as string), extNode("slack", "conversation", conv), "rule", EXTRA_CONVERSATION_WHY);
   publish({ type: "tasks" });
   return true;
 }
