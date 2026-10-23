@@ -493,12 +493,6 @@ export async function briefBuild(id: string): Promise<{ jobId: string }> {
   return res.json();
 }
 
-export async function briefSize(id: string, size: "small" | "large"): Promise<Task> {
-  const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/brief`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ size }) });
-  if (!res.ok) throw await errOf(res, "改不了规模");
-  return res.json();
-}
-
 export async function briefDepReady(id: string, index: number): Promise<Task> {
   const res = await fetch(`${await coreBaseUrl()}/tasks/${encodeURIComponent(id)}/brief/deps/${index}/ready`, { method: "POST" });
   if (!res.ok) throw await errOf(res, "标不了");

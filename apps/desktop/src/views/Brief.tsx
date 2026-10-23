@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { briefable, type Brief, type Task } from "@friday/shared";
-import { briefBuild, briefDepReady, briefSize, projectKnowledge, taskApprove, taskReject } from "../lib/core";
+import { briefBuild, briefDepReady, projectKnowledge, taskApprove, taskReject } from "../lib/core";
 import { useImeGuard } from "../lib/ime";
 import { Linkified } from "./shared";
 
@@ -73,17 +73,8 @@ export function BriefCard({ t, onAct }: { t: Task; onAct: Act }) {
     <div className="brief">
       <div className="brief__head">
         <span className="brief__title">理解卡</span>
-        <span className="brief__meta">规模 {b.size === "small" ? "小" : "大"} · {REVIEW[b.review]}</span>
+        <span className="brief__meta">{REVIEW[b.review]}</span>
         <span className="th__sp" />
-        {canEdit && (
-          <div className="seg brief__seg" role="group" aria-label="规模">
-            {(["small", "large"] as const).map((s) => (
-              <button key={s} className={`seg__item ${b.size === s ? "on" : ""}`} aria-pressed={b.size === s} disabled={building} onClick={() => { if (b.size !== s) void run(() => briefSize(t.id, s)); }}>
-                {s === "small" ? "小" : "大"}
-              </button>
-            ))}
-          </div>
-        )}
         {canEdit && !building && <button className="b b--text" onClick={rebuild}>重建</button>}
       </div>
       {building && buildingLine}
@@ -91,7 +82,6 @@ export function BriefCard({ t, onAct }: { t: Task; onAct: Act }) {
       {errLine}
       {b.stale && <div className="brief__note">需求变了，这张卡写在变之前，{b.review === "rejected" ? "点重建" : `重建或在主对话里说「#${t.seq} 按这个做」`}</div>}
       {b.review === "rejected" && b.reviewNote && <div className="brief__note">打回原因：{b.reviewNote}</div>}
-      <div className="brief__why">{b.sizeWhy}</div>
 
       <section className="brief__sec">
         <div className="brief__k">要做什么</div>

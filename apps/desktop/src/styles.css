@@ -5535,16 +5535,14 @@ button.kb__h-what { padding: 0; border: none; background: none; font: inherit; c
 
 /* ---------- 理解卡：没开工的需求详情里，开工提示之上 ---------- */
 .idle--brief { flex-direction: column; align-items: center; justify-content: flex-start; gap: var(--s-6); overflow-y: auto; }
-.idle--brief .idle__box { flex: none; }
-.detail--panel .idle--brief { flex: 0 1 auto; align-items: flex-start; }
+.idle--brief .idle__box { flex: none; width: min(640px, 100%); }
+.detail--panel .idle--brief { flex: 0 1 auto; }
 .brief { flex: none; width: min(640px, 100%); display: flex; flex-direction: column; gap: var(--s-4); font-size: var(--t-aux); color: var(--fg-2); line-height: 1.6; }
 .brief--bare { gap: var(--s-2); }
 .brief__head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
 .brief__title { font-size: var(--t-body); color: var(--fg-1); }
 .brief__meta { color: var(--fg-3); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .brief__head .b { height: 24px; font-size: var(--t-xs); }
-.brief__seg { padding: 2px; }
-.brief__seg .seg__item { padding: 0 var(--s-2); font-size: var(--t-xs); }
 .brief__line { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; color: var(--fg-2); }
 .brief__line .b { height: 24px; font-size: var(--t-xs); }
 .brief__line--live { color: var(--fg-2); }
@@ -5553,7 +5551,6 @@ button.kb__h-what { padding: 0; border: none; background: none; font: inherit; c
 .brief__log { font-family: var(--mono); font-size: var(--t-micro); color: var(--fg-3); user-select: text; -webkit-user-select: text; word-break: break-all; }
 .brief__err { font-size: var(--t-xs); color: var(--bad); }
 .brief__note { padding: var(--s-2) var(--s-3); border: 1px solid var(--line-2); border-radius: var(--r-sm); color: var(--fg-1); font-size: var(--t-xs); }
-.brief__why { color: var(--fg-3); font-size: var(--t-xs); }
 .brief__sec { display: flex; flex-direction: column; gap: var(--s-1); }
 .brief__k { color: var(--fg-3); font-size: var(--t-xs); }
 .brief__text { white-space: pre-line; color: var(--fg-1); user-select: text; -webkit-user-select: text; }

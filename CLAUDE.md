@@ -159,7 +159,7 @@ apps/core/src/
 - **打回**：待审期间 `rejectTask` 只在卡还能建时才路由到 `rejectBrief`（需求已开工的走原来的打回交付）。**第一次打回带原因自动重建一次，第二次停下**等你；会话里 `task_update.rebuildBrief` 可以把你的原话带进重建提示词：原话存 `source.briefNote`，下一次建卡带上、带上它的那次交卡才清；正在建时说的，这次建出来的卡没带上它、原话留着，工具照实回「没重建，记下了，建完再说一次」；上次建失败没有卡也照样带。重建期间卡上批准 / 打回置灰。待审动作执行时卡上已经没有理解卡，`brief_approve` 直接撤掉、不写半张卡。
 - **依赖手动标**：卡上「到了」按钮、`task_update.depReady`（`markDepReady`，按序号或文字匹配），写证据 `source: "user"`。自动判定和催办是下一块。
 - **开工门禁**（2026-10-22 起缺陷同走一条 `codeEligible`，见「统一开工」；下面是当时需求这条 `isStory` / `storyEligible` 的条件，同样都在新门禁里）：全部满足才开：卡能建（`briefRefusal` 空）、`review` 不是 `pending` / `rejected`（`none` 或 `approved`）、没 `stale` 且指纹和当前正文一致、**不在重建中**（`briefBuilding`，免得照着你刚要求重写的卡写代码）、上一次重建没失败（`briefFailed`，旧卡不算数）、`none` 的卡项目现在仍然不用审、依赖全 `ready`、卡上没挂问题、没说过「先别做」。并发跟缺陷共用设置项 `autonomousConcurrency`，先进先开。开工时残留的 `brief_approve` 一并撤掉；交代内容是 `briefDetail`（理解卡全文 + 用例即自测清单、方案是起点、依赖证据去问 `friday_context`）。`autostartPlan` 只在门禁全过时给 `kind: "brief"`（卡上写「理解卡审过 / 不用审、依赖齐了，轮到就开」），没过就不给。
-- **看得到**：`POST /tasks/:id/brief`（建 / 重建）、`PATCH /tasks/:id/brief {size}`（改档）、`POST /tasks/:id/brief/deps/:index/ready`（`api/brief.ts`）；任务卡 `views/Brief.tsx` 四段 + 用例 + 折叠的方案，需求变了提示重看；`friday_context` 与自主任务提示词带上理解卡；建卡成本在结果账本（用量面板「Friday 干的活」的「建理解卡」），不在「按调用点」——建卡走 tmux 里的 `claude -p`，不经 `askStream`。
+- **看得到**：`POST /tasks/:id/brief`（建 / 重建）、`PATCH /tasks/:id/brief {size}`（改档）、`POST /tasks/:id/brief/deps/:index/ready`（`api/brief.ts`）；任务卡 `views/Brief.tsx` 四段 + 用例 + 折叠的方案，需求变了提示重看；卡上不显示规模、没有小 / 大切换（2026-10-23 用户定：不关心规模），改档只剩 `PATCH` 接口；卡和下面的开工框同宽 640、在详情里居中；`friday_context` 与自主任务提示词带上理解卡；建卡成本在结果账本（用量面板「Friday 干的活」的「建理解卡」），不在「按调用点」——建卡走 tmux 里的 `claude -p`，不经 `askStream`。
 
 ## 统一开工（2026-10-22）
 
